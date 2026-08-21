@@ -8,13 +8,24 @@
 
 ## 결정
 
-초기 구현은 작은 마이크로서비스 다수가 아니라 세 배포 단위의 modular architecture로 시작한다.
+초기 구현은 작은 마이크로서비스 다수가 아니라 Cloud Run 세 단위와 Agent Runtime 한 단위의 modular architecture로 시작한다.
 
 1. `caffemate-web`: React·Tailwind 사용자 화면
 2. `caffemate-api`: 인증, State, Workflow, 계산, Agent 호출과 유일한 State write 권한
 3. `caffemate-worker`: 공공데이터 수집, 문서 parsing·embedding과 비동기 처리
+4. `caffemate-agents`: ADK Multi-Agent application을 실행하는 managed Agent Runtime
 
-`caffemate-mcp`는 외부 자료 접근 권한을 분리하는 private read-only service다. 초기에는 API와 typed tool package를 공유할 수 있지만 Agent가 데이터베이스나 공급자 API를 직접 호출하지 못하게 한다.
+`caffemate-mcp`는 외부 자료 접근 권한을 분리하는 private read-only Cloud Run service다. 초기에는 API와 typed tool package를 공유할 수 있지만 Agent가 데이터베이스나 공급자 API를 직접 호출하지 못하게 한다.
+
+### CONFIRMED — GCP 리전과 Agent 배치
+
+- 제품 지원 범위는 대한민국 전국이며, `asia-northeast3`는 GCP 배포 리전일 뿐 서비스 대상 지역이 아니다.
+- Web, API, Worker, MCP와 사용자별 State·문서의 기본 배치 리전은 `asia-northeast3`로 통일한다.
+- ADK Agent들은 각각 서버로 배포하지 않고 하나의 Multi-Agent application으로 묶어 `asia-northeast3` Agent Runtime에 배포한다.
+- Control API가 IAM 인증으로 Agent Runtime을 직접 호출한다. 서울 리전에서 지원되지 않는 managed Agent Gateway를 필수 경로에 두지 않는다.
+- Agent Runtime과 MCP는 서로 다른 전용 service identity를 사용한다. Agent Runtime은 허용된 read-only MCP tool만 호출하며 State write는 계속 API만 수행한다.
+- 실제 사용할 Gemini model과 embedding model은 배포 전에 `asia-northeast3` 지원 여부를 read-back으로 확인한다. 지원되지 않는 모델을 이유로 사용자 데이터 plane 전체를 다른 리전으로 옮기지 않는다.
+- 서울 리전에서 Preview인 RAG Engine은 운영 필수 의존성으로 사용하지 않는다. 첫 운영 RAG는 Cloud SQL PostgreSQL full-text search와 pgvector를 사용하며 RAG Engine은 교체 가능한 adapter 뒤에서만 실험한다.
 
 ## 구조도
 
@@ -24,7 +35,9 @@
 flowchart LR
     web[React Web] --> webRun[Cloud Run Web]
     webRun --> api[Cloud Run API and Workflow]
+    api --> agents[ADK App on Agent Runtime]
     api --> mcp[Private MCP Tool Gateway]
+    agents --> mcp
     api --> postgres[(Cloud SQL PostgreSQL)]
     api --> warehouse[(BigQuery Area Warehouse)]
     api --> storage[(Cloud Storage Documents)]
@@ -32,7 +45,7 @@ flowchart LR
     pubsub --> worker[Cloud Run Worker]
     worker --> postgres
     worker --> storage
-    api --> vertex[Vertex AI]
+    agents --> vertex[Vertex AI Models]
     worker --> vertex
     mcp --> official[Official Data Sources]
 ```
@@ -44,6 +57,7 @@ flowchart LR
 | Web | 정적 앱과 client routing | 정적 요청량 | 공개 |
 | API | 인증, 프로젝트, Workflow, reducer, 계산, 결과 | 동기 요청량 | 인증 API만 공개 |
 | Worker | 문서·embedding·수집 작업 | queue backlog | 비공개 |
+| Agent Runtime | ADK 역할 실행, tool 계획, 근거 기반 proposal·critic | Agent run과 model latency | 비공개 |
 | MCP | 공식·프로젝트 자료 read tools | tool latency·권한 경계 | 비공개 |
 
 API 내부 모듈은 독립 테스트가 가능해야 하지만 첫 구현에서 각각 별도 서비스로 배포하지 않는다.
@@ -97,7 +111,7 @@ BigQuery는 분석·재생성 가능한 자료를 보관한다. 사용자별 tra
 
 ```text
 Identity token 검증
-→ project membership 검증
+→ project ownership 검증
 → current State version 고정
 → Workflow 선택
 → read-only MCP·retrieval
@@ -131,7 +145,7 @@ API가 document·ingestion task 발행
 - MCP와 Worker는 public invoker를 허용하지 않는다.
 - Agent는 raw credential을 받지 않는다.
 - Secret은 Secret Manager에서 runtime identity로 읽는다.
-- project membership 검증 전 데이터베이스·문서 검색을 실행하지 않는다.
+- project ownership 검증 전 데이터베이스·문서 검색을 실행하지 않는다.
 
 ## 네트워크와 실패 원칙
 
@@ -150,6 +164,9 @@ API가 document·ingestion task 발행
 - [BigQuery geospatial data](https://docs.cloud.google.com/bigquery/docs/geospatial-data)
 - [Identity Platform users and tokens](https://docs.cloud.google.com/identity-platform/docs/concepts-manage-users)
 - [Cloud Storage signed URLs](https://docs.cloud.google.com/storage/docs/access-control/signing-urls-with-helpers)
+- [Agent Platform supported locations](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations)
+- [Agent Platform model locations](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations)
+- [RAG Engine overview and locations](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/rag-engine/rag-overview)
 
 위 문서는 설계 가능성의 근거다. 실제 GCP resource가 생성됐다는 증거가 아니다.
 

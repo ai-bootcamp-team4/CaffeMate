@@ -127,6 +127,16 @@ N0_NATIONWIDE_FACTS
 - 계약서
 - 대출 조건
 
+### CONFIRMED — 첫 운영 RAG backend
+
+- 원문과 parsing 산출물은 Cloud Storage에, 문서 revision·chunk·anchor·project scope metadata는 Cloud SQL에 저장한다.
+- 첫 운영 hybrid retrieval은 PostgreSQL full-text search와 pgvector를 사용한다.
+- retrieval interface는 backend와 분리해 동일한 Claim query와 `EvidenceRecord` 계약을 유지한다.
+- 서울 리전에서 Preview인 RAG Engine은 운영 필수 경로에 두지 않는다. 필요하면 같은 interface 뒤의 실험 adapter로만 연결한다.
+- corpus 규모나 평가 결과가 Cloud SQL 기준을 넘으면 Vertex AI Vector Search를 후보로 비교한다. 서비스 이름이나 기능 선호만으로 미리 이전하지 않는다.
+- backend 변경 전후에 동일한 sealed retrieval set으로 Recall@k, anchor accuracy, project 격리, latency와 비용을 비교한다.
+- embedding model은 `asia-northeast3` 지원 여부를 배포 시점에 확인하고, 미지원이면 결과를 조용히 다른 model이나 리전으로 전환하지 않는다.
+
 ## Advanced RAG Pipeline
 
 ```text
