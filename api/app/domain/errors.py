@@ -66,3 +66,7 @@ class FeedbackPreviewNotFoundError(DomainError):
 
 class FeedbackPreconditionError(DomainError):
     code = "FEEDBACK_PRECONDITION_FAILED"
+
+
+class CandidateSelectionPreconditionError(DomainError):
+    code = "CANDIDATE_SELECTION_PRECONDITION_FAILED"
