@@ -9,6 +9,7 @@ import pytest
 import rfc8785
 from sqlalchemy import Engine, create_engine, text
 from testcontainers.community.postgres import PostgresContainer
+from worker.agent_cleanup import AgentSessionCleanupConsumer, CleanupOutcome
 from worker.outbox import OutboxPublisher, PostgresOutboxRepository
 from worker.pubsub import PubSubDelivery
 from worker.runtime import DeliveryOutcome, DurableWorker
@@ -474,6 +475,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0012_document_extraction.sql",
             "0013_document_claim_apply.sql",
             "0014_result_decision_delta.sql",
+            "0015_outbox_dead_letter.sql",
         ]
 
 
@@ -508,6 +510,67 @@ def test_agent_session_cleanup_outbox_is_durable_and_idempotent(
                 "payload_json": arguments,
             }
         ]
+
+
+def test_agent_session_cleanup_consumer_completes_retries_and_dead_letters(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    del repository
+    sink = PostgresAgentCleanupSink(postgres_engine)
+    arguments = {
+        "runtime_resource": (
+            "projects/gcp-project/locations/asia-northeast3/reasoningEngines/runtime-1"
+        ),
+        "user_id": "p-pseudonymous",
+        "session_id": "session-cleanup-consumer",
+    }
+    sink.enqueue_session_delete(**arguments)
+
+    class SuccessfulDeleter:
+        def delete(self, payload: Mapping[str, object]) -> None:
+            assert payload == arguments
+
+    consumer = AgentSessionCleanupConsumer(
+        PostgresOutboxRepository(postgres_engine, new_token=lambda: "cleanup-token"),
+        SuccessfulDeleter(),
+        consumer_id="cleanup-consumer",
+    )
+    assert consumer.cleanup_one() == CleanupOutcome.DELETED
+    assert consumer.cleanup_one() == CleanupOutcome.EMPTY
+
+    sink.enqueue_session_delete(**{**arguments, "session_id": "wrong-scope"})
+
+    class ScopeRejectingDeleter:
+        def delete(self, payload: Mapping[str, object]) -> None:
+            del payload
+            raise ValueError("scope")
+
+    rejecting = AgentSessionCleanupConsumer(
+        PostgresOutboxRepository(postgres_engine, new_token=lambda: "reject-token"),
+        ScopeRejectingDeleter(),
+        consumer_id="cleanup-consumer",
+    )
+    assert rejecting.cleanup_one() == CleanupOutcome.DEAD_LETTERED
+    with postgres_engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT aggregate_id, status, failure_code FROM workflow_outbox "
+                "WHERE topic='AGENT_SESSION_CLEANUP' ORDER BY outbox_id"
+            )
+        ).mappings().all()
+    assert [dict(row) for row in rows] == [
+        {
+            "aggregate_id": "session-cleanup-consumer",
+            "status": "PUBLISHED",
+            "failure_code": None,
+        },
+        {
+            "aggregate_id": "wrong-scope",
+            "status": "DEAD_LETTER",
+            "failure_code": "AGENT_CLEANUP_SCOPE_INVALID",
+        },
+    ]
 
 
 def test_project_and_state_survive_repository_recreation(
