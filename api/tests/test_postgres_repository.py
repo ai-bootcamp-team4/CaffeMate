@@ -17,6 +17,8 @@ from app.agents.runtime import PostgresAgentCleanupSink
 from app.candidates.seed_registry import IndependentSeedRegistry
 from app.domain.errors import (
     ContractValidationError,
+    FeedbackPreconditionError,
+    FeedbackPreviewNotFoundError,
     IdempotencyKeyReusedError,
     ProjectNotFoundError,
     ResultNotFoundError,
@@ -29,6 +31,9 @@ from app.domain.models import (
     OperationMode,
     Project,
 )
+from app.feedback.models import FeedbackPreviewStatus
+from app.feedback.postgres_repository import PostgresFeedbackRepository
+from app.feedback.service import FeedbackService
 from app.main import create_app
 from app.mcp.client import McpCallOutcome
 from app.migrations import apply_migrations
@@ -57,6 +62,7 @@ from app.workflows.models import (
     StageFailure,
     StageLease,
     WorkflowCode,
+    WorkflowRun,
     WorkflowStatus,
 )
 from app.workflows.postgres_repository import PostgresWorkflowRepository
@@ -237,6 +243,55 @@ class FirstProposalAgentFixture:
         }
 
 
+class FeedbackAgentFixture:
+    def __init__(self) -> None:
+        self.tasks: list[dict[str, Any]] = []
+
+    def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+        self.tasks.append(task)
+        operation_id = task["payload"]["operation_id_pool"][0]
+        return {
+            "schema_version": "1.0.0",
+            "task_id": task["task_id"],
+            "invocation_id": task["invocation_id"],
+            "agent_name": task["agent_name"],
+            "task_type": task["task_type"],
+            "workflow_run_id": task["workflow_run_id"],
+            "stage_run_id": task["stage_run_id"],
+            "venture_project_id": task["venture_project_id"],
+            "head_fence_seen": deepcopy(task["head_fence"]),
+            "input_digest": task["input_digest"],
+            "output_schema_id": task["output_schema_id"],
+            "status": "COMPLETE",
+            "payload": {
+                "decision": "PROPOSE_DELTA",
+                "operations": [
+                    {
+                        "op_id": operation_id,
+                        "kind": "SET",
+                        "field_path": "/founder/own_funds_krw",
+                        "expected_old_value": {
+                            "kind": "INTEGER",
+                            "value": 50_000_000,
+                        },
+                        "typed_value": {"kind": "INTEGER", "value": 40_000_000},
+                        "unit": "KRW",
+                        "semantic_kind": "HARD_CONSTRAINT",
+                        "source_span": {"start": 0, "end": 17},
+                        "ambiguity_codes": [],
+                    }
+                ],
+                "clarifying_questions": [],
+                "affected_workflow_codes": ["FIRST_PROPOSAL"],
+                "risk_flags": [],
+            },
+            "evidence_refs": [],
+            "missing_claim_ids": [],
+            "reason_codes": [],
+            "warnings": [],
+        }
+
+
 class RouterStageProcessor:
     def __init__(self, router: FirstProposalStageRouter) -> None:
         self._router = router
@@ -339,6 +394,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0005_stage_failure.sql",
             "0006_first_proposal_dag.sql",
             "0007_evidence_snapshot.sql",
+            "0008_feedback_preview.sql",
         ]
 
 
@@ -1035,12 +1091,104 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
         "CANDIDATE_AUDIT",
     ]
 
-    replacement = workflows.start(
+    feedback_runtime = FeedbackAgentFixture()
+    feedback = FeedbackService(
+        PostgresFeedbackRepository(postgres_engine),
+        ProjectService(repository),
+        ResultService(PostgresResultRepository(postgres_engine)),
+        feedback_runtime,
+        new_id=lambda: "feedback-preview-1",
+    )
+    with postgres_engine.connect() as connection:
+        state_count_before = connection.execute(
+            text("SELECT COUNT(*) FROM venture_states WHERE project_id=:project_id"),
+            {"project_id": project.project_id},
+        ).scalar_one()
+        event_count_before = connection.execute(
+            text("SELECT COUNT(*) FROM project_events WHERE project_id=:project_id"),
+            {"project_id": project.project_id},
+        ).scalar_one()
+    preview = feedback.create_preview(
         project_id=project.project_id,
         user_id="user-1",
-        workflow_code=WorkflowCode.FIRST_PROPOSAL,
-        idempotency_key="workflow-integration-2",
+        idempotency_key="feedback-1",
+        user_input="자금은 4천만 원으로 바꿀래",
     )
+    replay = feedback.create_preview(
+        project_id=project.project_id,
+        user_id="user-1",
+        idempotency_key="feedback-1",
+        user_input="자금은 4천만 원으로 바꿀래",
+    )
+    assert replay == preview
+    assert preview.status == FeedbackPreviewStatus.REVIEW_REQUIRED
+    assert preview.before_founder["own_funds_krw"] == 50_000_000
+    assert preview.after_founder is not None
+    assert preview.after_founder["own_funds_krw"] == 40_000_000
+    assert preview.affected_candidate_ids == [result.candidates[0]["candidate_id"]]
+    assert preview.affected_stage_codes == [
+        "INDEPENDENT_SEED",
+        "FRANCHISE_ELIGIBILITY",
+        "PROPOSE_INDEPENDENT",
+        "PROPOSE_FRANCHISE",
+        "CALCULATE_GATE_RANK",
+        "CANDIDATE_AUDIT",
+        "COMMIT_RESULT",
+    ]
+    assert len(feedback_runtime.tasks) == 1
+    with pytest.raises(IdempotencyKeyReusedError):
+        feedback.create_preview(
+            project_id=project.project_id,
+            user_id="user-1",
+            idempotency_key="feedback-1",
+            user_input="자금은 3천만 원으로 바꿀래",
+        )
+    with pytest.raises(FeedbackPreviewNotFoundError):
+        feedback.get_preview(
+            preview_id=preview.preview_id,
+            project_id=project.project_id,
+            user_id="user-2",
+        )
+    with postgres_engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM venture_states WHERE project_id=:project_id"),
+            {"project_id": project.project_id},
+        ).scalar_one() == state_count_before
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM project_events WHERE project_id=:project_id"),
+            {"project_id": project.project_id},
+        ).scalar_one() == event_count_before
+
+    class HeadChangingFeedbackRuntime(FeedbackAgentFixture):
+        replacement: WorkflowRun | None = None
+
+        def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+            self.replacement = workflows.start(
+                project_id=project.project_id,
+                user_id="user-1",
+                workflow_code=WorkflowCode.FIRST_PROPOSAL,
+                idempotency_key="workflow-integration-2",
+            )
+            return super().invoke(task)
+
+    changing_runtime = HeadChangingFeedbackRuntime()
+    expiring_feedback = FeedbackService(
+        PostgresFeedbackRepository(postgres_engine),
+        ProjectService(repository),
+        ResultService(PostgresResultRepository(postgres_engine)),
+        changing_runtime,
+        new_id=lambda: "feedback-preview-expiring",
+    )
+    expired = expiring_feedback.create_preview(
+        project_id=project.project_id,
+        user_id="user-1",
+        idempotency_key="feedback-expiring",
+        user_input="자금은 4천만 원으로 바꿀래",
+    )
+    assert expired.status == FeedbackPreviewStatus.EXPIRED
+    assert expired.after_founder is None
+    assert changing_runtime.replacement is not None
+    replacement = changing_runtime.replacement
     stale = ResultService(PostgresResultRepository(postgres_engine)).get_current(
         project_id=project.project_id,
         user_id="user-1",
@@ -1049,6 +1197,13 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
     assert stale.stale_head_dimensions == ["workflow_generation"]
     assert stale.current_head.workflow_generation == replacement.head.workflow_generation
     assert stale.head.workflow_generation == run.head.workflow_generation
+    with pytest.raises(FeedbackPreconditionError):
+        feedback.create_preview(
+            project_id=project.project_id,
+            user_id="user-1",
+            idempotency_key="feedback-stale",
+            user_input="자금은 3천만 원으로 바꿀래",
+        )
 
 
 def create_ready_stage(

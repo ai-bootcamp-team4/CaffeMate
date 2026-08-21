@@ -81,3 +81,16 @@ Control API가 관리형 Agent Runtime의 `EVIDENCE_PLAN` 단계를 실행하려
 반환한다. 여덟 차원 중 하나라도 다르면 `freshness`는 `STALE`이며,
 `stale_head_dimensions`에 달라진 차원을 표시한다. 프론트엔드는 `STALE` 결과를 숨기거나
 최신 결과로 표현하지 않고, 새 Workflow 진행 상태와 함께 이전 참고 결과로 표시한다.
+
+## 결과 피드백 preview
+
+`POST /v1/projects/{project_id}/feedback/previews`는 current Result가 있을 때만 자연어 입력을
+받는다. Control API는 current State·Result·full head를 고정한 `INTENT_DELTA` Task를 만들고,
+Agent가 제안한 operation id·field path·기존 값·타입·영향 Workflow를 검증한 뒤 durable
+preview를 저장한다. 같은 `Idempotency-Key`와 같은 입력은 같은 preview를 반환하며, 다른
+입력은 `409`로 거절한다.
+
+preview 생성과 조회는 `venture_states`, `project_events`, 계산, current Result pointer를
+변경하지 않는다. Agent 실행 중 full head가 달라지면 preview는 `EXPIRED`가 되며 적용할 수
+없다. `REVIEW_REQUIRED` 응답에는 `before_founder`, `after_founder`, operation, 영향받는 후보와
+Stage가 포함된다. confirm·cancel은 별도 command이며 preview 생성으로 대신 처리하지 않는다.

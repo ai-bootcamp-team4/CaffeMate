@@ -24,6 +24,8 @@ from app.domain.errors import (
     ContractValidationError,
     DomainError,
     ExternalExecutionUnavailableError,
+    FeedbackPreconditionError,
+    FeedbackPreviewNotFoundError,
     FirstProposalConfigurationUnavailableError,
     IdempotencyKeyReusedError,
     PersistenceUnavailableError,
@@ -36,6 +38,12 @@ from app.domain.errors import (
     WorkflowPreconditionError,
 )
 from app.domain.models import FounderState, Project
+from app.feedback.models import CreateFeedbackPreviewRequest, FeedbackPreview
+from app.feedback.postgres_repository import PostgresFeedbackRepository
+from app.feedback.service import (
+    FeedbackService,
+    UnavailableFeedbackService,
+)
 from app.mcp.client import GoogleIdentityTokenProvider, McpHttpClient
 from app.mcp.scope import ScopeTokenSigner
 from app.projects.postgres_repository import PostgresProjectRepository
@@ -112,6 +120,7 @@ def create_app(
     project_service: ProjectService | None = None,
     workflow_service: WorkflowService | None = None,
     result_service: ResultService | None = None,
+    feedback_service: FeedbackService | UnavailableFeedbackService | None = None,
     identity_verifier: IdentityVerifier | None = None,
     stage_execution_service: StageExecution | None = None,
     internal_identity_verifier: IdentityVerifier | None = None,
@@ -225,6 +234,18 @@ def create_app(
     else:
         workflows = workflow_service
 
+    if feedback_service is not None:
+        feedback = feedback_service
+    elif database_handle is not None and configured_agent_runtime is not None:
+        feedback = FeedbackService(
+            PostgresFeedbackRepository(database_handle.engine),
+            service,
+            results,
+            configured_agent_runtime,
+        )
+    else:
+        feedback = UnavailableFeedbackService()
+
     if stage_execution_service is not None:
         internal_stages = stage_execution_service
     elif database_handle is not None:
@@ -286,6 +307,8 @@ def create_app(
             UnauthenticatedError: status.HTTP_401_UNAUTHORIZED,
             WorkflowNotFoundError: status.HTTP_404_NOT_FOUND,
             WorkflowPreconditionError: status.HTTP_409_CONFLICT,
+            FeedbackPreconditionError: status.HTTP_409_CONFLICT,
+            FeedbackPreviewNotFoundError: status.HTTP_404_NOT_FOUND,
             StageLeaseRejectedError: status.HTTP_409_CONFLICT,
             ExternalExecutionUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
             FirstProposalConfigurationUnavailableError: (
@@ -346,6 +369,39 @@ def create_app(
         user_id: Annotated[str, Depends(current_user)],
     ) -> ResultView:
         return results.get_current(project_id=project_id, user_id=user_id)
+
+    @app.post(
+        "/v1/projects/{project_id}/feedback/previews",
+        response_model=FeedbackPreview,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_feedback_preview(
+        project_id: str,
+        request: CreateFeedbackPreviewRequest,
+        user_id: Annotated[str, Depends(current_user)],
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> FeedbackPreview:
+        return feedback.create_preview(
+            project_id=project_id,
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+            user_input=request.input,
+        )
+
+    @app.get(
+        "/v1/projects/{project_id}/feedback/previews/{preview_id}",
+        response_model=FeedbackPreview,
+    )
+    def get_feedback_preview(
+        project_id: str,
+        preview_id: str,
+        user_id: Annotated[str, Depends(current_user)],
+    ) -> FeedbackPreview:
+        return feedback.get_preview(
+            project_id=project_id,
+            preview_id=preview_id,
+            user_id=user_id,
+        )
 
     @app.get("/v1/projects", response_model=list[Project])
     def list_projects(user_id: Annotated[str, Depends(current_user)]) -> list[Project]:
