@@ -200,8 +200,8 @@ def create_worker_app(
 
     app = FastAPI(title="CaffeMate Worker", version="0.2.0", lifespan=lifespan)
 
-    @app.get("/healthz", tags=["operations"])
-    def healthz() -> dict[str, str]:
+    @app.get("/health", tags=["operations"])
+    def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.post("/internal/v1/pubsub/workflow-stages", status_code=status.HTTP_204_NO_CONTENT)

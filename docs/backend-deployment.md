@@ -76,6 +76,20 @@ CAFFEMATE_SOURCE_REVISION="$revision" \
 Cloud Run job 실행 성공만으로 migration 적용을 증명하지 않는다. 두 번째 검증 실행과 job의
 digest-pinned image·source revision 설정을 모두 read-back해야 한다.
 
+API와 Worker runtime은 migration이 검증된 같은 digest를 사용한다. API만 Cloud Run IAM에서
+공개 호출을 허용하고 모든 업무 endpoint는 Firebase ID token을 다시 검사한다. Worker는 internal
+ingress를 유지하며 Pub/Sub push, Scheduler와 Worker identity만 invoker다.
+
+```bash
+revision=$(git rev-parse HEAD)
+CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
+CAFFEMATE_SOURCE_REVISION="$revision" \
+  ./scripts/deploy-api-worker-runtime.sh
+CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
+CAFFEMATE_SOURCE_REVISION="$revision" \
+  ./scripts/verify-api-worker-runtime.sh
+```
+
 API는 browser가 호출하므로 network ingress는 `all`이지만 모든 업무 요청을 Firebase ID
 token으로 다시 검증한다. `allUsers` Cloud Run Invoker가 필요하면 관리자가 API service에만
 한 번 부여하고 정책을 read-back한다. build는 IAM policy를 수정하지 않는다.
@@ -110,9 +124,13 @@ Migration job은 API 시작 명령을 사용하지 않고 `caffemate-api migrate
 1. build success와 pushed image digest
 2. migration execution success
 3. API·Worker latest ready revision이 같은 image digest와 source revision label을 사용
-4. API `/healthz`와 Worker `/healthz`가 인증된 요청에서 HTTP 200
+4. API `/health`가 외부 요청에서 HTTP 200이고 Worker `/health`가 외부 요청을 거절함
 5. API 업무 endpoint의 무인증 요청이 거절됨
 6. Worker 업무 endpoint가 internet과 권한 없는 identity에서 거절됨
 7. test Workflow outbox가 `PUBLISHED`가 되고 Pub/Sub push 뒤 stage event가 이어짐
 
 하나라도 확인하지 못하면 배포 상태는 `pending`이다.
+
+Cloud Run의 Google Frontend는 정확한 `/healthz` 경로를 예약 경로로 처리하므로 backend
+liveness에는 `/health`를 사용한다. `/healthz`의 Google Frontend 404는 애플리케이션 상태를
+증명하지 못하며 운영 검증에 사용하지 않는다.
