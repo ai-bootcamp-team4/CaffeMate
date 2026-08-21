@@ -23,6 +23,7 @@ class EvidenceFreezeOutput(StrictModel):
     missing_claim_ids: list[str]
     reason_codes: list[str]
     retrieval_completeness: str | None
+    franchise_universe: list[dict[str, Any]]
 
 
 class EvidenceFreezeStageHandler:
@@ -40,6 +41,7 @@ class EvidenceFreezeStageHandler:
         accepted_records = [records[evidence_id] for evidence_id in sorted(accepted_ids)]
         conflicts = self._validated_conflicts(assessment, accepted_ids)
         missing_claim_ids = self._missing_claim_ids(assessment)
+        franchise_universe = self._franchise_universe(assessment)
         snapshot_body = {
             "schema_version": "1.0.0",
             "project_id": context.project_id,
@@ -50,6 +52,7 @@ class EvidenceFreezeStageHandler:
             "missing_claim_ids": missing_claim_ids,
             "reason_codes": assessment.get("reason_codes", []),
             "retrieval_completeness": assessment.get("retrieval_completeness"),
+            "franchise_universe": franchise_universe,
         }
         digest = hashlib.sha256(rfc8785.dumps(snapshot_body)).hexdigest()
         snapshot_id = f"evidence-{digest[:40]}"
@@ -67,9 +70,7 @@ class EvidenceFreezeStageHandler:
         dependency = context.dependency_results.get("EVIDENCE_ASSESS")
         value = dependency.get("evidence_assessment") if dependency else None
         if not isinstance(value, dict):
-            raise ContractValidationError(
-                "EVIDENCE_FREEZE requires Evidence Assessment results"
-            )
+            raise ContractValidationError("EVIDENCE_FREEZE requires Evidence Assessment results")
         if not isinstance(value.get("claims"), list) or not value["claims"]:
             raise ContractValidationError("Evidence Assessment claims are missing")
         if not isinstance(value.get("executed_actions"), list):
@@ -149,9 +150,7 @@ class EvidenceFreezeStageHandler:
                 raise ContractValidationError("Evidence conflict is invalid")
             refs = value.get("candidate_refs")
             if not isinstance(refs, list) or not set(refs).issubset(accepted_ids):
-                raise ContractValidationError(
-                    "Evidence conflict references unaccepted Evidence"
-                )
+                raise ContractValidationError("Evidence conflict references unaccepted Evidence")
             conflicts.append(value)
         return conflicts
 
@@ -161,3 +160,18 @@ class EvidenceFreezeStageHandler:
         if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
             raise ContractValidationError("Missing Evidence claims are invalid")
         return sorted(set(values))
+
+    @staticmethod
+    def _franchise_universe(assessment: dict[str, Any]) -> list[dict[str, Any]]:
+        universe: list[dict[str, Any]] = []
+        for action in assessment["executed_actions"]:
+            if not isinstance(action, dict) or action.get("tool_name") != "list_franchise_universe":
+                continue
+            structured = action.get("structured_result")
+            data = structured.get("data") if isinstance(structured, dict) else None
+            if not isinstance(data, list):
+                raise ContractValidationError("Franchise universe result is invalid")
+            if any(not isinstance(value, dict) for value in data):
+                raise ContractValidationError("Franchise universe brand is invalid")
+            universe.extend(dict(value) for value in data)
+        return universe

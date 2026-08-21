@@ -27,9 +27,7 @@ def freeze_context(*, accepted: bool = True, cross_project: bool = False):
         "authority_status": "ACCEPTABLE",
         "missing_context": [],
     }
-    claims = value.dependency_results["EVIDENCE_RETRIEVAL"]["evidence_retrieval"][
-        "claims"
-    ]
+    claims = value.dependency_results["EVIDENCE_RETRIEVAL"]["evidence_retrieval"]["claims"]
     value.dependency_results = {
         "EVIDENCE_ASSESS": {
             "evidence_assessment": {
@@ -76,9 +74,7 @@ def test_only_fully_validated_records_enter_immutable_snapshot() -> None:
 
 
 def test_invalid_anchor_never_enters_snapshot_and_missing_claim_survives() -> None:
-    output = EvidenceFreezeStageHandler().execute(freeze_context(accepted=False))[
-        "evidence_freeze"
-    ]
+    output = EvidenceFreezeStageHandler().execute(freeze_context(accepted=False))["evidence_freeze"]
 
     assert isinstance(output, dict)
     assert output["evidence_records"] == []
@@ -111,3 +107,31 @@ def test_conflict_may_reference_only_accepted_records() -> None:
 
     with pytest.raises(ContractValidationError, match="unaccepted Evidence"):
         EvidenceFreezeStageHandler().execute(deepcopy(value))
+
+
+def test_franchise_universe_is_frozen_with_its_assessed_evidence() -> None:
+    value = freeze_context()
+    assessment = value.dependency_results["EVIDENCE_ASSESS"]["evidence_assessment"]
+    assessment["executed_actions"][0]["tool_name"] = "list_franchise_universe"
+    assessment["executed_actions"][0]["structured_result"]["data"] = [
+        {
+            "brand_id": "brand-1",
+            "display_name": "검증 브랜드",
+            "individual_franchise_eligibility": "VERIFIED",
+            "eligibility_evidence_id": "evidence-area-profile",
+            "disclosure_status": "MISSING",
+        }
+    ]
+
+    output = EvidenceFreezeStageHandler().execute(value)["evidence_freeze"]
+
+    assert isinstance(output, dict)
+    assert output["franchise_universe"] == [
+        {
+            "brand_id": "brand-1",
+            "display_name": "검증 브랜드",
+            "individual_franchise_eligibility": "VERIFIED",
+            "eligibility_evidence_id": "evidence-area-profile",
+            "disclosure_status": "MISSING",
+        }
+    ]

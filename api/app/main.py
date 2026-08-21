@@ -17,6 +17,7 @@ from app.auth import (
     IdentityVerifier,
     UnconfiguredIdentityVerifier,
 )
+from app.candidates.seed_registry import IndependentSeedRegistry
 from app.database import DatabaseHandle, create_database_handle
 from app.domain.errors import (
     AuthenticationUnavailableError,
@@ -45,6 +46,10 @@ from app.results.service import ResultService
 from app.results.unavailable_repository import UnavailableResultRepository
 from app.settings import RuntimeSettings
 from app.workflows.area_resolution import AreaMcpClient, AreaResolutionStageHandler
+from app.workflows.candidate_inputs import (
+    FranchiseEligibilityStageHandler,
+    IndependentSeedStageHandler,
+)
 from app.workflows.claim_plan import ClaimPlanStageHandler
 from app.workflows.evidence_assess import EvidenceAssessStageHandler
 from app.workflows.evidence_freeze import EvidenceFreezeStageHandler
@@ -103,6 +108,7 @@ def create_app(
 ) -> FastAPI:
     database_handle: DatabaseHandle | None = None
     settings = RuntimeSettings.from_environment()
+    seed_registry = IndependentSeedRegistry.load_default()
     if project_service is None or workflow_service is None or result_service is None:
         database_handle = create_database_handle(settings)
     if project_service is None:
@@ -120,6 +126,7 @@ def create_app(
             PostgresWorkflowRepository(
                 database_handle.engine,
                 policy_snapshot_id=settings.policy_snapshot_id,
+                seed_registry_id=seed_registry.registry_id,
             )
             if database_handle is not None and settings.policy_snapshot_id is not None
             else UnavailableWorkflowRepository()
@@ -168,6 +175,8 @@ def create_app(
     stage_handlers: dict[FirstProposalStage, FirstProposalStageHandler] = {
         FirstProposalStage.CLAIM_PLAN: ClaimPlanStageHandler(),
         FirstProposalStage.EVIDENCE_FREEZE: EvidenceFreezeStageHandler(),
+        FirstProposalStage.INDEPENDENT_SEED: IndependentSeedStageHandler(seed_registry),
+        FirstProposalStage.FRANCHISE_ELIGIBILITY: FranchiseEligibilityStageHandler(),
     }
     if configured_mcp_client is not None:
         stage_handlers.update(

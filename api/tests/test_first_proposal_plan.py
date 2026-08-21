@@ -65,3 +65,22 @@ def test_plan_is_topological_and_join_depends_on_every_included_proposal(
         if stage in seen
     }
     assert set(join.dependencies) == expected
+
+
+@pytest.mark.parametrize(
+    "stage_code",
+    [
+        FirstProposalStage.INDEPENDENT_SEED,
+        FirstProposalStage.FRANCHISE_ELIGIBILITY,
+    ],
+)
+def test_candidate_input_branches_pin_area_and_frozen_evidence(
+    stage_code: FirstProposalStage,
+) -> None:
+    plan = compile_first_proposal_plan(CafeTypePreference.OPEN_TO_BOTH)
+    stage = next(value for value in plan if value.code == stage_code)
+
+    assert set(stage.dependencies) == {
+        FirstProposalStage.AREA_RESOLUTION,
+        FirstProposalStage.EVIDENCE_FREEZE,
+    }

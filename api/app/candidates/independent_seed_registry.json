@@ -1,0 +1,90 @@
+{
+  "schema_version": "1.0.0",
+  "models": [
+    {
+      "model_id": "independent-owner-operated-v1",
+      "display_name": "창업자 직접 운영 개인카페",
+      "allowed_operation_modes": [
+        "DIRECT_FULL_TIME",
+        "DIRECT_PART_TIME",
+        "UNDECIDED"
+      ],
+      "minimum_own_funds_krw": null,
+      "allowed_parameters": [
+        {
+          "field_path": "operations.seats",
+          "value_kind": "INTEGER",
+          "unit": "seat",
+          "minimum": null,
+          "maximum": null
+        },
+        {
+          "field_path": "operations.takeout_share",
+          "value_kind": "DECIMAL",
+          "unit": "ratio",
+          "minimum": 0,
+          "maximum": 1
+        },
+        {
+          "field_path": "operations.menu_complexity",
+          "value_kind": "STRING",
+          "unit": null,
+          "minimum": null,
+          "maximum": null
+        },
+        {
+          "field_path": "operations.open_hours_per_day",
+          "value_kind": "DECIMAL",
+          "unit": "hour",
+          "minimum": 1,
+          "maximum": 24
+        }
+      ],
+      "support_refs": [
+        "seed-assumption:independent-owner-operated-v1"
+      ]
+    },
+    {
+      "model_id": "independent-employee-led-v1",
+      "display_name": "직원 중심 운영 개인카페",
+      "allowed_operation_modes": [
+        "EMPLOYEE_LED",
+        "UNDECIDED"
+      ],
+      "minimum_own_funds_krw": null,
+      "allowed_parameters": [
+        {
+          "field_path": "operations.seats",
+          "value_kind": "INTEGER",
+          "unit": "seat",
+          "minimum": null,
+          "maximum": null
+        },
+        {
+          "field_path": "operations.takeout_share",
+          "value_kind": "DECIMAL",
+          "unit": "ratio",
+          "minimum": 0,
+          "maximum": 1
+        },
+        {
+          "field_path": "operations.menu_complexity",
+          "value_kind": "STRING",
+          "unit": null,
+          "minimum": null,
+          "maximum": null
+        },
+        {
+          "field_path": "operations.staff_count",
+          "value_kind": "INTEGER",
+          "unit": "person",
+          "minimum": 1,
+          "maximum": null
+        }
+      ],
+      "support_refs": [
+        "seed-assumption:independent-employee-led-v1"
+      ]
+    }
+  ]
+}
