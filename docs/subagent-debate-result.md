@@ -5,7 +5,7 @@
 ## 1. 제품이 끝까지 수행하는 일
 
 ```text
-로그인·프로젝트·협업 권한
+로그인·개인 창업 프로젝트
 → 온보딩
 → 지역 identity와 데이터 coverage 확정
 → 조사할 Claim 목록 생성
@@ -180,8 +180,6 @@ Agent는 모두 typed proposal만 출력하며 State, Evidence, 비용, Gate, �
 
 ## 7. 상태·권한·동시성
 
-권한은 `owner/admin/editor/commenter/reviewer/viewer`로 구분합니다. Reviewer 자신의 입력을 스스로 승인하는 경로는 차단합니다.
-
 모든 데이터는 immutable revision이고 `ProjectHead`만 현재 포인터입니다.
 
 ```text
@@ -198,7 +196,7 @@ Packet
 모든 명령은 다음을 요구합니다.
 
 - 서버 인증에서 얻은 actor
-- membership·role
+- 인증된 사용자의 프로젝트 소유권
 - idempotency key
 - 기대하는 전체 head tuple
 - 프로젝트와 snapshot scope
@@ -296,7 +294,7 @@ RAG 초기 연구 기준은 Claim stratum별 Recall@50 0.95 이상, 최저 strat
 5. 피드백 preview/confirm·선택·이력
 6. 문서 격리·OCR/layout/table·Claim review
 7. 충돌·dependency graph·선택적 재계산
-8. immutable 계약 전 판단자료·협업
+8. immutable 계약 전 판단자료
 9. 공식·프로젝트 corpus와 MCP
 10. Hybrid RAG
 11. 네 Agent의 평가·shadow·canary·advisory 승격

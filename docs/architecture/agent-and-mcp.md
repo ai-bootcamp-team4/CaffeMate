@@ -23,6 +23,24 @@
 
 Orchestrator는 자유 토론 Agent가 아니라 typed Workflow controller다.
 
+## CONFIRMED — GCP Runtime 배치
+
+```text
+Cloud Run Control API
+→ IAM-authenticated Agent Runtime invocation
+→ one ADK Multi-Agent application
+→ allowlisted private MCP read tools
+→ typed Agent output
+→ Control API validation and State reducer
+```
+
+- 각 Agent 역할을 개별 Cloud Run service로 배포하지 않는다.
+- Control API가 workflow, State version, 재시도 예산과 종료 조건을 소유한다.
+- Agent Runtime은 reasoning과 ADK Agent 실행을 담당하지만 persistent State를 쓰지 않는다.
+- Agent Runtime service identity는 private MCP 호출 권한만 가지며 원본 credential과 database write 권한을 갖지 않는다.
+- 서울 리전에서 managed Agent Gateway가 지원되지 않으므로 Control API가 Agent Runtime을 직접 호출한다.
+- Runtime·Sessions의 정식 지원과 별개로 선택한 model의 서울 리전 지원 여부를 배포 Gate에서 따로 검증한다.
+
 ## 실행 Graph
 
 ### 첫 제안
@@ -109,7 +127,7 @@ source_trace: []
 ## Tool 권한
 
 - MCP service는 private Cloud Run으로 둔다.
-- API service identity만 invoke할 수 있다.
+- API와 Agent Runtime의 allowlist된 service identity만 invoke할 수 있다.
 - connector credential은 MCP runtime에만 둔다.
 - Agent에게 credential·database connection·raw secret을 전달하지 않는다.
 - `retrieve_project_docs`는 user·project scope를 API가 서명한 context로 받는다.
