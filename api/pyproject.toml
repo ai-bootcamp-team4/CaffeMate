@@ -17,6 +17,7 @@ dependencies = [
   "rfc8785>=0.1.4,<1",
   "sqlalchemy>=2.0,<3",
   "uvicorn[standard]>=0.35,<1",
+  "google-cloud-storage>=3.4,<4",
 ]
 
 [project.scripts]
@@ -55,6 +56,8 @@ module = [
   "firebase_admin.*",
   "google.cloud.pubsub_v1",
   "google.cloud.pubsub_v1.*",
+  "google.cloud.storage",
+  "google.cloud.storage.*",
 ]
 ignore_missing_imports = true
 

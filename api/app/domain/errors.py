@@ -70,3 +70,11 @@ class FeedbackPreconditionError(DomainError):
 
 class CandidateSelectionPreconditionError(DomainError):
     code = "CANDIDATE_SELECTION_PRECONDITION_FAILED"
+
+
+class DocumentNotFoundError(DomainError):
+    code = "DOCUMENT_NOT_FOUND"
+
+
+class DocumentPreconditionError(DomainError):
+    code = "DOCUMENT_PRECONDITION_FAILED"

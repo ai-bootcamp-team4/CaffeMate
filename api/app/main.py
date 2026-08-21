@@ -19,10 +19,22 @@ from app.auth import (
 )
 from app.candidates.seed_registry import IndependentSeedRegistry
 from app.database import DatabaseHandle, create_database_handle
+from app.documents.models import (
+    BeginDocumentUploadRequest,
+    CompleteDocumentUploadRequest,
+    DocumentDownload,
+    DocumentRevision,
+    DocumentScanResultRequest,
+    SignedUpload,
+)
+from app.documents.service import DocumentService, UnavailableDocumentService
+from app.documents.storage import GoogleCloudDocumentStorage
 from app.domain.errors import (
     AuthenticationUnavailableError,
     CandidateSelectionPreconditionError,
     ContractValidationError,
+    DocumentNotFoundError,
+    DocumentPreconditionError,
     DomainError,
     ExternalExecutionUnavailableError,
     FeedbackPreconditionError,
@@ -135,6 +147,7 @@ def create_app(
     candidate_selection_service: (
         CandidateSelectionService | UnavailableCandidateSelectionService | None
     ) = None,
+    document_service: DocumentService | UnavailableDocumentService | None = None,
     identity_verifier: IdentityVerifier | None = None,
     stage_execution_service: StageExecution | None = None,
     internal_identity_verifier: IdentityVerifier | None = None,
@@ -267,6 +280,16 @@ def create_app(
     else:
         candidate_selections = UnavailableCandidateSelectionService()
 
+    if document_service is not None:
+        documents = document_service
+    elif database_handle is not None and settings.document_bucket:
+        documents = DocumentService(
+            database_handle.engine,
+            GoogleCloudDocumentStorage(settings.document_bucket),
+        )
+    else:
+        documents = UnavailableDocumentService()
+
     if stage_execution_service is not None:
         internal_stages = stage_execution_service
     elif database_handle is not None:
@@ -331,6 +354,8 @@ def create_app(
             FeedbackPreconditionError: status.HTTP_409_CONFLICT,
             FeedbackPreviewNotFoundError: status.HTTP_404_NOT_FOUND,
             CandidateSelectionPreconditionError: status.HTTP_409_CONFLICT,
+            DocumentNotFoundError: status.HTTP_404_NOT_FOUND,
+            DocumentPreconditionError: status.HTTP_409_CONFLICT,
             StageLeaseRejectedError: status.HTTP_409_CONFLICT,
             ExternalExecutionUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
             FirstProposalConfigurationUnavailableError: (
@@ -369,6 +394,29 @@ def create_app(
             lease=request.lease,
         )
         return StageExecuteResponse(result=result)
+
+    @app.post(
+        "/internal/v1/documents/{document_revision_id}:scan-result",
+        response_model=DocumentRevision,
+        tags=["internal"],
+    )
+    def record_document_scan_result(
+        document_revision_id: str,
+        request: DocumentScanResultRequest,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> DocumentRevision:
+        if authorization is None:
+            raise UnauthenticatedError("Worker service identity token is required")
+        scheme, separator, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not separator or not token.strip():
+            raise UnauthenticatedError("Worker service identity token is required")
+        worker_verifier.verify(token.strip())
+        return documents.record_scan_result(
+            project_id=request.project_id,
+            document_revision_id=document_revision_id,
+            clean=request.clean,
+            threat_codes=request.threat_codes,
+        )
 
     @app.post("/v1/projects", response_model=Project, status_code=status.HTTP_201_CREATED)
     def create_project(
@@ -480,6 +528,54 @@ def create_app(
             candidate_id=request.candidate_id,
             expected_head=request.expected_head,
             idempotency_key=idempotency_key,
+        )
+
+    @app.post(
+        "/v1/projects/{project_id}/documents/uploads",
+        response_model=SignedUpload,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def begin_document_upload(
+        project_id: str,
+        request: BeginDocumentUploadRequest,
+        user_id: Annotated[str, Depends(current_user)],
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> SignedUpload:
+        return documents.begin_upload(
+            project_id=project_id,
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+            request=request,
+        )
+
+    @app.post(
+        "/v1/projects/{project_id}/documents/uploads:complete",
+        response_model=DocumentRevision,
+    )
+    def complete_document_upload(
+        project_id: str,
+        request: CompleteDocumentUploadRequest,
+        user_id: Annotated[str, Depends(current_user)],
+    ) -> DocumentRevision:
+        return documents.complete_upload(
+            project_id=project_id,
+            user_id=user_id,
+            document_revision_id=request.document_revision_id,
+        )
+
+    @app.get(
+        "/v1/projects/{project_id}/documents/{document_revision_id}/download",
+        response_model=DocumentDownload,
+    )
+    def get_document_download(
+        project_id: str,
+        document_revision_id: str,
+        user_id: Annotated[str, Depends(current_user)],
+    ) -> DocumentDownload:
+        return documents.get_download(
+            project_id=project_id,
+            user_id=user_id,
+            document_revision_id=document_revision_id,
         )
 
     @app.get("/v1/projects", response_model=list[Project])
