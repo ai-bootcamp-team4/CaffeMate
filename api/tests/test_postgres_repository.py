@@ -36,6 +36,7 @@ from app.workflows.models import (
 )
 from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.service import WorkflowService
+from app.workflows.stage_context import PostgresStageContextRepository
 
 
 class FixedIdentityVerifier:
@@ -609,6 +610,50 @@ def create_commit_stage(
             )
         ).one()
     return project, stage_id, input_digest, workflows
+
+
+def test_stage_context_loads_fenced_state_and_direct_dependency_results(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    project, stage_id, input_digest, _workflows = create_ready_stage(
+        repository, postgres_engine
+    )
+    execution = PostgresStageExecutionRepository(postgres_engine)
+    root_lease = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-1",
+        expected_input_digest=input_digest,
+    )
+    assert root_lease is not None
+    root_result = {"area_resolution": "UNRESOLVED"}
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=root_lease.lease_token,
+        input_digest=root_lease.input_digest,
+        result=root_result,
+    ) == CheckpointOutcome.APPLIED
+
+    with postgres_engine.connect() as connection:
+        next_stage_id, next_digest = connection.execute(
+            text(
+                "SELECT stage_run_id, input_digest FROM stage_runs "
+                "WHERE stage_code='CLAIM_PLAN' AND status='READY'"
+            )
+        ).one()
+    next_lease = execution.claim(
+        stage_run_id=next_stage_id,
+        worker_id="worker-1",
+        expected_input_digest=next_digest,
+    )
+    assert next_lease is not None
+
+    loaded = PostgresStageContextRepository(postgres_engine).load(next_lease)
+
+    assert loaded.project_id == project.project_id
+    assert loaded.state.project_id == project.project_id
+    assert loaded.state.state_version == next_lease.head.state_version
+    assert loaded.dependency_results == {"AREA_RESOLUTION": root_result}
 
 
 def test_first_proposal_dag_promotes_ready_stages_and_joins_both_branches(
