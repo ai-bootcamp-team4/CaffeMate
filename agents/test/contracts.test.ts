@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import fixtureMatrix from '../fixtures/task-matrix.json'
+import { computeAgentTaskInputDigest } from '../src/input-digest'
 import { validateAgentTask, validateAgentTaskResult } from '../src/schema-validator'
 import { TASK_REGISTRY } from '../src/registry'
 import type { AgentTask, AgentTaskResult, TaskType } from '../src/types'
@@ -25,6 +26,12 @@ describe('agent contract fixtures', () => {
     for (const fixture of fixtureMatrix.cases) {
       expect(validateAgentTask(fixture.task as AgentTask), fixture.id).toEqual({ ok: true, errors: [] })
       expect(validateAgentTaskResult(fixture.result as AgentTaskResult), fixture.id).toEqual({ ok: true, errors: [] })
+    }
+  })
+
+  it('pins every fixture input digest to its canonical logical input', () => {
+    for (const fixture of fixtureMatrix.cases) {
+      expect(computeAgentTaskInputDigest(fixture.task as AgentTask), fixture.id).toBe(fixture.task.input_digest)
     }
   })
 

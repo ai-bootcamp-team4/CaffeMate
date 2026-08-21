@@ -1,3 +1,4 @@
+import { computeAgentTaskInputDigest } from './input-digest'
 import { TASK_REGISTRY } from './registry'
 import { validateAgentTask, validateAgentTaskResult } from './schema-validator'
 import { validateAgentSemantics } from './semantic-validator'
@@ -37,6 +38,13 @@ function assertTaskRegistry(task: AgentTask): void {
   }
 }
 
+function assertTaskInputDigest(task: AgentTask): void {
+  const expected = computeAgentTaskInputDigest(task)
+  if (task.input_digest !== expected) {
+    throw new AgentDispatchError('TASK_INPUT_DIGEST_MISMATCH', `task ${task.task_id} input digest does not match its logical input`)
+  }
+}
+
 function assertResultEcho(task: AgentTask, result: AgentTaskResult): void {
   const matches = result.task_id === task.task_id
     && result.invocation_id === task.invocation_id
@@ -59,6 +67,7 @@ export async function dispatchAgentTask(task: AgentTask, executors: AgentExecuto
   if (!taskValidation.ok) {
     throw new AgentDispatchError('TASK_SCHEMA_INVALID', JSON.stringify(taskValidation.errors))
   }
+  assertTaskInputDigest(task)
   assertTaskRegistry(task)
 
   const registration = TASK_REGISTRY[task.task_type]

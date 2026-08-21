@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import fixtureMatrix from '../fixtures/task-matrix.json'
 import releaseManifest from '../release-manifest.json'
 import { AGENT_MODEL, TASK_REGISTRY } from '../src/registry'
 
@@ -29,6 +30,10 @@ describe('local agent release manifest', () => {
         input_schema_id: registration.inputSchemaId,
         output_schema_id: registration.outputSchemaId,
       })
+    }
+
+    for (const fixture of fixtureMatrix.cases.filter((item) => item.task.task_type === 'EVIDENCE_PLAN')) {
+      expect(fixture.task.tool_manifest_digest, fixture.id).toBe(releaseManifest.mcp_manifest_digest)
     }
   })
 })

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { dispatchAgentTask } from '../src/dispatcher'
+import { computeAgentTaskInputDigest } from '../src/input-digest'
 import type { AgentTask, AgentTaskResult } from '../src/types'
 
 const head = {
@@ -14,12 +15,12 @@ const head = {
 }
 
 function makeIntentTask(): AgentTask {
-  return {
+  const task: AgentTask = {
     schema_version: '1.0.0', task_id: 'task-1', invocation_id: 'inv-1', agent_name: 'INTENT_INTERPRETER',
     task_type: 'INTENT_DELTA', workflow_run_id: 'wf-1', stage_run_id: 'stage-1', transport_attempt: 1,
     repair_attempt: 0, venture_project_id: 'project-1', head_fence: head, prompt_version: 'intent-interpreter.v1',
     input_schema_id: 'caffemate.agent.intent-input.v1', output_schema_id: 'caffemate.agent.intent-result.v1',
-    input_artifacts: [], input_digest: `sha256:${'a'.repeat(64)}`, deadline_at: '2026-08-21T08:30:00Z',
+    input_artifacts: [], input_digest: `sha256:${'0'.repeat(64)}`, deadline_at: '2026-08-21T08:30:00Z',
     runtime_tool_policy: 'NO_DIRECT_TOOL_CALLS', tool_manifest_digest: null, available_tool_catalog: [],
     payload: {
       current_state_projection: {
@@ -32,6 +33,8 @@ function makeIntentTask(): AgentTask {
       allowed_field_paths: ['founder.borrowing_intent'], current_candidate_refs: [], operation_id_pool: ['op-1'],
     },
   }
+  task.input_digest = computeAgentTaskInputDigest(task)
+  return task
 }
 
 function makeIntentResult(task: AgentTask): AgentTaskResult {
@@ -78,6 +81,15 @@ describe('deterministic dispatcher', () => {
     const child = vi.fn(async () => makeIntentResult(task))
 
     await expect(dispatchAgentTask(task, { INTENT_INTERPRETER: child })).rejects.toThrow('TASK_SCHEMA_INVALID')
+    expect(child).not.toHaveBeenCalled()
+  })
+
+  it('rejects a task whose logical input no longer matches its input digest', async () => {
+    const task = makeIntentTask()
+    task.payload = { ...(task.payload as Record<string, unknown>), latest_user_input: '원래 digest 이후에 바뀐 입력' }
+    const child = vi.fn(async () => makeIntentResult(task))
+
+    await expect(dispatchAgentTask(task, { INTENT_INTERPRETER: child })).rejects.toThrow('TASK_INPUT_DIGEST_MISMATCH')
     expect(child).not.toHaveBeenCalled()
   })
 
