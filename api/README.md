@@ -62,6 +62,13 @@ Control API가 관리형 Agent Runtime의 `EVIDENCE_PLAN` 단계를 실행하려
 - `MCP_AUDIENCE`
 - `MCP_SCOPE_HMAC_SECRET`: Secret Manager에서 주입하는 32바이트 이상의 비밀값
 
+MCP client는 network·408·429·5xx에만 최대 두 번 다시 시도하며, 같은 논리 tool 호출의
+JSON-RPC request id와 scope를 유지한다. 기본 지연은 250ms·750ms이고 `Retry-After`는 2초
+이하일 때만 전체 timeout 예산 안에서 사용한다. 400·401·403, 계약 위반, project scope 불일치와
+결과 Schema 오류는 다시 시도하지 않는다. 호출자가 W3C `traceparent`를 주지 않으면 project·
+Workflow·tool·typed arguments에서 비식별 trace를 만들어 모든 물리 시도에 동일하게 전달한다.
+`PARTIAL`, `STALE`, `NOT_FOUND`는 전송 성공과 별도의 domain 상태로 그대로 보존한다.
+
 ## Workflow 진행 조회
 
 프론트엔드는 `GET /v1/projects/{project_id}/workflows/{workflow_run_id}`를 polling한다.
