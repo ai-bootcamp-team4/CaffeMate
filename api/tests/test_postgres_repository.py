@@ -250,6 +250,9 @@ class FeedbackAgentFixture:
     def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
         self.tasks.append(task)
         operation_id = task["payload"]["operation_id_pool"][0]
+        current_funds = task["payload"]["current_state_projection"]["founder"][
+            "own_funds_krw"
+        ]
         return {
             "schema_version": "1.0.0",
             "task_id": task["task_id"],
@@ -272,7 +275,7 @@ class FeedbackAgentFixture:
                         "field_path": "/founder/own_funds_krw",
                         "expected_old_value": {
                             "kind": "INTEGER",
-                            "value": 50_000_000,
+                            "value": current_funds,
                         },
                         "typed_value": {"kind": "INTEGER", "value": 40_000_000},
                         "unit": "KRW",
@@ -395,6 +398,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0006_first_proposal_dag.sql",
             "0007_evidence_snapshot.sql",
             "0008_feedback_preview.sql",
+            "0009_feedback_resolution.sql",
         ]
 
 
@@ -1159,6 +1163,142 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
             {"project_id": project.project_id},
         ).scalar_one() == event_count_before
 
+    assert preview.proposal_digest is not None
+    with pytest.raises(FeedbackPreconditionError):
+        feedback.confirm_preview(
+            preview_id=preview.preview_id,
+            project_id=project.project_id,
+            user_id="user-1",
+            idempotency_key="confirm-feedback-wrong",
+            expected_head=preview.head,
+            proposal_digest="sha256:" + "0" * 64,
+        )
+    confirmed = feedback.confirm_preview(
+        preview_id=preview.preview_id,
+        project_id=project.project_id,
+        user_id="user-1",
+        idempotency_key="confirm-feedback-1",
+        expected_head=preview.head,
+        proposal_digest=preview.proposal_digest,
+    )
+    confirmed_replay = feedback.confirm_preview(
+        preview_id=preview.preview_id,
+        project_id=project.project_id,
+        user_id="user-1",
+        idempotency_key="confirm-feedback-1",
+        expected_head=preview.head,
+        proposal_digest=preview.proposal_digest,
+    )
+    assert confirmed_replay == confirmed
+    with pytest.raises(FeedbackPreconditionError):
+        feedback.confirm_preview(
+            preview_id=preview.preview_id,
+            project_id=project.project_id,
+            user_id="user-1",
+            idempotency_key="confirm-feedback-other-key",
+            expected_head=preview.head,
+            proposal_digest=preview.proposal_digest,
+        )
+    assert confirmed.preview.status == FeedbackPreviewStatus.CONFIRMED
+    assert confirmed.state_version == 2
+    assert confirmed.workflow is not None
+    assert confirmed.workflow.head.state_version == 2
+    with postgres_engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM venture_states WHERE project_id=:project_id"),
+            {"project_id": project.project_id},
+        ).scalar_one() == state_count_before + 1
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM project_events WHERE project_id=:project_id"),
+            {"project_id": project.project_id},
+        ).scalar_one() == event_count_before + 1
+        feedback_event = connection.execute(
+            text(
+                "SELECT event_json FROM project_events "
+                "WHERE project_id=:project_id AND event_type='FEEDBACK_CHANGE_CONFIRMED'"
+            ),
+            {"project_id": project.project_id},
+        ).scalar_one()
+        rerun_stages = connection.execute(
+            text(
+                "SELECT stage_code, status, attempt FROM stage_runs "
+                "WHERE workflow_run_id=:workflow_run_id ORDER BY created_at, stage_code"
+            ),
+            {"workflow_run_id": confirmed.workflow.workflow_run_id},
+        ).mappings().all()
+    assert feedback_event["preview_id"] == preview.preview_id
+    assert {row["stage_code"] for row in rerun_stages if row["attempt"] == 0} >= {
+        "AREA_RESOLUTION",
+        "CLAIM_PLAN",
+        "EVIDENCE_PLAN",
+        "EVIDENCE_RETRIEVAL",
+        "EVIDENCE_ASSESS",
+        "EVIDENCE_FREEZE",
+    }
+    assert next(
+        row for row in rerun_stages if row["stage_code"] == "INDEPENDENT_SEED"
+    )["status"] == "READY"
+
+    republished = 0
+    while dispatcher.publish_one():
+        republished += 1
+    assert republished == 7
+    recomputed = ResultService(PostgresResultRepository(postgres_engine)).get_current(
+        project_id=project.project_id,
+        user_id="user-1",
+    )
+    assert recomputed.freshness.value == "CURRENT"
+    assert recomputed.workflow_run_id == confirmed.workflow.workflow_run_id
+    assert processor.errors == []
+
+    cancelling_feedback = FeedbackService(
+        PostgresFeedbackRepository(postgres_engine),
+        ProjectService(repository),
+        ResultService(PostgresResultRepository(postgres_engine)),
+        FeedbackAgentFixture(),
+        new_id=lambda: "feedback-preview-cancel",
+    )
+    cancellable = cancelling_feedback.create_preview(
+        project_id=project.project_id,
+        user_id="user-1",
+        idempotency_key="feedback-cancel-preview",
+        user_input="자금은 4천만 원으로 바꿀래",
+    )
+    with postgres_engine.connect() as connection:
+        state_count_before_cancel = connection.execute(
+            text("SELECT COUNT(*) FROM venture_states WHERE project_id=:project_id"),
+            {"project_id": project.project_id},
+        ).scalar_one()
+        event_count_before_cancel = connection.execute(
+            text("SELECT COUNT(*) FROM project_events WHERE project_id=:project_id"),
+            {"project_id": project.project_id},
+        ).scalar_one()
+    cancelled = cancelling_feedback.cancel_preview(
+        preview_id=cancellable.preview_id,
+        project_id=project.project_id,
+        user_id="user-1",
+        idempotency_key="cancel-feedback-1",
+    )
+    cancelled_replay = cancelling_feedback.cancel_preview(
+        preview_id=cancellable.preview_id,
+        project_id=project.project_id,
+        user_id="user-1",
+        idempotency_key="cancel-feedback-1",
+    )
+    assert cancelled_replay == cancelled
+    assert cancelled.preview.status == FeedbackPreviewStatus.CANCELLED
+    assert cancelled.state_version is None
+    assert cancelled.workflow is None
+    with postgres_engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM venture_states WHERE project_id=:project_id"),
+            {"project_id": project.project_id},
+        ).scalar_one() == state_count_before_cancel
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM project_events WHERE project_id=:project_id"),
+            {"project_id": project.project_id},
+        ).scalar_one() == event_count_before_cancel
+
     class HeadChangingFeedbackRuntime(FeedbackAgentFixture):
         replacement: WorkflowRun | None = None
 
@@ -1196,7 +1336,7 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
     assert stale.freshness.value == "STALE"
     assert stale.stale_head_dimensions == ["workflow_generation"]
     assert stale.current_head.workflow_generation == replacement.head.workflow_generation
-    assert stale.head.workflow_generation == run.head.workflow_generation
+    assert stale.head.workflow_generation == confirmed.workflow.head.workflow_generation
     with pytest.raises(FeedbackPreconditionError):
         feedback.create_preview(
             project_id=project.project_id,

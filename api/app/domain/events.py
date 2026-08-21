@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -23,7 +23,19 @@ class OnboardingConfirmed(StrictModel):
     founder: FounderState
 
 
-DomainEvent = ProjectCreated | OnboardingConfirmed
+class FeedbackChangeConfirmed(StrictModel):
+    event_id: str
+    event_type: Literal["FEEDBACK_CHANGE_CONFIRMED"] = "FEEDBACK_CHANGE_CONFIRMED"
+    project_id: str
+    user_id: str
+    occurred_at: datetime
+    preview_id: str
+    expected_state_version: int = Field(ge=1)
+    proposal_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    operations: list[dict[str, Any]] = Field(min_length=1)
+
+
+DomainEvent = ProjectCreated | OnboardingConfirmed | FeedbackChangeConfirmed
 
 
 class ConfirmOnboardingCommand(StrictModel):

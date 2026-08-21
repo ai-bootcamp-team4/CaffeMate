@@ -1,8 +1,10 @@
+from copy import deepcopy
 from typing import Any
 
 from app.agents.boundary import validate_agent_boundary
 from app.agents.task_factory import FEEDBACK_ALLOWED_FIELD_PATHS
 from app.domain.errors import ContractValidationError
+from app.domain.models import FounderState
 from app.workflows.models import HeadFence
 
 _SCALAR_RULES: dict[str, tuple[str, set[str] | None]] = {
@@ -20,6 +22,31 @@ _SCALAR_RULES: dict[str, tuple[str, set[str] | None]] = {
     "/founder/max_loss_krw": ("INTEGER", None),
 }
 _COLLECTION_FIELDS = {"/founder/preferences", "/founder/avoidances"}
+
+
+def affected_feedback_stages(field_paths: set[str]) -> list[str]:
+    if not field_paths:
+        return []
+    stages = [
+        "AREA_RESOLUTION",
+        "CLAIM_PLAN",
+        "EVIDENCE_PLAN",
+        "EVIDENCE_RETRIEVAL",
+        "EVIDENCE_ASSESS",
+        "EVIDENCE_FREEZE",
+        "INDEPENDENT_SEED",
+        "FRANCHISE_ELIGIBILITY",
+        "PROPOSE_INDEPENDENT",
+        "PROPOSE_FRANCHISE",
+        "CALCULATE_GATE_RANK",
+        "CANDIDATE_AUDIT",
+        "COMMIT_RESULT",
+    ]
+    if "/founder/target_area_input" in field_paths:
+        return stages
+    if "/founder/cafe_type_preference" in field_paths:
+        return stages[1:]
+    return stages[6:]
 
 
 def validate_intent_delta_result(
@@ -147,3 +174,40 @@ def _typed_value(value: object) -> dict[str, object]:
     if isinstance(value, str):
         return {"kind": "STRING", "value": value}
     raise ContractValidationError("Feedback State value cannot be represented")
+
+
+def apply_feedback_operations(
+    founder: FounderState,
+    operations: list[dict[str, Any]],
+) -> FounderState:
+    """Apply an already validated delta while rechecking its State preconditions."""
+    updated = deepcopy(founder.model_dump(mode="python"))
+    for operation in operations:
+        field_path = operation.get("field_path")
+        if field_path not in FEEDBACK_ALLOWED_FIELD_PATHS:
+            raise ContractValidationError("Feedback operation field is not allowed")
+        field_name = field_path.rsplit("/", 1)[-1]
+        current = updated[field_name]
+        kind = operation.get("kind")
+        typed = operation.get("typed_value")
+        expected = operation.get("expected_old_value")
+        if not isinstance(typed, dict) or not isinstance(expected, dict):
+            raise ContractValidationError("Feedback operation values are invalid")
+        value = typed.get("value")
+        if kind == "ADD":
+            if expected != {"kind": "NULL", "value": None} or not isinstance(
+                current, list
+            ):
+                raise ContractValidationError("Feedback add precondition failed")
+            updated[field_name] = [*current, value]
+        elif kind == "REMOVE":
+            if expected != typed or not isinstance(current, list) or value not in current:
+                raise ContractValidationError("Feedback remove precondition failed")
+            updated[field_name] = [item for item in current if item != value]
+        elif kind in {"SET", "UNSET"}:
+            if expected != _typed_value(current):
+                raise ContractValidationError("Feedback scalar precondition failed")
+            updated[field_name] = value
+        else:
+            raise ContractValidationError("Feedback operation is unsupported")
+    return FounderState.model_validate(updated)

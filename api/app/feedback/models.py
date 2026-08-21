@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import Field
 
 from app.domain.models import StrictModel
-from app.workflows.models import HeadFence
+from app.workflows.models import HeadFence, WorkflowRun
 
 
 class FeedbackPreviewStatus(StrEnum):
@@ -32,7 +32,14 @@ class FeedbackPreviewRecord(StrictModel):
     task: dict[str, Any]
     agent_result: dict[str, Any] | None = None
     proposal: dict[str, Any] | None = None
+    proposal_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     status: FeedbackPreviewStatus
+    resolution_idempotency_key: str | None = None
+    resolution_request_digest: bytes | None = None
+    confirmed_event_id: str | None = None
+    confirmed_state_version: int | None = Field(default=None, ge=1)
+    recompute_workflow_run_id: str | None = None
+    resolved_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -53,6 +60,7 @@ class FeedbackPreview(StrictModel):
     affected_candidate_ids: list[str]
     affected_stage_codes: list[str]
     risk_flags: list[str]
+    proposal_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     agent_trace: dict[str, str]
     created_at: datetime
     updated_at: datetime
@@ -60,3 +68,14 @@ class FeedbackPreview(StrictModel):
 
 class CreateFeedbackPreviewRequest(StrictModel):
     input: str = Field(min_length=1, max_length=8000)
+
+
+class ConfirmFeedbackRequest(StrictModel):
+    expected_head: HeadFence
+    proposal_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
+class FeedbackResolution(StrictModel):
+    preview: FeedbackPreview
+    state_version: int | None = Field(default=None, ge=1)
+    workflow: WorkflowRun | None = None

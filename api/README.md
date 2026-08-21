@@ -93,4 +93,13 @@ preview를 저장한다. 같은 `Idempotency-Key`와 같은 입력은 같은 pre
 preview 생성과 조회는 `venture_states`, `project_events`, 계산, current Result pointer를
 변경하지 않는다. Agent 실행 중 full head가 달라지면 preview는 `EXPIRED`가 되며 적용할 수
 없다. `REVIEW_REQUIRED` 응답에는 `before_founder`, `after_founder`, operation, 영향받는 후보와
-Stage가 포함된다. confirm·cancel은 별도 command이며 preview 생성으로 대신 처리하지 않는다.
+Stage, `proposal_digest`가 포함된다.
+
+`POST /v1/projects/{project_id}/feedback/{preview_id}/confirm`은 preview의 full head와
+`proposal_digest`를 다시 받는다. 둘 중 하나라도 current 값과 다르면 `409`를 반환한다. 성공하면
+하나의 트랜잭션에서 `FEEDBACK_CHANGE_CONFIRMED` Event, 새 Venture State, selective
+`FIRST_PROPOSAL` run, 첫 Stage Outbox, preview의 `CONFIRMED` 상태를 함께 저장한다. 영향받지 않은
+성공 Stage 결과는 이전 run에서 재사용하고, 영향받은 하위 DAG만 Worker가 다시 실행한다.
+
+`POST /v1/projects/{project_id}/feedback/{preview_id}/cancel`은 preview만 `CANCELLED`로 바꾸며
+State, Event, Workflow, Result에는 쓰지 않는다. 두 명령 모두 `Idempotency-Key`가 필요하다.
