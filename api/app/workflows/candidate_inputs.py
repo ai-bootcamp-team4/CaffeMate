@@ -103,6 +103,9 @@ class IndependentSeedStageHandler:
                 ),
                 "model_id": model.model_id,
                 "display_name": model.display_name,
+                "allowed_operation_modes": [
+                    value.value for value in model.allowed_operation_modes
+                ],
                 "allowed_parameters": [
                     value.model_dump(mode="json") for value in model.allowed_parameters
                 ],

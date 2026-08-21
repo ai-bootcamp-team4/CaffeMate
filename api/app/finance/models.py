@@ -11,6 +11,7 @@ class ValueProvenance(StrEnum):
     USER_INPUT = "USER_INPUT"
     BENCHMARK = "BENCHMARK"
     ASSUMPTION = "ASSUMPTION"
+    DERIVED = "DERIVED"
     UNKNOWN = "UNKNOWN"
 
 
@@ -73,8 +74,12 @@ class CostLine(StrictModel):
 
     @model_validator(mode="after")
     def provenance_matches_value(self) -> "CostLine":
-        if self.provenance == ValueProvenance.FACT and not self.evidence_ref:
-            raise ValueError("FACT cost line requires evidence_ref")
+        if self.provenance in {
+            ValueProvenance.FACT,
+            ValueProvenance.USER_INPUT,
+            ValueProvenance.BENCHMARK,
+        } and not self.evidence_ref:
+            raise ValueError("Grounded cost line requires evidence_ref")
         values = (self.amount.low, self.amount.base, self.amount.high)
         if self.provenance == ValueProvenance.UNKNOWN and any(
             value is not None for value in values

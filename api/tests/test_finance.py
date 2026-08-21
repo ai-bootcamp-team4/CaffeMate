@@ -186,6 +186,20 @@ def test_unknown_provenance_cannot_hide_a_numeric_value() -> None:
         )
 
 
+def test_structurally_not_applicable_cost_can_be_derived_zero() -> None:
+    line = cost(
+        "franchise-fee-not-applicable",
+        CostCategory.FRANCHISE_INITIAL_FEES,
+        0,
+        0,
+        0,
+        ValueProvenance.DERIVED,
+    )
+
+    assert line.amount == MoneyRange(low=0, base=0, high=0)
+    assert line.evidence_ref is None
+
+
 def test_capital_gate_passes_only_when_own_funds_cover_high_scenario() -> None:
     result = evaluate_capital_gate(
         CapitalGateInput(
