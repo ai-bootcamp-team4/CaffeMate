@@ -86,6 +86,11 @@ from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
 from app.results.unavailable_repository import UnavailableResultRepository
 from app.selections.models import CandidateSelection, SelectCandidateRequest
+from app.selections.preparation import (
+    PreparationGuide,
+    PreparationGuideService,
+    UnavailablePreparationGuideService,
+)
 from app.selections.service import (
     CandidateSelectionService,
     UnavailableCandidateSelectionService,
@@ -160,6 +165,9 @@ def create_app(
     feedback_service: FeedbackService | UnavailableFeedbackService | None = None,
     candidate_selection_service: (
         CandidateSelectionService | UnavailableCandidateSelectionService | None
+    ) = None,
+    preparation_guide_service: (
+        PreparationGuideService | UnavailablePreparationGuideService | None
     ) = None,
     document_service: DocumentService | UnavailableDocumentService | None = None,
     document_extraction_service: (
@@ -299,6 +307,16 @@ def create_app(
         candidate_selections = CandidateSelectionService(database_handle.engine)
     else:
         candidate_selections = UnavailableCandidateSelectionService()
+
+    if preparation_guide_service is not None:
+        preparation_guides = preparation_guide_service
+    elif database_handle is not None and configured_mcp_client is not None:
+        preparation_guides = PreparationGuideService(
+            database_handle.engine,
+            configured_mcp_client,
+        )
+    else:
+        preparation_guides = UnavailablePreparationGuideService()
 
     if document_service is not None:
         documents = document_service
@@ -602,6 +620,21 @@ def create_app(
             candidate_id=request.candidate_id,
             expected_head=request.expected_head,
             idempotency_key=idempotency_key,
+        )
+
+    @app.get(
+        "/v1/projects/{project_id}/candidate-selections/{selection_id}/preparation-guide",
+        response_model=PreparationGuide,
+    )
+    async def get_preparation_guide(
+        project_id: str,
+        selection_id: str,
+        user_id: Annotated[str, Depends(current_user)],
+    ) -> PreparationGuide:
+        return await preparation_guides.get(
+            project_id=project_id,
+            selection_id=selection_id,
+            user_id=user_id,
         )
 
     @app.post(
