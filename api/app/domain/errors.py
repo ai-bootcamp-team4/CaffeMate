@@ -58,3 +58,11 @@ class ExternalExecutionUnavailableError(DomainError):
 
 class ResultNotFoundError(DomainError):
     code = "RESULT_NOT_FOUND"
+
+
+class FeedbackPreviewNotFoundError(DomainError):
+    code = "FEEDBACK_PREVIEW_NOT_FOUND"
+
+
+class FeedbackPreconditionError(DomainError):
+    code = "FEEDBACK_PRECONDITION_FAILED"

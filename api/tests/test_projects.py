@@ -222,3 +222,12 @@ def test_openapi_exposes_control_api_contract(client: TestClient) -> None:
     assert {"freshness", "stale_head_dimensions", "current_head"}.issubset(
         result_required
     )
+    preview_path = "/v1/projects/{project_id}/feedback/previews"
+    preview_response = schema["paths"][preview_path]["post"]["responses"]["201"]
+    assert preview_response["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/FeedbackPreview"
+    }
+    assert (
+        "/v1/projects/{project_id}/feedback/previews/{preview_id}"
+        in schema["paths"]
+    )
