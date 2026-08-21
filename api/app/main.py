@@ -24,12 +24,14 @@ from app.documents.extraction import (
     UnavailableDocumentExtractionService,
 )
 from app.documents.models import (
+    ApplyExtractionFormRequest,
     BeginDocumentUploadRequest,
     CompleteDocumentUploadRequest,
     DocumentDownload,
     DocumentExtractionForm,
     DocumentRevision,
     DocumentScanResultRequest,
+    ExtractionFormApplication,
     ParserResultRequest,
     SignedUpload,
     UpdateExtractionFormRequest,
@@ -647,6 +649,26 @@ def create_app(
             project_id=project_id,
             user_id=user_id,
             document_revision_id=document_revision_id,
+            request=request,
+        )
+
+    @app.post(
+        "/v1/projects/{project_id}/documents/{document_revision_id}/extraction-form:apply",
+        response_model=ExtractionFormApplication,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def apply_document_extraction_form(
+        project_id: str,
+        document_revision_id: str,
+        request: ApplyExtractionFormRequest,
+        user_id: Annotated[str, Depends(current_user)],
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> ExtractionFormApplication:
+        return document_extraction.apply_form(
+            project_id=project_id,
+            user_id=user_id,
+            document_revision_id=document_revision_id,
+            idempotency_key=idempotency_key,
             request=request,
         )
 

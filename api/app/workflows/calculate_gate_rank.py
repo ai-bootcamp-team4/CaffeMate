@@ -57,8 +57,8 @@ class CalculateGateRankStageHandler:
             if not isinstance(proposal_input, dict) or not isinstance(proposals, list):
                 raise ContractValidationError("Proposal branch output is invalid")
             sources = self._sources(proposal_input, source_key)
-            evidence_records = self._evidence_records(proposal_input, context.project_id)
-            for evidence in evidence_records:
+            base_evidence_records = self._evidence_records(proposal_input, context.project_id)
+            for evidence in base_evidence_records:
                 evidence_id = evidence.get("evidence_id")
                 if not isinstance(evidence_id, str):
                     raise ContractValidationError("Proposal Evidence id is invalid")
@@ -75,6 +75,27 @@ class CalculateGateRankStageHandler:
                 source = sources.get(proposal_id)
                 if source is None:
                     raise ContractValidationError("Candidate proposal source is missing")
+                source_id = proposal.get("seed_or_brand_id")
+                if not isinstance(source_id, str):
+                    raise ContractValidationError("Candidate proposal source id is invalid")
+                evidence_records = [
+                    *base_evidence_records,
+                    *self._document_evidence(
+                        context=context,
+                        case_type=case_type,
+                        source_id=source_id,
+                    ),
+                ]
+                for evidence in evidence_records:
+                    evidence_id = evidence.get("evidence_id")
+                    if not isinstance(evidence_id, str):
+                        raise ContractValidationError("Document Evidence id is invalid")
+                    previous = evidence_by_id.get(evidence_id)
+                    if previous is not None and previous != evidence:
+                        raise ContractValidationError(
+                            "Document Evidence id has conflicting records"
+                        )
+                    evidence_by_id[evidence_id] = evidence
                 candidate, decision_input = self._calculate_candidate(
                     context=context,
                     case_type=case_type,
@@ -98,11 +119,7 @@ class CalculateGateRankStageHandler:
             )
         )
         primary = next(
-            (
-                value.candidate_id
-                for value in decisions
-                if value.is_primary_next_review
-            ),
+            (value.candidate_id for value in decisions if value.is_primary_next_review),
             None,
         )
         reason_codes = [] if calculated else ["NO_PROPOSALS_TO_CALCULATE"]
@@ -116,8 +133,7 @@ class CalculateGateRankStageHandler:
                     value.candidate_id for value in decisions if value.rank is None
                 ),
                 "evidence_records": [
-                    evidence_by_id[evidence_id]
-                    for evidence_id in sorted(evidence_by_id)
+                    evidence_by_id[evidence_id] for evidence_id in sorted(evidence_by_id)
                 ],
                 "reason_codes": reason_codes,
             },
@@ -169,6 +185,73 @@ class CalculateGateRankStageHandler:
             records.append(value)
         return records
 
+    @staticmethod
+    def _document_evidence(
+        *, context: StageContext, case_type: CaseType, source_id: str
+    ) -> list[dict[str, Any]]:
+        category_map = {
+            "LEASE_DEPOSIT": CostCategory.DEPOSIT.value,
+            "KEY_MONEY": CostCategory.ACQUISITION_OR_PREMIUM.value,
+            "MONTHLY_RENT": CostCategory.MONTHLY_OCCUPANCY.value,
+            "MANAGEMENT_FEE": CostCategory.MONTHLY_OCCUPANCY.value,
+            "FRANCHISE_FEE": CostCategory.FRANCHISE_INITIAL_FEES.value,
+            "EDUCATION_FEE": CostCategory.FRANCHISE_INITIAL_FEES.value,
+        }
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for claim in context.document_claims:
+            if (
+                claim.get("case_type") != case_type.value
+                or claim.get("source_id") != source_id
+                or not isinstance(claim.get("value_json"), int)
+            ):
+                continue
+            claim_type = claim.get("claim_type")
+            category = category_map.get(str(claim_type))
+            if claim_type == "QUOTE_TOTAL":
+                if claim.get("document_type") == "INTERIOR_QUOTE":
+                    category = CostCategory.CONSTRUCTION.value
+                elif claim.get("document_type") == "EQUIPMENT_QUOTE":
+                    category = CostCategory.EQUIPMENT.value
+            if category is not None:
+                if claim.get("has_open_conflict") is True:
+                    grouped.setdefault(f"CONFLICT:{category}", []).append(claim)
+                    continue
+                grouped.setdefault(category, []).append(claim)
+        records: list[dict[str, Any]] = []
+        for category, claims in sorted(grouped.items()):
+            if category.startswith("CONFLICT:"):
+                actual_category = category.removeprefix("CONFLICT:")
+                records.append(
+                    {
+                        "evidence_id": f"document-conflict-{claims[0]['claim_id']}",
+                        "project_id": context.project_id,
+                        "claim_type": f"DOCUMENT_CONFLICT_COST_{actual_category}",
+                        "value": {"kind": "CONFLICT"},
+                    }
+                )
+                continue
+            amount = sum(int(claim["value_json"]) for claim in claims)
+            claim_ids = sorted(str(claim["claim_id"]) for claim in claims)
+            digest = hashlib.sha256(rfc8785.dumps(claim_ids)).hexdigest()
+            records.append(
+                {
+                    "evidence_id": f"document-evidence-{digest[:32]}",
+                    "project_id": context.project_id,
+                    "claim_type": f"COST_{category}",
+                    "value": {
+                        "kind": "MONEY_RANGE",
+                        "low": amount,
+                        "base": amount,
+                        "high": amount,
+                    },
+                    "value_kind": "USER_CONFIRMED_FACT",
+                    "source": {"authority": "USER_DOCUMENT"},
+                    "geographic_scope": {"scope_type": "CASE", "scope_id": source_id},
+                    "document_claim_ids": claim_ids,
+                }
+            )
+        return records
+
     def _calculate_candidate(
         self,
         *,
@@ -209,9 +292,7 @@ class CalculateGateRankStageHandler:
         risks = self._risks(
             candidate_id=candidate_id,
             missing_fields=material_missing,
-            warnings=[
-                value for value in proposal.get("warnings", []) if isinstance(value, str)
-            ],
+            warnings=[value for value in proposal.get("warnings", []) if isinstance(value, str)],
             conflicts=finance_conflicts,
         )
         franchise = case_type == CaseType.FRANCHISE
@@ -225,16 +306,10 @@ class CalculateGateRankStageHandler:
             material_missing_fields=material_missing,
             risks=risks,
             franchise_eligibility=(
-                FranchiseEligibility.VERIFIED
-                if franchise
-                else FranchiseEligibility.NOT_APPLICABLE
+                FranchiseEligibility.VERIFIED if franchise else FranchiseEligibility.NOT_APPLICABLE
             ),
             franchise_eligibility_evidence_refs=(
-                [
-                    value
-                    for value in source.get("evidence_refs", [])
-                    if isinstance(value, str)
-                ]
+                [value for value in source.get("evidence_refs", []) if isinstance(value, str)]
                 if franchise
                 else []
             ),
@@ -337,9 +412,7 @@ class CalculateGateRankStageHandler:
             average_ticket_krw=average_ticket,
         )
         cost_refs = {
-            line.evidence_ref
-            for line in [*initial, *monthly]
-            if line.evidence_ref is not None
+            line.evidence_ref for line in [*initial, *monthly] if line.evidence_ref is not None
         }
         scalar_refs = {
             value
@@ -366,16 +439,19 @@ class CalculateGateRankStageHandler:
         evidence_records: list[dict[str, Any]],
         conflicts: list[str],
     ) -> CostLine:
-        if (
-            case_type == CaseType.INDEPENDENT
-            and category == CostCategory.FRANCHISE_INITIAL_FEES
-        ):
+        if case_type == CaseType.INDEPENDENT and category == CostCategory.FRANCHISE_INITIAL_FEES:
             return CostLine(
                 field_id=category.value,
                 category=category,
                 amount=MoneyRange(low=0, base=0, high=0),
                 provenance=ValueProvenance.DERIVED,
             )
+        if any(
+            value.get("claim_type") == f"DOCUMENT_CONFLICT_COST_{category.value}"
+            for value in evidence_records
+        ):
+            conflicts.append(f"DOCUMENT_COST_CONFLICT:{category.value}")
+            return self._unknown_cost(category)
         matches = self._money_records(
             case_type,
             category.value,
@@ -385,6 +461,11 @@ class CalculateGateRankStageHandler:
         )
         if not matches:
             return self._unknown_cost(category)
+        user_confirmed = [
+            value for value in matches if value.get("value_kind") == "USER_CONFIRMED_FACT"
+        ]
+        if user_confirmed:
+            matches = user_confirmed
         distinct = {
             (
                 value["value"].get("low"),
@@ -533,15 +614,10 @@ class CalculateGateRankStageHandler:
         warnings: list[str],
         conflicts: list[str],
     ) -> list[RiskSignal]:
-        values = [
-            (f"missing:{value}", RiskSeverity.HIGH) for value in sorted(set(missing_fields))
-        ]
+        values = [(f"missing:{value}", RiskSeverity.HIGH) for value in sorted(set(missing_fields))]
+        values.extend((f"warning:{value}", RiskSeverity.MEDIUM) for value in sorted(set(warnings)))
         values.extend(
-            (f"warning:{value}", RiskSeverity.MEDIUM) for value in sorted(set(warnings))
-        )
-        values.extend(
-            (f"conflict:{value}", RiskSeverity.CRITICAL)
-            for value in sorted(set(conflicts))
+            (f"conflict:{value}", RiskSeverity.CRITICAL) for value in sorted(set(conflicts))
         )
         return [
             RiskSignal(
