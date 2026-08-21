@@ -112,6 +112,9 @@ for role in \
   check "backend build has ${role}" check_project_role "$build_sa" "$role"
 done
 
+check 'backend build can read the Cloud Build source bucket' sh -c \
+  "gcloud storage buckets get-iam-policy 'gs://${project_id}_cloudbuild' --format=json | BUILD_SA='$build_sa' python3 -c 'import json,os,sys; member=\"serviceAccount:\"+os.environ[\"BUILD_SA\"]; bindings=json.load(sys.stdin).get(\"bindings\", []); raise SystemExit(0 if any(item.get(\"role\")==\"roles/storage.objectViewer\" and member in item.get(\"members\", []) for item in bindings) else 1)'"
+
 for runtime_sa in "$api_sa" "$worker_sa" "$migrate_sa"; do
   check "backend build can deploy as ${runtime_sa}" \
     check_service_account_user "$runtime_sa" "$build_sa"

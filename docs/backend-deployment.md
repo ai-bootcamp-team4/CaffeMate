@@ -58,6 +58,24 @@ CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
 운영 트래픽이나 성능 시험을 시작하기 전에는 tier와 zonal availability를 다시 검토해야 한다.
 현재 구성을 고가용성 운영 준비 완료로 표현하지 않는다.
 
+Backend image와 migration job은 full commit SHA를 release identity로 사용한다. 배포 스크립트는
+image가 없을 때 전용 build identity로 먼저 빌드하고, migration job에 Cloud SQL connection과
+Secret Manager password를 주입한다. migration 실행 뒤 별도 `verify-migrations` 실행이 저장소의
+모든 migration 이름과 checksum을 데이터베이스에서 다시 확인한다.
+
+```bash
+revision=$(git rev-parse HEAD)
+CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
+CAFFEMATE_SOURCE_REVISION="$revision" \
+  ./scripts/deploy-migration-job.sh
+CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
+CAFFEMATE_SOURCE_REVISION="$revision" \
+  ./scripts/verify-migration-job.sh
+```
+
+Cloud Run job 실행 성공만으로 migration 적용을 증명하지 않는다. 두 번째 검증 실행과 job의
+digest-pinned image·source revision 설정을 모두 read-back해야 한다.
+
 API는 browser가 호출하므로 network ingress는 `all`이지만 모든 업무 요청을 Firebase ID
 token으로 다시 검증한다. `allUsers` Cloud Run Invoker가 필요하면 관리자가 API service에만
 한 번 부여하고 정책을 read-back한다. build는 IAM policy를 수정하지 않는다.

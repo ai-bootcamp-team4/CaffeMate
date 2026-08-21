@@ -1,4 +1,5 @@
 import hashlib
+from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import Engine, text
@@ -6,6 +7,16 @@ from sqlalchemy import Engine, text
 
 class MigrationChecksumMismatchError(RuntimeError):
     pass
+
+
+class MigrationSetMismatchError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class MigrationVerification:
+    count: int
+    set_digest: str
 
 
 def apply_migrations(engine: Engine, migration_directory: Path | None = None) -> None:
@@ -48,3 +59,38 @@ def apply_migrations(engine: Engine, migration_directory: Path | None = None) ->
                 ),
                 {"version": migration_path.name, "checksum": checksum},
             )
+
+
+def verify_migrations(
+    engine: Engine, migration_directory: Path | None = None
+) -> MigrationVerification:
+    directory = migration_directory or Path(__file__).resolve().parents[1] / "migrations"
+    expected = {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(directory.glob("*.sql"))
+    }
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text("SELECT version, checksum FROM schema_migrations ORDER BY version")
+        ).all()
+    actual = {str(version): str(checksum) for version, checksum in rows}
+
+    if actual.keys() != expected.keys():
+        missing = sorted(expected.keys() - actual.keys())
+        unexpected = sorted(actual.keys() - expected.keys())
+        raise MigrationSetMismatchError(
+            f"Migration set mismatch: missing={missing}, unexpected={unexpected}"
+        )
+    mismatched = sorted(
+        version for version, checksum in expected.items() if actual[version] != checksum
+    )
+    if mismatched:
+        raise MigrationChecksumMismatchError(
+            f"Migration checksum mismatch: versions={mismatched}"
+        )
+
+    digest_input = "\n".join(f"{version}:{expected[version]}" for version in sorted(expected))
+    return MigrationVerification(
+        count=len(expected),
+        set_digest=hashlib.sha256(digest_input.encode()).hexdigest(),
+    )

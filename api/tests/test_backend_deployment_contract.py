@@ -18,6 +18,7 @@ def test_backend_cloudbuild_preserves_order_and_security_boundaries() -> None:
         config.index(step) for step in ordered_steps
     )
     assert "deploy/backend.Dockerfile" in config
+    assert "DOCKER_BUILDKIT=1" in config
     assert "--command=caffemate-api" in config
     assert "--args=migrate" in config
     assert "--max-retries=0" in config
@@ -55,7 +56,7 @@ def test_backend_foundation_scripts_preserve_scope_and_secret_values() -> None:
     assert "asia-northeast3" in bootstrap
     assert "caffemate-backend" in bootstrap
     assert "--immutable-tags" in bootstrap
-    assert "openssl rand -base64 48" in bootstrap
+    assert "openssl rand -hex 48 | tr -d '\\n'" in bootstrap
     assert "--data-file=-" in bootstrap
     assert "roles/owner" not in bootstrap
     assert "roles/editor" not in bootstrap
@@ -68,6 +69,8 @@ def test_backend_foundation_scripts_preserve_scope_and_secret_values() -> None:
     assert "secretAccessor" in verifier
     assert "roles/artifactregistry.writer" in verifier
     assert "roles/logging.logWriter" in verifier
+    assert "roles/storage.objectViewer" in verifier
+    assert "storage buckets get-iam-policy" in verifier
     assert "roles/run.admin" in verifier
     assert "roles/iam.serviceAccountUser" in verifier
     assert "versions access" not in verifier
@@ -99,3 +102,25 @@ def test_cloud_sql_scripts_lock_region_recovery_and_network_boundary() -> None:
     assert "point-in-time recovery is enabled" in verifier
     assert "deletion protection is enabled" in verifier
     assert "Cloud SQL client" in verifier
+
+
+def test_migration_runtime_build_and_job_contracts() -> None:
+    image_build = (ROOT / "cloudbuild.backend-image.yaml").read_text(encoding="utf-8")
+    deploy = (ROOT / "scripts" / "deploy-migration-job.sh").read_text(encoding="utf-8")
+    verifier = (ROOT / "scripts" / "verify-migration-job.sh").read_text(encoding="utf-8")
+
+    assert "deploy/backend.Dockerfile" in image_build
+    assert "DOCKER_BUILDKIT=1" in image_build
+    assert "${_IMAGE_TAG}" in image_build
+    assert "CLOUD_LOGGING_ONLY" in image_build
+    assert "CAFFEMATE_SOURCE_REVISION" in deploy
+    assert "--set-cloudsql-instances" in deploy
+    assert "DB_PASS=caffemate-db-password:latest" in deploy
+    assert "--max-retries=0" in deploy
+    assert "--args=verify-migrations" in deploy
+    assert "image_summary.fully_qualified_digest" in deploy
+    assert "backend@sha256:" in deploy
+    assert "--allow-unauthenticated" not in deploy
+    assert "versions access" not in deploy
+    assert "digest-pinned image" in verifier
+    assert "latest migration verification execution" in verifier
