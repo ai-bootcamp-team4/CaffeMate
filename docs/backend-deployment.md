@@ -28,6 +28,21 @@ included files를 제한할 수 있지만, 정확성 때문에 `api/**`, `worker
 6. `WORKFLOW_STAGE_READY` Pub/Sub topic과 authenticated push subscription
 7. outbox drain endpoint를 호출할 authenticated Cloud Scheduler job
 
+첫 번째 기반 리소스 묶음은 저장소의 idempotent bootstrap으로 생성한다. 이 명령은
+`caffemate-*` 이름의 Artifact Registry, 전용 service account와 Secret Manager 항목만
+생성하며 Cloud SQL이나 Cloud Run service는 만들지 않는다. Secret 값은 표준 출력이나
+저장소 파일에 기록하지 않는다.
+
+```bash
+CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
+  ./scripts/bootstrap-backend-foundation.sh
+CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
+  ./scripts/verify-backend-foundation.sh
+```
+
+bootstrap이 성공했다는 메시지만으로 생성 완료를 판단하지 않는다. 별도 verifier의 모든
+read-back 항목이 `PASS`여야 이 기반 리소스 묶음을 준비된 상태로 취급한다.
+
 API는 browser가 호출하므로 network ingress는 `all`이지만 모든 업무 요청을 Firebase ID
 token으로 다시 검증한다. `allUsers` Cloud Run Invoker가 필요하면 관리자가 API service에만
 한 번 부여하고 정책을 read-back한다. build는 IAM policy를 수정하지 않는다.

@@ -41,3 +41,33 @@ def test_backend_deployment_contract_requires_operational_readback() -> None:
     ):
         assert required_evidence in documentation
     assert "`pending`" in documentation
+
+
+def test_backend_foundation_scripts_preserve_scope_and_secret_values() -> None:
+    bootstrap = (ROOT / "scripts" / "bootstrap-backend-foundation.sh").read_text(
+        encoding="utf-8"
+    )
+    verifier = (ROOT / "scripts" / "verify-backend-foundation.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "CAFFEMATE_GCP_PROJECT_ID" in bootstrap
+    assert "asia-northeast3" in bootstrap
+    assert "caffemate-backend" in bootstrap
+    assert "--immutable-tags" in bootstrap
+    assert "openssl rand -base64 48" in bootstrap
+    assert "--data-file=-" in bootstrap
+    assert "roles/owner" not in bootstrap
+    assert "roles/editor" not in bootstrap
+    assert "allUsers" not in bootstrap
+    assert "gcloud sql" not in bootstrap
+    assert "gcloud run deploy" not in bootstrap
+
+    assert "exactly one enabled version" in verifier
+    assert "get-iam-policy" in verifier
+    assert "secretAccessor" in verifier
+    assert "roles/artifactregistry.writer" in verifier
+    assert "roles/logging.logWriter" in verifier
+    assert "roles/run.admin" in verifier
+    assert "roles/iam.serviceAccountUser" in verifier
+    assert "versions access" not in verifier
