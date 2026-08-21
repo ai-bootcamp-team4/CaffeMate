@@ -76,3 +76,8 @@ Control API가 관리형 Agent Runtime의 `EVIDENCE_PLAN` 단계를 실행하려
 
 프론트엔드는 Stage 이름이나 reason code로 권위 판단을 다시 계산하지 않는다. 표시 문구만
 매핑하며, 현재 결과는 별도의 `GET /v1/projects/{project_id}/result`에서 조회한다.
+
+결과 응답은 ResultBundle이 만들어질 때 고정한 `head`와 조회 시점의 `current_head`를 함께
+반환한다. 여덟 차원 중 하나라도 다르면 `freshness`는 `STALE`이며,
+`stale_head_dimensions`에 달라진 차원을 표시한다. 프론트엔드는 `STALE` 결과를 숨기거나
+최신 결과로 표현하지 않고, 새 Workflow 진행 상태와 함께 이전 참고 결과로 표시한다.

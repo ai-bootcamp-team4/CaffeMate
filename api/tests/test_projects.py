@@ -212,3 +212,13 @@ def test_openapi_exposes_control_api_contract(client: TestClient) -> None:
         "human_review_requests",
         "terminal_reason_codes",
     }.issubset(required)
+    result_response = schema["paths"]["/v1/projects/{project_id}/result"]["get"][
+        "responses"
+    ]["200"]
+    assert result_response["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ResultView"
+    }
+    result_required = set(schema["components"]["schemas"]["ResultView"]["required"])
+    assert {"freshness", "stale_head_dimensions", "current_head"}.issubset(
+        result_required
+    )

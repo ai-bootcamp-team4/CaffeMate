@@ -15,6 +15,11 @@ class AuditStatus(StrEnum):
     UNAVAILABLE = "UNAVAILABLE"
 
 
+class ResultFreshness(StrEnum):
+    CURRENT = "CURRENT"
+    STALE = "STALE"
+
+
 class ResultBundlePayload(StrictModel):
     candidates: list[dict[str, Any]] = Field(min_length=1, max_length=3)
     primary_candidate_id: str = Field(min_length=1)
@@ -74,3 +79,9 @@ class ResultBundle(StrictModel):
     primary_candidate_id: str
     audit_status: AuditStatus
     created_at: datetime
+
+
+class ResultView(ResultBundle):
+    freshness: ResultFreshness
+    stale_head_dimensions: list[str]
+    current_head: HeadFence

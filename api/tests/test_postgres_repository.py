@@ -1023,6 +1023,9 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
     assert len(result.candidates) == 1
     assert result.candidates[0]["case_type"] == "INDEPENDENT"
     assert result.candidates[0]["rank"] == 1
+    assert result.freshness.value == "CURRENT"
+    assert result.stale_head_dimensions == []
+    assert result.current_head == result.head
     assert committed_events == 1
     assert mcp.tool_names == ["resolve_area", "get_source_health"]
     assert runtime.task_types == [
@@ -1031,6 +1034,21 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
         "PROPOSE_INDEPENDENT",
         "CANDIDATE_AUDIT",
     ]
+
+    replacement = workflows.start(
+        project_id=project.project_id,
+        user_id="user-1",
+        workflow_code=WorkflowCode.FIRST_PROPOSAL,
+        idempotency_key="workflow-integration-2",
+    )
+    stale = ResultService(PostgresResultRepository(postgres_engine)).get_current(
+        project_id=project.project_id,
+        user_id="user-1",
+    )
+    assert stale.freshness.value == "STALE"
+    assert stale.stale_head_dimensions == ["workflow_generation"]
+    assert stale.current_head.workflow_generation == replacement.head.workflow_generation
+    assert stale.head.workflow_generation == run.head.workflow_generation
 
 
 def create_ready_stage(
@@ -1460,6 +1478,9 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
     assert loaded.result_bundle_id == "result-1"
     assert loaded.workflow_run_id == lease.workflow_run_id
     assert loaded.head == lease.head
+    assert loaded.freshness.value == "CURRENT"
+    assert loaded.stale_head_dimensions == []
+    assert loaded.current_head == loaded.head
     assert loaded.primary_candidate_id == "candidate-1"
     assert loaded.candidates[0]["display_name"] == "소형 개인카페"
     with pytest.raises(ResultNotFoundError):
