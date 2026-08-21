@@ -85,12 +85,12 @@ flowchart LR
 
 ### 4.2 GCP endpoint와 관리형 session
 
-Control API의 물리 설정은 `gcp_project_id`, `resource_id`, `app_name=caffemate-agents`를 분리한다. 제품의 `venture_project_id`를 GCP endpoint 조립에 사용하지 않는다.
+Control API의 물리 설정은 `gcp_project_id`와 `resource_id`를 분리한다. 제품의 `venture_project_id`를 GCP endpoint 조립에 사용하지 않는다.
 
 한 invocation은 다음 순서만 사용한다.
 
 1. `POST .../reasoningEngines/{resource_id}:query`의 `async_create_session`으로 ADK 관리형 session을 생성한다.
-2. 반환된 opaque session id를 아래 `/api/run`의 `sessionId`로 전달한다.
+2. 반환된 opaque session id를 아래 `:streamQuery`의 `session_id`로 전달한다.
 3. terminal outcome 뒤 `async_delete_session`을 같은 `:query` endpoint로 호출한다.
 4. 삭제 실패는 durable cleanup outbox로 넘겨 재시도하고, 재시도 예산 소진 시 운영 경고를 만든다.
 
@@ -98,7 +98,8 @@ Control API의 물리 설정은 `gcp_project_id`, `resource_id`, `app_name=caffe
 POST https://asia-northeast3-aiplatform.googleapis.com/v1/projects/{gcp_project_id}/locations/asia-northeast3/reasoningEngines/{resource_id}:query
 class_method=async_create_session
 
-POST https://asia-northeast3-aiplatform.googleapis.com/v1/projects/{gcp_project_id}/locations/asia-northeast3/reasoningEngines/{resource_id}/api/run
+POST https://asia-northeast3-aiplatform.googleapis.com/v1/projects/{gcp_project_id}/locations/asia-northeast3/reasoningEngines/{resource_id}:streamQuery?alt=sse
+class_method=async_stream_query
 
 POST https://asia-northeast3-aiplatform.googleapis.com/v1/projects/{gcp_project_id}/locations/asia-northeast3/reasoningEngines/{resource_id}:query
 class_method=async_delete_session
@@ -106,16 +107,15 @@ class_method=async_delete_session
 
 session 생성 입력의 `user_id`는 실제 사용자 식별자가 아니라 `venture_project_id`를 서버 비밀값으로 HMAC한 `p-<digest>`다. Control API가 session id를 추측하거나 직접 만들지 않는다. 별도 Sessions REST API와 `async_create_session`을 혼용하지 않으며 session TTL을 제품 계약으로 주장하지 않는다. 모든 `AgentTask`는 session 이력 없이 완전해야 하고 session은 제품 State나 대화 기억이 아니다.
 
-`/api/run` body는 다음과 같다.
+`:streamQuery` body는 다음과 같다.
 
 ```json
 {
-  "appName": "caffemate-agents",
-  "userId": "p-<venture-project-hmac>",
-  "sessionId": "<async_create_session returned id>",
-  "newMessage": {
-    "role": "user",
-    "parts": [{ "text": "<RFC 8785 canonical AgentTask JSON>" }]
+  "class_method": "async_stream_query",
+  "input": {
+    "user_id": "p-<venture-project-hmac>",
+    "session_id": "<async_create_session returned id>",
+    "message": "<RFC 8785 canonical AgentTask JSON>"
   }
 }
 ```
@@ -148,7 +148,7 @@ Control API가 수용하는 final event는 다음 조건을 모두 만족해야 
 ### 4.4 인증과 전송 adapter
 
 - Control API 전용 service account가 OAuth access token으로 세 endpoint를 호출한다.
-- 이 경로는 `async_create_session`, `run`, `async_delete_session`을 모두 `reasoningEngines:query` 계열 adapter로 수행하고 배포 service account에는 대상 runtime의 `aiplatform.reasoningEngines.query`만 부여한다.
+- 이 경로는 session 생성·삭제를 `:query`, 실행을 `:streamQuery` adapter로 수행하고 배포 service account에는 대상 runtime query에 필요한 최소 권한만 부여한다.
 - 사용자 token, MCP credential, database credential과 raw secret을 Agent 입력에 넣지 않는다.
 - runtime의 Agent identity에는 모델 호출과 자체 session 외에 MCP, Cloud SQL, BigQuery, Cloud Storage, Secret Manager 권한을 주지 않는다.
 
@@ -570,7 +570,7 @@ validated parser blocks
 ## 12. 공식 근거와 확인 시점
 
 - [Agent Runtime ADK 배포와 `async_stream_query`](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/runtime/quickstart-adk)
-- [Agent Runtime의 ADK `run`·`run_sse` endpoint](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/use-an-agent)
+- [Agent Runtime에서 ADK Agent 사용](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/use-an-adk-agent)
 - [ADK app의 관리형 session 생성·삭제](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/use-an-adk-agent)
 - [Agent Platform Runtime 지원 리전](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations)
 - [Gemini 3.5 Flash 모델별 지원 리전](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-flash)
