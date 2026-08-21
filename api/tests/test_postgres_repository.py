@@ -6,6 +6,7 @@ from sqlalchemy import Engine, create_engine, text
 from testcontainers.community.postgres import PostgresContainer
 from worker.outbox import PostgresOutboxRepository
 
+from app.agents.runtime import PostgresAgentCleanupSink
 from app.domain.errors import (
     ContractValidationError,
     IdempotencyKeyReusedError,
@@ -108,6 +109,39 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0004_result_bundle.sql",
             "0005_stage_failure.sql",
             "0006_first_proposal_dag.sql",
+        ]
+
+
+def test_agent_session_cleanup_outbox_is_durable_and_idempotent(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    del repository
+    sink = PostgresAgentCleanupSink(postgres_engine)
+    arguments = {
+        "runtime_resource": (
+            "projects/gcp-project/locations/asia-northeast3/reasoningEngines/runtime-1"
+        ),
+        "user_id": "p-pseudonymous",
+        "session_id": "session-1",
+    }
+
+    sink.enqueue_session_delete(**arguments)
+    sink.enqueue_session_delete(**arguments)
+
+    with postgres_engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT topic, aggregate_id, payload_json "
+                "FROM workflow_outbox WHERE topic = 'AGENT_SESSION_CLEANUP'"
+            )
+        ).mappings()
+        assert list(rows) == [
+            {
+                "topic": "AGENT_SESSION_CLEANUP",
+                "aggregate_id": "session-1",
+                "payload_json": arguments,
+            }
         ]
 
 
