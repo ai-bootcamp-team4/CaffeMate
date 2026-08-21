@@ -73,6 +73,9 @@ def validate_agent_boundary(
 
     errors.extend(_validate_allocated_ids(task, result))
     errors.extend(_validate_supported_references(task, result))
+    errors.extend(_validate_evidence_coverage_kinds(task, result))
+    errors.extend(_validate_money_ranges(result))
+    errors.extend(_validate_evidence_assessment_metadata(task, result))
     return BoundaryValidation(accepted=not errors, errors=errors)
 
 
@@ -131,6 +134,30 @@ def _validate_supported_references(
 ) -> list[BoundaryError]:
     task_payload = task["payload"]
     result_payload = result["payload"] or {}
+    evidence_records = _collect_evidence_records(task_payload)
+    supported_candidate_refs = (
+        set(evidence_records)
+        if task["task_type"] == "EVIDENCE_ASSESS"
+        else _collect_named_strings(
+            task_payload,
+            {
+                "candidate_id",
+                "candidate_ids",
+                "candidate_ref",
+                "candidate_refs",
+                "current_candidate_refs",
+            },
+        )
+    )
+    supported_assumption_refs = _collect_named_strings(
+        task_payload,
+        {"assumption_refs", "support_refs"},
+    )
+    supported_assumption_refs.update(
+        evidence_id
+        for evidence_id, evidence in evidence_records.items()
+        if evidence.get("value_kind") in {"DECLARED_ASSUMPTION", "UNKNOWN"}
+    )
     checks = (
         (
             "evidence",
@@ -156,20 +183,16 @@ def _validate_supported_references(
         ),
         (
             "candidate",
-            _collect_named_strings(
-                task_payload,
-                {
-                    "candidate_id",
-                    "candidate_ids",
-                    "candidate_ref",
-                    "candidate_refs",
-                    "current_candidate_refs",
-                },
-            ),
+            supported_candidate_refs,
             _collect_named_strings(
                 result_payload,
                 {"candidate_id", "candidate_ids", "candidate_ref", "candidate_refs"},
             ),
+        ),
+        (
+            "assumption",
+            supported_assumption_refs,
+            _collect_named_strings(result_payload, {"assumption_refs"}),
         ),
     )
     errors: list[BoundaryError] = []
@@ -187,6 +210,180 @@ def _validate_supported_references(
                 )
             )
     return errors
+
+
+def _validate_evidence_coverage_kinds(
+    task: dict[str, Any],
+    result: dict[str, Any],
+) -> list[BoundaryError]:
+    evidence_records = _collect_evidence_records(task["payload"])
+    coverage_refs = _collect_named_strings(result, {"evidence_refs", "support_refs"})
+    if task["task_type"] == "EVIDENCE_ASSESS":
+        result_payload = result.get("payload") or {}
+        for assessment in result_payload.get("assessments", []):
+            if not isinstance(assessment, dict):
+                continue
+            if assessment.get("relation") not in {"SUPPORTS", "CONTRADICTS"}:
+                continue
+            candidate_ref = assessment.get("candidate_ref")
+            if isinstance(candidate_ref, str):
+                coverage_refs.add(candidate_ref)
+
+    forbidden = sorted(
+        reference
+        for reference in coverage_refs
+        if evidence_records.get(reference, {}).get("value_kind")
+        in {"DECLARED_ASSUMPTION", "UNKNOWN"}
+    )
+    if not forbidden:
+        return []
+    return [
+        BoundaryError(
+            code="ASSUMPTION_USED_AS_EVIDENCE",
+            json_pointer="/payload",
+            message=(
+                "Assumption or unknown ids were used as evidence coverage: "
+                f"{', '.join(forbidden)}"
+            ),
+        )
+    ]
+
+
+def _validate_money_ranges(result: dict[str, Any]) -> list[BoundaryError]:
+    invalid_paths = _find_non_monotonic_money_ranges(result.get("payload") or {}, "/payload")
+    if not invalid_paths:
+        return []
+    return [
+        BoundaryError(
+            code="MONEY_RANGE_NON_MONOTONIC",
+            json_pointer=invalid_paths[0],
+            message="Known money range must satisfy low <= base <= high",
+        )
+    ]
+
+
+def _validate_evidence_assessment_metadata(
+    task: dict[str, Any],
+    result: dict[str, Any],
+) -> list[BoundaryError]:
+    if task["task_type"] != "EVIDENCE_ASSESS" or result.get("payload") is None:
+        return []
+
+    task_payload = task["payload"]
+    result_payload = result["payload"]
+    claims = {
+        claim["claim_id"]: claim
+        for claim in task_payload.get("claims", [])
+        if isinstance(claim, dict) and isinstance(claim.get("claim_id"), str)
+    }
+    evidence_records = _collect_evidence_records(task_payload)
+    errors: list[BoundaryError] = []
+    for index, assessment in enumerate(result_payload.get("assessments", [])):
+        if not isinstance(assessment, dict):
+            continue
+        claim = claims.get(assessment.get("claim_id"))
+        candidate_ref = assessment.get("candidate_ref")
+        evidence = evidence_records.get(candidate_ref) if isinstance(candidate_ref, str) else None
+        if claim is None or evidence is None:
+            continue
+
+        if assessment.get("scope_status") == "MATCH" and _scopes_definitely_mismatch(
+            claim.get("geographic_scope"),
+            evidence.get("geographic_scope"),
+        ):
+            errors.append(
+                BoundaryError(
+                    code="EVIDENCE_SCOPE_OR_DATE_INVALID",
+                    json_pointer=f"/payload/assessments/{index}/scope_status",
+                    message="MATCH contradicts the structured geographic scope ids",
+                )
+            )
+
+        evidence_freshness = evidence.get("freshness_status")
+        if assessment.get("freshness_status") == "FRESH" and evidence_freshness != "FRESH":
+            errors.append(
+                BoundaryError(
+                    code="EVIDENCE_SCOPE_OR_DATE_INVALID",
+                    json_pointer=f"/payload/assessments/{index}/freshness_status",
+                    message=(
+                        "FRESH contradicts EvidenceRecord "
+                        f"freshness_status={evidence_freshness}"
+                    ),
+                )
+            )
+
+        if (
+            assessment.get("date_status") == "MATCH"
+            and claim.get("required_freshness") is not None
+            and evidence_freshness != "FRESH"
+        ):
+            errors.append(
+                BoundaryError(
+                    code="EVIDENCE_SCOPE_OR_DATE_INVALID",
+                    json_pointer=f"/payload/assessments/{index}/date_status",
+                    message=(
+                        "MATCH is not allowed when the claim requires freshness "
+                        "and the EvidenceRecord is not FRESH"
+                    ),
+                )
+            )
+    return errors
+
+
+def _collect_evidence_records(value: Any) -> dict[str, dict[str, Any]]:
+    records: dict[str, dict[str, Any]] = {}
+    if isinstance(value, dict):
+        evidence_id = value.get("evidence_id")
+        value_kind = value.get("value_kind")
+        if isinstance(evidence_id, str) and isinstance(value_kind, str):
+            records[evidence_id] = value
+        for child in value.values():
+            records.update(_collect_evidence_records(child))
+    elif isinstance(value, list):
+        for child in value:
+            records.update(_collect_evidence_records(child))
+    return records
+
+
+def _find_non_monotonic_money_ranges(value: Any, path: str) -> list[str]:
+    invalid: list[str] = []
+    if isinstance(value, dict):
+        if value.get("kind") == "MONEY_RANGE":
+            low = value.get("low")
+            base = value.get("base")
+            high = value.get("high")
+            if (
+                isinstance(low, int | float)
+                and not isinstance(low, bool)
+                and isinstance(base, int | float)
+                and not isinstance(base, bool)
+                and isinstance(high, int | float)
+                and not isinstance(high, bool)
+            ):
+                if not (low <= base <= high):
+                    invalid.append(path)
+        for key, child in value.items():
+            invalid.extend(_find_non_monotonic_money_ranges(child, f"{path}/{key}"))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            invalid.extend(_find_non_monotonic_money_ranges(child, f"{path}/{index}"))
+    return invalid
+
+
+def _scopes_definitely_mismatch(expected: Any, actual: Any) -> bool:
+    if not isinstance(expected, dict) or not isinstance(actual, dict):
+        return False
+    expected_type = expected.get("scope_type")
+    actual_type = actual.get("scope_type")
+    expected_id = expected.get("scope_id")
+    actual_id = actual.get("scope_id")
+    return (
+        isinstance(expected_type, str)
+        and expected_type == actual_type
+        and isinstance(expected_id, str)
+        and isinstance(actual_id, str)
+        and expected_id != actual_id
+    )
 
 
 def _collect_named_strings(value: Any, keys: set[str]) -> set[str]:

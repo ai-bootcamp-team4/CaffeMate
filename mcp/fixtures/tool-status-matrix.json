@@ -1,0 +1,828 @@
+{
+  "schema_version": "1.0.0",
+  "cases": [
+    {
+      "id": "resolve_area-ok",
+      "tool_name": "resolve_area",
+      "status": "OK",
+      "input": {
+        "query": "성수동",
+        "country_code": "KR",
+        "limit": 5
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-resolve_area-ok",
+        "tool_name": "resolve_area",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "resolve_area-partial",
+      "tool_name": "resolve_area",
+      "status": "PARTIAL",
+      "input": {
+        "query": "성수동",
+        "country_code": "KR",
+        "limit": 5
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-resolve_area-partial",
+        "tool_name": "resolve_area",
+        "tool_version": "1.0.0",
+        "status": "PARTIAL",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [
+          "fixture_partial"
+        ],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "resolve_area-error",
+      "tool_name": "resolve_area",
+      "status": "ERROR",
+      "input": {
+        "query": "성수동",
+        "country_code": "KR",
+        "limit": 5
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-resolve_area-error",
+        "tool_name": "resolve_area",
+        "tool_version": "1.0.0",
+        "status": "ERROR",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [
+          "FIXTURE_ERROR"
+        ],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_area_profile-ok",
+      "tool_name": "get_area_profile",
+      "status": "OK",
+      "input": {
+        "administrative_code": "11200690",
+        "boundary_version": "2026-01",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_area_profile-ok",
+        "tool_name": "get_area_profile",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_area_profile-partial",
+      "tool_name": "get_area_profile",
+      "status": "PARTIAL",
+      "input": {
+        "administrative_code": "11200690",
+        "boundary_version": "2026-01",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_area_profile-partial",
+        "tool_name": "get_area_profile",
+        "tool_version": "1.0.0",
+        "status": "PARTIAL",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [
+          "fixture_partial"
+        ],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_area_profile-error",
+      "tool_name": "get_area_profile",
+      "status": "ERROR",
+      "input": {
+        "administrative_code": "11200690",
+        "boundary_version": "2026-01",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_area_profile-error",
+        "tool_name": "get_area_profile",
+        "tool_version": "1.0.0",
+        "status": "ERROR",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [
+          "FIXTURE_ERROR"
+        ],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "search_cafe_observations-ok",
+      "tool_name": "search_cafe_observations",
+      "status": "OK",
+      "input": {
+        "administrative_code": "11200690",
+        "boundary_version": "2026-01",
+        "as_of": "2026-08-21",
+        "metrics": [
+          "CAFE_COUNT"
+        ]
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-search_cafe_observations-ok",
+        "tool_name": "search_cafe_observations",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "search_cafe_observations-partial",
+      "tool_name": "search_cafe_observations",
+      "status": "PARTIAL",
+      "input": {
+        "administrative_code": "11200690",
+        "boundary_version": "2026-01",
+        "as_of": "2026-08-21",
+        "metrics": [
+          "CAFE_COUNT"
+        ]
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-search_cafe_observations-partial",
+        "tool_name": "search_cafe_observations",
+        "tool_version": "1.0.0",
+        "status": "PARTIAL",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [
+          "fixture_partial"
+        ],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "search_cafe_observations-error",
+      "tool_name": "search_cafe_observations",
+      "status": "ERROR",
+      "input": {
+        "administrative_code": "11200690",
+        "boundary_version": "2026-01",
+        "as_of": "2026-08-21",
+        "metrics": [
+          "CAFE_COUNT"
+        ]
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-search_cafe_observations-error",
+        "tool_name": "search_cafe_observations",
+        "tool_version": "1.0.0",
+        "status": "ERROR",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [
+          "FIXTURE_ERROR"
+        ],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "search_business_events-ok",
+      "tool_name": "search_business_events",
+      "status": "OK",
+      "input": {
+        "administrative_code": "11200690",
+        "business_category": "CAFE",
+        "date_from": "2026-01-01",
+        "date_to": "2026-08-21",
+        "event_types": [
+          "OPEN"
+        ]
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-search_business_events-ok",
+        "tool_name": "search_business_events",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "search_business_events-partial",
+      "tool_name": "search_business_events",
+      "status": "PARTIAL",
+      "input": {
+        "administrative_code": "11200690",
+        "business_category": "CAFE",
+        "date_from": "2026-01-01",
+        "date_to": "2026-08-21",
+        "event_types": [
+          "OPEN"
+        ]
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-search_business_events-partial",
+        "tool_name": "search_business_events",
+        "tool_version": "1.0.0",
+        "status": "PARTIAL",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [
+          "fixture_partial"
+        ],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "search_business_events-error",
+      "tool_name": "search_business_events",
+      "status": "ERROR",
+      "input": {
+        "administrative_code": "11200690",
+        "business_category": "CAFE",
+        "date_from": "2026-01-01",
+        "date_to": "2026-08-21",
+        "event_types": [
+          "OPEN"
+        ]
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-search_business_events-error",
+        "tool_name": "search_business_events",
+        "tool_version": "1.0.0",
+        "status": "ERROR",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [
+          "FIXTURE_ERROR"
+        ],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "list_franchise_universe-ok",
+      "tool_name": "list_franchise_universe",
+      "status": "OK",
+      "input": {
+        "business_category": "CAFE",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-list_franchise_universe-ok",
+        "tool_name": "list_franchise_universe",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "list_franchise_universe-partial",
+      "tool_name": "list_franchise_universe",
+      "status": "PARTIAL",
+      "input": {
+        "business_category": "CAFE",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-list_franchise_universe-partial",
+        "tool_name": "list_franchise_universe",
+        "tool_version": "1.0.0",
+        "status": "PARTIAL",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [
+          "fixture_partial"
+        ],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "list_franchise_universe-error",
+      "tool_name": "list_franchise_universe",
+      "status": "ERROR",
+      "input": {
+        "business_category": "CAFE",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-list_franchise_universe-error",
+        "tool_name": "list_franchise_universe",
+        "tool_version": "1.0.0",
+        "status": "ERROR",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [
+          "FIXTURE_ERROR"
+        ],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_franchise_disclosure-ok",
+      "tool_name": "get_franchise_disclosure",
+      "status": "OK",
+      "input": {
+        "brand_id": "brand-1",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_franchise_disclosure-ok",
+        "tool_name": "get_franchise_disclosure",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_franchise_disclosure-partial",
+      "tool_name": "get_franchise_disclosure",
+      "status": "PARTIAL",
+      "input": {
+        "brand_id": "brand-1",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_franchise_disclosure-partial",
+        "tool_name": "get_franchise_disclosure",
+        "tool_version": "1.0.0",
+        "status": "PARTIAL",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [
+          "fixture_partial"
+        ],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_franchise_disclosure-error",
+      "tool_name": "get_franchise_disclosure",
+      "status": "ERROR",
+      "input": {
+        "brand_id": "brand-1",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_franchise_disclosure-error",
+        "tool_name": "get_franchise_disclosure",
+        "tool_version": "1.0.0",
+        "status": "ERROR",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [
+          "FIXTURE_ERROR"
+        ],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "retrieve_official_documents-ok",
+      "tool_name": "retrieve_official_documents",
+      "status": "OK",
+      "input": {
+        "query": "가맹사업법",
+        "source_families": [
+          "LAW"
+        ],
+        "as_of": "2026-08-21",
+        "limit": 5
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-retrieve_official_documents-ok",
+        "tool_name": "retrieve_official_documents",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "retrieve_official_documents-partial",
+      "tool_name": "retrieve_official_documents",
+      "status": "PARTIAL",
+      "input": {
+        "query": "가맹사업법",
+        "source_families": [
+          "LAW"
+        ],
+        "as_of": "2026-08-21",
+        "limit": 5
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-retrieve_official_documents-partial",
+        "tool_name": "retrieve_official_documents",
+        "tool_version": "1.0.0",
+        "status": "PARTIAL",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [
+          "fixture_partial"
+        ],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "retrieve_official_documents-error",
+      "tool_name": "retrieve_official_documents",
+      "status": "ERROR",
+      "input": {
+        "query": "가맹사업법",
+        "source_families": [
+          "LAW"
+        ],
+        "as_of": "2026-08-21",
+        "limit": 5
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-retrieve_official_documents-error",
+        "tool_name": "retrieve_official_documents",
+        "tool_version": "1.0.0",
+        "status": "ERROR",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [
+          "FIXTURE_ERROR"
+        ],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "retrieve_project_documents-ok",
+      "tool_name": "retrieve_project_documents",
+      "status": "OK",
+      "input": {
+        "query": "임대료",
+        "document_revision_ids": [
+          "docrev-1"
+        ],
+        "limit": 5
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-retrieve_project_documents-ok",
+        "tool_name": "retrieve_project_documents",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "retrieve_project_documents-partial",
+      "tool_name": "retrieve_project_documents",
+      "status": "PARTIAL",
+      "input": {
+        "query": "임대료",
+        "document_revision_ids": [
+          "docrev-1"
+        ],
+        "limit": 5
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-retrieve_project_documents-partial",
+        "tool_name": "retrieve_project_documents",
+        "tool_version": "1.0.0",
+        "status": "PARTIAL",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [
+          "fixture_partial"
+        ],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "retrieve_project_documents-error",
+      "tool_name": "retrieve_project_documents",
+      "status": "ERROR",
+      "input": {
+        "query": "임대료",
+        "document_revision_ids": [
+          "docrev-1"
+        ],
+        "limit": 5
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-retrieve_project_documents-error",
+        "tool_name": "retrieve_project_documents",
+        "tool_version": "1.0.0",
+        "status": "ERROR",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [
+          "FIXTURE_ERROR"
+        ],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_official_procedure-ok",
+      "tool_name": "get_official_procedure",
+      "status": "OK",
+      "input": {
+        "jurisdiction_code": "11",
+        "procedure_type": "BUSINESS_REGISTRATION",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_official_procedure-ok",
+        "tool_name": "get_official_procedure",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_official_procedure-partial",
+      "tool_name": "get_official_procedure",
+      "status": "PARTIAL",
+      "input": {
+        "jurisdiction_code": "11",
+        "procedure_type": "BUSINESS_REGISTRATION",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_official_procedure-partial",
+        "tool_name": "get_official_procedure",
+        "tool_version": "1.0.0",
+        "status": "PARTIAL",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [
+          "fixture_partial"
+        ],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_official_procedure-error",
+      "tool_name": "get_official_procedure",
+      "status": "ERROR",
+      "input": {
+        "jurisdiction_code": "11",
+        "procedure_type": "BUSINESS_REGISTRATION",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_official_procedure-error",
+        "tool_name": "get_official_procedure",
+        "tool_version": "1.0.0",
+        "status": "ERROR",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [
+          "FIXTURE_ERROR"
+        ],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_source_health-ok",
+      "tool_name": "get_source_health",
+      "status": "OK",
+      "input": {
+        "source_ids": [
+          "source-1"
+        ],
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_source_health-ok",
+        "tool_name": "get_source_health",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_source_health-partial",
+      "tool_name": "get_source_health",
+      "status": "PARTIAL",
+      "input": {
+        "source_ids": [
+          "source-1"
+        ],
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_source_health-partial",
+        "tool_name": "get_source_health",
+        "tool_version": "1.0.0",
+        "status": "PARTIAL",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [
+          "fixture_partial"
+        ],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_source_health-error",
+      "tool_name": "get_source_health",
+      "status": "ERROR",
+      "input": {
+        "source_ids": [
+          "source-1"
+        ],
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_source_health-error",
+        "tool_name": "get_source_health",
+        "tool_version": "1.0.0",
+        "status": "ERROR",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [
+          "FIXTURE_ERROR"
+        ],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    }
+  ]
+}

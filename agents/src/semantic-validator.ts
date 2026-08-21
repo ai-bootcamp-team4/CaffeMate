@@ -48,6 +48,124 @@ function requirePoolMember(issues: SemanticIssue[], pool: Set<string>, value: un
   }
 }
 
+function collectNamedStrings(value: unknown, keys: Set<string>, collected = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) {
+    for (const child of value) collectNamedStrings(child, keys, collected)
+    return collected
+  }
+  if (!value || typeof value !== 'object') return collected
+
+  for (const [key, child] of Object.entries(value as JsonObject)) {
+    if (keys.has(key)) {
+      if (typeof child === 'string') collected.add(child)
+      else for (const item of strings(child)) collected.add(item)
+    }
+    collectNamedStrings(child, keys, collected)
+  }
+  return collected
+}
+
+function collectEvidenceRecords(value: unknown, records = new Map<string, JsonObject>()): Map<string, JsonObject> {
+  if (Array.isArray(value)) {
+    for (const child of value) collectEvidenceRecords(child, records)
+    return records
+  }
+  if (!value || typeof value !== 'object') return records
+
+  const candidate = value as JsonObject
+  if (typeof candidate.evidence_id === 'string' && typeof candidate.value_kind === 'string') {
+    records.set(candidate.evidence_id, candidate)
+  }
+  for (const child of Object.values(candidate)) collectEvidenceRecords(child, records)
+  return records
+}
+
+function addUnsupportedReferences(
+  issues: SemanticIssue[],
+  supported: Set<string>,
+  referenced: Set<string>,
+  path: string,
+  kind: string,
+): void {
+  const unsupported = [...referenced].filter((reference) => !supported.has(reference)).sort()
+  if (unsupported.length > 0) {
+    add(issues, 'UNSUPPORTED_REFERENCE', path, `output used unsupported ${kind} refs: ${unsupported.join(', ')}`)
+  }
+}
+
+function validateSupportedReferences(task: AgentTask, result: AgentTaskResult, issues: SemanticIssue[]): void {
+  const taskPayload = object(task.payload)
+  const supportedEvidence = collectNamedStrings(taskPayload, new Set(['evidence_id', 'evidence_ids', 'evidence_refs', 'support_refs']))
+  const referencedEvidence = collectNamedStrings(result, new Set(['evidence_refs', 'support_refs']))
+  addUnsupportedReferences(issues, supportedEvidence, referencedEvidence, '/evidence_refs', 'evidence')
+
+  const supportedClaims = collectNamedStrings(taskPayload, new Set(['claim_id', 'claim_ids', 'claim_id_pool', 'claim_refs']))
+  const referencedClaims = collectNamedStrings(result, new Set(['claim_id', 'claim_ids', 'missing_claim_ids', 'claim_refs']))
+  addUnsupportedReferences(issues, supportedClaims, referencedClaims, '/payload', 'claim')
+
+  const referencedCandidates = collectNamedStrings(result.payload, new Set(['candidate_id', 'candidate_ids', 'candidate_ref', 'candidate_refs']))
+  const supportedCandidates = task.task_type === 'EVIDENCE_ASSESS'
+    ? new Set(collectEvidenceRecords(taskPayload).keys())
+    : collectNamedStrings(taskPayload, new Set(['candidate_id', 'candidate_ids', 'candidate_ref', 'candidate_refs', 'current_candidate_refs']))
+  addUnsupportedReferences(issues, supportedCandidates, referencedCandidates, '/payload', 'candidate')
+
+  const supportedAssumptions = collectNamedStrings(taskPayload, new Set(['assumption_refs', 'support_refs']))
+  for (const [evidenceId, evidence] of collectEvidenceRecords(taskPayload)) {
+    if (evidence.value_kind === 'DECLARED_ASSUMPTION' || evidence.value_kind === 'UNKNOWN') supportedAssumptions.add(evidenceId)
+  }
+  const referencedAssumptions = collectNamedStrings(result.payload, new Set(['assumption_refs']))
+  addUnsupportedReferences(issues, supportedAssumptions, referencedAssumptions, '/payload', 'assumption')
+}
+
+function validateEvidenceCoverageKinds(taskPayload: JsonObject, result: AgentTaskResult, issues: SemanticIssue[]): void {
+  const evidenceById = collectEvidenceRecords(taskPayload)
+  const coverageRefs = collectNamedStrings(result, new Set(['evidence_refs', 'support_refs']))
+  if (result.task_type === 'EVIDENCE_ASSESS') {
+    for (const rawAssessment of array(object(result.payload).assessments)) {
+      const assessment = object(rawAssessment)
+      if ((assessment.relation === 'SUPPORTS' || assessment.relation === 'CONTRADICTS') && typeof assessment.candidate_ref === 'string') {
+        coverageRefs.add(assessment.candidate_ref)
+      }
+    }
+  }
+
+  for (const reference of [...coverageRefs].sort()) {
+    const evidence = evidenceById.get(reference)
+    if (evidence?.value_kind === 'DECLARED_ASSUMPTION' || evidence?.value_kind === 'UNKNOWN') {
+      add(issues, 'ASSUMPTION_USED_AS_EVIDENCE', '/payload', `${reference} cannot be used as evidence coverage`)
+    }
+  }
+}
+
+function validateMoneyRanges(value: unknown, issues: SemanticIssue[], path = '/payload'): void {
+  if (Array.isArray(value)) {
+    for (const [index, child] of value.entries()) validateMoneyRanges(child, issues, `${path}/${index}`)
+    return
+  }
+  if (!value || typeof value !== 'object') return
+
+  const candidate = value as JsonObject
+  if (candidate.kind === 'MONEY_RANGE') {
+    const low = candidate.low
+    const base = candidate.base
+    const high = candidate.high
+    if (typeof low === 'number' && typeof base === 'number' && typeof high === 'number' && !(low <= base && base <= high)) {
+      add(issues, 'MONEY_RANGE_NON_MONOTONIC', path, 'known money range must satisfy low <= base <= high')
+    }
+  }
+  for (const [key, child] of Object.entries(candidate)) validateMoneyRanges(child, issues, `${path}/${key}`)
+}
+
+function scopesDefinitelyMismatch(left: unknown, right: unknown): boolean {
+  const expected = object(left)
+  const actual = object(right)
+  return typeof expected.scope_type === 'string'
+    && expected.scope_type === actual.scope_type
+    && typeof expected.scope_id === 'string'
+    && typeof actual.scope_id === 'string'
+    && expected.scope_id !== actual.scope_id
+}
+
 function validateIntent(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
   const opPool = new Set(strings(taskPayload.operation_id_pool))
   const fieldPool = new Set(strings(taskPayload.allowed_field_paths))
@@ -107,9 +225,47 @@ function validateEvidencePlan(taskPayload: JsonObject, resultPayload: JsonObject
 }
 
 function validateEvidenceAssess(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
-  const claimIds = new Set(array(taskPayload.claims).map((raw) => object(raw).claim_id).filter((id): id is string => typeof id === 'string'))
+  const claims = new Map<string, JsonObject>()
+  for (const rawClaim of array(taskPayload.claims)) {
+    const claim = object(rawClaim)
+    if (typeof claim.claim_id === 'string') claims.set(claim.claim_id, claim)
+  }
+  const claimIds = new Set(claims.keys())
+  const evidenceById = collectEvidenceRecords(taskPayload)
   for (const [index, rawAssessment] of array(resultPayload.assessments).entries()) {
-    requirePoolMember(issues, claimIds, object(rawAssessment).claim_id, `/payload/assessments/${index}/claim_id`)
+    const assessment = object(rawAssessment)
+    requirePoolMember(issues, claimIds, assessment.claim_id, `/payload/assessments/${index}/claim_id`)
+
+    const claim = typeof assessment.claim_id === 'string' ? claims.get(assessment.claim_id) : undefined
+    const evidence = typeof assessment.candidate_ref === 'string' ? evidenceById.get(assessment.candidate_ref) : undefined
+    if (!claim || !evidence) continue
+
+    if (assessment.scope_status === 'MATCH' && scopesDefinitelyMismatch(claim.geographic_scope, evidence.geographic_scope)) {
+      add(
+        issues,
+        'EVIDENCE_SCOPE_OR_DATE_INVALID',
+        `/payload/assessments/${index}/scope_status`,
+        'MATCH contradicts the structured geographic scope ids',
+      )
+    }
+
+    if (assessment.freshness_status === 'FRESH' && evidence.freshness_status !== 'FRESH') {
+      add(
+        issues,
+        'EVIDENCE_SCOPE_OR_DATE_INVALID',
+        `/payload/assessments/${index}/freshness_status`,
+        `FRESH contradicts EvidenceRecord freshness_status=${String(evidence.freshness_status)}`,
+      )
+    }
+
+    if (assessment.date_status === 'MATCH' && claim.required_freshness !== null && evidence.freshness_status !== 'FRESH') {
+      add(
+        issues,
+        'EVIDENCE_SCOPE_OR_DATE_INVALID',
+        `/payload/assessments/${index}/date_status`,
+        'MATCH is not allowed when the claim requires freshness and the EvidenceRecord is not FRESH',
+      )
+    }
   }
   for (const [index, claimId] of strings(resultPayload.missing_claims).entries()) {
     requirePoolMember(issues, claimIds, claimId, `/payload/missing_claims/${index}`)
@@ -221,11 +377,14 @@ function validateCandidateAudit(taskPayload: JsonObject, resultPayload: JsonObje
 }
 
 export function validateAgentSemantics(task: AgentTask, result: AgentTaskResult): SemanticValidation {
-  if (result.payload === null) return { ok: true, issues: [] }
-
   const issues: SemanticIssue[] = []
   const taskPayload = object(task.payload)
   const resultPayload = object(result.payload)
+
+  validateSupportedReferences(task, result, issues)
+  validateEvidenceCoverageKinds(taskPayload, result, issues)
+  validateMoneyRanges(result.payload, issues)
+  if (result.payload === null) return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues }
 
   switch (task.task_type) {
     case 'INTENT_DELTA': validateIntent(taskPayload, resultPayload, issues); break
