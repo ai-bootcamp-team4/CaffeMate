@@ -340,7 +340,9 @@ def test_workflow_requires_confirmed_onboarding_and_rolls_back_command(
     projects = ProjectService(repository)
     project = projects.create_project(user_id="user-1", idempotency_key="create-1")
     workflows = WorkflowService(
-        PostgresWorkflowRepository(postgres_engine, policy_snapshot_id="policy-v1")
+        PostgresWorkflowRepository(
+            postgres_engine, policy_snapshot_id="policy-v1", seed_registry_id="seed-v1"
+        )
     )
 
     from app.domain.errors import WorkflowPreconditionError
@@ -374,7 +376,9 @@ def test_workflow_start_atomically_writes_run_stage_event_and_outbox(
 ) -> None:
     project = onboarded_project(repository)
     workflows = WorkflowService(
-        PostgresWorkflowRepository(postgres_engine, policy_snapshot_id="policy-v1")
+        PostgresWorkflowRepository(
+            postgres_engine, policy_snapshot_id="policy-v1", seed_registry_id="seed-v1"
+        )
     )
 
     run = workflows.start(
@@ -387,6 +391,7 @@ def test_workflow_start_atomically_writes_run_stage_event_and_outbox(
     assert run.head.workflow_generation == 1
     assert run.head.state_version == 1
     assert run.head.policy_snapshot_id == "policy-v1"
+    assert run.head.seed_registry_id == "seed-v1"
     assert run.head.founder_snapshot_id == f"{project.project_id}:state:1:founder"
     assert run.head.area_snapshot_id == f"{project.project_id}:state:1:area"
     with postgres_engine.connect() as connection:
@@ -400,9 +405,11 @@ def test_workflow_start_atomically_writes_run_stage_event_and_outbox(
                 "workflow_outbox",
             )
         }
-        outbox = connection.execute(
-            text("SELECT topic, status, payload_json FROM workflow_outbox")
-        ).mappings().one()
+        outbox = (
+            connection.execute(text("SELECT topic, status, payload_json FROM workflow_outbox"))
+            .mappings()
+            .one()
+        )
         digest_lengths = list(
             connection.execute(
                 text(
@@ -431,7 +438,9 @@ def test_concurrent_workflow_redelivery_returns_one_run(
 ) -> None:
     project = onboarded_project(repository)
     workflows = WorkflowService(
-        PostgresWorkflowRepository(postgres_engine, policy_snapshot_id="policy-v1")
+        PostgresWorkflowRepository(
+            postgres_engine, policy_snapshot_id="policy-v1", seed_registry_id="seed-v1"
+        )
     )
 
     def start(_index: int) -> str:
@@ -457,7 +466,9 @@ def test_workflow_is_hidden_from_other_project_owner(
 ) -> None:
     project = onboarded_project(repository)
     workflows = WorkflowService(
-        PostgresWorkflowRepository(postgres_engine, policy_snapshot_id="policy-v1")
+        PostgresWorkflowRepository(
+            postgres_engine, policy_snapshot_id="policy-v1", seed_registry_id="seed-v1"
+        )
     )
     run = workflows.start(
         project_id=project.project_id,
@@ -482,7 +493,9 @@ def test_cancel_increments_generation_and_durably_cancels_stage(
 ) -> None:
     project = onboarded_project(repository)
     workflows = WorkflowService(
-        PostgresWorkflowRepository(postgres_engine, policy_snapshot_id="policy-v1")
+        PostgresWorkflowRepository(
+            postgres_engine, policy_snapshot_id="policy-v1", seed_registry_id="seed-v1"
+        )
     )
     run = workflows.start(
         project_id=project.project_id,
@@ -573,7 +586,9 @@ def test_http_202_workflow_survives_api_instance_shutdown(
         workflow_run_id = response.json()["workflow_run_id"]
 
     loaded = WorkflowService(
-        PostgresWorkflowRepository(postgres_engine, policy_snapshot_id="policy-v1")
+        PostgresWorkflowRepository(
+            postgres_engine, policy_snapshot_id="policy-v1", seed_registry_id="seed-v1"
+        )
     ).get(
         project_id=project["project_id"],
         workflow_run_id=workflow_run_id,
@@ -581,9 +596,12 @@ def test_http_202_workflow_survives_api_instance_shutdown(
     )
     assert loaded.status == WorkflowStatus.QUEUED
     with postgres_engine.connect() as connection:
-        assert connection.execute(
-            text("SELECT COUNT(*) FROM workflow_outbox WHERE status='PENDING'")
-        ).scalar_one() == 1
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM workflow_outbox WHERE status='PENDING'")
+            ).scalar_one()
+            == 1
+        )
 
     with TestClient(create_app(identity_verifier=FixedIdentityVerifier())) as restarted_client:
         cancelled = restarted_client.post(
@@ -601,7 +619,9 @@ def create_ready_stage(
 ) -> tuple[Project, str, str, WorkflowService]:
     project = onboarded_project(repository)
     workflows = WorkflowService(
-        PostgresWorkflowRepository(postgres_engine, policy_snapshot_id="policy-v1")
+        PostgresWorkflowRepository(
+            postgres_engine, policy_snapshot_id="policy-v1", seed_registry_id="seed-v1"
+        )
     )
     workflows.start(
         project_id=project.project_id,
@@ -611,10 +631,7 @@ def create_ready_stage(
     )
     with postgres_engine.connect() as connection:
         stage_id, input_digest = connection.execute(
-            text(
-                "SELECT stage_run_id, input_digest FROM stage_runs "
-                "WHERE status='READY'"
-            )
+            text("SELECT stage_run_id, input_digest FROM stage_runs WHERE status='READY'")
         ).one()
     return project, stage_id, input_digest, workflows
 
@@ -623,15 +640,10 @@ def create_commit_stage(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
 ) -> tuple[Project, str, str, WorkflowService]:
-    project, _stage_id, _input_digest, workflows = create_ready_stage(
-        repository, postgres_engine
-    )
+    project, _stage_id, _input_digest, workflows = create_ready_stage(repository, postgres_engine)
     with postgres_engine.begin() as connection:
         connection.execute(
-            text(
-                "UPDATE workflow_runs SET status='RUNNING' "
-                "WHERE project_id=:project_id"
-            ),
+            text("UPDATE workflow_runs SET status='RUNNING' WHERE project_id=:project_id"),
             {"project_id": project.project_id},
         )
         connection.execute(
@@ -642,8 +654,7 @@ def create_commit_stage(
         )
         stage_id, input_digest = connection.execute(
             text(
-                "SELECT stage_run_id, input_digest FROM stage_runs "
-                "WHERE stage_code='COMMIT_RESULT'"
+                "SELECT stage_run_id, input_digest FROM stage_runs WHERE stage_code='COMMIT_RESULT'"
             )
         ).one()
     return project, stage_id, input_digest, workflows
@@ -664,9 +675,7 @@ def test_noncontinuing_stage_does_not_publish_or_persist_a_result(
     current_stage_status: str,
     other_stage_status: str,
 ) -> None:
-    project, stage_id, input_digest, _workflows = create_ready_stage(
-        repository, postgres_engine
-    )
+    project, stage_id, input_digest, _workflows = create_ready_stage(repository, postgres_engine)
     execution = PostgresStageExecutionRepository(postgres_engine)
     lease = execution.claim(
         stage_run_id=stage_id,
@@ -675,25 +684,25 @@ def test_noncontinuing_stage_does_not_publish_or_persist_a_result(
     )
     assert lease is not None
 
-    assert execution.checkpoint(
-        stage_run_id=stage_id,
-        lease_token=lease.lease_token,
-        input_digest=lease.input_digest,
-        result={
-            "stage_control": {
-                "disposition": disposition,
-                "reason_codes": ["AREA_SELECTION_REQUIRED"],
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=lease.lease_token,
+            input_digest=lease.input_digest,
+            result={
+                "stage_control": {
+                    "disposition": disposition,
+                    "reason_codes": ["AREA_SELECTION_REQUIRED"],
+                },
+                "area_resolution": {"selected": None},
             },
-            "area_resolution": {"selected": None},
-        },
-    ) == CheckpointOutcome.APPLIED
+        )
+        == CheckpointOutcome.APPLIED
+    )
 
     with postgres_engine.connect() as connection:
         stored_workflow_status = connection.execute(
-            text(
-                "SELECT status FROM workflow_runs "
-                "WHERE project_id=:project_id"
-            ),
+            text("SELECT status FROM workflow_runs WHERE project_id=:project_id"),
             {"project_id": project.project_id},
         ).scalar_one()
         current_status = connection.execute(
@@ -706,12 +715,8 @@ def test_noncontinuing_stage_does_not_publish_or_persist_a_result(
                 {"stage_run_id": stage_id},
             ).scalars()
         )
-        outbox_count = connection.execute(
-            text("SELECT COUNT(*) FROM workflow_outbox")
-        ).scalar_one()
-        result_count = connection.execute(
-            text("SELECT COUNT(*) FROM result_bundles")
-        ).scalar_one()
+        outbox_count = connection.execute(text("SELECT COUNT(*) FROM workflow_outbox")).scalar_one()
+        result_count = connection.execute(text("SELECT COUNT(*) FROM result_bundles")).scalar_one()
     assert stored_workflow_status == workflow_status
     assert current_status == current_stage_status
     assert other_statuses == {other_stage_status}
@@ -723,9 +728,7 @@ def test_stage_context_loads_fenced_state_and_direct_dependency_results(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
 ) -> None:
-    project, stage_id, input_digest, _workflows = create_ready_stage(
-        repository, postgres_engine
-    )
+    project, stage_id, input_digest, _workflows = create_ready_stage(repository, postgres_engine)
     execution = PostgresStageExecutionRepository(postgres_engine)
     root_lease = execution.claim(
         stage_run_id=stage_id,
@@ -734,12 +737,15 @@ def test_stage_context_loads_fenced_state_and_direct_dependency_results(
     )
     assert root_lease is not None
     root_result = {"area_resolution": "UNRESOLVED"}
-    assert execution.checkpoint(
-        stage_run_id=stage_id,
-        lease_token=root_lease.lease_token,
-        input_digest=root_lease.input_digest,
-        result=root_result,
-    ) == CheckpointOutcome.APPLIED
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=root_lease.lease_token,
+            input_digest=root_lease.input_digest,
+            result=root_result,
+        )
+        == CheckpointOutcome.APPLIED
+    )
 
     with postgres_engine.connect() as connection:
         next_stage_id, next_digest = connection.execute(
@@ -769,7 +775,9 @@ def test_first_proposal_dag_promotes_ready_stages_and_joins_both_branches(
 ) -> None:
     project = onboarded_project(repository)
     workflows = WorkflowService(
-        PostgresWorkflowRepository(postgres_engine, policy_snapshot_id="policy-v1")
+        PostgresWorkflowRepository(
+            postgres_engine, policy_snapshot_id="policy-v1", seed_registry_id="seed-v1"
+        )
     )
     run = workflows.start(
         project_id=project.project_id,
@@ -795,13 +803,17 @@ def test_first_proposal_dag_promotes_ready_stages_and_joins_both_branches(
 
     for expected in expected_batches:
         with postgres_engine.connect() as connection:
-            ready = connection.execute(
-                text(
-                    "SELECT stage_run_id, stage_code, input_digest FROM stage_runs "
-                    "WHERE workflow_run_id=:workflow_run_id AND status='READY'"
-                ),
-                {"workflow_run_id": run.workflow_run_id},
-            ).mappings().all()
+            ready = (
+                connection.execute(
+                    text(
+                        "SELECT stage_run_id, stage_code, input_digest FROM stage_runs "
+                        "WHERE workflow_run_id=:workflow_run_id AND status='READY'"
+                    ),
+                    {"workflow_run_id": run.workflow_run_id},
+                )
+                .mappings()
+                .all()
+            )
         assert {stage["stage_code"] for stage in ready} == expected
         for stage in ready:
             lease = execution.claim(
@@ -823,10 +835,9 @@ def test_first_proposal_dag_promotes_ready_stages_and_joins_both_branches(
                     "missing_claim_ids": ["claim:AREA_PROFILE"],
                     "reason_codes": ["MISSING_EVIDENCE"],
                     "retrieval_completeness": "UNAVAILABLE",
+                    "franchise_universe": [],
                 }
-                snapshot_digest = hashlib.sha256(
-                    rfc8785.dumps(snapshot_body)
-                ).hexdigest()
+                snapshot_digest = hashlib.sha256(rfc8785.dumps(snapshot_body)).hexdigest()
                 expected_snapshot_id = f"evidence-{snapshot_digest[:40]}"
                 result = {
                     "evidence_freeze": {
@@ -837,12 +848,15 @@ def test_first_proposal_dag_promotes_ready_stages_and_joins_both_branches(
                 }
             else:
                 result = {"stage": stage["stage_code"]}
-            assert execution.checkpoint(
-                stage_run_id=stage["stage_run_id"],
-                lease_token=lease.lease_token,
-                input_digest=lease.input_digest,
-                result=result,
-            ) == CheckpointOutcome.APPLIED
+            assert (
+                execution.checkpoint(
+                    stage_run_id=stage["stage_run_id"],
+                    lease_token=lease.lease_token,
+                    input_digest=lease.input_digest,
+                    result=result,
+                )
+                == CheckpointOutcome.APPLIED
+            )
 
     completed = workflows.get(
         project_id=project.project_id,
@@ -853,34 +867,37 @@ def test_first_proposal_dag_promotes_ready_stages_and_joins_both_branches(
     with postgres_engine.connect() as connection:
         statuses = set(
             connection.execute(
-                text(
-                    "SELECT status FROM stage_runs WHERE workflow_run_id=:workflow_run_id"
-                ),
+                text("SELECT status FROM stage_runs WHERE workflow_run_id=:workflow_run_id"),
                 {"workflow_run_id": run.workflow_run_id},
             ).scalars()
         )
         ready_messages = connection.execute(
-            text(
-                "SELECT COUNT(*) FROM workflow_outbox "
-                "WHERE topic='WORKFLOW_STAGE_READY'"
-            )
+            text("SELECT COUNT(*) FROM workflow_outbox WHERE topic='WORKFLOW_STAGE_READY'")
         ).scalar_one()
-        snapshot = connection.execute(
-            text(
-                "SELECT evidence_snapshot_id, project_id, workflow_run_id "
-                "FROM evidence_snapshots WHERE workflow_run_id=:workflow_run_id"
-            ),
-            {"workflow_run_id": run.workflow_run_id},
-        ).mappings().one()
-        head_snapshot_ids = connection.execute(
-            text(
-                "SELECT w.evidence_snapshot_id AS workflow_snapshot_id, "
-                "h.evidence_snapshot_id AS project_snapshot_id "
-                "FROM workflow_runs w JOIN project_heads h ON h.project_id=w.project_id "
-                "WHERE w.workflow_run_id=:workflow_run_id"
-            ),
-            {"workflow_run_id": run.workflow_run_id},
-        ).mappings().one()
+        snapshot = (
+            connection.execute(
+                text(
+                    "SELECT evidence_snapshot_id, project_id, workflow_run_id "
+                    "FROM evidence_snapshots WHERE workflow_run_id=:workflow_run_id"
+                ),
+                {"workflow_run_id": run.workflow_run_id},
+            )
+            .mappings()
+            .one()
+        )
+        head_snapshot_ids = (
+            connection.execute(
+                text(
+                    "SELECT w.evidence_snapshot_id AS workflow_snapshot_id, "
+                    "h.evidence_snapshot_id AS project_snapshot_id "
+                    "FROM workflow_runs w JOIN project_heads h ON h.project_id=w.project_id "
+                    "WHERE w.workflow_run_id=:workflow_run_id"
+                ),
+                {"workflow_run_id": run.workflow_run_id},
+            )
+            .mappings()
+            .one()
+        )
     assert statuses == {"SUCCEEDED"}
     assert ready_messages == 13
     assert expected_snapshot_id is not None
@@ -969,9 +986,7 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
     postgres_engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project, stage_id, input_digest, _workflows = create_commit_stage(
-        repository, postgres_engine
-    )
+    project, stage_id, input_digest, _workflows = create_commit_stage(repository, postgres_engine)
     execution = PostgresStageExecutionRepository(
         postgres_engine,
         new_result_id=lambda: "result-1",
@@ -983,18 +998,24 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
     )
     assert lease is not None
 
-    assert execution.checkpoint(
-        stage_run_id=stage_id,
-        lease_token=lease.lease_token,
-        input_digest=lease.input_digest,
-        result=result_payload(project_id=project.project_id),
-    ) == CheckpointOutcome.APPLIED
-    assert execution.checkpoint(
-        stage_run_id=stage_id,
-        lease_token=lease.lease_token,
-        input_digest=lease.input_digest,
-        result=result_payload(project_id=project.project_id),
-    ) == CheckpointOutcome.DUPLICATE_DISCARDED
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=lease.lease_token,
+            input_digest=lease.input_digest,
+            result=result_payload(project_id=project.project_id),
+        )
+        == CheckpointOutcome.APPLIED
+    )
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=lease.lease_token,
+            input_digest=lease.input_digest,
+            result=result_payload(project_id=project.project_id),
+        )
+        == CheckpointOutcome.DUPLICATE_DISCARDED
+    )
 
     results = ResultService(PostgresResultRepository(postgres_engine))
     loaded = results.get_current(project_id=project.project_id, user_id="user-1")
@@ -1010,8 +1031,7 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
         result_count = connection.execute(text("SELECT COUNT(*) FROM result_bundles")).scalar_one()
         pointer = connection.execute(
             text(
-                "SELECT current_result_bundle_id FROM venture_projects "
-                "WHERE project_id=:project_id"
+                "SELECT current_result_bundle_id FROM venture_projects WHERE project_id=:project_id"
             ),
             {"project_id": project.project_id},
         ).scalar_one()
@@ -1037,9 +1057,7 @@ def test_invalid_result_contract_rolls_back_bundle_and_stage_checkpoint(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
 ) -> None:
-    project, stage_id, input_digest, _workflows = create_commit_stage(
-        repository, postgres_engine
-    )
+    project, stage_id, input_digest, _workflows = create_commit_stage(repository, postgres_engine)
     execution = PostgresStageExecutionRepository(postgres_engine)
     lease = execution.claim(
         stage_run_id=stage_id,
@@ -1069,21 +1087,22 @@ def test_invalid_result_contract_rolls_back_bundle_and_stage_checkpoint(
         ).one()
     assert (stage_status, result_count, pointer) == ("RUNNING", 0, None)
 
-    assert execution.checkpoint(
-        stage_run_id=stage_id,
-        lease_token=lease.lease_token,
-        input_digest=lease.input_digest,
-        result=result_payload(project_id=project.project_id),
-    ) == CheckpointOutcome.APPLIED
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=lease.lease_token,
+            input_digest=lease.input_digest,
+            result=result_payload(project_id=project.project_id),
+        )
+        == CheckpointOutcome.APPLIED
+    )
 
 
 def test_cancelled_worker_bundle_is_discarded_before_payload_validation(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
 ) -> None:
-    project, stage_id, input_digest, workflows = create_commit_stage(
-        repository, postgres_engine
-    )
+    project, stage_id, input_digest, workflows = create_commit_stage(repository, postgres_engine)
     execution = PostgresStageExecutionRepository(postgres_engine)
     lease = execution.claim(
         stage_run_id=stage_id,
@@ -1098,12 +1117,15 @@ def test_cancelled_worker_bundle_is_discarded_before_payload_validation(
         idempotency_key="cancel-1",
     )
 
-    assert execution.checkpoint(
-        stage_run_id=stage_id,
-        lease_token=lease.lease_token,
-        input_digest=lease.input_digest,
-        result={"result_bundle": {"malformed": True}},
-    ) == CheckpointOutcome.CANCELLED_DISCARDED
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=lease.lease_token,
+            input_digest=lease.input_digest,
+            result={"result_bundle": {"malformed": True}},
+        )
+        == CheckpointOutcome.CANCELLED_DISCARDED
+    )
     with postgres_engine.connect() as connection:
         assert connection.execute(text("SELECT COUNT(*) FROM result_bundles")).scalar_one() == 0
 
@@ -1125,42 +1147,52 @@ def test_expired_stage_lease_is_reclaimed_and_old_worker_cannot_checkpoint(
         stage_run_id=stage_id, worker_id="worker-1", expected_input_digest=input_digest
     )
     assert old is not None
-    assert execution.claim(
-        stage_run_id=stage_id, worker_id="worker-2", expected_input_digest=input_digest
-    ) is None
+    assert (
+        execution.claim(
+            stage_run_id=stage_id, worker_id="worker-2", expected_input_digest=input_digest
+        )
+        is None
+    )
     clock[0] += timedelta(seconds=46)
     new = execution.claim(
         stage_run_id=stage_id, worker_id="worker-2", expected_input_digest=input_digest
     )
     assert new is not None
     assert new.attempt == 2
-    assert execution.checkpoint(
-        stage_run_id=stage_id,
-        lease_token=old.lease_token,
-        input_digest=old.input_digest,
-        result={"worker": "old"},
-    ) == CheckpointOutcome.LEASE_REJECTED
-    assert execution.checkpoint(
-        stage_run_id=stage_id,
-        lease_token=new.lease_token,
-        input_digest=new.input_digest,
-        result={"worker": "new"},
-    ) == CheckpointOutcome.APPLIED
-    assert execution.checkpoint(
-        stage_run_id=stage_id,
-        lease_token=new.lease_token,
-        input_digest=new.input_digest,
-        result={"worker": "new"},
-    ) == CheckpointOutcome.DUPLICATE_DISCARDED
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=old.lease_token,
+            input_digest=old.input_digest,
+            result={"worker": "old"},
+        )
+        == CheckpointOutcome.LEASE_REJECTED
+    )
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=new.lease_token,
+            input_digest=new.input_digest,
+            result={"worker": "new"},
+        )
+        == CheckpointOutcome.APPLIED
+    )
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=new.lease_token,
+            input_digest=new.input_digest,
+            result={"worker": "new"},
+        )
+        == CheckpointOutcome.DUPLICATE_DISCARDED
+    )
 
 
 def test_retryable_stage_failure_is_fenced_and_third_attempt_terminates_workflow(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
 ) -> None:
-    _project, stage_id, input_digest, _workflows = create_ready_stage(
-        repository, postgres_engine
-    )
+    _project, stage_id, input_digest, _workflows = create_ready_stage(repository, postgres_engine)
     tokens = iter(["attempt-1", "attempt-2", "attempt-3"])
     execution = PostgresStageExecutionRepository(
         postgres_engine,
@@ -1174,12 +1206,15 @@ def test_retryable_stage_failure_is_fenced_and_third_attempt_terminates_workflow
         expected_input_digest=input_digest,
     )
     assert first is not None
-    assert execution.record_failure(
-        stage_run_id=stage_id,
-        lease_token=first.lease_token,
-        input_digest=input_digest,
-        failure=failure,
-    ) == FailureOutcome.RETRY_SCHEDULED
+    assert (
+        execution.record_failure(
+            stage_run_id=stage_id,
+            lease_token=first.lease_token,
+            input_digest=input_digest,
+            failure=failure,
+        )
+        == FailureOutcome.RETRY_SCHEDULED
+    )
 
     second = execution.claim(
         stage_run_id=stage_id,
@@ -1187,18 +1222,24 @@ def test_retryable_stage_failure_is_fenced_and_third_attempt_terminates_workflow
         expected_input_digest=input_digest,
     )
     assert second is not None
-    assert execution.record_failure(
-        stage_run_id=stage_id,
-        lease_token=first.lease_token,
-        input_digest=input_digest,
-        failure=failure,
-    ) == FailureOutcome.LEASE_REJECTED
-    assert execution.record_failure(
-        stage_run_id=stage_id,
-        lease_token=second.lease_token,
-        input_digest=input_digest,
-        failure=failure,
-    ) == FailureOutcome.RETRY_SCHEDULED
+    assert (
+        execution.record_failure(
+            stage_run_id=stage_id,
+            lease_token=first.lease_token,
+            input_digest=input_digest,
+            failure=failure,
+        )
+        == FailureOutcome.LEASE_REJECTED
+    )
+    assert (
+        execution.record_failure(
+            stage_run_id=stage_id,
+            lease_token=second.lease_token,
+            input_digest=input_digest,
+            failure=failure,
+        )
+        == FailureOutcome.RETRY_SCHEDULED
+    )
 
     third = execution.claim(
         stage_run_id=stage_id,
@@ -1207,21 +1248,22 @@ def test_retryable_stage_failure_is_fenced_and_third_attempt_terminates_workflow
     )
     assert third is not None
     assert third.attempt == 3
-    assert execution.record_failure(
-        stage_run_id=stage_id,
-        lease_token=third.lease_token,
-        input_digest=input_digest,
-        failure=failure,
-    ) == FailureOutcome.TERMINAL_FAILED
+    assert (
+        execution.record_failure(
+            stage_run_id=stage_id,
+            lease_token=third.lease_token,
+            input_digest=input_digest,
+            failure=failure,
+        )
+        == FailureOutcome.TERMINAL_FAILED
+    )
 
     with postgres_engine.connect() as connection:
         stage_status, stored_failure = connection.execute(
             text("SELECT status, failure_json FROM stage_runs WHERE stage_run_id=:id"),
             {"id": stage_id},
         ).one()
-        workflow_status = connection.execute(
-            text("SELECT status FROM workflow_runs")
-        ).scalar_one()
+        workflow_status = connection.execute(text("SELECT status FROM workflow_runs")).scalar_one()
         events = list(
             connection.execute(
                 text(
@@ -1234,20 +1276,21 @@ def test_retryable_stage_failure_is_fenced_and_third_attempt_terminates_workflow
     assert stored_failure == {"code": "STAGE_PROCESSING_ERROR", "retryable": True}
     assert workflow_status == "FAILED"
     assert events == ["STAGE_RETRY_SCHEDULED", "STAGE_RETRY_SCHEDULED", "STAGE_FAILED"]
-    assert execution.claim(
-        stage_run_id=stage_id,
-        worker_id="worker-4",
-        expected_input_digest=input_digest,
-    ) is None
+    assert (
+        execution.claim(
+            stage_run_id=stage_id,
+            worker_id="worker-4",
+            expected_input_digest=input_digest,
+        )
+        is None
+    )
 
 
 def test_nonretryable_failure_terminates_on_first_attempt_without_raw_message(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
 ) -> None:
-    _project, stage_id, input_digest, _workflows = create_ready_stage(
-        repository, postgres_engine
-    )
+    _project, stage_id, input_digest, _workflows = create_ready_stage(repository, postgres_engine)
     execution = PostgresStageExecutionRepository(postgres_engine)
     lease = execution.claim(
         stage_run_id=stage_id,
@@ -1256,12 +1299,15 @@ def test_nonretryable_failure_terminates_on_first_attempt_without_raw_message(
     )
     assert lease is not None
 
-    assert execution.record_failure(
-        stage_run_id=stage_id,
-        lease_token=lease.lease_token,
-        input_digest=input_digest,
-        failure=StageFailure(code="CONTRACT_REJECTED", retryable=False),
-    ) == FailureOutcome.TERMINAL_FAILED
+    assert (
+        execution.record_failure(
+            stage_run_id=stage_id,
+            lease_token=lease.lease_token,
+            input_digest=input_digest,
+            failure=StageFailure(code="CONTRACT_REJECTED", retryable=False),
+        )
+        == FailureOutcome.TERMINAL_FAILED
+    )
     with postgres_engine.connect() as connection:
         stage_status, stored_failure = connection.execute(
             text("SELECT status, failure_json FROM stage_runs WHERE stage_run_id=:id"),
@@ -1308,12 +1354,15 @@ def test_cancelled_and_timed_out_results_are_never_checkpointed(
         user_id="user-1",
         idempotency_key="cancel-1",
     )
-    assert execution.checkpoint(
-        stage_run_id=stage_id,
-        lease_token=lease.lease_token,
-        input_digest=lease.input_digest,
-        result={},
-    ) == CheckpointOutcome.CANCELLED_DISCARDED
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=lease.lease_token,
+            input_digest=lease.input_digest,
+            result={},
+        )
+        == CheckpointOutcome.CANCELLED_DISCARDED
+    )
 
 
 def test_expired_result_is_late_and_heartbeat_extends_current_lease(
@@ -1331,12 +1380,15 @@ def test_expired_result_is_late_and_heartbeat_extends_current_lease(
     assert execution.heartbeat(stage_run_id=stage_id, lease_token=lease.lease_token)
     clock[0] += timedelta(seconds=46)
     assert not execution.heartbeat(stage_run_id=stage_id, lease_token=lease.lease_token)
-    assert execution.checkpoint(
-        stage_run_id=stage_id,
-        lease_token=lease.lease_token,
-        input_digest=lease.input_digest,
-        result={"must": "not persist"},
-    ) == CheckpointOutcome.LATE_DISCARDED
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=lease.lease_token,
+            input_digest=lease.input_digest,
+            result={"must": "not persist"},
+        )
+        == CheckpointOutcome.LATE_DISCARDED
+    )
     with postgres_engine.connect() as connection:
         status, result = connection.execute(
             text("SELECT status, result_json FROM stage_runs WHERE stage_run_id=:id"),
@@ -1371,8 +1423,14 @@ def test_each_full_head_dimension_blocks_checkpoint(
     )
     assert lease is not None
     allowed_columns = {
-        "workflow_generation", "state_version", "founder_snapshot_id", "area_snapshot_id",
-        "evidence_snapshot_id", "policy_snapshot_id", "index_generation_id", "seed_registry_id",
+        "workflow_generation",
+        "state_version",
+        "founder_snapshot_id",
+        "area_snapshot_id",
+        "evidence_snapshot_id",
+        "policy_snapshot_id",
+        "index_generation_id",
+        "seed_registry_id",
     }
     assert column in allowed_columns
     with postgres_engine.begin() as connection:
@@ -1381,12 +1439,15 @@ def test_each_full_head_dimension_blocks_checkpoint(
             {"value": replacement},
         )
 
-    assert execution.checkpoint(
-        stage_run_id=stage_id,
-        lease_token=lease.lease_token,
-        input_digest=lease.input_digest,
-        result={"must": "not persist"},
-    ) == CheckpointOutcome.STALE_DISCARDED
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=lease.lease_token,
+            input_digest=lease.input_digest,
+            result={"must": "not persist"},
+        )
+        == CheckpointOutcome.STALE_DISCARDED
+    )
     with postgres_engine.connect() as connection:
         row = connection.execute(
             text("SELECT status, result_json FROM stage_runs WHERE stage_run_id=:id"),
@@ -1435,9 +1496,7 @@ def test_outbox_topic_filter_does_not_publish_cleanup_to_stage_subscription(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
 ) -> None:
-    project, _stage_id, _input_digest, workflows = create_ready_stage(
-        repository, postgres_engine
-    )
+    project, _stage_id, _input_digest, workflows = create_ready_stage(repository, postgres_engine)
     with postgres_engine.connect() as connection:
         workflow_run_id = connection.execute(
             text("SELECT workflow_run_id FROM workflow_runs")
@@ -1459,9 +1518,6 @@ def test_outbox_topic_filter_does_not_publish_cleanup_to_stage_subscription(
     assert cleanup.topic == "WORKFLOW_CLEANUP"
     with postgres_engine.connect() as connection:
         stage_status = connection.execute(
-            text(
-                "SELECT status FROM workflow_outbox "
-                "WHERE topic='WORKFLOW_STAGE_READY'"
-            )
+            text("SELECT status FROM workflow_outbox WHERE topic='WORKFLOW_STAGE_READY'")
         ).scalar_one()
     assert stage_status == "PENDING"

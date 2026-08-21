@@ -40,13 +40,17 @@ class PostgresWorkflowRepository:
         engine: Engine,
         *,
         policy_snapshot_id: str,
+        seed_registry_id: str,
         now: Callable[[], datetime] | None = None,
         new_id: Callable[[], str] | None = None,
     ) -> None:
         if not policy_snapshot_id or len(policy_snapshot_id) > 128:
             raise ValueError("policy_snapshot_id must contain 1..128 characters")
+        if not seed_registry_id or len(seed_registry_id) > 128:
+            raise ValueError("seed_registry_id must contain 1..128 characters")
         self._engine = engine
         self._policy_snapshot_id = policy_snapshot_id
+        self._seed_registry_id = seed_registry_id
         self._now = now or (lambda: datetime.now(UTC))
         self._new_id = new_id or (lambda: str(uuid4()))
 
@@ -116,7 +120,7 @@ class PostgresWorkflowRepository:
                 evidence_snapshot_id=evidence_snapshot_id,
                 policy_snapshot_id=self._policy_snapshot_id,
                 index_generation_id=project["head_index_generation_id"],
-                seed_registry_id=project["head_seed_registry_id"],
+                seed_registry_id=self._seed_registry_id,
             )
             connection.execute(
                 text(
@@ -458,9 +462,10 @@ class PostgresWorkflowRepository:
         project_id: str,
         user_id: str,
     ) -> RowMapping:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT p.project_id, p.current_state_version, p.workflow_generation,
                        s.founder_snapshot_id, s.area_snapshot_id, s.state_json,
                        h.evidence_snapshot_id AS head_evidence_snapshot_id,
@@ -474,9 +479,12 @@ class PostgresWorkflowRepository:
                 WHERE p.project_id = :project_id AND p.owner_user_id = :user_id
                 FOR UPDATE OF p
                 """
-            ),
-            {"project_id": project_id, "user_id": user_id},
-        ).mappings().one_or_none()
+                ),
+                {"project_id": project_id, "user_id": user_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
         if row is None:
             raise ProjectNotFoundError("Project does not exist")
         return row
@@ -491,9 +499,10 @@ class PostgresWorkflowRepository:
         for_update: bool = False,
     ) -> WorkflowRun:
         suffix = " FOR UPDATE OF w" if for_update else ""
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT w.*
                 FROM workflow_runs w
                 JOIN venture_projects p ON p.project_id = w.project_id
@@ -501,14 +510,17 @@ class PostgresWorkflowRepository:
                   AND w.workflow_run_id = :workflow_run_id
                   AND p.owner_user_id = :user_id
                 """
-                + suffix
-            ),
-            {
-                "project_id": project_id,
-                "workflow_run_id": workflow_run_id,
-                "user_id": user_id,
-            },
-        ).mappings().one_or_none()
+                    + suffix
+                ),
+                {
+                    "project_id": project_id,
+                    "workflow_run_id": workflow_run_id,
+                    "user_id": user_id,
+                },
+            )
+            .mappings()
+            .one_or_none()
+        )
         if row is None:
             raise WorkflowNotFoundError("Workflow does not exist")
         return self._workflow_from_row(row)
@@ -591,22 +603,26 @@ class PostgresWorkflowRepository:
         idempotency_key: str,
         digest: bytes,
     ) -> str:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT request_digest, response_workflow_run_id
                 FROM workflow_idempotency_records
                 WHERE user_id = :user_id
                   AND operation = :operation
                   AND idempotency_key = :idempotency_key
                 """
-            ),
-            {
-                "user_id": user_id,
-                "operation": operation,
-                "idempotency_key": idempotency_key,
-            },
-        ).mappings().one()
+                ),
+                {
+                    "user_id": user_id,
+                    "operation": operation,
+                    "idempotency_key": idempotency_key,
+                },
+            )
+            .mappings()
+            .one()
+        )
         if bytes(row["request_digest"]) != digest:
             raise IdempotencyKeyReusedError("Idempotency key was used with another payload")
         workflow_run_id = row["response_workflow_run_id"]

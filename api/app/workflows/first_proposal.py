@@ -58,7 +58,10 @@ def compile_first_proposal_plan(preference: CafeTypePreference) -> tuple[StagePl
             [
                 StagePlan(
                     FirstProposalStage.INDEPENDENT_SEED,
-                    (FirstProposalStage.EVIDENCE_FREEZE,),
+                    (
+                        FirstProposalStage.AREA_RESOLUTION,
+                        FirstProposalStage.EVIDENCE_FREEZE,
+                    ),
                 ),
                 StagePlan(
                     FirstProposalStage.PROPOSE_INDEPENDENT,
@@ -75,7 +78,10 @@ def compile_first_proposal_plan(preference: CafeTypePreference) -> tuple[StagePl
             [
                 StagePlan(
                     FirstProposalStage.FRANCHISE_ELIGIBILITY,
-                    (FirstProposalStage.EVIDENCE_FREEZE,),
+                    (
+                        FirstProposalStage.AREA_RESOLUTION,
+                        FirstProposalStage.EVIDENCE_FREEZE,
+                    ),
                 ),
                 StagePlan(
                     FirstProposalStage.PROPOSE_FRANCHISE,
@@ -117,6 +123,4 @@ def stage_input_digest(
         "dependencies": list(dependencies),
         "contract_version": "1.0.0",
     }
-    return hashlib.sha256(
-        rfc8785.dumps(digest_payload)
-    ).hexdigest()
+    return hashlib.sha256(rfc8785.dumps(digest_payload)).hexdigest()
