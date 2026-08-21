@@ -23,6 +23,9 @@ class DocumentRevisionStatus(StrEnum):
     VALIDATING = "VALIDATING"
     SCAN_PENDING = "SCAN_PENDING"
     READY_FOR_PARSING = "READY_FOR_PARSING"
+    PARSING = "PARSING"
+    EXTRACTION_READY = "EXTRACTION_READY"
+    EXTRACTION_FAILED = "EXTRACTION_FAILED"
     QUARANTINED = "QUARANTINED"
     DELETED = "DELETED"
 
@@ -56,6 +59,80 @@ class DocumentScanResultRequest(StrictModel):
     project_id: str = Field(min_length=1)
     clean: bool
     threat_codes: list[str] = Field(default_factory=list)
+
+
+class DocumentAnchor(StrictModel):
+    document_revision_id: str = Field(min_length=1)
+    page_index: int = Field(ge=0)
+    section_path: str | None = None
+    table_id: str | None = None
+    row: int | None = Field(default=None, ge=0)
+    column: int | None = Field(default=None, ge=0)
+    bbox: list[float] | None = Field(default=None, min_length=4, max_length=8)
+
+
+class ParserBlock(StrictModel):
+    block_id: str = Field(min_length=1, max_length=128)
+    text: str = Field(max_length=50_000)
+    anchor: DocumentAnchor
+
+
+class ParserResultRequest(StrictModel):
+    project_id: str = Field(min_length=1)
+    document_id: str = Field(min_length=1)
+    parser_version: str = Field(min_length=1, max_length=128)
+    blocks: list[ParserBlock] = Field(min_length=1, max_length=1200)
+    prompt_injection_flags: list[str] = Field(default_factory=list)
+
+
+class ExtractionStatus(StrEnum):
+    AUTO_FILLED = "AUTO_FILLED"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+    UNRESOLVED = "UNRESOLVED"
+
+
+class EditStatus(StrEnum):
+    UNCHANGED = "UNCHANGED"
+    EDITED = "EDITED"
+    CLEARED = "CLEARED"
+
+
+class ExtractionField(StrictModel):
+    field_id: str
+    claim_type: str
+    label: str
+    raw_value_text: str | None
+    extracted_value: str | int | float | bool | None
+    current_value: str | int | float | bool | None
+    unit: str | None
+    materiality: str
+    extraction_status: ExtractionStatus
+    edit_status: EditStatus = EditStatus.UNCHANGED
+    anchor: DocumentAnchor | None
+    warnings: list[str]
+
+
+class DocumentExtractionForm(StrictModel):
+    schema_version: str = "1.0.0"
+    form_id: str
+    project_id: str
+    document_id: str
+    document_revision_id: str
+    expected_state_version: int = Field(ge=1)
+    form_status: str
+    fields: list[ExtractionField] = Field(min_length=1)
+    apply_label: str = "반영하고 다시 계산"
+    applied_state_version: int | None = None
+
+
+class ExtractionFieldEdit(StrictModel):
+    field_id: str = Field(min_length=1)
+    value: str | int | float | bool | None
+
+
+class UpdateExtractionFormRequest(StrictModel):
+    expected_state_version: int = Field(ge=1)
+    edits: list[ExtractionFieldEdit] = Field(min_length=1)
 
 
 class DocumentRevision(StrictModel):

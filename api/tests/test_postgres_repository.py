@@ -15,6 +15,7 @@ from worker.runtime import DeliveryOutcome, DurableWorker
 
 from app.agents.runtime import PostgresAgentCleanupSink
 from app.candidates.seed_registry import IndependentSeedRegistry
+from app.documents.extraction import DocumentExtractionService
 from app.documents.service import DocumentService
 from app.documents.storage import StoredObject
 from app.domain.errors import (
@@ -107,6 +108,59 @@ class DocumentStorageFixture:
 
     def sign_download(self, **kwargs: Any) -> str:
         return f"https://download.invalid/{kwargs['object_path']}"
+
+
+class DocumentExtractionAgentFixture:
+    def __init__(self) -> None:
+        self.tasks: list[dict[str, Any]] = []
+
+    def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+        self.tasks.append(task)
+        claim_id = task["payload"]["claim_id_pool"][0]
+        anchor = deepcopy(task["payload"]["parser_blocks"][0]["anchor"])
+        return {
+            "schema_version": "1.0.0",
+            "task_id": task["task_id"],
+            "invocation_id": task["invocation_id"],
+            "agent_name": task["agent_name"],
+            "task_type": task["task_type"],
+            "workflow_run_id": task["workflow_run_id"],
+            "stage_run_id": task["stage_run_id"],
+            "venture_project_id": task["venture_project_id"],
+            "head_fence_seen": deepcopy(task["head_fence"]),
+            "input_digest": task["input_digest"],
+            "output_schema_id": task["output_schema_id"],
+            "status": "COMPLETE",
+            "payload": {
+                "proposed_claims": [
+                    {
+                        "claim_id": claim_id,
+                        "predicate": "LEASE_DEPOSIT",
+                        "raw_value_text": "보증금 5,000만원",
+                        "typed_value": {"kind": "INTEGER", "value": 50_000_000},
+                        "unit": "KRW",
+                        "currency": "KRW",
+                        "vat_status": "NOT_APPLICABLE",
+                        "inclusion_scope": "보증금",
+                        "effective_from": None,
+                        "effective_to": None,
+                        "valid_until": None,
+                        "document_revision_id": task["payload"]["document_revision"][
+                            "document_revision_id"
+                        ],
+                        "anchor": anchor,
+                        "extraction_status": "PROPOSED",
+                        "risk_flags": [],
+                    }
+                ],
+                "unresolved_fields": [],
+                "document_risk_flags": [],
+            },
+            "evidence_refs": [],
+            "missing_claim_ids": [],
+            "reason_codes": [],
+            "warnings": [],
+        }
 
 
 class FirstProposalMcpFixture:
@@ -417,6 +471,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0009_feedback_resolution.sql",
             "0010_candidate_selection.sql",
             "0011_document_upload.sql",
+            "0012_document_extraction.sql",
         ]
 
 
@@ -1831,11 +1886,14 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
 
     document_storage = DocumentStorageFixture()
     document_service = DocumentService(postgres_engine, document_storage)
+    extraction_runtime = DocumentExtractionAgentFixture()
+    extraction_service = DocumentExtractionService(postgres_engine, extraction_runtime)
     with TestClient(
         create_app(
             identity_verifier=FixedIdentityVerifier(),
             internal_identity_verifier=FixedIdentityVerifier(),
             document_service=document_service,
+            document_extraction_service=extraction_service,
         )
     ) as client:
         response = client.get(
@@ -1924,6 +1982,52 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
             headers={"Authorization": "Bearer valid-token"},
             json={"project_id": project.project_id, "clean": True, "threat_codes": []},
         )
+        parser_result = client.post(
+            "/internal/v1/documents/"
+            f"{upload_body['document_revision_id']}:parser-result",
+            headers={"Authorization": "Bearer valid-token"},
+            json={
+                "project_id": project.project_id,
+                "document_id": upload_body["document_id"],
+                "parser_version": "layout-parser.v1",
+                "blocks": [
+                    {
+                        "block_id": "block-1",
+                        "text": "보증금 5,000만원",
+                        "anchor": {
+                            "document_revision_id": upload_body["document_revision_id"],
+                            "page_index": 0,
+                            "section_path": "임대조건",
+                            "table_id": None,
+                            "row": None,
+                            "column": None,
+                            "bbox": None,
+                        },
+                    }
+                ],
+                "prompt_injection_flags": [],
+            },
+        )
+        form_get = client.get(
+            f"/v1/projects/{project.project_id}/documents/"
+            f"{upload_body['document_revision_id']}/extraction-form",
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        form_body = form_get.json()
+        deposit_id = next(
+            field["field_id"]
+            for field in form_body["fields"]
+            if field["claim_type"] == "LEASE_DEPOSIT"
+        )
+        edited_form = client.put(
+            f"/v1/projects/{project.project_id}/documents/"
+            f"{upload_body['document_revision_id']}/extraction-form",
+            headers={"Authorization": "Bearer valid-token"},
+            json={
+                "expected_state_version": 2,
+                "edits": [{"field_id": deposit_id, "value": 45_000_000}],
+            },
+        )
         download = client.get(
             f"/v1/projects/{project.project_id}/documents/"
             f"{upload_body['document_revision_id']}/download",
@@ -1999,6 +2103,26 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
     assert completed_upload.json()["status"] == "SCAN_PENDING"
     assert scanned.status_code == 200
     assert scanned.json()["status"] == "READY_FOR_PARSING"
+    assert parser_result.status_code == 200, parser_result.json()
+    assert form_get.json() == parser_result.json()
+    extraction_form = parser_result.json()
+    assert extraction_form["expected_state_version"] == 2
+    assert extraction_form["apply_label"] == "반영하고 다시 계산"
+    deposit_field = next(
+        field for field in extraction_form["fields"] if field["claim_type"] == "LEASE_DEPOSIT"
+    )
+    assert deposit_field["current_value"] == 50_000_000
+    assert deposit_field["extraction_status"] == "AUTO_FILLED"
+    assert deposit_field["anchor"]["page_index"] == 0
+    assert len(extraction_runtime.tasks) == 1
+    assert edited_form.status_code == 200
+    edited_deposit = next(
+        field
+        for field in edited_form.json()["fields"]
+        if field["claim_type"] == "LEASE_DEPOSIT"
+    )
+    assert edited_deposit["current_value"] == 45_000_000
+    assert edited_deposit["edit_status"] == "EDITED"
     assert download.status_code == 200
     assert download.json()["download_url"].startswith("https://download.invalid/")
     assert quarantined.status_code == 200

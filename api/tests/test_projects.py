@@ -242,3 +242,7 @@ def test_openapi_exposes_control_api_contract(client: TestClient) -> None:
     assert "/v1/projects/{project_id}/candidate-selections" in schema["paths"]
     assert "/v1/projects/{project_id}/documents/uploads" in schema["paths"]
     assert "/v1/projects/{project_id}/documents/uploads:complete" in schema["paths"]
+    assert (
+        "/v1/projects/{project_id}/documents/{document_revision_id}/extraction-form"
+        in schema["paths"]
+    )
