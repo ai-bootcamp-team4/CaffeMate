@@ -3,6 +3,13 @@ from typing import cast
 import pytest
 from fastapi.testclient import TestClient
 from worker.agent_cleanup import CleanupOutcome
+from worker.dead_letter import (
+    DeadLetterOperationError,
+    DeadLetterPage,
+    DeadLetterRecord,
+    DeadLetterReprocessResult,
+    DeadLetterStatus,
+)
 from worker.main import create_worker_app
 from worker.pubsub import PubSubDelivery
 from worker.runtime import DeliveryOutcome, WorkerRetryRequiredError
@@ -44,6 +51,45 @@ class FakeCleanupConsumer:
 
     def cleanup_one(self) -> CleanupOutcome:
         return next(self._outcomes, CleanupOutcome.EMPTY)
+
+
+class FakeDeadLetterOperations:
+    def __init__(self, *, error: str | None = None) -> None:
+        self.error = error
+        self.reprocess_calls: list[tuple[int, object]] = []
+
+    def list(self, *, limit: int, after_outbox_id: int | None = None) -> DeadLetterPage:
+        assert limit == 20
+        assert after_outbox_id == 10
+        return DeadLetterPage(
+            items=[
+                DeadLetterRecord(
+                    outbox_id=11,
+                    topic="AGENT_SESSION_CLEANUP",
+                    aggregate_id="session-1",
+                    attempts=5,
+                    failure_code="AGENT_CLEANUP_RETRY_EXHAUSTED",
+                    failed_at="2026-08-21T10:00:00Z",
+                    payload_digest="a" * 64,
+                    reprocessable=True,
+                )
+            ],
+            next_cursor=None,
+        )
+
+    def reprocess(self, *, outbox_id: int, request: object) -> DeadLetterReprocessResult:
+        self.reprocess_calls.append((outbox_id, request))
+        if self.error is not None:
+            raise DeadLetterOperationError(self.error)
+        return DeadLetterReprocessResult(
+            reprocess_event_id="event-1",
+            request_id="request-1",
+            outbox_id=outbox_id,
+            status=DeadLetterStatus.REQUEUED,
+            previous_failure_code="AGENT_CLEANUP_RETRY_EXHAUSTED",
+            previous_attempts=5,
+            requested_at="2026-08-21T10:05:00Z",
+        )
 
 
 def test_valid_pubsub_push_is_acked_after_worker_applies() -> None:
@@ -210,3 +256,51 @@ def test_agent_cleanup_endpoint_fails_closed_without_runtime_configuration(
 
     assert response.status_code == 503
     assert response.json() == {"code": "AGENT_CLEANUP_CONFIGURATION_UNAVAILABLE"}
+
+
+def test_dead_letter_endpoints_hide_payload_and_require_fenced_reprocess_input() -> None:
+    operations = FakeDeadLetterOperations()
+    app = create_worker_app(
+        worker=FakeWorker(),
+        dead_letter_operations=operations,
+    )
+    with TestClient(app) as client:
+        listed = client.get("/internal/v1/dead-letters?limit=20&after_outbox_id=10")
+        reprocessed = client.post(
+            "/internal/v1/dead-letters/11:reprocess",
+            json={
+                "request_id": "request-1",
+                "expected_failure_code": "AGENT_CLEANUP_RETRY_EXHAUSTED",
+                "remediation_code": "RUNTIME_RECOVERED",
+                "change_reference": "INC-42",
+            },
+        )
+
+    assert listed.status_code == 200
+    listed_item = listed.json()["items"][0]
+    assert "payload" not in listed_item
+    assert listed_item["reprocessable"] is True
+    assert reprocessed.status_code == 200
+    assert reprocessed.json()["status"] == "REQUEUED"
+    assert operations.reprocess_calls[0][0] == 11
+
+
+def test_nonreprocessable_dead_letter_returns_safe_error_code() -> None:
+    app = create_worker_app(
+        worker=FakeWorker(),
+        dead_letter_operations=FakeDeadLetterOperations(
+            error="DEAD_LETTER_NOT_REPROCESSABLE"
+        ),
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/v1/dead-letters/11:reprocess",
+            json={
+                "request_id": "request-1",
+                "expected_failure_code": "AGENT_CLEANUP_PAYLOAD_INVALID",
+                "remediation_code": "PAYLOAD_REVIEWED",
+                "change_reference": "INC-43",
+            },
+        )
+    assert response.status_code == 422
+    assert response.json() == {"code": "DEAD_LETTER_NOT_REPROCESSABLE"}

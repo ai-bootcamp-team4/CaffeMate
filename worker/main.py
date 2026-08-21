@@ -6,7 +6,7 @@ from app.agents.runtime import GoogleAccessTokenProvider
 from app.database import DatabaseHandle, create_database_handle
 from app.settings import RuntimeSettings
 from app.workflows.execution_repository import PostgresStageExecutionRepository
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Query, status
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,6 +16,14 @@ from worker.agent_cleanup import (
     CleanupOutcome,
 )
 from worker.control_api import ControlApiStageProcessor, GoogleIdentityTokenProvider
+from worker.dead_letter import (
+    DeadLetterOperationError,
+    DeadLetterOperations,
+    DeadLetterPage,
+    DeadLetterReprocessResult,
+    ReprocessDeadLetterRequest,
+    UnavailableDeadLetterOperations,
+)
 from worker.outbox import OutboxPublisher, PostgresOutboxRepository
 from worker.pubsub import (
     GooglePubSubPublisher,
@@ -36,6 +44,17 @@ class OutboxDispatcher(Protocol):
 
 class SessionCleanupHandler(Protocol):
     def cleanup_one(self) -> CleanupOutcome: ...
+
+
+class DeadLetterHandler(Protocol):
+    def list(self, *, limit: int, after_outbox_id: int | None = None) -> DeadLetterPage: ...
+
+    def reprocess(
+        self,
+        *,
+        outbox_id: int,
+        request: ReprocessDeadLetterRequest,
+    ) -> DeadLetterReprocessResult: ...
 
 
 class OutboxDispatchRequest(BaseModel):
@@ -91,6 +110,7 @@ def create_worker_app(
     worker: WorkerHandler | None = None,
     outbox_dispatcher: OutboxDispatcher | None = None,
     cleanup_consumer: SessionCleanupHandler | None = None,
+    dead_letter_operations: DeadLetterHandler | None = None,
     expected_subscription: str | None = None,
 ) -> FastAPI:
     database_handle: DatabaseHandle | None = None
@@ -160,6 +180,13 @@ def create_worker_app(
         )
     else:
         session_cleanup = UnavailableSessionCleanupHandler()
+
+    if dead_letter_operations is not None:
+        dead_letters = dead_letter_operations
+    elif database_handle is not None:
+        dead_letters = DeadLetterOperations(database_handle.engine)
+    else:
+        dead_letters = UnavailableDeadLetterOperations()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -252,6 +279,47 @@ def create_worker_app(
             dead_lettered=counts[CleanupOutcome.DEAD_LETTERED],
             drained=drained,
         )
+
+    @app.get(
+        "/internal/v1/dead-letters",
+        response_model=DeadLetterPage,
+        tags=["internal"],
+    )
+    def list_dead_letters(
+        limit: int = Query(default=50, ge=1, le=100),
+        after_outbox_id: int | None = Query(default=None, ge=1),
+    ) -> DeadLetterPage | JSONResponse:
+        try:
+            return dead_letters.list(limit=limit, after_outbox_id=after_outbox_id)
+        except DeadLetterOperationError as error:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"code": error.code},
+            )
+
+    @app.post(
+        "/internal/v1/dead-letters/{outbox_id}:reprocess",
+        response_model=DeadLetterReprocessResult,
+        tags=["internal"],
+    )
+    def reprocess_dead_letter(
+        outbox_id: int,
+        request: ReprocessDeadLetterRequest,
+    ) -> DeadLetterReprocessResult | JSONResponse:
+        try:
+            return dead_letters.reprocess(outbox_id=outbox_id, request=request)
+        except DeadLetterOperationError as error:
+            response_status = {
+                "DEAD_LETTER_NOT_FOUND": status.HTTP_404_NOT_FOUND,
+                "DEAD_LETTER_REQUEST_ID_REUSED": status.HTTP_409_CONFLICT,
+                "DEAD_LETTER_FAILURE_CODE_CHANGED": status.HTTP_409_CONFLICT,
+                "DEAD_LETTER_STATE_CHANGED": status.HTTP_409_CONFLICT,
+                "DEAD_LETTER_NOT_REPROCESSABLE": status.HTTP_422_UNPROCESSABLE_CONTENT,
+            }.get(error.code, status.HTTP_503_SERVICE_UNAVAILABLE)
+            return JSONResponse(
+                status_code=response_status,
+                content={"code": error.code},
+            )
 
     return app
 
