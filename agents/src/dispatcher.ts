@@ -1,5 +1,6 @@
 import { TASK_REGISTRY } from './registry'
 import { validateAgentTask, validateAgentTaskResult } from './schema-validator'
+import { validateAgentSemantics } from './semantic-validator'
 import type { AgentExecutorMap, AgentTask, AgentTaskResult, HeadFence } from './types'
 
 export class AgentDispatchError extends Error {
@@ -69,5 +70,9 @@ export async function dispatchAgentTask(task: AgentTask, executors: AgentExecuto
     throw new AgentDispatchError('RESULT_SCHEMA_INVALID', JSON.stringify(resultValidation.errors))
   }
   assertResultEcho(task, result)
+  const semanticValidation = validateAgentSemantics(task, result)
+  if (!semanticValidation.ok) {
+    throw new AgentDispatchError('RESULT_SEMANTIC_INVALID', JSON.stringify(semanticValidation.issues))
+  }
   return result
 }

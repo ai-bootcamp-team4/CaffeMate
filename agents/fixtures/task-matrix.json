@@ -362,8 +362,60 @@
             {
               "claim_id": "claim-1",
               "route": "MCP_STRUCTURED",
-              "support_actions": [],
-              "counter_actions": [],
+              "support_actions": [
+                {
+                  "action_id": "action-1",
+                  "polarity": "SUPPORT",
+                  "claim_id": "claim-1",
+                  "tool_name": "get_source_health",
+                  "tool_version": "1.0.0",
+                  "typed_arguments": {
+                    "source_ids": [
+                      "area-profile"
+                    ],
+                    "as_of": "2026-08-21"
+                  },
+                  "required_authority": [
+                    "PRIMARY_DATA"
+                  ],
+                  "date_constraints": {
+                    "as_of": "2026-08-21",
+                    "max_age_days": 365
+                  },
+                  "scope_constraints": {
+                    "scope_type": "ADMINISTRATIVE_AREA",
+                    "scope_id": "11200690",
+                    "boundary_version": "2026-01"
+                  }
+                }
+              ],
+              "counter_actions": [
+                {
+                  "action_id": "action-2",
+                  "polarity": "COUNTER",
+                  "claim_id": "claim-1",
+                  "tool_name": "get_source_health",
+                  "tool_version": "1.0.0",
+                  "typed_arguments": {
+                    "source_ids": [
+                      "area-profile"
+                    ],
+                    "as_of": "2026-08-21"
+                  },
+                  "required_authority": [
+                    "PRIMARY_DATA"
+                  ],
+                  "date_constraints": {
+                    "as_of": "2026-08-21",
+                    "max_age_days": 365
+                  },
+                  "scope_constraints": {
+                    "scope_type": "ADMINISTRATIVE_AREA",
+                    "scope_id": "11200690",
+                    "boundary_version": "2026-01"
+                  }
+                }
+              ],
               "stop_condition": "근거가 충분하면 종료",
               "abstain_condition": "권위 자료가 없으면 기권"
             }

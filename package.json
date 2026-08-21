@@ -12,6 +12,7 @@
     "check:api": "uv run --project api ruff check api && uv run --project api mypy --config-file api/pyproject.toml api/app && uv run --project api pytest api/tests",
     "test:agents": "vitest run agents/test mcp/test rag/test worker/pipelines/**/*.test.ts",
     "typecheck:agents": "tsc -p tsconfig.agents.json --pretty false",
+    "agent:control": "tsx agents/src/control-cli.ts",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build && npm run check:api"
   },
   "dependencies": {

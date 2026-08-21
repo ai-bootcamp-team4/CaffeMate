@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0.0",
+  "runtime_region": "asia-northeast3",
+  "model": {
+    "id": "gemini-3.7-flash",
+    "thinking_level": "medium"
+  },
+  "allow_global_fallback": false,
+  "network_mode": "LOCAL_ONLY",
+  "gcp_preflight_status": "NOT_RUN",
+  "mcp_manifest_digest": "sha256:e0e7a8142bb23b2380f3fb9a8b242bbeb86c58b85b7418f7b02289692b0e1b9d",
+  "tasks": {
+    "INTENT_DELTA": {
+      "agent_name": "INTENT_INTERPRETER",
+      "prompt_version": "intent-interpreter.v1",
+      "input_schema_id": "caffemate.agent.intent-input.v1",
+      "output_schema_id": "caffemate.agent.intent-result.v1"
+    },
+    "EVIDENCE_PLAN": {
+      "agent_name": "EVIDENCE_RESEARCHER",
+      "prompt_version": "evidence-researcher.v1",
+      "input_schema_id": "caffemate.agent.evidence-plan-input.v1",
+      "output_schema_id": "caffemate.agent.evidence-plan-result.v1"
+    },
+    "EVIDENCE_ASSESS": {
+      "agent_name": "EVIDENCE_RESEARCHER",
+      "prompt_version": "evidence-researcher.v1",
+      "input_schema_id": "caffemate.agent.evidence-assess-input.v1",
+      "output_schema_id": "caffemate.agent.evidence-assess-result.v1"
+    },
+    "PROPOSE_INDEPENDENT": {
+      "agent_name": "PROPOSAL_AGENT",
+      "prompt_version": "proposal-agent.v1",
+      "input_schema_id": "caffemate.agent.independent-proposal-input.v1",
+      "output_schema_id": "caffemate.agent.independent-proposal-result.v1"
+    },
+    "PROPOSE_FRANCHISE": {
+      "agent_name": "PROPOSAL_AGENT",
+      "prompt_version": "proposal-agent.v1",
+      "input_schema_id": "caffemate.agent.franchise-proposal-input.v1",
+      "output_schema_id": "caffemate.agent.franchise-proposal-result.v1"
+    },
+    "DOCUMENT_EXTRACT": {
+      "agent_name": "DOCUMENT_ANALYST",
+      "prompt_version": "document-analyst.v1",
+      "input_schema_id": "caffemate.agent.document-extract-input.v1",
+      "output_schema_id": "caffemate.agent.document-extract-result.v1"
+    },
+    "CANDIDATE_AUDIT": {
+      "agent_name": "TYPED_CANDIDATE_AUDITOR",
+      "prompt_version": "typed-candidate-auditor.v1",
+      "input_schema_id": "caffemate.agent.candidate-audit-input.v1",
+      "output_schema_id": "caffemate.agent.candidate-audit-result.v1"
+    }
+  }
+}
