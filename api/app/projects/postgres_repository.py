@@ -1,3 +1,4 @@
+import hashlib
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -30,7 +31,7 @@ class PostgresProjectRepository:
 
     def create(self, *, user_id: str, idempotency_key: str) -> Project:
         operation = "CREATE_PROJECT"
-        digest = rfc8785.dumps({"user_id": user_id})
+        digest = hashlib.sha256(rfc8785.dumps({"user_id": user_id})).digest()
         with self._engine.begin() as connection:
             if not self._claim_idempotency(
                 connection,
@@ -110,7 +111,9 @@ class PostgresProjectRepository:
 
     def confirm_onboarding(self, command: ConfirmOnboardingCommand) -> Project:
         operation = f"CONFIRM_ONBOARDING:{command.project_id}"
-        digest = rfc8785.dumps(command.founder.model_dump(mode="json"))
+        digest = hashlib.sha256(
+            rfc8785.dumps(command.founder.model_dump(mode="json"))
+        ).digest()
         with self._engine.begin() as connection:
             locked = connection.execute(
                 text(

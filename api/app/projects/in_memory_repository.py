@@ -1,3 +1,4 @@
+import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from threading import RLock
@@ -36,7 +37,7 @@ class InMemoryProjectRepository:
 
     def create(self, *, user_id: str, idempotency_key: str) -> Project:
         scope = (user_id, "CREATE_PROJECT", idempotency_key)
-        digest = rfc8785.dumps({"user_id": user_id})
+        digest = hashlib.sha256(rfc8785.dumps({"user_id": user_id})).digest()
         with self._lock:
             replay_id = self._replay_or_reject(scope, digest)
             if replay_id is not None:
@@ -81,7 +82,9 @@ class InMemoryProjectRepository:
             f"CONFIRM_ONBOARDING:{command.project_id}",
             command.idempotency_key,
         )
-        digest = rfc8785.dumps(command.founder.model_dump(mode="json"))
+        digest = hashlib.sha256(
+            rfc8785.dumps(command.founder.model_dump(mode="json"))
+        ).digest()
         with self._lock:
             project = self._owned_project(
                 project_id=command.project_id,
