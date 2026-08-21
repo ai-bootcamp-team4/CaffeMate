@@ -35,7 +35,21 @@ class FeedbackChangeConfirmed(StrictModel):
     operations: list[dict[str, Any]] = Field(min_length=1)
 
 
-DomainEvent = ProjectCreated | OnboardingConfirmed | FeedbackChangeConfirmed
+class CandidateSelected(StrictModel):
+    event_id: str
+    event_type: Literal["CANDIDATE_SELECTED"] = "CANDIDATE_SELECTED"
+    project_id: str
+    user_id: str
+    occurred_at: datetime
+    selection_id: str
+    result_bundle_id: str
+    expected_state_version: int = Field(ge=1)
+    candidate: dict[str, Any]
+
+
+DomainEvent = (
+    ProjectCreated | OnboardingConfirmed | FeedbackChangeConfirmed | CandidateSelected
+)
 
 
 class ConfirmOnboardingCommand(StrictModel):

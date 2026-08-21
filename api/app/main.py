@@ -21,6 +21,7 @@ from app.candidates.seed_registry import IndependentSeedRegistry
 from app.database import DatabaseHandle, create_database_handle
 from app.domain.errors import (
     AuthenticationUnavailableError,
+    CandidateSelectionPreconditionError,
     ContractValidationError,
     DomainError,
     ExternalExecutionUnavailableError,
@@ -58,6 +59,11 @@ from app.results.models import ResultView
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
 from app.results.unavailable_repository import UnavailableResultRepository
+from app.selections.models import CandidateSelection, SelectCandidateRequest
+from app.selections.service import (
+    CandidateSelectionService,
+    UnavailableCandidateSelectionService,
+)
 from app.settings import RuntimeSettings
 from app.workflows.area_resolution import AreaMcpClient, AreaResolutionStageHandler
 from app.workflows.calculate_gate_rank import CalculateGateRankStageHandler
@@ -126,6 +132,9 @@ def create_app(
     workflow_service: WorkflowService | None = None,
     result_service: ResultService | None = None,
     feedback_service: FeedbackService | UnavailableFeedbackService | None = None,
+    candidate_selection_service: (
+        CandidateSelectionService | UnavailableCandidateSelectionService | None
+    ) = None,
     identity_verifier: IdentityVerifier | None = None,
     stage_execution_service: StageExecution | None = None,
     internal_identity_verifier: IdentityVerifier | None = None,
@@ -251,6 +260,13 @@ def create_app(
     else:
         feedback = UnavailableFeedbackService()
 
+    if candidate_selection_service is not None:
+        candidate_selections = candidate_selection_service
+    elif database_handle is not None:
+        candidate_selections = CandidateSelectionService(database_handle.engine)
+    else:
+        candidate_selections = UnavailableCandidateSelectionService()
+
     if stage_execution_service is not None:
         internal_stages = stage_execution_service
     elif database_handle is not None:
@@ -314,6 +330,7 @@ def create_app(
             WorkflowPreconditionError: status.HTTP_409_CONFLICT,
             FeedbackPreconditionError: status.HTTP_409_CONFLICT,
             FeedbackPreviewNotFoundError: status.HTTP_404_NOT_FOUND,
+            CandidateSelectionPreconditionError: status.HTTP_409_CONFLICT,
             StageLeaseRejectedError: status.HTTP_409_CONFLICT,
             ExternalExecutionUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
             FirstProposalConfigurationUnavailableError: (
@@ -442,6 +459,26 @@ def create_app(
             project_id=project_id,
             preview_id=preview_id,
             user_id=user_id,
+            idempotency_key=idempotency_key,
+        )
+
+    @app.post(
+        "/v1/projects/{project_id}/candidate-selections",
+        response_model=CandidateSelection,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def select_candidate(
+        project_id: str,
+        request: SelectCandidateRequest,
+        user_id: Annotated[str, Depends(current_user)],
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> CandidateSelection:
+        return candidate_selections.select(
+            project_id=project_id,
+            user_id=user_id,
+            result_bundle_id=request.result_bundle_id,
+            candidate_id=request.candidate_id,
+            expected_head=request.expected_head,
             idempotency_key=idempotency_key,
         )
 

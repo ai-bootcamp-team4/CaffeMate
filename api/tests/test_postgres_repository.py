@@ -399,6 +399,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0007_evidence_snapshot.sql",
             "0008_feedback_preview.sql",
             "0009_feedback_resolution.sql",
+            "0010_candidate_selection.sql",
         ]
 
 
@@ -1816,8 +1817,82 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
             f"/v1/projects/{project.project_id}/result",
             headers={"Authorization": "Bearer valid-token"},
         )
+        missing = client.post(
+            f"/v1/projects/{project.project_id}/candidate-selections",
+            headers={
+                "Authorization": "Bearer valid-token",
+                "Idempotency-Key": "selection-missing",
+            },
+            json={
+                "result_bundle_id": loaded.result_bundle_id,
+                "candidate_id": "candidate-not-in-result",
+                "expected_head": loaded.head.model_dump(mode="json"),
+            },
+        )
+        selected = client.post(
+            f"/v1/projects/{project.project_id}/candidate-selections",
+            headers={
+                "Authorization": "Bearer valid-token",
+                "Idempotency-Key": "selection-1",
+            },
+            json={
+                "result_bundle_id": loaded.result_bundle_id,
+                "candidate_id": "candidate-1",
+                "expected_head": loaded.head.model_dump(mode="json"),
+            },
+        )
+        replay = client.post(
+            f"/v1/projects/{project.project_id}/candidate-selections",
+            headers={
+                "Authorization": "Bearer valid-token",
+                "Idempotency-Key": "selection-1",
+            },
+            json={
+                "result_bundle_id": loaded.result_bundle_id,
+                "candidate_id": "candidate-1",
+                "expected_head": loaded.head.model_dump(mode="json"),
+            },
+        )
+        project_after = client.get(
+            f"/v1/projects/{project.project_id}",
+            headers={"Authorization": "Bearer valid-token"},
+        )
     assert response.status_code == 200
     assert response.json()["result_bundle_id"] == "result-1"
+    assert missing.status_code == 409
+    assert missing.json()["code"] == "CANDIDATE_SELECTION_PRECONDITION_FAILED"
+    assert selected.status_code == 201
+    assert replay.json() == selected.json()
+    selection = selected.json()
+    assert selection["candidate_id"] == "candidate-1"
+    assert selection["selected_state_version"] == 2
+    assert selection["property_intake_enabled"] is True
+    assert selection["document_intake_enabled"] is True
+    assert selection["is_final_go_decision"] is False
+    assert {item["code"] for item in selection["required_evidence"]} >= {
+        "PROPERTY_LISTING",
+        "LEASE_TERMS",
+        "INTERIOR_QUOTE",
+        "EQUIPMENT_QUOTE",
+        "SUPPLIER_TERMS",
+    }
+    assert project_after.status_code == 200
+    state = project_after.json()["state"]
+    assert state["active_case_id"] == "candidate-1"
+    assert state["status"] == "WAITING_FOR_HUMAN"
+    assert state["venture_cases"] == [
+        {
+            "case_id": "candidate-1",
+            "case_type": "INDEPENDENT",
+            "maturity": "CANDIDATE",
+            "status": "SELECTED",
+            "display_name": "소형 개인카페",
+            "franchise_eligibility": "NOT_APPLICABLE",
+            "confirmed_claim_ids": ["evidence-1"],
+            "assumption_ids": [],
+            "missing_fields": [],
+        }
+    ]
 
 
 def test_invalid_result_contract_rolls_back_bundle_and_stage_checkpoint(
