@@ -186,5 +186,5 @@ Slice 1~5가 통과하면 첫 제안 세로 흐름을 통합할 수 있다. 이�
 
 - 현재 저장소에는 React 결과 목업과 frontend 배포만 있다.
 - API·데이터베이스·MCP·Agent·RAG resource는 아직 없다.
-- 기존 선택 `gemini-3.5-flash`는 서울에서 호출할 수 없어 제거됐고, 서울 실제 호출을 통과한 생성 model id 승인이 남아 있다.
+- 생성 model id는 `gemini-3.7-flash`로 결정됐다. 실제 GCP 연결은 아직 없으므로 서울 Runtime·생성·embedding·reranker preflight가 남아 있다.
 - 기존 목업의 가상 값은 제품 성능 증거로 사용하지 않는다.

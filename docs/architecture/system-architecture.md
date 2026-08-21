@@ -25,7 +25,7 @@
 - Control API가 IAM 인증으로 Agent Runtime을 직접 호출한다. 서울 리전에서 지원되지 않는 managed Agent Gateway를 필수 경로에 두지 않는다.
 - 첫 구현에서는 Control API만 private MCP를 호출한다. Agent Runtime은 MCP invoke 권한을 갖지 않고 typed proposal만 반환하며 State write는 계속 API만 수행한다.
 - 생성·embedding model endpoint도 `asia-northeast3`로 고정하며 `global` endpoint로 자동 fallback하지 않는다.
-- 기존 선택 `gemini-3.5-flash`는 공식 지원 생성 리전에 서울이 없어 제거한다. 대체 model id는 `PENDING_HUMAN_DECISION`이며 승인 전 Agent 경로는 `BLOCKED_BY_REGION`이다.
+- 생성 model id는 `gemini-3.7-flash`로 고정한다. 실제 GCP 연결을 제외한 구현에서는 이를 release manifest에 pin하되, 서울 생성 호출 preflight가 실행·통과하기 전 production Agent 경로는 `BLOCKED_BY_REGION`이다.
 - 실제 사용할 생성·embedding·reranker는 배포 전에 `asia-northeast3` 호출 read-back을 각각 통과해야 한다. 실패하면 `BLOCKED_BY_REGION`으로 중단하며 사용자 data plane을 다른 리전으로 옮기지 않는다.
 - Vertex AI RAG Engine을 공식·프로젝트 문서 Advanced RAG의 주 검색 계층으로 사용한다. 서울 Preview 위험은 수용하되 corpus 생성·import·retrieval·rerank read-back을 배포 Gate로 두고 다른 검색기로 조용히 우회하지 않는다.
 

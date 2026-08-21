@@ -75,13 +75,13 @@ flowchart LR
 
 ### 4.1 현재 배포 가능 상태
 
-`asia-northeast3` Agent Runtime 배치는 확정이다. 그러나 2026-08-21 공식 모델 문서상 기존 선택인 `gemini-3.5-flash`의 지원 생성 리전에 서울이 없다. 따라서 생성 모델 id는 현재 `PENDING_HUMAN_DECISION`, Agent 경로는 `BLOCKED_BY_REGION`이다.
+`asia-northeast3` Agent Runtime 배치는 확정이고 생성 model id는 사용자 결정에 따라 `gemini-3.7-flash`로 고정한다. 이번 로컬 구현 범위에서는 GCP 호출을 수행하지 않으므로 preflight 상태는 `NOT_RUN`이며, 서울에서 실제 생성 read-back이 통과하기 전 production Agent 경로는 `BLOCKED_BY_REGION`이다.
 
 - 서울 Runtime을 다른 리전으로 자동 변경하지 않는다.
 - `global` model endpoint로 자동 fallback하지 않는다.
 - Runtime 생성, 생성 모델 호출, embedding 호출, reranker 호출을 서로 독립된 배포 preflight로 실행한다.
 - 네 항목 중 필수 항목 하나라도 서울에서 실패하면 Agent Workflow를 시작하지 않고 global 호출 수가 0임을 검증한다.
-- 서울에서 실제 `generateContent` read-back을 통과한 모델 id를 인간이 승인하고 release manifest에 pin한 뒤에만 차단을 해제한다.
+- release manifest에는 `gemini-3.7-flash`를 pin한다. 차단 해제 조건은 서울에서 해당 exact model id의 실제 생성 read-back과 나머지 필수 preflight가 모두 통과하는 것이다.
 
 ### 4.2 GCP endpoint와 관리형 session
 

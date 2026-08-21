@@ -16,9 +16,9 @@ Proposal Agent를 포함한 5-Agent 구조와 결정론적 Core를 유지하면�
 | MCP | TypeScript, 공식 MCP SDK v2와 JSON Schema/Ajv 기반 검증 |
 | 문서·수집 Worker | Python |
 | Agent 실행 | GCP managed Agent Runtime, `asia-northeast3` |
-| 생성 모델 | `PENDING_HUMAN_DECISION`; 기존 `gemini-3.5-flash`는 서울 미지원으로 사용 금지 |
+| 생성 모델 | `gemini-3.7-flash`; 사용자 선택 완료, 서울 실제 호출 preflight 전 배포 차단 |
 | 생성·embedding endpoint | `asia-northeast3`; `global` fallback 금지 |
-| 생성 설정 | `temperature=0`, `candidateCount=1`, `seed=17`, JSON structured output |
+| 생성 설정 | `thinking_level=medium`, JSON structured output; Gemini 3.7에서 deprecated sampling parameter는 보내지 않음 |
 | Advanced RAG | Vertex AI RAG Engine, `asia-northeast3`; 운영 필수 검색 계층 |
 | Embedding | RAG corpus 생성 시 pin하며 서울 import·retrieval read-back 전 사용 금지 |
 | Exact retrieval | Cloud SQL typed lookup; id·날짜·금액·단위 전용 |
@@ -28,7 +28,7 @@ Proposal Agent를 포함한 5-Agent 구조와 결정론적 Core를 유지하면�
 | Orchestration | Control API가 고정 DAG 실행; Agent 간 직접 호출 금지 |
 | State write | Reducer만 허용 |
 
-`gemini-3.5-flash`는 GA지만 [모델별 지원 리전](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-flash)에 `asia-northeast3`가 없으므로 CaffeMate의 서울 고정 계약과 양립하지 않는다. 이 model id는 제거하며 서울에서 실제 생성 호출을 통과한 고정 model id를 인간이 승인하기 전 Agent 경로는 `BLOCKED_BY_REGION`이다. [`@latest`는 사용하지 않는다](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions).
+생성 모델은 사용자 결정에 따라 stable model id `gemini-3.7-flash`로 고정한다. Gemini 3.7 Flash의 기본 thinking level은 `medium`이며 `low|medium|high`를 지원한다. Gemini 3.7 migration 지침에 따라 deprecated sampling parameter(`temperature`, `top_p`, `top_k`)와 `candidate_count`는 전송하지 않는다. [`@latest`는 사용하지 않는다](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions). 이번 로컬 구현에서는 GCP 호출을 수행하지 않으므로 서울 실제 생성 read-back이 통과하기 전 production Agent 경로는 계속 `BLOCKED_BY_REGION`이다.
 
 리전 지원 근거는 [Agent Runtime 지원 지역](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations), [모델 endpoint 지역](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations), [모델별 data residency](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/data-residency)를 사용한다. `accessed_at: 2026-08-21`, `freshness: deployment preflight에서 재확인`이다.
 
@@ -589,4 +589,4 @@ Proposal Agent와 별도의 Typed Candidate Auditor를 유지한다. `candidate-
 - Control API가 Agent Runtime을 직접 호출하며 별도 Cloud Run Agent Gateway와 managed Agent Gateway를 사용하지 않는다.
 - RAG Engine은 서울에서 Preview이지만 Advanced RAG의 운영 필수 검색 계층으로 사용한다. 이 위험은 승인됐으며 실제 corpus 생성·import·retrieval·rerank preflight를 통과해야 한다.
 - Reranker 관련성 점수는 Evidence 신뢰도나 후보 순위가 아니다.
-- `PENDING_HUMAN_DECISION`: 서울 실제 생성 호출을 통과한 model id 중 사용할 고정 모델을 승인해야 한다. 이 결정 전까지 Agent 구현·배포 경로는 `BLOCKED_BY_REGION`이며 deterministic Core와 fixture 기반 adapter 개발만 진행한다.
+- 생성 model id는 `gemini-3.7-flash`로 결정됐다. 다만 이번 범위에서는 GCP preflight를 실행하지 않으므로 서울 Runtime·생성·embedding·reranker read-back이 모두 통과하기 전 production Agent 경로는 `BLOCKED_BY_REGION`이다. deterministic Core와 fixture 기반 adapter 개발은 독립적으로 진행한다.
