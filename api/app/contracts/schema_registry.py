@@ -21,7 +21,11 @@ class AgentContractValidator(Protocol):
 
 
 class McpContractValidator(Protocol):
+    def validate_mcp_tool_input(self, tool_name: str, value: dict[str, Any]) -> None: ...
+
     def validate_mcp_tool_result(self, tool_name: str, value: dict[str, Any]) -> None: ...
+
+    def mcp_tool_version(self, tool_name: str) -> str: ...
 
 
 class CandidateContractValidator(Protocol):
@@ -55,6 +59,15 @@ class ContractRegistry:
             "https://github.com/ai-bootcamp-team4/CaffeMate/docs/contracts/"
             "mcp-tool-manifest.json"
         )
+        self._mcp_tools = {tool["name"]: tool for tool in manifest["tools"]}
+        self._mcp_input_validators = {
+            tool["name"]: Draft202012Validator(
+                {"$ref": urljoin(manifest_id, tool["input_schema_ref"])},
+                registry=registry,
+                format_checker=FormatChecker(),
+            )
+            for tool in manifest["tools"]
+        }
         self._mcp_result_validators = {
             tool["name"]: Draft202012Validator(
                 {"$ref": urljoin(manifest_id, tool["output_schema_ref"])},
@@ -73,11 +86,23 @@ class ContractRegistry:
     def validate_agent_task_result(self, value: dict[str, Any]) -> None:
         self._validate("agent-task-result.schema.json", value)
 
+    def validate_mcp_tool_input(self, tool_name: str, value: dict[str, Any]) -> None:
+        validator = self._mcp_input_validators.get(tool_name)
+        if validator is None:
+            raise ContractValidationError(f"Unknown MCP tool: {tool_name}")
+        self._validate_with(validator, f"MCP tool {tool_name} input", value)
+
     def validate_mcp_tool_result(self, tool_name: str, value: dict[str, Any]) -> None:
         validator = self._mcp_result_validators.get(tool_name)
         if validator is None:
             raise ContractValidationError(f"Unknown MCP tool: {tool_name}")
         self._validate_with(validator, f"MCP tool {tool_name}", value)
+
+    def mcp_tool_version(self, tool_name: str) -> str:
+        tool = self._mcp_tools.get(tool_name)
+        if tool is None:
+            raise ContractValidationError(f"Unknown MCP tool: {tool_name}")
+        return str(tool["version"])
 
     def validate_candidate_result(self, value: dict[str, Any]) -> None:
         self._validate("candidate-result.schema.json", value)

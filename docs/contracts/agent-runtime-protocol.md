@@ -374,7 +374,7 @@ cancel command도 durable Event로 기록하고 generation을 증가시킨다. �
 - encoding: UTF-8 JSON-RPC 2.0
 - 사용 기능: `server/discover`, `tools/list`, `tools/call`
 - 사용하지 않는 기능: write tool, prompts, sampling, elicitation, persistent MCP session, Tasks extension
-- implementation: 공식 MCP TypeScript SDK v2의 `createMcpHandler(..., { legacy: 'reject' })`와 v2 client를 사용하고 정확한 package version을 lockfile·release manifest에 pin한다. hand-written transport와 2025 fallback은 허용하지 않는다.
+- implementation: MCP server는 공식 TypeScript SDK v2의 `createMcpHandler(..., { legacy: 'reject' })`, FastAPI Control API는 공식 Python SDK v2 client를 사용한다. 양쪽 package version을 lockfile·release manifest에 pin하며 hand-written transport와 2025 fallback은 허용하지 않는다.
 
 모든 POST는 `MCP-Protocol-Version`과 body의 실제 method를 반영한 `Mcp-Method`를 포함한다. `Mcp-Name`은 `tools/call`처럼 `params.name`이 정의된 요청에만 포함한다. header와 body가 다르면 HTTP 400, JSON-RPC `-32020`으로 거절한다.
 
