@@ -8,6 +8,12 @@
   "allow_global_fallback": false,
   "network_mode": "LOCAL_ONLY",
   "gcp_preflight_status": "NOT_RUN",
+  "mcp": {
+    "protocol_revision": "2026-07-28",
+    "server_sdk": "@modelcontextprotocol/server@2.0.0",
+    "client_sdk": "@modelcontextprotocol/client@2.0.0",
+    "legacy_mode": "reject"
+  },
   "mcp_manifest_digest": "sha256:e0e7a8142bb23b2380f3fb9a8b242bbeb86c58b85b7418f7b02289692b0e1b9d",
   "tasks": {
     "INTENT_DELTA": {

@@ -8,6 +8,12 @@ describe('local agent release manifest', () => {
     expect(releaseManifest.runtime_region).toBe(AGENT_MODEL.region)
     expect(releaseManifest.allow_global_fallback).toBe(false)
     expect(releaseManifest.gcp_preflight_status).toBe('NOT_RUN')
+    expect(releaseManifest.mcp).toEqual({
+      protocol_revision: '2026-07-28',
+      server_sdk: '@modelcontextprotocol/server@2.0.0',
+      client_sdk: '@modelcontextprotocol/client@2.0.0',
+      legacy_mode: 'reject',
+    })
 
     for (const [taskType, registration] of Object.entries(TASK_REGISTRY)) {
       expect(releaseManifest.tasks[taskType as keyof typeof releaseManifest.tasks]).toEqual({
