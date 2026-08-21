@@ -231,3 +231,11 @@ def test_openapi_exposes_control_api_contract(client: TestClient) -> None:
         "/v1/projects/{project_id}/feedback/previews/{preview_id}"
         in schema["paths"]
     )
+    assert (
+        "/v1/projects/{project_id}/feedback/{preview_id}/confirm"
+        in schema["paths"]
+    )
+    assert (
+        "/v1/projects/{project_id}/feedback/{preview_id}/cancel"
+        in schema["paths"]
+    )

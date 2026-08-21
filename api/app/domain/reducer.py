@@ -1,5 +1,10 @@
 from app.domain.errors import StateVersionConflictError
-from app.domain.events import DomainEvent, OnboardingConfirmed, ProjectCreated
+from app.domain.events import (
+    DomainEvent,
+    FeedbackChangeConfirmed,
+    OnboardingConfirmed,
+    ProjectCreated,
+)
 from app.domain.models import (
     AreaResolutionStatus,
     AreaState,
@@ -7,6 +12,7 @@ from app.domain.models import (
     VentureState,
     VentureStatus,
 )
+from app.feedback.intent import apply_feedback_operations
 
 
 def reduce_venture_state(
@@ -35,6 +41,21 @@ def reduce_venture_state(
             ),
             venture_cases=[],
             updated_at=event.occurred_at,
+        )
+
+    if isinstance(event, FeedbackChangeConfirmed):
+        if current is None or current.state_version != event.expected_state_version:
+            raise StateVersionConflictError("Feedback expected State version does not match")
+        if current.project_id != event.project_id or current.user_id != event.user_id:
+            raise StateVersionConflictError("Feedback crossed the State aggregate boundary")
+        return current.model_copy(
+            update={
+                "state_version": current.state_version + 1,
+                "status": VentureStatus.RECOMPUTE_REQUIRED,
+                "founder": apply_feedback_operations(current.founder, event.operations),
+                "updated_at": event.occurred_at,
+            },
+            deep=True,
         )
 
     raise AssertionError(f"Unhandled event type: {type(event).__name__}")

@@ -38,7 +38,12 @@ from app.domain.errors import (
     WorkflowPreconditionError,
 )
 from app.domain.models import FounderState, Project
-from app.feedback.models import CreateFeedbackPreviewRequest, FeedbackPreview
+from app.feedback.models import (
+    ConfirmFeedbackRequest,
+    CreateFeedbackPreviewRequest,
+    FeedbackPreview,
+    FeedbackResolution,
+)
 from app.feedback.postgres_repository import PostgresFeedbackRepository
 from app.feedback.service import (
     FeedbackService,
@@ -401,6 +406,43 @@ def create_app(
             project_id=project_id,
             preview_id=preview_id,
             user_id=user_id,
+        )
+
+    @app.post(
+        "/v1/projects/{project_id}/feedback/{preview_id}/confirm",
+        response_model=FeedbackResolution,
+    )
+    def confirm_feedback_preview(
+        project_id: str,
+        preview_id: str,
+        request: ConfirmFeedbackRequest,
+        user_id: Annotated[str, Depends(current_user)],
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> FeedbackResolution:
+        return feedback.confirm_preview(
+            project_id=project_id,
+            preview_id=preview_id,
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+            expected_head=request.expected_head,
+            proposal_digest=request.proposal_digest,
+        )
+
+    @app.post(
+        "/v1/projects/{project_id}/feedback/{preview_id}/cancel",
+        response_model=FeedbackResolution,
+    )
+    def cancel_feedback_preview(
+        project_id: str,
+        preview_id: str,
+        user_id: Annotated[str, Depends(current_user)],
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> FeedbackResolution:
+        return feedback.cancel_preview(
+            project_id=project_id,
+            preview_id=preview_id,
+            user_id=user_id,
+            idempotency_key=idempotency_key,
         )
 
     @app.get("/v1/projects", response_model=list[Project])

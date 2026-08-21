@@ -1,6 +1,8 @@
 from typing import Protocol
 
+from app.domain.models import VentureState
 from app.feedback.models import FeedbackPreviewRecord, FeedbackPreviewStatus
+from app.workflows.models import HeadFence, WorkflowRun
 
 
 class FeedbackRepository(Protocol):
@@ -38,4 +40,24 @@ class FeedbackRepository(Protocol):
         preview_id: str,
         project_id: str,
         user_id: str,
+    ) -> FeedbackPreviewRecord: ...
+
+    def confirm_preview(
+        self,
+        *,
+        preview_id: str,
+        project_id: str,
+        user_id: str,
+        idempotency_key: str,
+        expected_head: HeadFence,
+        proposal_digest: str,
+    ) -> tuple[FeedbackPreviewRecord, VentureState, WorkflowRun]: ...
+
+    def cancel_preview(
+        self,
+        *,
+        preview_id: str,
+        project_id: str,
+        user_id: str,
+        idempotency_key: str,
     ) -> FeedbackPreviewRecord: ...

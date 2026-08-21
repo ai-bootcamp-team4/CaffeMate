@@ -1,6 +1,5 @@
 import hashlib
 from collections.abc import Callable
-from copy import deepcopy
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -12,16 +11,23 @@ from app.domain.errors import (
     FeedbackPreconditionError,
     PersistenceUnavailableError,
 )
-from app.feedback.intent import validate_intent_delta_result
+from app.domain.models import FounderState
+from app.feedback.intent import (
+    affected_feedback_stages,
+    apply_feedback_operations,
+    validate_intent_delta_result,
+)
 from app.feedback.models import (
     FeedbackPreview,
     FeedbackPreviewRecord,
     FeedbackPreviewStatus,
+    FeedbackResolution,
 )
 from app.feedback.repository import FeedbackRepository
 from app.projects.service import ProjectService
 from app.results.models import ResultFreshness
 from app.results.service import ResultService
+from app.workflows.models import HeadFence
 
 
 class FeedbackAgentRuntime(Protocol):
@@ -134,6 +140,46 @@ class FeedbackService:
             )
         )
 
+    def confirm_preview(
+        self,
+        *,
+        preview_id: str,
+        project_id: str,
+        user_id: str,
+        idempotency_key: str,
+        expected_head: HeadFence,
+        proposal_digest: str,
+    ) -> FeedbackResolution:
+        record, state, workflow = self._repository.confirm_preview(
+            preview_id=preview_id,
+            project_id=project_id,
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+            expected_head=expected_head,
+            proposal_digest=proposal_digest,
+        )
+        return FeedbackResolution(
+            preview=self._public(record),
+            state_version=state.state_version,
+            workflow=workflow,
+        )
+
+    def cancel_preview(
+        self,
+        *,
+        preview_id: str,
+        project_id: str,
+        user_id: str,
+        idempotency_key: str,
+    ) -> FeedbackResolution:
+        record = self._repository.cancel_preview(
+            preview_id=preview_id,
+            project_id=project_id,
+            user_id=user_id,
+            idempotency_key=idempotency_key,
+        )
+        return FeedbackResolution(preview=self._public(record))
+
     @staticmethod
     def _preview_status(
         runtime_result: dict[str, Any],
@@ -157,11 +203,14 @@ class FeedbackService:
     @classmethod
     def _public(cls, record: FeedbackPreviewRecord) -> FeedbackPreview:
         state_projection = record.task["payload"]["current_state_projection"]
-        before = deepcopy(state_projection["founder"])
+        before = dict(state_projection["founder"])
         proposal = record.proposal or {}
         operations = proposal.get("operations", [])
         after = (
-            cls._apply_operations(before, operations)
+            apply_feedback_operations(
+                FounderState.model_validate(before),
+                operations,
+            ).model_dump(mode="json")
             if record.status == FeedbackPreviewStatus.REVIEW_REQUIRED
             else None
         )
@@ -185,8 +234,9 @@ class FeedbackService:
             operations=operations,
             clarifying_questions=proposal.get("clarifying_questions", []),
             affected_candidate_ids=(candidate_refs if operations else []),
-            affected_stage_codes=cls._affected_stages(field_paths),
+            affected_stage_codes=affected_feedback_stages(field_paths),
             risk_flags=proposal.get("risk_flags", []),
+            proposal_digest=record.proposal_digest,
             agent_trace={
                 "task_id": record.task["task_id"],
                 "invocation_id": record.task["invocation_id"],
@@ -197,55 +247,16 @@ class FeedbackService:
             updated_at=record.updated_at,
         )
 
-    @staticmethod
-    def _apply_operations(
-        founder: dict[str, Any],
-        operations: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        updated = deepcopy(founder)
-        for operation in operations:
-            field = operation["field_path"].rsplit("/", 1)[-1]
-            kind = operation["kind"]
-            value = operation["typed_value"]["value"]
-            if kind in {"SET", "UNSET"}:
-                updated[field] = value
-            elif kind == "ADD":
-                updated[field] = [*updated[field], value]
-            elif kind == "REMOVE":
-                updated[field] = [item for item in updated[field] if item != value]
-            else:
-                raise ContractValidationError("Validated feedback operation is unsupported")
-        return updated
-
-    @staticmethod
-    def _affected_stages(field_paths: set[str]) -> list[str]:
-        if not field_paths:
-            return []
-        all_stages = [
-            "AREA_RESOLUTION",
-            "CLAIM_PLAN",
-            "EVIDENCE_PLAN",
-            "EVIDENCE_RETRIEVAL",
-            "EVIDENCE_ASSESS",
-            "EVIDENCE_FREEZE",
-            "INDEPENDENT_SEED",
-            "FRANCHISE_ELIGIBILITY",
-            "PROPOSE_INDEPENDENT",
-            "PROPOSE_FRANCHISE",
-            "CALCULATE_GATE_RANK",
-            "CANDIDATE_AUDIT",
-            "COMMIT_RESULT",
-        ]
-        if "/founder/target_area_input" in field_paths:
-            return all_stages
-        if "/founder/cafe_type_preference" in field_paths:
-            return all_stages[1:]
-        return all_stages[6:]
-
 
 class UnavailableFeedbackService:
     def create_preview(self, **_: object) -> FeedbackPreview:
         raise PersistenceUnavailableError("Feedback persistence or Agent Runtime is unavailable")
 
     def get_preview(self, **_: object) -> FeedbackPreview:
+        raise PersistenceUnavailableError("Feedback persistence or Agent Runtime is unavailable")
+
+    def confirm_preview(self, **_: object) -> FeedbackResolution:
+        raise PersistenceUnavailableError("Feedback persistence or Agent Runtime is unavailable")
+
+    def cancel_preview(self, **_: object) -> FeedbackResolution:
         raise PersistenceUnavailableError("Feedback persistence or Agent Runtime is unavailable")
