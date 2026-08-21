@@ -612,6 +612,76 @@ def create_commit_stage(
     return project, stage_id, input_digest, workflows
 
 
+@pytest.mark.parametrize(
+    ("disposition", "workflow_status", "current_stage_status", "other_stage_status"),
+    [
+        ("WAITING_FOR_HUMAN", "WAITING_FOR_HUMAN", "WAITING_FOR_HUMAN", "PENDING"),
+        ("ABSTAIN", "PARTIAL", "SKIPPED", "CANCELLED"),
+    ],
+)
+def test_noncontinuing_stage_does_not_publish_or_persist_a_result(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+    disposition: str,
+    workflow_status: str,
+    current_stage_status: str,
+    other_stage_status: str,
+) -> None:
+    project, stage_id, input_digest, _workflows = create_ready_stage(
+        repository, postgres_engine
+    )
+    execution = PostgresStageExecutionRepository(postgres_engine)
+    lease = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-1",
+        expected_input_digest=input_digest,
+    )
+    assert lease is not None
+
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=lease.lease_token,
+        input_digest=lease.input_digest,
+        result={
+            "stage_control": {
+                "disposition": disposition,
+                "reason_codes": ["AREA_SELECTION_REQUIRED"],
+            },
+            "area_resolution": {"selected": None},
+        },
+    ) == CheckpointOutcome.APPLIED
+
+    with postgres_engine.connect() as connection:
+        stored_workflow_status = connection.execute(
+            text(
+                "SELECT status FROM workflow_runs "
+                "WHERE project_id=:project_id"
+            ),
+            {"project_id": project.project_id},
+        ).scalar_one()
+        current_status = connection.execute(
+            text("SELECT status FROM stage_runs WHERE stage_run_id=:stage_run_id"),
+            {"stage_run_id": stage_id},
+        ).scalar_one()
+        other_statuses = set(
+            connection.execute(
+                text("SELECT status FROM stage_runs WHERE stage_run_id<>:stage_run_id"),
+                {"stage_run_id": stage_id},
+            ).scalars()
+        )
+        outbox_count = connection.execute(
+            text("SELECT COUNT(*) FROM workflow_outbox")
+        ).scalar_one()
+        result_count = connection.execute(
+            text("SELECT COUNT(*) FROM result_bundles")
+        ).scalar_one()
+    assert stored_workflow_status == workflow_status
+    assert current_status == current_stage_status
+    assert other_statuses == {other_stage_status}
+    assert outbox_count == 1
+    assert result_count == 0
+
+
 def test_stage_context_loads_fenced_state_and_direct_dependency_results(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
