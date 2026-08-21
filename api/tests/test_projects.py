@@ -198,3 +198,17 @@ def test_openapi_exposes_control_api_contract(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
     assert schema["info"]["title"] == "CaffeMate Control API"
     assert "/v1/projects/{project_id}/onboarding/confirm" in schema["paths"]
+    workflow_path = "/v1/projects/{project_id}/workflows/{workflow_run_id}"
+    workflow_response = schema["paths"][workflow_path]["get"]["responses"]["200"]
+    assert workflow_response["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/WorkflowProgress"
+    }
+    required = set(schema["components"]["schemas"]["WorkflowProgress"]["required"])
+    assert {
+        "stages",
+        "completed_stage_count",
+        "total_stage_count",
+        "current_stage_codes",
+        "human_review_requests",
+        "terminal_reason_codes",
+    }.issubset(required)

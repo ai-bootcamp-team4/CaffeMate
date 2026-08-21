@@ -64,7 +64,13 @@ from app.workflows.evidence_retrieval import (
 )
 from app.workflows.execution_repository import PostgresStageExecutionRepository
 from app.workflows.first_proposal import FirstProposalStage
-from app.workflows.models import StageLease, WorkflowCode, WorkflowEvent, WorkflowRun
+from app.workflows.models import (
+    StageLease,
+    WorkflowCode,
+    WorkflowEvent,
+    WorkflowProgress,
+    WorkflowRun,
+)
 from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.proposal import ProposalStageHandler
 from app.workflows.service import WorkflowService
@@ -398,14 +404,14 @@ def create_app(
 
     @app.get(
         "/v1/projects/{project_id}/workflows/{workflow_run_id}",
-        response_model=WorkflowRun,
+        response_model=WorkflowProgress,
     )
     def get_workflow(
         project_id: str,
         workflow_run_id: str,
         user_id: Annotated[str, Depends(current_user)],
-    ) -> WorkflowRun:
-        return workflows.get(
+    ) -> WorkflowProgress:
+        return workflows.get_progress(
             project_id=project_id,
             workflow_run_id=workflow_run_id,
             user_id=user_id,

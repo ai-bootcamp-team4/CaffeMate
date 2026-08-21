@@ -3,6 +3,7 @@ from app.workflows.models import (
     StartWorkflowCommand,
     WorkflowCode,
     WorkflowEvent,
+    WorkflowProgress,
     WorkflowRun,
 )
 from app.workflows.repository import WorkflowRepository
@@ -46,6 +47,19 @@ class WorkflowService:
         user_id: str,
     ) -> WorkflowRun:
         return self._repository.get(
+            project_id=project_id,
+            workflow_run_id=workflow_run_id,
+            user_id=user_id,
+        )
+
+    def get_progress(
+        self,
+        *,
+        project_id: str,
+        workflow_run_id: str,
+        user_id: str,
+    ) -> WorkflowProgress:
+        return self._repository.get_progress(
             project_id=project_id,
             workflow_run_id=workflow_run_id,
             user_id=user_id,

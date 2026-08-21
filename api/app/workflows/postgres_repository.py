@@ -19,9 +19,12 @@ from app.workflows.first_proposal import compile_first_proposal_plan, stage_inpu
 from app.workflows.models import (
     CancelWorkflowCommand,
     HeadFence,
+    HumanReviewRequest,
     StartWorkflowCommand,
     WorkflowEvent,
+    WorkflowProgress,
     WorkflowRun,
+    WorkflowStageProgress,
     WorkflowStatus,
 )
 
@@ -307,6 +310,84 @@ class PostgresWorkflowRepository:
                 user_id=user_id,
             )
 
+    def get_progress(
+        self,
+        *,
+        project_id: str,
+        workflow_run_id: str,
+        user_id: str,
+    ) -> WorkflowProgress:
+        with self._engine.connect() as connection:
+            run = self._load_owned_workflow(
+                connection,
+                project_id=project_id,
+                workflow_run_id=workflow_run_id,
+                user_id=user_id,
+            )
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT stage_run_id, stage_code, status, attempt, result_json,
+                           failure_json, updated_at, completed_at
+                    FROM stage_runs
+                    WHERE workflow_run_id=:workflow_run_id
+                    ORDER BY created_at, stage_code
+                    """
+                ),
+                {"workflow_run_id": workflow_run_id},
+            ).mappings().all()
+        stages: list[WorkflowStageProgress] = []
+        human_requests: list[HumanReviewRequest] = []
+        terminal_reasons: set[str] = set()
+        for row in rows:
+            result = self._json_object(row["result_json"])
+            control = self._json_object(result.get("stage_control"))
+            reason_codes = self._reason_codes(control.get("reason_codes"))
+            failure = self._json_object(row["failure_json"])
+            failure_code = failure.get("code")
+            if not isinstance(failure_code, str):
+                failure_code = None
+            stage = WorkflowStageProgress(
+                stage_run_id=row["stage_run_id"],
+                stage_code=row["stage_code"],
+                status=row["status"],
+                attempt=row["attempt"],
+                reason_codes=reason_codes,
+                failure_code=failure_code,
+                updated_at=row["updated_at"],
+                completed_at=row["completed_at"],
+            )
+            stages.append(stage)
+            if stage.status.value == "WAITING_FOR_HUMAN" and reason_codes:
+                human_requests.append(
+                    HumanReviewRequest(
+                        stage_run_id=stage.stage_run_id,
+                        stage_code=stage.stage_code,
+                        reason_codes=reason_codes,
+                    )
+                )
+            if stage.status.value in {"FAILED", "TIMED_OUT", "SKIPPED"}:
+                terminal_reasons.update(reason_codes)
+                if failure_code is not None:
+                    terminal_reasons.add(failure_code)
+        active_statuses = {WorkflowStatus.QUEUED, WorkflowStatus.RUNNING}
+        current_statuses = {"READY", "RUNNING", "WAITING_FOR_HUMAN"}
+        completed_statuses = {"SUCCEEDED", "SKIPPED"}
+        return WorkflowProgress(
+            **run.model_dump(mode="python"),
+            stages=stages,
+            completed_stage_count=sum(
+                stage.status.value in completed_statuses for stage in stages
+            ),
+            total_stage_count=len(stages),
+            current_stage_codes=[
+                stage.stage_code for stage in stages if stage.status.value in current_statuses
+            ],
+            human_review_requests=human_requests,
+            terminal_reason_codes=sorted(terminal_reasons),
+            poll_after_ms=1500 if run.status in active_statuses else None,
+        )
+
     def list_events(
         self,
         *,
@@ -560,6 +641,19 @@ class PostgresWorkflowRepository:
             data=data,
             occurred_at=row["occurred_at"],
         )
+
+    @staticmethod
+    def _json_object(value: object) -> dict[str, object]:
+        if isinstance(value, str):
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _reason_codes(value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return sorted({code for code in value if isinstance(code, str) and code})
 
     def _claim_idempotency(
         self,
