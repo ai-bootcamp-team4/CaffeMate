@@ -215,7 +215,9 @@ class AgentTaskFactory:
                     {
                         code
                         for candidate in candidates
-                        for code in candidate.get("proposal", {}).get("warnings", [])
+                        for code in candidate.get("decision", {}).get(
+                            "reason_codes", []
+                        )
                         if isinstance(code, str)
                     }
                 ),

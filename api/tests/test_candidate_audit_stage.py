@@ -114,6 +114,20 @@ def test_candidate_audit_task_projects_schema_valid_deterministic_inputs() -> No
     ]
 
 
+def test_franchise_natural_language_warning_does_not_enter_reason_code_field() -> None:
+    task = AgentTaskFactory().build_candidate_audit(
+        audit_context(include_franchise=True)
+    )
+
+    warning_codes = task["payload"]["calculation_snapshot"]["warning_codes"]
+    assert warning_codes
+    assert all(
+        code.replace("_", "").isalnum() and code == code.upper()
+        for code in warning_codes
+    )
+    assert "본사 출점 가능 여부 확인 필요" not in warning_codes
+
+
 def test_complete_audit_preserves_deterministic_candidate_and_passes() -> None:
     runtime = FakeRuntime(audit_result)
 

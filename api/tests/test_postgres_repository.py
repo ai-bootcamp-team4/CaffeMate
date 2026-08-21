@@ -1035,8 +1035,21 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
             ),
             {"project_id": project.project_id},
         ).scalar_one()
+        committed_event = connection.execute(
+            text(
+                "SELECT event_json FROM workflow_events "
+                "WHERE workflow_run_id=:workflow_run_id "
+                "AND event_type='RESULT_BUNDLE_COMMITTED'"
+            ),
+            {"workflow_run_id": lease.workflow_run_id},
+        ).scalar_one()
     assert result_count == 1
     assert pointer == "result-1"
+    assert committed_event == {
+        "result_bundle_id": "result-1",
+        "primary_candidate_id": "candidate-1",
+        "audit_status": "PASSED",
+    }
 
     monkeypatch.setenv(
         "DATABASE_URL",
@@ -1075,17 +1088,26 @@ def test_invalid_result_contract_rolls_back_bundle_and_stage_checkpoint(
         )
 
     with postgres_engine.connect() as connection:
-        stage_status, result_count, pointer = connection.execute(
+        stage_status, result_count, pointer, result_event_count = connection.execute(
             text(
                 "SELECT s.status, (SELECT COUNT(*) FROM result_bundles), "
-                "p.current_result_bundle_id FROM stage_runs s "
+                "p.current_result_bundle_id, "
+                "(SELECT COUNT(*) FROM workflow_events e "
+                "WHERE e.workflow_run_id=w.workflow_run_id "
+                "AND e.event_type='RESULT_BUNDLE_COMMITTED') "
+                "FROM stage_runs s "
                 "JOIN workflow_runs w ON w.workflow_run_id=s.workflow_run_id "
                 "JOIN venture_projects p ON p.project_id=w.project_id "
                 "WHERE s.stage_run_id=:stage_run_id"
             ),
             {"stage_run_id": stage_id},
         ).one()
-    assert (stage_status, result_count, pointer) == ("RUNNING", 0, None)
+    assert (stage_status, result_count, pointer, result_event_count) == (
+        "RUNNING",
+        0,
+        None,
+        0,
+    )
 
     assert (
         execution.checkpoint(
