@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -99,12 +100,15 @@ class FakeExecution:
         *,
         failure_outcome: FailureOutcome = FailureOutcome.RETRY_SCHEDULED,
         checkpoint_error: Exception | None = None,
+        heartbeat_result: bool = True,
     ) -> None:
         self.lease = lease
         self.checkpoints = 0
         self.failure_outcome = failure_outcome
         self.checkpoint_error = checkpoint_error
         self.failures: list[StageFailure] = []
+        self.heartbeat_result = heartbeat_result
+        self.heartbeats = 0
 
     def claim(
         self,
@@ -118,6 +122,12 @@ class FakeExecution:
         assert expected_input_digest == "a" * 64
         claimed, self.lease = self.lease, None
         return claimed
+
+    def heartbeat(self, *, stage_run_id: str, lease_token: str) -> bool:
+        assert stage_run_id == "stage-1"
+        assert lease_token == "lease-token"
+        self.heartbeats += 1
+        return self.heartbeat_result
 
     def checkpoint(
         self,
@@ -255,3 +265,61 @@ def test_checkpoint_contract_rejection_is_terminal_without_retry() -> None:
 
     assert worker.handle(delivery()) == DeliveryOutcome.TERMINAL_FAILED
     assert execution.failures == [StageFailure(code="CONTRACT_REJECTED", retryable=False)]
+
+
+class SlowProcessor:
+    def __init__(self, delay_seconds: float) -> None:
+        self._delay_seconds = delay_seconds
+
+    def process(self, lease: StageLease) -> dict[str, object]:
+        time.sleep(self._delay_seconds)
+        return {"attempt": lease.attempt}
+
+
+def test_worker_heartbeats_while_stage_processing_is_running() -> None:
+    execution = FakeExecution(stage_lease())
+    worker = DurableWorker(
+        execution,
+        SlowProcessor(0.04),
+        worker_id="worker-1",
+        heartbeat_interval_seconds=0.01,
+        max_processing_seconds=0.2,
+    )
+
+    assert worker.handle(delivery()) == DeliveryOutcome.APPLIED
+    assert execution.heartbeats >= 2
+    assert execution.checkpoints == 1
+
+
+def test_worker_discards_late_result_when_heartbeat_loses_lease() -> None:
+    execution = FakeExecution(stage_lease(), heartbeat_result=False)
+    worker = DurableWorker(
+        execution,
+        SlowProcessor(0.05),
+        worker_id="worker-1",
+        heartbeat_interval_seconds=0.01,
+        max_processing_seconds=0.2,
+    )
+
+    assert worker.handle(delivery()) == DeliveryOutcome.DUPLICATE_OR_INELIGIBLE
+    assert execution.heartbeats == 1
+    assert execution.checkpoints == 0
+    assert execution.failures == []
+
+
+def test_worker_records_bounded_processing_timeout_without_checkpoint() -> None:
+    execution = FakeExecution(
+        stage_lease(),
+        failure_outcome=FailureOutcome.TERMINAL_FAILED,
+    )
+    worker = DurableWorker(
+        execution,
+        SlowProcessor(0.1),
+        worker_id="worker-1",
+        heartbeat_interval_seconds=0.005,
+        max_processing_seconds=0.02,
+    )
+
+    assert worker.handle(delivery()) == DeliveryOutcome.TERMINAL_FAILED
+    assert execution.checkpoints == 0
+    assert execution.failures == [StageFailure(code="STAGE_TIMEOUT", retryable=True)]
