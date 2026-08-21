@@ -34,6 +34,7 @@ class CalculateGateRankStageHandler:
     def execute(self, context: StageContext) -> dict[str, object]:
         calculated: list[dict[str, Any]] = []
         decision_inputs: list[CandidateDecisionInput] = []
+        evidence_by_id: dict[str, dict[str, Any]] = {}
         for output_key, dependency_code, source_key, case_type in (
             (
                 "independent_proposal",
@@ -57,6 +58,14 @@ class CalculateGateRankStageHandler:
                 raise ContractValidationError("Proposal branch output is invalid")
             sources = self._sources(proposal_input, source_key)
             evidence_records = self._evidence_records(proposal_input, context.project_id)
+            for evidence in evidence_records:
+                evidence_id = evidence.get("evidence_id")
+                if not isinstance(evidence_id, str):
+                    raise ContractValidationError("Proposal Evidence id is invalid")
+                previous = evidence_by_id.get(evidence_id)
+                if previous is not None and previous != evidence:
+                    raise ContractValidationError("Proposal Evidence id has conflicting records")
+                evidence_by_id[evidence_id] = evidence
             for proposal in proposals:
                 if not isinstance(proposal, dict):
                     raise ContractValidationError("Candidate proposal is invalid")
@@ -106,6 +115,10 @@ class CalculateGateRankStageHandler:
                 "excluded_candidate_ids": sorted(
                     value.candidate_id for value in decisions if value.rank is None
                 ),
+                "evidence_records": [
+                    evidence_by_id[evidence_id]
+                    for evidence_id in sorted(evidence_by_id)
+                ],
                 "reason_codes": reason_codes,
             },
         }
@@ -170,7 +183,7 @@ class CalculateGateRankStageHandler:
         if not isinstance(proposal_id, str) or not isinstance(source_id, str):
             raise ContractValidationError("Proposal identity is invalid")
         candidate_id = self._candidate_id(context, proposal_id)
-        finance_input, finance_conflicts = self._finance_input(
+        finance_input, finance_conflicts, calculation_evidence_refs = self._finance_input(
             case_type=case_type,
             source_id=source_id,
             proposal_id=proposal_id,
@@ -241,6 +254,7 @@ class CalculateGateRankStageHandler:
                 "proposal": proposal,
                 "finance_input": finance_input.model_dump(mode="json"),
                 "finance": finance.model_dump(mode="json"),
+                "calculation_evidence_refs": calculation_evidence_refs,
                 "capital_gate": capital_gate.model_dump(mode="json"),
                 "founder_fit": founder_fit.value,
                 "founder_burden": founder_burden.value,
@@ -267,7 +281,7 @@ class CalculateGateRankStageHandler:
         source_id: str,
         proposal_id: str,
         evidence_records: list[dict[str, Any]],
-    ) -> tuple[FinanceInput, list[str]]:
+    ) -> tuple[FinanceInput, list[str], list[str]]:
         conflicts: list[str] = []
         initial = [
             self._cost_line(
@@ -291,36 +305,55 @@ class CalculateGateRankStageHandler:
             )
             for category in sorted(MONTHLY_FIXED_COST_CATEGORIES, key=lambda value: value.value)
         ]
+        contribution_margin, contribution_margin_ref = self._scalar_value(
+            case_type,
+            "CONTRIBUTION_MARGIN_BPS",
+            source_id,
+            proposal_id,
+            evidence_records,
+            conflicts,
+        )
+        operating_days, operating_days_ref = self._scalar_value(
+            case_type,
+            "OPERATING_DAYS_PER_MONTH",
+            source_id,
+            proposal_id,
+            evidence_records,
+            conflicts,
+        )
+        average_ticket, average_ticket_ref = self._scalar_value(
+            case_type,
+            "AVERAGE_TICKET_KRW",
+            source_id,
+            proposal_id,
+            evidence_records,
+            conflicts,
+        )
+        finance_input = FinanceInput(
+            initial_cost_lines=initial,
+            monthly_fixed_cost_lines=monthly,
+            contribution_margin_bps=contribution_margin,
+            operating_days_per_month=operating_days,
+            average_ticket_krw=average_ticket,
+        )
+        cost_refs = {
+            line.evidence_ref
+            for line in [*initial, *monthly]
+            if line.evidence_ref is not None
+        }
+        scalar_refs = {
+            value
+            for value in (
+                contribution_margin_ref,
+                operating_days_ref,
+                average_ticket_ref,
+            )
+            if value is not None
+        }
         return (
-            FinanceInput(
-                initial_cost_lines=initial,
-                monthly_fixed_cost_lines=monthly,
-                contribution_margin_bps=self._scalar_value(
-                    case_type,
-                    "CONTRIBUTION_MARGIN_BPS",
-                    source_id,
-                    proposal_id,
-                    evidence_records,
-                    conflicts,
-                ),
-                operating_days_per_month=self._scalar_value(
-                    case_type,
-                    "OPERATING_DAYS_PER_MONTH",
-                    source_id,
-                    proposal_id,
-                    evidence_records,
-                    conflicts,
-                ),
-                average_ticket_krw=self._scalar_value(
-                    case_type,
-                    "AVERAGE_TICKET_KRW",
-                    source_id,
-                    proposal_id,
-                    evidence_records,
-                    conflicts,
-                ),
-            ),
+            finance_input,
             sorted(set(conflicts)),
+            sorted(cost_refs | scalar_refs),
         )
 
     def _cost_line(
@@ -416,7 +449,7 @@ class CalculateGateRankStageHandler:
         proposal_id: str,
         evidence_records: list[dict[str, Any]],
         conflicts: list[str],
-    ) -> int | None:
+    ) -> tuple[int | None, str | None]:
         claim_types = {field, f"CAFE_{field}", f"{case_type.value}_{field}"}
         values = [
             value
@@ -430,11 +463,11 @@ class CalculateGateRankStageHandler:
         distinct = {value["value"]["value"] for value in values}
         if len(distinct) > 1:
             conflicts.append(f"VALUE_CONFLICT:{field}")
-            return None
+            return None, None
         if not values:
-            return None
+            return None, None
         selected = min(values, key=self._evidence_priority)
-        return int(selected["value"]["value"])
+        return int(selected["value"]["value"]), str(selected["evidence_id"])
 
     @staticmethod
     def _scope_matches(

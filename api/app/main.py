@@ -47,6 +47,7 @@ from app.results.unavailable_repository import UnavailableResultRepository
 from app.settings import RuntimeSettings
 from app.workflows.area_resolution import AreaMcpClient, AreaResolutionStageHandler
 from app.workflows.calculate_gate_rank import CalculateGateRankStageHandler
+from app.workflows.candidate_audit import CandidateAuditStageHandler
 from app.workflows.candidate_inputs import (
     FranchiseEligibilityStageHandler,
     IndependentSeedStageHandler,
@@ -204,6 +205,9 @@ def create_app(
         )
         stage_handlers[FirstProposalStage.PROPOSE_FRANCHISE] = (
             ProposalStageHandler.franchise(configured_agent_runtime)
+        )
+        stage_handlers[FirstProposalStage.CANDIDATE_AUDIT] = CandidateAuditStageHandler(
+            configured_agent_runtime
         )
 
     if stage_execution_service is not None:

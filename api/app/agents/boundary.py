@@ -78,6 +78,7 @@ def validate_agent_boundary(
     errors.extend(_validate_money_ranges(result))
     errors.extend(_validate_evidence_assessment_metadata(task, result))
     errors.extend(_validate_proposal_semantics(task, result))
+    errors.extend(_validate_candidate_audit(task, result))
     return BoundaryValidation(accepted=not errors, errors=errors)
 
 
@@ -510,6 +511,77 @@ def _validate_proposal_semantics(
                     )
                 )
             errors.extend(_validate_independent_parameters(source, proposal, path))
+    return errors
+
+
+def _validate_candidate_audit(
+    task: dict[str, Any],
+    result: dict[str, Any],
+) -> list[BoundaryError]:
+    if task["task_type"] != "CANDIDATE_AUDIT" or result["status"] != "COMPLETE":
+        return []
+    task_payload = task.get("payload")
+    result_payload = result.get("payload")
+    if not isinstance(task_payload, dict) or not isinstance(result_payload, dict):
+        return []
+    expected = [
+        value.get("candidate_id")
+        for value in task_payload.get("candidates", [])
+        if isinstance(value, dict) and isinstance(value.get("candidate_id"), str)
+    ]
+    audits = result_payload.get("candidate_audits", [])
+    produced = [
+        value.get("candidate_id")
+        for value in audits
+        if isinstance(value, dict) and isinstance(value.get("candidate_id"), str)
+    ]
+    errors: list[BoundaryError] = []
+    if len(produced) != len(set(produced)) or set(produced) != set(expected):
+        errors.append(
+            BoundaryError(
+                code="CANDIDATE_AUDIT_COVERAGE_INVALID",
+                json_pointer="/payload/candidate_audits",
+                message="Complete audit must cover every input candidate exactly once",
+            )
+        )
+    calculation = task_payload.get("calculation_snapshot", {})
+    allowed_calculation_refs = {
+        value
+        for value in (
+            calculation.get("calculation_version"),
+            calculation.get("input_digest"),
+            calculation.get("output_digest"),
+            *calculation.get("candidate_ids", []),
+        )
+        if isinstance(value, str)
+    }
+    used_calculation_refs = _collect_named_strings(
+        result_payload, {"calculation_refs"}
+    )
+    unsupported = used_calculation_refs - allowed_calculation_refs
+    if unsupported:
+        errors.append(
+            BoundaryError(
+                code="CANDIDATE_AUDIT_CALCULATION_REFERENCE_INVALID",
+                json_pointer="/payload/candidate_audits",
+                message=(
+                    "Audit used unsupported calculation refs: "
+                    f"{', '.join(sorted(unsupported))}"
+                ),
+            )
+        )
+    for index, audit in enumerate(audits):
+        if not isinstance(audit, dict):
+            continue
+        findings = audit.get("findings", [])
+        if audit.get("status") == "PASS" and findings:
+            errors.append(
+                BoundaryError(
+                    code="CANDIDATE_AUDIT_STATUS_INCOHERENT",
+                    json_pointer=f"/payload/candidate_audits/{index}",
+                    message="PASS audit cannot contain findings",
+                )
+            )
     return errors
 
 
