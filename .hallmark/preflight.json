@@ -1,13 +1,13 @@
 {
   "date": "2026-08-21",
-  "source": "empty unborn repository",
+  "source": "existing React application",
   "signals": {
     "designSystem": null,
-    "fontStack": null,
-    "palette": null,
+    "fontStack": "Gothic A1 + IBM Plex Sans KR",
+    "palette": "Coral OKLCH tokens",
     "motion": "motion-cut",
-    "spacing": null,
-    "framework": null
+    "spacing": "4pt semantic scale",
+    "framework": "React 19 + TypeScript + Vite + Tailwind CSS 4"
   },
   "introduced": {
     "framework": "React 19 + TypeScript + Vite + Tailwind CSS 4",

@@ -1,35 +1,39 @@
-/* Hallmark · macrostructure: Workbench · genre: modern-minimal · theme: Coral · nav: N9 · footer: Ft2 · enrichment: none · tone: calm-practical · anchor hue: coral · contrast: pass (40–41) · slop: pass (42–45) · honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive: pass (49) · icons: pass (30) · mobile: pass (34, 49, 50–57) */
-/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4 */
+/* Hallmark · macrostructure: Workbench · theme: studied-DNA (source: https://www.usehallmark.com/examples/tally/) · studied: yes · DNA-source: url
+ * paper: oklch(97% 0.012 80) · accent: oklch(50% 0.09 55) · display + body: Pretendard Variable · rhythm: verified locally
+ * pre-emit critique: P5 H5 E4 S5 R5 V4
+ */
 
 :root {
   color-scheme: light;
-  --color-paper: oklch(98% 0.008 45);
-  --color-paper-2: oklch(95% 0.012 45);
-  --color-paper-3: oklch(92% 0.016 45);
-  --color-surface: oklch(99% 0.006 45);
-  --color-ink: oklch(18% 0.016 35);
-  --color-ink-2: oklch(29% 0.018 35);
-  --color-neutral: oklch(43% 0.016 35);
-  --color-muted: oklch(41% 0.014 35);
-  --color-rule: oklch(86% 0.014 40);
-  --color-rule-strong: oklch(72% 0.018 40);
-  --color-accent: oklch(48% 0.18 29);
-  --color-accent-soft: oklch(94% 0.035 29);
-  --color-accent-ink: oklch(98% 0.008 45);
-  --color-focus: oklch(30% 0.04 30);
+  --color-paper: oklch(97% 0.012 80);
+  --color-paper-2: oklch(95.5% 0.018 75);
+  --color-paper-3: oklch(92.5% 0.026 70);
+  --color-surface: oklch(99.3% 0.008 80);
+  --color-ink: oklch(29% 0.035 50);
+  --color-ink-hover: oklch(23% 0.03 50);
+  --color-ink-2: oklch(38% 0.035 52);
+  --color-neutral: oklch(48% 0.03 55);
+  --color-muted: oklch(58% 0.025 60);
+  --color-rule: oklch(89% 0.025 70);
+  --color-rule-strong: oklch(78% 0.045 68);
+  --color-accent: oklch(50% 0.09 55);
+  --color-accent-soft: oklch(93.5% 0.035 70);
+  --color-accent-ink: oklch(99.3% 0.008 80);
+  --color-companion: oklch(70% 0.08 65);
+  --color-focus: oklch(64% 0.09 65);
   --color-success: oklch(39% 0.09 150);
   --color-success-soft: oklch(94% 0.025 150);
   --color-error: oklch(43% 0.15 25);
   --color-error-soft: oklch(94% 0.03 25);
   --color-warning: oklch(39% 0.085 72);
   --color-warning-soft: oklch(94% 0.035 72);
-  --color-info: oklch(41% 0.08 245);
-  --color-info-soft: oklch(94% 0.025 245);
-  --color-overlay: oklch(18% 0.016 35 / 0.38);
-  --color-shadow: oklch(18% 0.016 35 / 0.08);
+  --color-info: oklch(48% 0.06 58);
+  --color-info-soft: oklch(94% 0.025 70);
+  --color-overlay: oklch(23% 0.03 50 / 0.34);
+  --color-shadow: oklch(23% 0.03 50 / 0.08);
   --color-transparent: transparent;
-  --font-display: "Gothic A1", "Apple SD Gothic Neo", sans-serif;
-  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", sans-serif;
+  --font-display: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-body: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
@@ -49,8 +53,9 @@
   --space-3xl: 6rem;
   --space-4xl: 9rem;
   --radius-sm: 0.375rem;
-  --radius-md: 0.625rem;
-  --radius-lg: 1rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
   --radius-round: 999px;
   --rule-thin: 1px;
   --rule-strong: 2px;

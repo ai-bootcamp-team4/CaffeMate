@@ -2,6 +2,41 @@
   {
     "date": "2026-08-21",
     "macrostructure": "Workbench",
+    "theme": "studied-DNA",
+    "enrichment": "semantic report line-art",
+    "brief": "한국식 금액 formatter와 결과 섹션별 카페 창업 일러스트"
+  },
+  {
+    "date": "2026-08-21",
+    "macrostructure": "Workbench",
+    "theme": "studied-DNA",
+    "enrichment": "money-unit control",
+    "brief": "기존 흐름을 유지한 따뜻한 카페 컬러 시스템과 자금 단위 입력 UX"
+  },
+  {
+    "date": "2026-08-21",
+    "macrostructure": "Workbench",
+    "theme": "studied-DNA",
+    "enrichment": "Tier-B SVG radar",
+    "brief": "Tally 디자인 DNA를 CaffeMate 온보딩과 결과 비교 흐름에 적용"
+  },
+  {
+    "date": "2026-08-21",
+    "macrostructure": "Narrative Workflow + Workbench",
+    "theme": "Coral",
+    "enrichment": "none",
+    "brief": "이미지 없이 기존 온보딩과 추천안 중심 후보 탐색"
+  },
+  {
+    "date": "2026-08-21",
+    "macrostructure": "Narrative Workflow",
+    "theme": "Coral",
+    "enrichment": "none",
+    "brief": "CaffeMate 첫 분석 온보딩과 결과 화면 연결"
+  },
+  {
+    "date": "2026-08-21",
+    "macrostructure": "Workbench",
     "theme": "Coral",
     "enrichment": "none",
     "brief": "CaffeMate 프랜차이즈 창업안 결과 검토와 자연어 피드백 조정"
