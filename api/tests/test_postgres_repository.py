@@ -10,6 +10,7 @@ from app.domain.errors import (
     ContractValidationError,
     IdempotencyKeyReusedError,
     ProjectNotFoundError,
+    ResultNotFoundError,
     StateVersionConflictError,
 )
 from app.domain.models import (
@@ -23,6 +24,8 @@ from app.main import create_app
 from app.migrations import apply_migrations
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
+from app.results.postgres_repository import PostgresResultRepository
+from app.results.service import ResultService
 from app.workflows.execution_repository import PostgresStageExecutionRepository
 from app.workflows.models import CheckpointOutcome, WorkflowCode, WorkflowStatus
 from app.workflows.postgres_repository import PostgresWorkflowRepository
@@ -55,7 +58,8 @@ def repository(postgres_engine: Engine) -> PostgresProjectRepository:
     with postgres_engine.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE workflow_outbox, workflow_idempotency_records, workflow_events, "
+                "TRUNCATE result_bundles, workflow_outbox, workflow_idempotency_records, "
+                "workflow_events, "
                 "stage_runs, workflow_runs, idempotency_records, project_events, "
                 "venture_states, venture_projects CASCADE"
             )
@@ -94,6 +98,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0001_project_state.sql",
             "0002_workflow_outbox.sql",
             "0003_worker_lease_fence.sql",
+            "0004_result_bundle.sql",
         ]
 
 
@@ -125,7 +130,8 @@ def test_fastapi_runtime_uses_configured_postgres_repository(
     with postgres_engine.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE workflow_outbox, workflow_idempotency_records, workflow_events, "
+                "TRUNCATE result_bundles, workflow_outbox, workflow_idempotency_records, "
+                "workflow_events, "
                 "stage_runs, workflow_runs, idempotency_records, project_events, "
                 "venture_states, venture_projects CASCADE"
             )
@@ -480,7 +486,8 @@ def test_http_202_workflow_survives_api_instance_shutdown(
     with postgres_engine.begin() as connection:
         connection.execute(
             text(
-                "TRUNCATE workflow_outbox, workflow_idempotency_records, workflow_events, "
+                "TRUNCATE result_bundles, workflow_outbox, workflow_idempotency_records, "
+                "workflow_events, "
                 "stage_runs, workflow_runs, idempotency_records, project_events, "
                 "venture_states, venture_projects CASCADE"
             )
@@ -555,6 +562,212 @@ def create_ready_stage(
             text("SELECT stage_run_id, input_digest FROM stage_runs")
         ).one()
     return project, stage_id, input_digest, workflows
+
+
+def valid_candidate(*, project_id: str, state_version: int = 1) -> dict[str, object]:
+    initial_cash = {
+        "currency": "KRW",
+        "low": 40_000_000,
+        "base": 45_000_000,
+        "high": 50_000_000,
+        "provenance_refs": ["evidence-1"],
+    }
+    monthly_fixed_cost = {
+        "currency": "KRW",
+        "low": 5_000_000,
+        "base": 6_000_000,
+        "high": 7_000_000,
+        "provenance_refs": ["evidence-1"],
+    }
+    return {
+        "schema_version": "2.0.0",
+        "candidate_id": "candidate-1",
+        "project_id": project_id,
+        "state_version": state_version,
+        "case_type": "INDEPENDENT",
+        "display_name": "소형 개인카페",
+        "review_status": "REVIEW_RECOMMENDED",
+        "reason_codes": ["CURRENT_CONSTRAINTS_SATISFIED"],
+        "summary": "현재 자금 범위에서 다음 검토 가치가 있는 후보",
+        "rank": 1,
+        "rank_basis": "ECONOMIC_AND_FOUNDER_FIT",
+        "is_primary_next_review": True,
+        "franchise": None,
+        "independent_model": {"model_id": "independent-v1", "adjusted_fields": []},
+        "evidence_refs": ["evidence-1"],
+        "assumption_refs": [],
+        "financial_summary": {
+            "initial_cash": initial_cash,
+            "monthly_fixed_cost": monthly_fixed_cost,
+            "break_even_monthly_sales_krw": 15_000_000,
+            "required_daily_orders": 80,
+            "unknown_cost_fields": [],
+        },
+        "missing_fields": [],
+        "risks": [],
+        "counterfactuals": [
+            {
+                "variable": "monthly_rent",
+                "condition": "월세가 기준보다 15% 높아짐",
+                "decision_impact": "다음 검토 우선순위를 재계산",
+            }
+        ],
+        "next_actions": ["실제 점포 조건 확인"],
+    }
+
+
+def result_payload(*, project_id: str, state_version: int = 1) -> dict[str, object]:
+    return {
+        "result_bundle": {
+            "candidates": [valid_candidate(project_id=project_id, state_version=state_version)],
+            "primary_candidate_id": "candidate-1",
+            "audit_status": "PASSED",
+        }
+    }
+
+
+def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project, stage_id, input_digest, _workflows = create_ready_stage(
+        repository, postgres_engine
+    )
+    execution = PostgresStageExecutionRepository(
+        postgres_engine,
+        new_result_id=lambda: "result-1",
+    )
+    lease = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-1",
+        expected_input_digest=input_digest,
+    )
+    assert lease is not None
+
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=lease.lease_token,
+        input_digest=lease.input_digest,
+        result=result_payload(project_id=project.project_id),
+    ) == CheckpointOutcome.APPLIED
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=lease.lease_token,
+        input_digest=lease.input_digest,
+        result=result_payload(project_id=project.project_id),
+    ) == CheckpointOutcome.DUPLICATE_DISCARDED
+
+    results = ResultService(PostgresResultRepository(postgres_engine))
+    loaded = results.get_current(project_id=project.project_id, user_id="user-1")
+    assert loaded.result_bundle_id == "result-1"
+    assert loaded.workflow_run_id == lease.workflow_run_id
+    assert loaded.head == lease.head
+    assert loaded.primary_candidate_id == "candidate-1"
+    assert loaded.candidates[0]["display_name"] == "소형 개인카페"
+    with pytest.raises(ResultNotFoundError):
+        results.get_current(project_id=project.project_id, user_id="user-2")
+
+    with postgres_engine.connect() as connection:
+        result_count = connection.execute(text("SELECT COUNT(*) FROM result_bundles")).scalar_one()
+        pointer = connection.execute(
+            text(
+                "SELECT current_result_bundle_id FROM venture_projects "
+                "WHERE project_id=:project_id"
+            ),
+            {"project_id": project.project_id},
+        ).scalar_one()
+    assert result_count == 1
+    assert pointer == "result-1"
+
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        postgres_engine.url.render_as_string(hide_password=False),
+    )
+    from fastapi.testclient import TestClient
+
+    with TestClient(create_app(identity_verifier=FixedIdentityVerifier())) as client:
+        response = client.get(
+            f"/v1/projects/{project.project_id}/result",
+            headers={"Authorization": "Bearer valid-token"},
+        )
+    assert response.status_code == 200
+    assert response.json()["result_bundle_id"] == "result-1"
+
+
+def test_invalid_result_contract_rolls_back_bundle_and_stage_checkpoint(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    project, stage_id, input_digest, _workflows = create_ready_stage(
+        repository, postgres_engine
+    )
+    execution = PostgresStageExecutionRepository(postgres_engine)
+    lease = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-1",
+        expected_input_digest=input_digest,
+    )
+    assert lease is not None
+
+    with pytest.raises(ContractValidationError):
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=lease.lease_token,
+            input_digest=lease.input_digest,
+            result=result_payload(project_id="another-project"),
+        )
+
+    with postgres_engine.connect() as connection:
+        stage_status, result_count, pointer = connection.execute(
+            text(
+                "SELECT s.status, (SELECT COUNT(*) FROM result_bundles), "
+                "p.current_result_bundle_id FROM stage_runs s "
+                "JOIN workflow_runs w ON w.workflow_run_id=s.workflow_run_id "
+                "JOIN venture_projects p ON p.project_id=w.project_id "
+                "WHERE s.stage_run_id=:stage_run_id"
+            ),
+            {"stage_run_id": stage_id},
+        ).one()
+    assert (stage_status, result_count, pointer) == ("RUNNING", 0, None)
+
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=lease.lease_token,
+        input_digest=lease.input_digest,
+        result=result_payload(project_id=project.project_id),
+    ) == CheckpointOutcome.APPLIED
+
+
+def test_cancelled_worker_bundle_is_discarded_before_payload_validation(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    project, stage_id, input_digest, workflows = create_ready_stage(
+        repository, postgres_engine
+    )
+    execution = PostgresStageExecutionRepository(postgres_engine)
+    lease = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-1",
+        expected_input_digest=input_digest,
+    )
+    assert lease is not None
+    workflows.cancel(
+        project_id=project.project_id,
+        workflow_run_id=lease.workflow_run_id,
+        user_id="user-1",
+        idempotency_key="cancel-1",
+    )
+
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=lease.lease_token,
+        input_digest=lease.input_digest,
+        result={"result_bundle": {"malformed": True}},
+    ) == CheckpointOutcome.CANCELLED_DISCARDED
+    with postgres_engine.connect() as connection:
+        assert connection.execute(text("SELECT COUNT(*) FROM result_bundles")).scalar_one() == 0
 
 
 def test_expired_stage_lease_is_reclaimed_and_old_worker_cannot_checkpoint(
