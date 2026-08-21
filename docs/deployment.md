@@ -1,7 +1,7 @@
 # Frontend deployment
 
 This repository deploys only the Vite `dist` output. Nginx listens on the
-Cloud Run `PORT`, serves `/healthz` without application logic, and falls back
+Cloud Run `PORT`, serves `/_healthz` without application logic, and falls back
 to `index.html` for client-side routes. No backend process is included.
 
 ## Cloud Build trigger contract
@@ -70,3 +70,9 @@ After an authorized trigger deployment, verify the successful build, pushed
 image digest, ready Cloud Run revision, source revision label, `/healthz`, and
 the SPA entry URL. Do not report the deployment as complete until both HTTP
 checks return `200` from the deployed URL.
+
+The Cloud Run Google Frontend intercepts the exact `/healthz` path for this
+service and returns its own `404` before the request reaches Nginx. Use
+`/_healthz` for external and container health verification. This behavior was
+confirmed against the deployed service logs; `/healthz` is not an application
+readiness signal for this deployment.

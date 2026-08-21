@@ -36,7 +36,7 @@ if ! grep -F 'listen ${PORT};' deploy/nginx/default.conf.template >/dev/null; th
   exit 1
 fi
 
-if ! grep -F 'location = /healthz' deploy/nginx/default.conf.template >/dev/null; then
+if ! grep -F 'location = /_healthz' deploy/nginx/default.conf.template >/dev/null; then
   printf '%s\n' 'nginx health endpoint is missing' >&2
   exit 1
 fi
@@ -80,7 +80,7 @@ if [ "${FULL_DOCKER_BUILD:-0}" = "1" ]; then
 
   attempt=0
   while ! curl --fail --silent --output /dev/null \
-    "http://127.0.0.1:${host_port}/healthz"; do
+    "http://127.0.0.1:${host_port}/_healthz"; do
     attempt=$((attempt + 1))
     if [ "$attempt" -ge 30 ]; then
       printf '%s\n' 'container health endpoint did not become ready' >&2
@@ -92,7 +92,7 @@ if [ "${FULL_DOCKER_BUILD:-0}" = "1" ]; then
 
   curl --fail --silent --output /dev/null \
     "http://127.0.0.1:${host_port}/"
-  printf '%s\n' 'local container /healthz and / returned HTTP 200'
+  printf '%s\n' 'local container /_healthz and / returned HTTP 200'
   cleanup_container
   trap - EXIT INT TERM
 else
