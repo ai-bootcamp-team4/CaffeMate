@@ -10,7 +10,7 @@
 - 한 단계는 독립적으로 검증 가능해야 한다.
 - State write 권한은 API reducer 하나만 가진다.
 - 돈·Gate·민감도는 결정론적 코드로 구현한다.
-- Agent와 MCP는 typed candidate만 반환한다.
+- Agent와 MCP는 역할별 typed proposal만 반환한다.
 - 외부 자료가 없으면 실패를 숨기지 않고 `UNKNOWN`, `PARTIAL`, `STALE`로 반환한다.
 - 구현 완료는 테스트와 실제 read-back으로 증명한다.
 
@@ -88,7 +88,8 @@
 
 - Evidence Research Agent
 - 개인·프랜차이즈 Proposal branch
-- Independent Critic
+- Typed Candidate Auditor
+- 서울 managed Agent Runtime과 서울 model endpoint
 - schema validation과 단일 재시도
 - Agent trace와 prompt/model version
 
@@ -96,8 +97,9 @@
 
 - Agent는 State를 직접 수정하지 못한다.
 - 모든 후보 Claim이 Evidence, 사용자 사실 또는 표시된 가정에 연결된다.
-- Critic은 누락 비용과 Hard Constraint 위반을 fixture에서 탐지한다.
+- Auditor는 누락 비용과 Hard Constraint 위반을 fixture에서 탐지한다.
 - Agent 실패 시 후보·계산이 부분 commit되지 않는다.
+- Agent와 model 호출이 `global` endpoint로 fallback하지 않는다.
 
 ## Slice 5 — 첫 결과와 피드백
 
@@ -125,14 +127,16 @@
 - layout-aware chunk와 hybrid retrieval
 - metadata filter·rerank·원문 anchor
 - 사용자 문서 upload와 project scope
-- Document Analyst·Claim review·conflict
+- Document Analyst·자동 입력 extraction form·일괄 반영·conflict
 
 ### 완료 조건
 
 - project filter 없는 사용자 문서 검색은 차단된다.
 - 표 값은 헤더·단위·기준연도와 함께 반환된다.
 - 숫자 Claim은 원문 page/table anchor를 가진다.
-- 불확실한 추출은 사용자 확인 전 확정되지 않는다.
+- OCR 결과는 한 폼에 자동 입력되고 사용자가 수정·삭제할 수 있다.
+- 필드별 확인 없이 한 번의 일괄 반영만 요구한다.
+- 불확실한 추출은 빈 값과 경고로 남고 일괄 반영 전 계산에 사용되지 않는다.
 
 ## Slice 7 — 재계산·평가·운영
 
@@ -140,7 +144,7 @@
 
 - 문서 delta에 따른 선택적 재계산
 - RAG·Agent·Guardrail 평가 runner
-- Cloud Run API·Worker·MCP 배포
+- Cloud Run API·Worker·MCP와 managed Agent Runtime 배포
 - Pub/Sub·Eventarc 비동기 처리
 - 운영 추적과 비용 관찰
 

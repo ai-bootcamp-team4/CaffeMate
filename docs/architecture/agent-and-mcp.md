@@ -17,9 +17,9 @@
 | --- | --- | --- | --- | --- |
 | Intake Interpreter | 결과 이후 자연어·문서 intent | State summary + input | typed intent·delta proposal | 바로 State 변경 |
 | Evidence Research Agent | 새 분석·Claim gap·stale | required Claims + read tools | Evidence candidates·missing·counterevidence | 계산·최종 추천 |
-| Proposal Agent | frozen Evidence 준비 | Founder constraints + Evidence | typed candidates | 브랜드·비용·매출 생성 |
+| Proposal Agent | frozen Evidence 준비 | Founder constraints + Evidence | typed candidates | 존재하지 않는 브랜드·근거 없는 비용·매출 생성 |
 | Document Analyst | parsing 완료 | page/table anchors + schema | proposed Claims·risk flags | 법적 판단·자동 확정 |
-| Independent Critic | 계산 후보 생성 | candidate·Evidence·Calculation snapshot | violation·missing·Evidence request | 원 추천 작성·State write |
+| Typed Candidate Auditor | 계산 후보 생성 | candidate·Evidence·Calculation snapshot | violation·missing·Evidence request | 원 추천 작성·State write |
 
 Orchestrator는 자유 토론 Agent가 아니라 typed Workflow controller다.
 
@@ -40,6 +40,7 @@ Cloud Run Control API
 - Agent Runtime service identity는 private MCP 호출 권한만 가지며 원본 credential과 database write 권한을 갖지 않는다.
 - 서울 리전에서 managed Agent Gateway가 지원되지 않으므로 Control API가 Agent Runtime을 직접 호출한다.
 - Runtime·Sessions의 정식 지원과 별개로 선택한 model의 서울 리전 지원 여부를 배포 Gate에서 따로 검증한다.
+- 생성·embedding model endpoint는 `asia-northeast3`만 허용하며 `global` fallback은 금지한다.
 
 ## 실행 Graph
 
@@ -49,25 +50,32 @@ Cloud Run Control API
 Evidence Research Agent
 → independent and franchise Proposal branches
 → deterministic Finance and Gate
-→ Independent Critic
+→ Typed Candidate Auditor
 → reducer validation and commit
 ```
 
 - Proposal은 frozen Evidence Snapshot을 입력으로 받는다.
 - 개인·프랜차이즈 branch는 같은 Founder State를 읽고 다른 schema로 병렬 실행할 수 있다.
-- Critic은 Proposal의 hidden reasoning이 아니라 결과·근거·계산만 본다.
+- Auditor는 Proposal의 hidden reasoning이 아니라 결과·근거·계산만 본다.
 
 ### 문서 업데이트
 
 ```text
 Document Analyst
 → Claim schema validation
-→ human review when material
+→ editable extraction form generation
+→ one batch apply action
 → deterministic conflict detection
 → selective recalculation
-→ Independent Critic
+→ Typed Candidate Auditor
 → reducer commit
 ```
+
+- OCR·추출값은 원문 anchor와 함께 한 폼에 자동 입력한다.
+- 사용자는 값을 수정·삭제할 수 있고 필드별 확인 동작은 요구하지 않는다.
+- 애매한 필드는 자동 입력하지 않고 `REVIEW_REQUIRED`로 남긴다.
+- `반영하고 다시 계산` 한 번으로 현재 document·State version을 검증하고 폼 전체를 원자 적용한다.
+- 일괄 적용 전 값은 State·finance·Gate·rank에 사용하지 않는다.
 
 ## Agent 공통 입출력
 
@@ -190,7 +198,7 @@ source_trace: []
 - page/table anchor correctness
 - uncertain extraction escalation
 
-### Critic
+### Typed Candidate Auditor
 
 - missing cost recall
 - Hard violation recall

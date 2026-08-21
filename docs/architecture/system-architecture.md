@@ -24,7 +24,8 @@
 - ADK Agent들은 각각 서버로 배포하지 않고 하나의 Multi-Agent application으로 묶어 `asia-northeast3` Agent Runtime에 배포한다.
 - Control API가 IAM 인증으로 Agent Runtime을 직접 호출한다. 서울 리전에서 지원되지 않는 managed Agent Gateway를 필수 경로에 두지 않는다.
 - Agent Runtime과 MCP는 서로 다른 전용 service identity를 사용한다. Agent Runtime은 허용된 read-only MCP tool만 호출하며 State write는 계속 API만 수행한다.
-- 실제 사용할 Gemini model과 embedding model은 배포 전에 `asia-northeast3` 지원 여부를 read-back으로 확인한다. 지원되지 않는 모델을 이유로 사용자 데이터 plane 전체를 다른 리전으로 옮기지 않는다.
+- 생성·embedding model endpoint도 `asia-northeast3`로 고정하며 `global` endpoint로 자동 fallback하지 않는다.
+- 실제 사용할 Gemini model과 embedding model은 배포 전에 `asia-northeast3` 생성·호출 read-back을 통과해야 한다. 실패하면 `BLOCKED_BY_REGION`으로 중단하며 사용자 데이터 plane을 다른 리전으로 옮기지 않는다.
 - 서울 리전에서 Preview인 RAG Engine은 운영 필수 의존성으로 사용하지 않는다. 첫 운영 RAG는 Cloud SQL PostgreSQL full-text search와 pgvector를 사용하며 RAG Engine은 교체 가능한 adapter 뒤에서만 실험한다.
 
 ## 구조도

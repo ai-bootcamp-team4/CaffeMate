@@ -16,7 +16,7 @@
 | Extraction | 숫자·단위·표 연계 | exact or tolerance |
 | Proposal Agent | schema, eligibility, unsupported Claim | deterministic validator |
 | Finance | 합계·손익분기·민감도 | exact unit test |
-| Critic | 누락 비용·Hard violation recall | labeled fixture |
+| Typed Candidate Auditor | 누락 비용·Hard violation recall | labeled fixture |
 | Guardrail | leakage·unsafe action·hallucination | forbidden behavior assertion |
 | End to end | 결과 완료·근거 coverage·다음 행동 | task rubric |
 
@@ -81,6 +81,8 @@
 - abstention correctness
 - missing field completeness
 - forbidden assertion rate
+- Proposal support validation rate
+- conditional rank basis accuracy
 
 ### Extraction
 
@@ -89,6 +91,9 @@
 - unit accuracy
 - table header association
 - document revision identity
+- extraction form auto-fill exactness
+- user edit preservation
+- batch apply atomicity
 
 ### Finance
 
@@ -145,7 +150,9 @@ LLM Judge는 다음에 보조적으로 사용할 수 있다.
 - 온보딩 네 묶음으로 결과 또는 명시적 부족 상태에 도달
 - 적격 후보가 부족하면 수를 억지로 채우지 않음
 - 자료 일부 누락은 조건부 결과로 설명
+- 조건부 후보는 rank와 `조건부 검토`, 누락 영향이 함께 표시됨
 - 결과 피드백은 확인 뒤에만 적용
+- OCR 추출값은 수정 가능한 단일 폼으로 표시되고 한 번의 일괄 반영 전에는 계산에 사용되지 않음
 - 문서 delta가 관련 결과만 변경
 
 ## Regression

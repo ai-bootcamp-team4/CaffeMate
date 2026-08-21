@@ -1,3 +1,11 @@
+# CaffeMate 독립 감사 통합 결과
+
+> 상태: active
+>
+> 정본: [제품 명세](./product-spec.md)
+>
+> 갱신일: 2026-08-21
+
 레포의 제품 설명은 충분했습니다. 부족했던 건 제품 범위가 아니라, 이를 실제로 구현 가능한 계약—상태 전이, 데이터 권리, 후보 판정, RAG 승격, Agent 권한, 문서 생명주기—으로 닫는 부분이었습니다.
 
 최종안은 “MVP”가 아니라 로그인부터 계약 전 판단자료까지의 전체 제품입니다. 구현 순서만 단계화하며 기능 범위를 줄이지 않습니다.
@@ -16,7 +24,7 @@
 → 자연어 피드백의 변경안 확인
 → 조사 대상 후보 선택
 → 매물·견적·계약·대출·시설 문서 업로드
-→ Claim 추출·사용자 확인·충돌 해결
+→ Claim 추출·자동 입력 폼·일괄 반영·충돌 해결
 → 영향받은 항목만 재계산
 → 계약 전 판단자료 생성
 → 출처·문서 갱신에 따른 stale 처리와 재계산
@@ -30,18 +38,19 @@
 
 | 차선 | 의미 | 순위 | 선택 |
 |---|---|---:|---|
-| `LEAD_ONLY` | 브랜드나 업체만 식별된 조사 단서 | 없음 | 불가 |
-| `INVESTIGATION` | 후보 identity는 확인됐지만 중요 정보가 미확인·오래됨·충돌함 | 없음 | 조사 대상으로만 가능 |
-| `ELIGIBLE` | 현재 단계의 모든 필수 Claim이 확인됨 | 비교 가능 | 조사 대상으로 가능 |
+| `LEAD_ONLY` | 브랜드나 업체만 식별됐고 개인 가맹 가능 여부가 미확인 | 없음 | 불가 |
+| `REVIEW_RECOMMENDED` | 현재 필수 조건과 비교 근거가 확인됨 | 경제성·Founder Fit 비교 rank | 조사 대상으로 가능 |
+| `CONDITIONAL_REVIEW` | 개인 가맹 가능은 확인됐지만 비용·계약·출점 자료 일부가 미확인·오래됨·충돌함 | 다음 검토 우선순위 rank | 조사 대상으로 가능 |
 | `EXCLUDED` | 확인된 hard constraint 위반 | 없음 | 불가 |
 
 내부 Gate는 `PASS | FAIL | UNRESOLVED`로 고정합니다.
 
 - 확인된 Hard FAIL만 `EXCLUDED`
-- 중요 `UNKNOWN`, `STALE`, `CONFLICT`는 `INVESTIGATION`
+- 중요 `UNKNOWN`, `STALE`, `CONFLICT`가 있어도 개인 가맹 가능과 최소 후보 identity가 확인되면 `CONDITIONAL_REVIEW`로 결과에 포함할 수 있음
 - 자료 부족을 실패나 0으로 해석하지 않음
-- 프랜차이즈 공정위 자료만으로는 원칙적으로 `LEAD_ONLY` 또는 `INVESTIGATION`
-- 현재 개인 가맹 모집, 신청자 자격, 특정 지역·점포 출점 가능성, 실제 총비용이 별도로 확인돼야 `ELIGIBLE`
+- 개인 가맹 가능 여부가 확인되지 않은 프랜차이즈는 `LEAD_ONLY`이며 결과 rank에 포함하지 않음
+- 특정 지역·점포 출점 가능성과 실제 총비용이 미확인이면 `CONDITIONAL_REVIEW`이며 카드에 누락과 영향을 표시
+- 조건부 후보는 `2순위 — 조건부 검토`처럼 표시할 수 있지만 확정 경제성 순위가 아니라 다음 검토 우선순위임
 
 공정위 평균매출은 역사적 가맹점 통계일 뿐 신규 점포 예상매출로 사용하지 않습니다. [공정위 정보공개서 목록](https://www.data.go.kr/data/15125569/openapi.do), [브랜드 평균매출 API](https://www.data.go.kr/data/15125494/openapi.do)
 
@@ -127,14 +136,15 @@ Anchor는 다음 수준까지 복원합니다.
 
 중요 값의 anchor·scope·date·unit·revision·checksum이 하나라도 맞지 않으면 확정하지 않습니다.
 
-## 5. 최종 Agent는 4개
+## 5. 최종 Agent는 5개
 
-기능은 전부 유지하지만 LLM Agent는 실제 의미 추론이 필요한 네 역할만 둡니다.
+기능은 전부 유지하지만 LLM Agent는 실제 의미 추론이 필요한 다섯 역할만 둡니다.
 
 | Agent | 역할 | 절대 하지 않는 일 |
 |---|---|---|
 | Intent Interpreter | 결과 이후 자연어 피드백을 typed delta로 변환 | 확인 전 State 변경, 검색, 재무 계산 |
 | Evidence Researcher | Claim gap, 검색계획, 근거 후보와 반대 근거 제안 | Evidence 확정, 후보 판정·순위 |
+| Proposal Agent | frozen Evidence와 등록 모델·실제 브랜드 안에서 개인·프랜차이즈 후보안을 구조화 | 브랜드·비용·매출 발명, 계산·Gate·순위 |
 | Document Analyst | OCR·표 결과를 계약·견적 등의 typed Claim proposal로 연결 | 문서 효력 판단, Claim 자동 확정 |
 | Typed Candidate Auditor | 확정 직전 snapshot의 누락·무근거·상태 모순·숨은 충돌 탐지 | 제외·순위·State 변경 |
 
@@ -154,6 +164,8 @@ Anchor는 다음 수준까지 복원합니다.
 - 계약 전 패킷 renderer
 
 Agent는 모두 typed proposal만 출력하며 State, Evidence, 비용, Gate, 순위에 직접 쓰지 못합니다.
+
+문서 분석 결과는 필드별 확인창으로 묻지 않습니다. OCR·표 추출값과 원문 anchor를 한 개의 수정 가능한 폼에 자동 입력하고, 사용자가 필요한 값을 고친 뒤 `반영하고 다시 계산`을 한 번 누르면 전체 폼을 원자 적용합니다. 애매한 값은 추측하지 않고 빈 필드와 경고로 남기며, 일괄 반영 전에는 계산이나 순위를 바꾸지 않습니다.
 
 ## 6. 재무와 창업자 적합성
 
@@ -256,13 +268,15 @@ Packet
 2. `control-api` modular monolith
 3. `job-worker`
 4. private `mcp-gateway`
-5. private `agent-gateway`
+5. `asia-northeast3` managed Agent Runtime의 단일 ADK Multi-Agent application
 
 PostgreSQL/PostGIS/pgvector가 제품의 transactional·검색 metadata 저장소이고, object storage가 원문·OCR·packet을, BigQuery가 공공 raw/normalized/curated snapshot을 저장합니다.
 
 `auth`, `project`, `evidence`, `finance`, `decision`, `review`, `packet`을 각각 마이크로서비스로 분해하지 않습니다. 이들은 같은 transaction/CAS 경계를 공유합니다. 검색 전용 서비스는 실제 corpus 규모나 DB I/O·p95 문제가 관측될 때 분리합니다.
 
 Queue는 outbox+Pub/Sub 기반 at-least-once로 운영하며 retry budget, DLQ, heartbeat, progress, checkpoint를 필수화합니다.
+
+Control API가 IAM 인증으로 서울 Agent Runtime을 직접 호출합니다. 생성·embedding model endpoint도 `asia-northeast3`로 고정하고 `global` fallback, 별도 Cloud Run Agent Gateway와 서울에서 미지원인 managed Agent Gateway는 사용하지 않습니다. RAG Engine은 Preview이므로 운영 필수 경로에 두지 않습니다.
 
 Agent Control CLI는 Web과 같은 API·헤드리스 코어를 사용하고 `--json`, 프로젝트·workflow·Evidence·문서 검토·재계산·패킷·source health·진단·스크린샷을 지원합니다.
 
@@ -297,9 +311,7 @@ RAG 초기 연구 기준은 Claim stratum별 Recall@50 0.95 이상, 최저 strat
 8. immutable 계약 전 판단자료
 9. 공식·프로젝트 corpus와 MCP
 10. Hybrid RAG
-11. 네 Agent의 평가·shadow·canary·advisory 승격
+11. 다섯 Agent의 평가·shadow·canary·advisory 승격
 12. SLO·RPO/RTO·DR·retention/delete·운영 자동화
 
 제품 판단 엔진에 관해 지금 추가로 사용자 결정을 받아야 할 사항은 없습니다. 결제 방식·가격·quota와 운영 SLO/RPO/RTO의 숫자는 별도 사업·운영 정책이지만 위 구조를 바꾸지는 않습니다.
-
-이번에는 계획·검토만 수행했고 코드나 문서는 수정하지 않았습니다. 워크트리는 `main`에서 깨끗합니다. COWI 최신 지침과 Chronicle #1을 읽었고, 다수의 전문 설계 및 독립 적대 심판 결과를 통합해 Chronicle #1 sequence 24에 전체 end-state 결정을 기록했습니다.

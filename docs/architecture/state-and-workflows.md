@@ -100,6 +100,7 @@ occurred_at: required
 - `FEEDBACK_CHANGE_CONFIRMED`
 - `CANDIDATE_SELECTED`
 - `DOCUMENT_UPLOADED`
+- `DOCUMENT_EXTRACTION_FORM_APPLIED`
 - `CLAIM_CONFIRMED`
 - `CLAIM_RETRACTED`
 - `EVIDENCE_STALE`
@@ -140,9 +141,9 @@ onboarding confirmed
 → area identity·coverage
 → required Claim plan
 → Evidence retrieval
-→ independent·franchise candidate branches
+→ Proposal Agent independent·franchise branches
 → deterministic calculation·Gate
-→ independent Critic
+→ Typed Candidate Auditor
 → commit result
 ```
 
@@ -184,11 +185,18 @@ document uploaded
 → file validation
 → parsing·OCR·table recovery
 → proposed Claims with anchors
-→ user review when material
+→ auto-filled editable extraction form
+→ one batch apply action
 → conflict detection
 → selective recalculation
 → decision delta
 ```
+
+- 폼은 추출값·원문 anchor·단위·경고를 한 화면에 표시한다.
+- 사용자는 자동 입력값을 수정하거나 지울 수 있으며 필드마다 확인하지 않는다.
+- 일괄 반영은 expected document revision과 State version이 현재값과 다르면 `409`로 거절한다.
+- 일괄 반영 전에는 문서 추출값으로 State·finance·Gate·rank를 변경하지 않는다.
+- 일괄 반영 뒤에는 변경된 Claim의 dependency closure만 재계산한다.
 
 ### `EVIDENCE_REFRESH`
 
@@ -226,5 +234,6 @@ QUEUED
 - 결과 피드백 확인 전 State가 바뀌지 않는다.
 - 동일 input snapshot은 동일한 계산 결과를 만든다.
 - 문서 변경은 의존하는 계산과 판단만 무효화한다.
+- 문서 추출 폼의 일괄 반영 전후가 하나의 Event와 State revision으로 추적된다.
 - 이전 State와 Decision은 감사 이력으로 남는다.
 - Agent 실패 후에도 partial candidate가 current 결과가 되지 않는다.

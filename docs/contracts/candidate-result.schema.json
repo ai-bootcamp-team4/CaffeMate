@@ -14,6 +14,9 @@
     "review_status",
     "reason_codes",
     "summary",
+    "rank",
+    "rank_basis",
+    "is_primary_next_review",
     "evidence_refs",
     "financial_summary",
     "missing_fields",
@@ -23,7 +26,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.0.0"
+      "const": "1.1.0"
     },
     "candidate_id": {
       "type": "string",
@@ -62,6 +65,9 @@
     "rank": {
       "type": ["integer", "null"],
       "minimum": 1
+    },
+    "rank_basis": {
+      "enum": ["ECONOMIC_AND_FOUNDER_FIT", "NEXT_REVIEW_PRIORITY", "NOT_RANKED"]
     },
     "is_primary_next_review": {
       "type": "boolean"
@@ -207,6 +213,68 @@
         "properties": {
           "independent_model": {
             "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "review_status": {
+            "const": "REVIEW_RECOMMENDED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "rank_basis": {
+            "const": "ECONOMIC_AND_FOUNDER_FIT"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "review_status": {
+            "const": "CONDITIONAL_REVIEW"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "rank_basis": {
+            "const": "NEXT_REVIEW_PRIORITY"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "review_status": {
+            "const": "EXCLUDED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rank": {
+            "const": null
+          },
+          "rank_basis": {
+            "const": "NOT_RANKED"
+          },
+          "is_primary_next_review": {
+            "const": false
           }
         }
       }

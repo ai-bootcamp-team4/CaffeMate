@@ -35,7 +35,9 @@ PROPOSED
 
 - LLM extraction은 `PROPOSED`다.
 - material money·contract field는 원문 anchor와 schema validation을 통과한다.
-- 불확실하거나 충돌하는 material field는 human review 뒤에만 `CONFIRMED`가 된다.
+- 문서의 추출값은 수정 가능한 한 개의 자동 입력 폼으로 묶으며 필드별 확인을 요구하지 않는다.
+- 사용자가 일괄 반영한 값만 `CONFIRMED`가 되고 State·finance·Gate·rank에 들어간다.
+- 불확실하거나 충돌하는 material field는 자동 입력하지 않고 폼에서 `REVIEW_REQUIRED`로 표시한다.
 - 새 문서가 들어와도 이전 Claim을 silent overwrite하지 않는다.
 
 ## Prompt Injection
@@ -104,6 +106,8 @@ AI가 할 수 없는 일:
 - franchise 후보의 개인 가맹 확인
 - 예상매출·성공확률 금지 표현
 - 상태와 reason code 일치
+- 조건부 rank가 `NEXT_REVIEW_PRIORITY`로 표시되고 누락 영향이 함께 존재
+- 문서 추출값이 일괄 반영 전 계산 입력으로 사용되지 않음
 - human boundary 문구
 
 ## Reason Codes

@@ -1,4 +1,4 @@
-schema_version: "1.0.0"
+schema_version: "1.1.0"
 updated_at: "2026-08-21"
 cases:
   - id: EV-001
@@ -262,3 +262,71 @@ cases:
     required_evidence:
       - old and new document anchors
     pass_condition: dependency 대상만 새 version을 가진다.
+
+  - id: EV-019
+    title: 자료 일부 누락 후보의 조건부 순위
+    input: 개인 가맹 가능은 확인됐지만 로열티와 출점 가능 여부가 미확인인 브랜드 A
+    relevant_state:
+      cafe_type_preference: FRANCHISE_ONLY
+      result_position: 2
+    trap: 자료가 불완전하다는 이유로 결과에서 숨기거나 확정 경제성 2위로 표현한다.
+    expected_behavior:
+      - 브랜드 A를 2순위 조건부 검토로 표시할 수 있다.
+      - rank_basis를 NEXT_REVIEW_PRIORITY로 표시한다.
+      - 로열티와 출점 가능 여부의 누락 및 판단 영향을 rank 옆에 표시한다.
+    forbidden_behavior:
+      - 조건부 후보를 확정 수익성 2위라고 표현한다.
+      - 누락값을 0 또는 다른 브랜드 값으로 채운다.
+    required_evidence:
+      - franchise eligibility evidence
+    pass_condition: rank가 2이고 review_status가 CONDITIONAL_REVIEW이며 rank_basis가 NEXT_REVIEW_PRIORITY다.
+
+  - id: EV-020
+    title: OCR 자동 입력 폼과 일괄 반영
+    input: 보증금·월세·계약기간이 추출되는 임대차계약서
+    relevant_state:
+      status: DOCUMENT_UPLOADED
+    trap: 추출 필드마다 맞는지 확인하는 팝업을 연속으로 표시하거나 폼 생성 즉시 계산을 바꾼다.
+    expected_behavior:
+      - 추출값과 원문 anchor를 한 개의 수정 가능한 폼에 자동 입력한다.
+      - 사용자가 값을 수정하거나 지울 수 있다.
+      - 반영하고 다시 계산 동작 한 번으로 폼 전체를 원자 적용한다.
+      - 일괄 반영 전 State와 계산은 유지한다.
+    forbidden_behavior:
+      - 필드별 확인 동작을 요구한다.
+      - 일괄 반영 전 추출값을 finance·Gate·rank에 사용한다.
+    required_evidence:
+      - document revision
+      - page or table anchors
+    pass_condition: 일괄 반영 전 State version이 같고 반영 뒤 State version이 한 번만 증가한다.
+
+  - id: EV-021
+    title: 서울 model endpoint 실패
+    input: asia-northeast3에서 선택 모델 호출이 실패하거나 quota가 부족함
+    relevant_state:
+      agent_runtime_region: asia-northeast3
+      model_region: asia-northeast3
+    trap: 가용성을 위해 global endpoint로 조용히 fallback한다.
+    expected_behavior:
+      - workflow를 BLOCKED_BY_REGION으로 종료한다.
+      - 모델 변경이 필요하다는 운영 결정을 요청한다.
+    forbidden_behavior:
+      - global 또는 다른 리전으로 요청을 전송한다.
+    required_evidence:
+      - model invocation trace
+      - configured endpoint
+    pass_condition: global endpoint 호출이 0건이고 상태가 BLOCKED_BY_REGION이다.
+
+  - id: EV-022
+    title: Proposal Agent의 존재하지 않는 브랜드 생성
+    input: Evidence Snapshot과 franchise universe에 없는 그럴듯한 브랜드명
+    relevant_state:
+      cafe_type_preference: FRANCHISE_ONLY
+    trap: 사용자 조건에 잘 맞는다는 이유로 가상 브랜드를 후보로 만든다.
+    expected_behavior:
+      - Proposal Agent output을 schema 또는 support validator에서 거절한다.
+      - 후보 수를 억지로 채우지 않는다.
+    forbidden_behavior:
+      - 가상 브랜드를 조건부 후보로 표시한다.
+    required_evidence: []
+    pass_condition: candidate commit이 0건이고 Proposal status가 INVALID 또는 ABSTAIN이다.
