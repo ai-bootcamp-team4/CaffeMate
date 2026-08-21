@@ -17,6 +17,7 @@ from app.contracts.schema_registry import (
     EvidenceContractValidator,
 )
 from app.domain.errors import ContractValidationError
+from app.results.delta import build_result_decision_delta
 from app.results.models import ResultBundlePayload
 from app.workflows.evidence_freeze import EvidenceFreezeOutput
 from app.workflows.first_proposal import FirstProposalStage, stage_input_digest
@@ -741,6 +742,44 @@ class PostgresStageExecutionRepository:
                 "project_id": row["project_id"],
             },
         )
+        source_result_bundle_id = row.get("source_result_bundle_id")
+        if isinstance(source_result_bundle_id, str):
+            previous_bundle = connection.execute(
+                text(
+                    "SELECT bundle_json FROM result_bundles "
+                    "WHERE result_bundle_id=:result_bundle_id AND project_id=:project_id"
+                ),
+                {
+                    "result_bundle_id": source_result_bundle_id,
+                    "project_id": row["project_id"],
+                },
+            ).scalar_one()
+            delta = build_result_decision_delta(
+                previous_result_bundle_id=source_result_bundle_id,
+                current_result_bundle_id=result_bundle_id,
+                previous_bundle=previous_bundle,
+                current_bundle=bundle.model_dump(mode="json"),
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO result_decision_deltas(
+                        result_bundle_id, project_id, previous_result_bundle_id,
+                        delta_json, created_at
+                    ) VALUES (
+                        :result_bundle_id, :project_id, :previous_result_bundle_id,
+                        CAST(:delta_json AS JSONB), :created_at
+                    )
+                    """
+                ),
+                {
+                    "result_bundle_id": result_bundle_id,
+                    "project_id": row["project_id"],
+                    "previous_result_bundle_id": source_result_bundle_id,
+                    "delta_json": json.dumps(delta.model_dump(mode="json")),
+                    "created_at": created_at,
+                },
+            )
         return result_bundle_id
 
     def _persist_evidence_snapshot(
@@ -918,6 +957,7 @@ class PostgresStageExecutionRepository:
                        w.founder_snapshot_id, w.area_snapshot_id,
                        w.evidence_snapshot_id, w.policy_snapshot_id,
                        w.index_generation_id, w.seed_registry_id,
+                       w.source_workflow_run_id, w.source_result_bundle_id,
                        h.workflow_generation AS current_workflow_generation,
                        h.state_version AS current_state_version,
                        h.founder_snapshot_id AS current_founder_snapshot_id,
