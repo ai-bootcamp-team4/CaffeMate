@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-bootcamp-team4/CaffeMate/docs/contracts/evidence-record.schema.json",
+  "title": "CaffeMate Evidence Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_id",
+    "project_id",
+    "claim_type",
+    "value",
+    "value_kind",
+    "geographic_scope",
+    "source",
+    "original_anchor",
+    "freshness_status",
+    "conflict_status",
+    "retrieved_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "evidence_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "claim_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "value": {},
+    "value_kind": {
+      "enum": [
+        "EVIDENCED_FACT",
+        "USER_CONFIRMED_FACT",
+        "DECLARED_ASSUMPTION",
+        "DERIVED_RESULT",
+        "UNKNOWN"
+      ]
+    },
+    "unit": {
+      "type": ["string", "null"]
+    },
+    "geographic_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_type", "scope_id"],
+      "properties": {
+        "scope_type": {
+          "enum": ["NATIONAL", "REGION", "ADMINISTRATIVE_AREA", "PROPERTY", "CASE", "NOT_APPLICABLE"]
+        },
+        "scope_id": {
+          "type": ["string", "null"]
+        },
+        "boundary_version": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "source_ref", "authority", "source_type"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authority": {
+          "enum": [
+            "PRIMARY_OFFICIAL",
+            "COMPANY_OFFICIAL",
+            "PRIMARY_DATA",
+            "VALIDATED_BENCHMARK",
+            "USER_ARTIFACT",
+            "SECONDARY"
+          ]
+        },
+        "source_type": {
+          "enum": ["API", "DATASET", "WEB", "PDF", "USER_DOCUMENT", "USER_FIELD"]
+        },
+        "published_or_data_date": {
+          "type": ["string", "null"]
+        },
+        "document_version": {
+          "type": ["string", "null"]
+        },
+        "checksum": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "original_anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_type", "locator"],
+      "properties": {
+        "anchor_type": {
+          "enum": ["API_ROW", "DATASET_ROW", "PAGE", "TABLE", "SECTION", "USER_FIELD", "CALCULATION"]
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "excerpt_hash": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "freshness_status": {
+      "enum": ["FRESH", "STALE", "UNKNOWN", "NOT_APPLICABLE"]
+    },
+    "conflict_status": {
+      "enum": ["NONE", "POTENTIAL", "CONFIRMED", "RESOLVED"]
+    },
+    "retrieved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "missing_context": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "durable_evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    }
+  }
+}
