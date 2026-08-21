@@ -1,0 +1,127 @@
+from datetime import UTC, date, datetime, timedelta
+
+import pytest
+
+from app.agents.task_factory import AgentTaskFactory, compute_agent_input_digest
+from app.domain.errors import ContractValidationError
+from app.domain.models import (
+    AreaResolutionStatus,
+    AreaState,
+    BorrowingIntent,
+    CafeTypePreference,
+    CoverageProfile,
+    FounderState,
+    OperationMode,
+    VentureState,
+    VentureStatus,
+)
+from app.workflows.claim_plan import ClaimPlanStageHandler
+from app.workflows.models import HeadFence, StageLease
+from app.workflows.stage_context import StageContext
+
+
+def evidence_plan_context() -> StageContext:
+    now = datetime(2026, 8, 21, tzinfo=UTC)
+    state = VentureState(
+        project_id="project-1",
+        user_id="user-1",
+        state_version=1,
+        status=VentureStatus.ANALYZING,
+        founder=FounderState(
+            target_area_input="수원 아주대 부근",
+            own_funds_krw=50_000_000,
+            borrowing_intent=BorrowingIntent.UNDECIDED,
+            cafe_type_preference=CafeTypePreference.OPEN_TO_BOTH,
+            operation_mode=OperationMode.DIRECT_FULL_TIME,
+        ),
+        area=AreaState(
+            resolution_status=AreaResolutionStatus.UNRESOLVED,
+            coverage_profile=CoverageProfile.N0_NATIONWIDE_FACTS,
+        ),
+        updated_at=now,
+    )
+    head = HeadFence(
+        workflow_generation=1,
+        state_version=1,
+        founder_snapshot_id="founder-1",
+        area_snapshot_id="area-1",
+        evidence_snapshot_id=None,
+        policy_snapshot_id="policy-1",
+        index_generation_id=None,
+        seed_registry_id=None,
+    )
+    claim_context = StageContext(
+        lease=StageLease(
+            workflow_run_id="workflow-1",
+            stage_run_id="claim-stage",
+            stage_code="CLAIM_PLAN",
+            input_digest="a" * 64,
+            lease_token="token",
+            lease_expires_at=now + timedelta(seconds=45),
+            attempt=1,
+            head=head,
+        ),
+        project_id="project-1",
+        state=state,
+        dependency_results={
+            "AREA_RESOLUTION": {
+                "area_resolution": {
+                    "resolution_status": "RESOLVED",
+                    "selected": {
+                        "administrative_code": "4111756000",
+                        "boundary_version": "2026-01",
+                    },
+                }
+            }
+        },
+    )
+    claim_plan = ClaimPlanStageHandler(today=lambda: date(2026, 8, 21)).execute(
+        claim_context
+    )
+    return StageContext(
+        lease=claim_context.lease.model_copy(
+            update={"stage_run_id": "evidence-stage", "stage_code": "EVIDENCE_PLAN"}
+        ),
+        project_id="project-1",
+        state=state,
+        dependency_results={"CLAIM_PLAN": claim_plan},
+    )
+
+
+def test_evidence_plan_task_is_manifest_pinned_schema_valid_and_digest_bound() -> None:
+    task = AgentTaskFactory(
+        now=lambda: datetime(2026, 8, 21, 10, 0, tzinfo=UTC),
+        new_invocation_id=lambda: "invocation-1",
+    ).build_evidence_plan(evidence_plan_context())
+
+    assert task["agent_name"] == "EVIDENCE_RESEARCHER"
+    assert task["runtime_tool_policy"] == "NO_DIRECT_TOOL_CALLS"
+    assert task["deadline_at"] == "2026-08-21T10:00:20Z"
+    assert len(task["available_tool_catalog"]) == 10
+    assert task["input_digest"] == compute_agent_input_digest(task)
+    assert task["tool_manifest_digest"].startswith("sha256:")
+
+
+def test_evidence_plan_digest_changes_with_claim_payload_but_not_invocation_id() -> None:
+    factory = AgentTaskFactory(
+        now=lambda: datetime(2026, 8, 21, 10, 0, tzinfo=UTC),
+        new_invocation_id=lambda: "invocation-1",
+    )
+    first = factory.build_evidence_plan(evidence_plan_context())
+    second_context = evidence_plan_context()
+    second_context.dependency_results["CLAIM_PLAN"]["claim_plan"]["claims"][0][
+        "required_freshness"
+    ] = "P30D"
+    second = factory.build_evidence_plan(second_context)
+    changed_invocation = dict(first, invocation_id="invocation-2")
+
+    assert first["input_digest"] != second["input_digest"]
+    assert compute_agent_input_digest(changed_invocation) == first["input_digest"]
+
+
+def test_missing_claim_plan_is_rejected_before_runtime_invocation() -> None:
+    value = evidence_plan_context()
+    value.dependency_results = {}
+
+    with pytest.raises(ContractValidationError, match="Claim Plan"):
+        AgentTaskFactory().build_evidence_plan(value)
