@@ -161,3 +161,12 @@ State revision, Claim, conflict와 `CALCULATE_GATE_RANK`부터 시작하는 선�
 이전 결과와 비교한다. `GET /v1/projects/{project_id}/result`의 `decision_delta`에는 후보 추가·삭제,
 순위와 검토 상태, 초기 필요 현금·월 고정비·손익분기 매출의 변화가 포함된다. 비교할 원본 Result가
 없는 최초 결과에는 `decision_delta`가 `null`이다.
+
+## Agent Runtime session 정리
+
+동기 Agent 호출의 session 삭제가 실패하면 API는 `AGENT_SESSION_CLEANUP` Outbox를 남긴다.
+private Worker의 `POST /internal/v1/agent-sessions:cleanup`은 이 항목만 별도로 lease하고, 설정에
+고정된 서울 Runtime resource에서 session을 삭제한다. 404는 이미 삭제된 것으로 간주한다.
+transport 오류는 최대 다섯 번까지 지수형 지연으로 다시 시도하고, 잘못된 payload·resource scope
+또는 재시도 소진은 원문 오류를 저장하지 않은 안정적인 failure code와 함께 `DEAD_LETTER`로
+보낸다. 운영 환경에서는 Scheduler가 IAM 인증으로 이 내부 endpoint를 주기적으로 호출해야 한다.

@@ -2,6 +2,7 @@ from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
+from worker.agent_cleanup import CleanupOutcome
 from worker.main import create_worker_app
 from worker.pubsub import PubSubDelivery
 from worker.runtime import DeliveryOutcome, WorkerRetryRequiredError
@@ -35,6 +36,14 @@ class FakeOutboxDispatcher:
     def publish_one(self) -> bool:
         self.calls += 1
         return next(self._outcomes, False)
+
+
+class FakeCleanupConsumer:
+    def __init__(self, outcomes: list[CleanupOutcome]) -> None:
+        self._outcomes = iter(outcomes)
+
+    def cleanup_one(self) -> CleanupOutcome:
+        return next(self._outcomes, CleanupOutcome.EMPTY)
 
 
 def test_valid_pubsub_push_is_acked_after_worker_applies() -> None:
@@ -163,3 +172,41 @@ def test_outbox_dispatch_fails_closed_without_publisher_configuration(
 
     assert response.status_code == 503
     assert response.json() == {"code": "OUTBOX_CONFIGURATION_UNAVAILABLE"}
+
+
+def test_agent_cleanup_endpoint_reports_success_retry_and_dead_letter() -> None:
+    app = create_worker_app(
+        worker=FakeWorker(),
+        cleanup_consumer=FakeCleanupConsumer(
+            [
+                CleanupOutcome.DELETED,
+                CleanupOutcome.RETRY_SCHEDULED,
+                CleanupOutcome.DEAD_LETTERED,
+                CleanupOutcome.EMPTY,
+            ]
+        ),
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/internal/v1/agent-sessions:cleanup", json={"limit": 10})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "deleted": 1,
+        "retry_scheduled": 1,
+        "dead_lettered": 1,
+        "drained": True,
+    }
+
+
+def test_agent_cleanup_endpoint_fails_closed_without_runtime_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AGENT_RUNTIME_RESOURCE_ID", raising=False)
+    app = create_worker_app(worker=FakeWorker())
+
+    with TestClient(app) as client:
+        response = client.post("/internal/v1/agent-sessions:cleanup", json={})
+
+    assert response.status_code == 503
+    assert response.json() == {"code": "AGENT_CLEANUP_CONFIGURATION_UNAVAILABLE"}

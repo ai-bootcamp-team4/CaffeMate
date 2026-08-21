@@ -18,6 +18,7 @@ class ClaimedOutboxMessage:
     payload: Mapping[str, object]
     payload_digest: str
     claim_token: str
+    attempts: int
 
 
 class MessagePublisher(Protocol):
@@ -57,7 +58,8 @@ class PostgresOutboxRepository:
             row = connection.execute(
                 text(
                     """
-                    SELECT outbox_id, topic, aggregate_id, payload_json, payload_digest
+                    SELECT outbox_id, topic, aggregate_id, payload_json, payload_digest,
+                           attempts
                     FROM workflow_outbox
                     WHERE (status='PENDING'
                        OR (status='PUBLISHING' AND claim_expires_at <= :now))
@@ -97,6 +99,7 @@ class PostgresOutboxRepository:
                 payload=row["payload_json"],
                 payload_digest=row["payload_digest"],
                 claim_token=token,
+                attempts=int(row["attempts"]) + 1,
             )
 
     def mark_published(
@@ -120,6 +123,59 @@ class PostgresOutboxRepository:
                 {
                     "now": self._now(),
                     "message_id": pubsub_message_id,
+                    "outbox_id": outbox_id,
+                    "digest": self._digest(claim_token),
+                },
+            ).rowcount
+            return changed == 1
+
+    def release_for_retry(
+        self,
+        *,
+        outbox_id: int,
+        claim_token: str,
+        delay_seconds: int,
+    ) -> bool:
+        with self._engine.begin() as connection:
+            changed = connection.execute(
+                text(
+                    """
+                    UPDATE workflow_outbox SET status='PENDING',
+                        available_at=:available_at, claim_token_digest=NULL,
+                        claim_expires_at=NULL, publisher_id=NULL
+                    WHERE outbox_id=:outbox_id AND status='PUBLISHING'
+                      AND claim_token_digest=:digest
+                    """
+                ),
+                {
+                    "available_at": self._now() + timedelta(seconds=delay_seconds),
+                    "outbox_id": outbox_id,
+                    "digest": self._digest(claim_token),
+                },
+            ).rowcount
+            return changed == 1
+
+    def mark_dead_letter(
+        self,
+        *,
+        outbox_id: int,
+        claim_token: str,
+        failure_code: str,
+    ) -> bool:
+        with self._engine.begin() as connection:
+            changed = connection.execute(
+                text(
+                    """
+                    UPDATE workflow_outbox SET status='DEAD_LETTER',
+                        failure_code=:failure_code, failed_at=:failed_at,
+                        claim_token_digest=NULL, claim_expires_at=NULL
+                    WHERE outbox_id=:outbox_id AND status='PUBLISHING'
+                      AND claim_token_digest=:digest
+                    """
+                ),
+                {
+                    "failure_code": failure_code,
+                    "failed_at": self._now(),
                     "outbox_id": outbox_id,
                     "digest": self._digest(claim_token),
                 },
