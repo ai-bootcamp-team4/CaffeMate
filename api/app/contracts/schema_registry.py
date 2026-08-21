@@ -32,6 +32,10 @@ class CandidateContractValidator(Protocol):
     def validate_candidate_result(self, value: dict[str, Any]) -> None: ...
 
 
+class EvidenceContractValidator(Protocol):
+    def validate_evidence_record(self, value: dict[str, Any]) -> None: ...
+
+
 class ContractRegistry:
     def __init__(self, schema_directory: Path | None = None) -> None:
         self._schema_directory = schema_directory or (
@@ -106,6 +110,9 @@ class ContractRegistry:
 
     def validate_candidate_result(self, value: dict[str, Any]) -> None:
         self._validate("candidate-result.schema.json", value)
+
+    def validate_evidence_record(self, value: dict[str, Any]) -> None:
+        self._validate("evidence-record.schema.json", value)
 
     def _validate(self, contract_name: str, value: dict[str, Any]) -> None:
         self._validate_with(self._validators[contract_name], contract_name, value)

@@ -3,6 +3,7 @@ import json
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Protocol
 from uuid import uuid4
 
 import rfc8785
@@ -10,9 +11,14 @@ from pydantic import ValidationError
 from sqlalchemy import Engine, text
 from sqlalchemy.engine import Connection, RowMapping
 
-from app.contracts.schema_registry import CandidateContractValidator, ContractRegistry
+from app.contracts.schema_registry import (
+    CandidateContractValidator,
+    ContractRegistry,
+    EvidenceContractValidator,
+)
 from app.domain.errors import ContractValidationError
 from app.results.models import ResultBundlePayload
+from app.workflows.evidence_freeze import EvidenceFreezeOutput
 from app.workflows.first_proposal import FirstProposalStage, stage_input_digest
 from app.workflows.models import (
     CheckpointOutcome,
@@ -28,6 +34,14 @@ LEASE_SECONDS = 45
 MAX_STAGE_ATTEMPTS = 3
 
 
+class ExecutionContractValidator(
+    CandidateContractValidator,
+    EvidenceContractValidator,
+    Protocol,
+):
+    pass
+
+
 class PostgresStageExecutionRepository:
     def __init__(
         self,
@@ -36,7 +50,7 @@ class PostgresStageExecutionRepository:
         now: Callable[[], datetime] | None = None,
         new_token: Callable[[], str] | None = None,
         new_result_id: Callable[[], str] | None = None,
-        contracts: CandidateContractValidator | None = None,
+        contracts: ExecutionContractValidator | None = None,
     ) -> None:
         self._engine = engine
         self._now = now or (lambda: datetime.now(UTC))
@@ -187,12 +201,40 @@ class PostgresStageExecutionRepository:
                 return CheckpointOutcome.APPLIED
 
             bundle = self._parse_result_bundle(result)
+            evidence_freeze = self._parse_evidence_freeze(result)
             is_commit_stage = row["stage_code"] == FirstProposalStage.COMMIT_RESULT.value
+            is_freeze_stage = row["stage_code"] == FirstProposalStage.EVIDENCE_FREEZE.value
             if bundle is not None and not is_commit_stage:
                 raise ContractValidationError("Only COMMIT_RESULT may persist a ResultBundle")
             if bundle is None and is_commit_stage:
                 raise ContractValidationError("COMMIT_RESULT requires a ResultBundle")
+            if evidence_freeze is not None and not is_freeze_stage:
+                raise ContractValidationError(
+                    "Only EVIDENCE_FREEZE may persist an Evidence Snapshot"
+                )
+            if evidence_freeze is None and is_freeze_stage:
+                raise ContractValidationError(
+                    "EVIDENCE_FREEZE requires an Evidence Snapshot"
+                )
             result_bundle_id: str | None = None
+            checkpoint_head = self._stored_head(row)
+            evidence_snapshot_id: str | None = None
+            if evidence_freeze is not None:
+                evidence_snapshot_id = self._persist_evidence_snapshot(
+                    connection,
+                    row=row,
+                    output=evidence_freeze,
+                    created_at=now,
+                )
+                checkpoint_head = checkpoint_head.model_copy(
+                    update={"evidence_snapshot_id": evidence_snapshot_id}
+                )
+                self._advance_evidence_head(
+                    connection,
+                    row=row,
+                    evidence_snapshot_id=evidence_snapshot_id,
+                    updated_at=now,
+                )
             if bundle is not None:
                 try:
                     bundle.validate_contracts(
@@ -241,6 +283,7 @@ class PostgresStageExecutionRepository:
                             "stage_run_id": stage_run_id,
                             "stage_code": row["stage_code"],
                             "result_bundle_id": result_bundle_id,
+                            "evidence_snapshot_id": evidence_snapshot_id,
                         }
                     ),
                     "now": now,
@@ -286,7 +329,7 @@ class PostgresStageExecutionRepository:
                 ready_digest = stage_input_digest(
                     workflow_run_id=row["workflow_run_id"],
                     stage_code=FirstProposalStage(ready["stage_code"]),
-                    head=self._stored_head(row),
+                    head=checkpoint_head,
                     dependencies=tuple(
                         {
                             "stage_code": dependency["stage_code"],
@@ -676,6 +719,140 @@ class PostgresStageExecutionRepository:
         )
         return result_bundle_id
 
+    def _persist_evidence_snapshot(
+        self,
+        connection: Connection,
+        *,
+        row: RowMapping,
+        output: EvidenceFreezeOutput,
+        created_at: datetime,
+    ) -> str:
+        if (
+            output.project_id != row["project_id"]
+            or output.workflow_run_id != row["workflow_run_id"]
+            or output.source_stage_run_id != row["stage_run_id"]
+        ):
+            raise ContractValidationError("Evidence Snapshot identity is invalid")
+        snapshot_body = output.model_dump(
+            mode="json",
+            exclude={"snapshot_id", "snapshot_digest"},
+        )
+        computed_digest = hashlib.sha256(rfc8785.dumps(snapshot_body)).hexdigest()
+        if (
+            output.snapshot_digest != f"sha256:{computed_digest}"
+            or output.snapshot_id != f"evidence-{computed_digest[:40]}"
+        ):
+            raise ContractValidationError("Evidence Snapshot digest is invalid")
+        for record in output.evidence_records:
+            self._contracts.validate_evidence_record(record)
+            if record["project_id"] != row["project_id"]:
+                raise ContractValidationError("Evidence record crossed project scope")
+            record_bytes = rfc8785.dumps(record)
+            record_digest = hashlib.sha256(record_bytes).hexdigest()
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO evidence_records(
+                        project_id, evidence_id, record_json, record_digest, created_at
+                    ) VALUES (
+                        :project_id, :evidence_id, CAST(:record_json AS JSONB),
+                        :record_digest, :created_at
+                    ) ON CONFLICT (project_id, evidence_id) DO NOTHING
+                    """
+                ),
+                {
+                    "project_id": row["project_id"],
+                    "evidence_id": record["evidence_id"],
+                    "record_json": record_bytes.decode(),
+                    "record_digest": record_digest,
+                    "created_at": created_at,
+                },
+            )
+            stored_digest = connection.execute(
+                text(
+                    "SELECT record_digest FROM evidence_records "
+                    "WHERE project_id=:project_id AND evidence_id=:evidence_id"
+                ),
+                {
+                    "project_id": row["project_id"],
+                    "evidence_id": record["evidence_id"],
+                },
+            ).scalar_one()
+            if stored_digest != record_digest:
+                raise ContractValidationError(
+                    "Evidence id refers to a different immutable record"
+                )
+        snapshot_json = output.model_dump(mode="json")
+        connection.execute(
+            text(
+                """
+                INSERT INTO evidence_snapshots(
+                    evidence_snapshot_id, project_id, workflow_run_id,
+                    source_stage_run_id, snapshot_json, snapshot_digest, created_at
+                ) VALUES (
+                    :snapshot_id, :project_id, :workflow_run_id, :source_stage_run_id,
+                    CAST(:snapshot_json AS JSONB), :snapshot_digest, :created_at
+                )
+                """
+            ),
+            {
+                "snapshot_id": output.snapshot_id,
+                "project_id": row["project_id"],
+                "workflow_run_id": row["workflow_run_id"],
+                "source_stage_run_id": row["stage_run_id"],
+                "snapshot_json": json.dumps(snapshot_json, separators=(",", ":")),
+                "snapshot_digest": output.snapshot_digest,
+                "created_at": created_at,
+            },
+        )
+        for record in output.evidence_records:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO evidence_snapshot_records(
+                        evidence_snapshot_id, project_id, evidence_id
+                    ) VALUES (:snapshot_id, :project_id, :evidence_id)
+                    """
+                ),
+                {
+                    "snapshot_id": output.snapshot_id,
+                    "project_id": row["project_id"],
+                    "evidence_id": record["evidence_id"],
+                },
+            )
+        return output.snapshot_id
+
+    @staticmethod
+    def _advance_evidence_head(
+        connection: Connection,
+        *,
+        row: RowMapping,
+        evidence_snapshot_id: str,
+        updated_at: datetime,
+    ) -> None:
+        connection.execute(
+            text(
+                "UPDATE workflow_runs SET evidence_snapshot_id=:snapshot_id, "
+                "updated_at=:updated_at WHERE workflow_run_id=:workflow_run_id"
+            ),
+            {
+                "snapshot_id": evidence_snapshot_id,
+                "updated_at": updated_at,
+                "workflow_run_id": row["workflow_run_id"],
+            },
+        )
+        connection.execute(
+            text(
+                "UPDATE project_heads SET evidence_snapshot_id=:snapshot_id, "
+                "updated_at=:updated_at WHERE project_id=:project_id"
+            ),
+            {
+                "snapshot_id": evidence_snapshot_id,
+                "updated_at": updated_at,
+                "project_id": row["project_id"],
+            },
+        )
+
     @staticmethod
     def _parse_result_bundle(result: dict[str, object]) -> ResultBundlePayload | None:
         value = result.get("result_bundle")
@@ -687,13 +864,25 @@ class PostgresStageExecutionRepository:
             raise ContractValidationError("Result bundle shape is invalid") from error
 
     @staticmethod
+    def _parse_evidence_freeze(
+        result: dict[str, object],
+    ) -> EvidenceFreezeOutput | None:
+        value = result.get("evidence_freeze")
+        if value is None:
+            return None
+        try:
+            return EvidenceFreezeOutput.model_validate(value)
+        except ValidationError as error:
+            raise ContractValidationError("Evidence Freeze shape is invalid") from error
+
+    @staticmethod
     def _load_stage(
         connection: Connection,
         *,
         stage_run_id: str,
         for_update: bool,
     ) -> RowMapping | None:
-        suffix = " FOR UPDATE OF s, w" if for_update else ""
+        suffix = " FOR UPDATE OF s, w, h" if for_update else ""
         return connection.execute(
             text(
                 """
