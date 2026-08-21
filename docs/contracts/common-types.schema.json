@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-bootcamp-team4/CaffeMate/docs/contracts/common-types.schema.json",
+  "title": "CaffeMate Shared Contract Types",
+  "$defs": {
+    "typedValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "NULL" },
+            "value": { "const": null }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "STRING" },
+            "value": { "type": "string", "maxLength": 8000 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "INTEGER" },
+            "value": { "type": "integer" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "DECIMAL" },
+            "value": { "type": "number" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "BOOLEAN" },
+            "value": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "DATE" },
+            "value": { "type": "string", "format": "date" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "DATE_TIME" },
+            "value": { "type": "string", "format": "date-time" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "currency", "low", "base", "high"],
+          "properties": {
+            "kind": { "const": "MONEY_RANGE" },
+            "currency": { "const": "KRW" },
+            "low": { "type": ["integer", "null"], "minimum": 0 },
+            "base": { "type": ["integer", "null"], "minimum": 0 },
+            "high": { "type": ["integer", "null"], "minimum": 0 }
+          },
+          "anyOf": [
+            { "properties": { "low": { "type": "integer" } } },
+            { "properties": { "base": { "type": "integer" } } },
+            { "properties": { "high": { "type": "integer" } } }
+          ]
+        }
+      ]
+    },
+    "geographicScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_type", "scope_id", "boundary_version"],
+      "properties": {
+        "scope_type": {
+          "enum": ["NATIONAL", "REGION", "ADMINISTRATIVE_AREA", "PROPERTY", "CASE", "NOT_APPLICABLE"]
+        },
+        "scope_id": { "type": ["string", "null"], "minLength": 1 },
+        "boundary_version": { "type": ["string", "null"], "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "scope_type": { "const": "NOT_APPLICABLE" } } },
+          "then": {
+            "properties": {
+              "scope_id": { "const": null },
+              "boundary_version": { "const": null }
+            }
+          },
+          "else": { "properties": { "scope_id": { "type": "string" } } }
+        },
+        {
+          "if": { "properties": { "scope_type": { "const": "ADMINISTRATIVE_AREA" } } },
+          "then": { "properties": { "boundary_version": { "type": "string" } } }
+        }
+      ]
+    },
+    "reasonCode": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{2,127}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

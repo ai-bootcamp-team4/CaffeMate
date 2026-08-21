@@ -1,0 +1,486 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-bootcamp-team4/CaffeMate/docs/contracts/mcp-tool-contracts.schema.json",
+  "title": "CaffeMate MCP Tool Contract Library",
+  "$defs": {
+    "resolveAreaInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query", "country_code", "limit"],
+      "properties": {
+        "query": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "country_code": { "const": "KR" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 10 }
+      }
+    },
+    "getAreaProfileInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["administrative_code", "boundary_version", "as_of"],
+      "properties": {
+        "administrative_code": { "type": "string", "pattern": "^[0-9]{8,10}$" },
+        "boundary_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "as_of": { "type": "string", "format": "date" }
+      }
+    },
+    "searchCafeObservationsInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["administrative_code", "boundary_version", "as_of", "metrics"],
+      "properties": {
+        "administrative_code": { "type": "string", "pattern": "^[0-9]{8,10}$" },
+        "boundary_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "as_of": { "type": "string", "format": "date" },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "CAFE_COUNT",
+              "OPEN_COUNT",
+              "CLOSE_COUNT",
+              "CLOSURE_RATE",
+              "SURVIVAL_RATE",
+              "ESTIMATED_SALES",
+              "FOOT_TRAFFIC",
+              "RESIDENT_POPULATION",
+              "WORKER_POPULATION",
+              "AGE_DISTRIBUTION",
+              "CONSUMPTION"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "searchBusinessEventsInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["administrative_code", "business_category", "date_from", "date_to", "event_types"],
+      "properties": {
+        "administrative_code": { "type": "string", "pattern": "^[0-9]{8,10}$" },
+        "business_category": { "const": "CAFE" },
+        "date_from": { "type": "string", "format": "date" },
+        "date_to": { "type": "string", "format": "date" },
+        "event_types": {
+          "type": "array",
+          "items": { "enum": ["OPEN", "CLOSE", "STATUS_CHANGE"] },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "listFranchiseUniverseInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["business_category", "as_of"],
+      "properties": {
+        "business_category": { "const": "CAFE" },
+        "as_of": { "type": "string", "format": "date" }
+      }
+    },
+    "getFranchiseDisclosureInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["brand_id", "as_of"],
+      "properties": {
+        "brand_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "disclosure_version": { "type": ["string", "null"], "maxLength": 128 },
+        "as_of": { "type": "string", "format": "date" }
+      }
+    },
+    "retrieveOfficialDocumentsInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query", "source_families", "as_of", "limit"],
+      "properties": {
+        "query": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "source_families": {
+          "type": "array",
+          "items": { "enum": ["LAW", "GOVERNMENT_GUIDE", "PUBLIC_DATA", "FRANCHISE_DISCLOSURE", "OFFICIAL_PROCEDURE"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "as_of": { "type": "string", "format": "date" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 20 }
+      }
+    },
+    "retrieveProjectDocumentsInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query", "document_revision_ids", "limit"],
+      "properties": {
+        "query": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "document_type": { "type": ["string", "null"], "maxLength": 128 },
+        "document_revision_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "minItems": 1,
+          "maxItems": 50,
+          "uniqueItems": true
+        },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 20 }
+      }
+    },
+    "getOfficialProcedureInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jurisdiction_code", "procedure_type", "as_of"],
+      "properties": {
+        "jurisdiction_code": { "type": "string", "pattern": "^[0-9]{2,10}$" },
+        "procedure_type": {
+          "enum": ["BUSINESS_REGISTRATION", "FOOD_SERVICE_REPORT", "FACILITY_REQUIREMENTS", "HYGIENE_EDUCATION", "SIGNAGE", "FIRE_SAFETY"]
+        },
+        "as_of": { "type": "string", "format": "date" }
+      }
+    },
+    "getSourceHealthInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_ids", "as_of"],
+      "properties": {
+        "source_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "minItems": 1,
+          "maxItems": 50,
+          "uniqueItems": true
+        },
+        "as_of": { "type": "string", "format": "date" }
+      }
+    },
+    "sourceTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "source_ref", "data_date", "retrieved_at", "content_digest"],
+      "properties": {
+        "source_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "source_ref": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "data_date": { "type": ["string", "null"], "format": "date" },
+        "retrieved_at": { "type": "string", "format": "date-time" },
+        "content_digest": { "$ref": "./common-types.schema.json#/$defs/digest" }
+      }
+    },
+    "resultBase": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "request_id",
+        "tool_name",
+        "tool_version",
+        "status",
+        "project_id",
+        "evidence_records",
+        "missing_fields",
+        "conflicts",
+        "source_trace",
+        "error_codes",
+        "observed_at",
+        "data"
+      ],
+      "properties": {
+        "schema_version": { "const": "1.0.0" },
+        "request_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tool_name": {
+          "enum": [
+            "resolve_area",
+            "get_area_profile",
+            "search_cafe_observations",
+            "search_business_events",
+            "list_franchise_universe",
+            "get_franchise_disclosure",
+            "retrieve_official_documents",
+            "retrieve_project_documents",
+            "get_official_procedure",
+            "get_source_health"
+          ]
+        },
+        "tool_version": { "const": "1.0.0" },
+        "status": { "enum": ["OK", "PARTIAL", "STALE", "NOT_FOUND", "ERROR"] },
+        "project_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "evidence_records": {
+          "type": "array",
+          "items": { "$ref": "./evidence-record.schema.json" }
+        },
+        "missing_fields": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "uniqueItems": true
+        },
+        "conflicts": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "uniqueItems": true
+        },
+        "source_trace": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sourceTrace" },
+          "uniqueItems": true
+        },
+        "error_codes": {
+          "type": "array",
+          "items": { "$ref": "./common-types.schema.json#/$defs/reasonCode" },
+          "uniqueItems": true
+        },
+        "observed_at": { "type": "string", "format": "date-time" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "ERROR" } } },
+          "then": { "properties": { "error_codes": { "type": "array", "minItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "NOT_FOUND" } } },
+          "then": {
+            "properties": {
+              "data": { "type": "array", "maxItems": 0 },
+              "missing_fields": { "type": "array", "minItems": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "areaCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["administrative_code", "display_name", "boundary_version", "match_kind"],
+      "properties": {
+        "administrative_code": { "type": "string", "pattern": "^[0-9]{8,10}$" },
+        "display_name": { "type": "string", "minLength": 1 },
+        "boundary_version": { "type": "string", "minLength": 1 },
+        "match_kind": { "enum": ["EXACT", "ALIAS", "CONTAINS", "AMBIGUOUS"] }
+      }
+    },
+    "metricRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric", "value", "unit", "as_of", "evidence_id"],
+      "properties": {
+        "metric": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "value": { "$ref": "./common-types.schema.json#/$defs/typedValue" },
+        "unit": { "type": ["string", "null"], "maxLength": 64 },
+        "as_of": { "type": "string", "format": "date" },
+        "evidence_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "businessEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_id", "event_type", "event_date", "administrative_code", "evidence_id"],
+      "properties": {
+        "event_id": { "type": "string", "minLength": 1 },
+        "event_type": { "enum": ["OPEN", "CLOSE", "STATUS_CHANGE"] },
+        "event_date": { "type": "string", "format": "date" },
+        "administrative_code": { "type": "string", "pattern": "^[0-9]{8,10}$" },
+        "evidence_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "franchiseSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["brand_id", "display_name", "individual_franchise_eligibility", "eligibility_evidence_id", "disclosure_status"],
+      "properties": {
+        "brand_id": { "type": "string", "minLength": 1 },
+        "display_name": { "type": "string", "minLength": 1 },
+        "individual_franchise_eligibility": { "enum": ["VERIFIED", "UNVERIFIED", "INELIGIBLE"] },
+        "eligibility_evidence_id": { "type": ["string", "null"], "minLength": 1 },
+        "disclosure_status": { "enum": ["AVAILABLE", "MISSING", "STALE"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "individual_franchise_eligibility": { "const": "VERIFIED" } } },
+          "then": { "properties": { "eligibility_evidence_id": { "type": "string" } } }
+        }
+      ]
+    },
+    "disclosureField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "value", "unit", "effective_date", "evidence_id"],
+      "properties": {
+        "field": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "value": { "$ref": "./common-types.schema.json#/$defs/typedValue" },
+        "unit": { "type": ["string", "null"], "maxLength": 64 },
+        "effective_date": { "type": ["string", "null"], "format": "date" },
+        "evidence_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "documentHit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_revision_id", "title", "anchor", "excerpt", "source_date", "evidence_id"],
+      "properties": {
+        "document_revision_id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "anchor": { "type": "string", "minLength": 1 },
+        "excerpt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "source_date": { "type": ["string", "null"], "format": "date" },
+        "evidence_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "procedureStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step_order", "title", "required", "authority", "source_date", "evidence_id"],
+      "properties": {
+        "step_order": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "required": { "type": "boolean" },
+        "authority": { "type": "string", "minLength": 1 },
+        "source_date": { "type": "string", "format": "date" },
+        "evidence_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "sourceHealth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "status", "last_success_at", "data_date"],
+      "properties": {
+        "source_id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["HEALTHY", "DEGRADED", "UNAVAILABLE", "STALE"] },
+        "last_success_at": { "type": ["string", "null"], "format": "date-time" },
+        "data_date": { "type": ["string", "null"], "format": "date" }
+      }
+    },
+    "resolveAreaResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "resolve_area" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/areaCandidate" }, "maxItems": 10 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "getAreaProfileResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "get_area_profile" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/metricRecord" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "searchCafeObservationsResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "search_cafe_observations" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/metricRecord" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "searchBusinessEventsResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "search_business_events" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/businessEvent" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "listFranchiseUniverseResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "list_franchise_universe" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/franchiseSummary" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "getFranchiseDisclosureResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "get_franchise_disclosure" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/disclosureField" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "retrieveOfficialDocumentsResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "retrieve_official_documents" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/documentHit" }, "maxItems": 20 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "retrieveProjectDocumentsResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "retrieve_project_documents" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/documentHit" }, "maxItems": 20 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "getOfficialProcedureResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "get_official_procedure" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/procedureStep" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "getSourceHealthResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "get_source_health" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/sourceHealth" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

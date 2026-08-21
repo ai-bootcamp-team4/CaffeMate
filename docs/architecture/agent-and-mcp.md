@@ -8,7 +8,7 @@
 - Multi-Agent는 역할 이름을 늘리는 기능이 아니다.
 - Agent는 독립 reasoning context, tool 권한 또는 critic 역할이 있을 때만 둔다.
 - Workflow controller가 실행 순서·재시도·종료를 결정한다.
-- Agent와 MCP는 persistent State를 직접 수정하지 않는다.
+- Agent는 persistent State snapshot을 읽어 추론할 수 있지만 권위 State를 직접 수정하지 않는다. MCP도 read-only이며, 검증된 변경은 Control API reducer만 반영한다.
 - 돈·Gate·ranking은 deterministic code가 담당한다.
 
 ## Runtime 역할
@@ -17,11 +17,13 @@
 | --- | --- | --- | --- | --- |
 | Intake Interpreter | 결과 이후 자연어·문서 intent | State summary + input | typed intent·delta proposal | 바로 State 변경 |
 | Evidence Research Agent | 새 분석·Claim gap·stale | required Claims + read tools | Evidence candidates·missing·counterevidence | 계산·최종 추천 |
-| Proposal Agent | frozen Evidence 준비 | Founder constraints + Evidence | typed candidates | 브랜드·비용·매출 생성 |
+| Proposal Agent | frozen Evidence 준비 | Founder constraints + Evidence | typed candidates | 존재하지 않는 브랜드·근거 없는 비용·매출 생성 |
 | Document Analyst | parsing 완료 | page/table anchors + schema | proposed Claims·risk flags | 법적 판단·자동 확정 |
-| Independent Critic | 계산 후보 생성 | candidate·Evidence·Calculation snapshot | violation·missing·Evidence request | 원 추천 작성·State write |
+| Typed Candidate Auditor | 계산 후보 생성 | candidate·Evidence·Calculation snapshot | violation·missing·Evidence request | 원 추천 작성·State write |
 
 Orchestrator는 자유 토론 Agent가 아니라 typed Workflow controller다.
+
+서비스 경계의 정확한 전송·권한·재시도 계약은 [백엔드·Agent Runtime 연결 계약](../contracts/agent-runtime-protocol.md)을 따른다.
 
 ## CONFIRMED — GCP Runtime 배치
 
@@ -29,17 +31,26 @@ Orchestrator는 자유 토론 Agent가 아니라 typed Workflow controller다.
 Cloud Run Control API
 → IAM-authenticated Agent Runtime invocation
 → one ADK Multi-Agent application
-→ allowlisted private MCP read tools
 → typed Agent output
 → Control API validation and State reducer
+
+Cloud Run Control API
+→ validated read action
+→ private MCP read tool
+→ validated structured result
+→ next Agent task input
 ```
 
 - 각 Agent 역할을 개별 Cloud Run service로 배포하지 않는다.
 - Control API가 workflow, State version, 재시도 예산과 종료 조건을 소유한다.
 - Agent Runtime은 reasoning과 ADK Agent 실행을 담당하지만 persistent State를 쓰지 않는다.
-- Agent Runtime service identity는 private MCP 호출 권한만 가지며 원본 credential과 database write 권한을 갖지 않는다.
+- 첫 구현에서 Agent Runtime은 MCP를 직접 호출하지 않으며 MCP invoke 권한, 원본 credential과 database write 권한을 갖지 않는다.
+- Evidence Researcher는 read action을 제안하고 Control API가 allowlist·scope·인자를 검증한 뒤 MCP를 호출한다.
 - 서울 리전에서 managed Agent Gateway가 지원되지 않으므로 Control API가 Agent Runtime을 직접 호출한다.
 - Runtime·Sessions의 정식 지원과 별개로 선택한 model의 서울 리전 지원 여부를 배포 Gate에서 따로 검증한다.
+- 생성·embedding model endpoint는 `asia-northeast3`만 허용하며 `global` fallback은 금지한다.
+- 기존 `gemini-3.5-flash`는 서울 생성 리전 미지원으로 제거됐으며, 서울 실제 호출을 통과한 model id 승인 전에는 `BLOCKED_BY_REGION`이다.
+- ADK root는 모델이 아니라 deterministic dispatcher다. `task_type`을 검증해 정확히 한 역할만 실행하며 역할 transfer와 Agent 간 호출을 허용하지 않는다.
 
 ## 실행 Graph
 
@@ -49,68 +60,63 @@ Cloud Run Control API
 Evidence Research Agent
 → independent and franchise Proposal branches
 → deterministic Finance and Gate
-→ Independent Critic
+→ Typed Candidate Auditor
 → reducer validation and commit
 ```
 
 - Proposal은 frozen Evidence Snapshot을 입력으로 받는다.
 - 개인·프랜차이즈 branch는 같은 Founder State를 읽고 다른 schema로 병렬 실행할 수 있다.
-- Critic은 Proposal의 hidden reasoning이 아니라 결과·근거·계산만 본다.
+- Auditor는 Proposal의 hidden reasoning이 아니라 결과·근거·계산만 본다.
 
 ### 문서 업데이트
 
 ```text
 Document Analyst
 → Claim schema validation
-→ human review when material
+→ editable extraction form generation
+→ one batch apply action
 → deterministic conflict detection
 → selective recalculation
-→ Independent Critic
+→ Typed Candidate Auditor
 → reducer commit
 ```
 
+- OCR·추출값은 원문 anchor와 함께 한 폼에 자동 입력한다.
+- 사용자는 값을 수정·삭제할 수 있고 필드별 확인 동작은 요구하지 않는다.
+- 애매한 필드는 자동 입력하지 않고 `REVIEW_REQUIRED`로 남긴다.
+- `반영하고 다시 계산` 한 번으로 현재 document·State version을 검증하고 폼 전체를 원자 적용한다.
+- 일괄 적용 전 값은 State·finance·Gate·rank에 사용하지 않는다.
+
 ## Agent 공통 입출력
 
-### Input Envelope
-
-```yaml
-workflow_run_id: required
-project_id: required
-state_version: required
-policy_version: required
-evidence_snapshot_id: required
-task_type: required
-input_payload: {}
-allowed_tools: []
-```
-
-### Output Envelope
-
-```yaml
-status: COMPLETE | ABSTAIN | NEEDS_EVIDENCE | INVALID
-schema_version: required
-candidate_payload: {}
-evidence_refs: []
-missing_fields: []
-counterevidence_refs: []
-warnings: []
-```
-
-자유 문장 설명은 typed payload를 대체하지 못한다.
+- 요청은 [Agent Task Schema](../contracts/agent-task.schema.json)를 따른다.
+- 결과는 [Agent Task Result Schema](../contracts/agent-task-result.schema.json)를 따른다.
+- `runtime_tool_policy`는 첫 구현에서 항상 `NO_DIRECT_TOOL_CALLS`다.
+- `task_id`, `invocation_id`, venture project, full head, input digest와 output Schema를 결과에서 echo하고 Control API가 대조한다.
+- 자유 문장 설명은 typed payload를 대체하지 못한다.
 
 ## MCP의 역할
 
 MCP는 외부 자료와 project corpus를 호출하는 권한·schema 경계다. 추천 엔진이 아니다.
 
+- protocol revision은 `2026-07-28`, transport는 private Cloud Run의 stateless Streamable HTTP다.
+- Control API가 유일한 production MCP client다.
+- `structuredContent`만 tool output Schema로 검증해 다음 단계 입력으로 사용한다.
+
+고정 registry는 [MCP Tool Manifest](../contracts/mcp-tool-manifest.json), 각 input·output은 [MCP Tool Contract Schema](../contracts/mcp-tool-contracts.schema.json)가 권위값이다.
+
 | Tool | Input | Output | Scope |
 | --- | --- | --- | --- |
-| `resolve_area` | 지명 또는 좌표 | 행정코드·경계·해석 후보 | public read |
-| `get_area_profile` | 행정코드·기준일 | 인구·연령·사업체·카페 metrics | public read |
-| `search_cafes` | 경계·업종·기준일 | raw rows·dedupe metadata | public read |
-| `search_franchises` | 자금·규모·운영 조건 | 실제 브랜드·가맹 가능·missing | public read |
-| `get_disclosure` | 브랜드·등록 identity | revision·field·anchor | public read |
-| `get_official_procedure` | 지역·절차 | 관할·단계·source | public read |
-| `retrieve_project_docs` | project id·Claim query | project document anchors | project read |
+| `resolve_area` | 지명·국가·limit | 행정코드·경계·해석 후보 | public read |
+| `get_area_profile` | 행정코드·경계 version·기준일 | 인구·연령·사업체 metrics | public read |
+| `search_cafe_observations` | 행정코드·metric·기준일 | 카페·매출·유동 관측 | public read |
+| `search_business_events` | 행정코드·기간·event type | 개업·폐업·상태변경 | public read |
+| `list_franchise_universe` | 카페 업종·기준일 | 전체 brand universe·개인 가맹 확인 상태 | public read |
+| `get_franchise_disclosure` | brand id·기준일 | 정보공개서 field·anchor | public read |
+| `retrieve_official_documents` | query·공식 source family·기준일 | 공식 문서 anchor | public read |
+| `retrieve_project_documents` | query·허용 document revision | project 문서 anchor | project read |
+| `get_official_procedure` | 관할·절차·기준일 | 관할·단계·source | public read |
+| `get_source_health` | source id·기준일 | 갱신·장애·stale 상태 | public read |
 
 ## MCP 공통 응답
 
@@ -118,6 +124,7 @@ MCP는 외부 자료와 project corpus를 호출하는 권한·schema 경계다.
 status: OK | PARTIAL | STALE | NOT_FOUND | ERROR
 request_id: required
 connector_version: required
+project_id: signed scope와 동일한 required value
 evidence_records: []
 missing_fields: []
 conflicts: []
@@ -127,10 +134,10 @@ source_trace: []
 ## Tool 권한
 
 - MCP service는 private Cloud Run으로 둔다.
-- API와 Agent Runtime의 allowlist된 service identity만 invoke할 수 있다.
+- Control API의 allowlist된 service identity만 invoke할 수 있다.
 - connector credential은 MCP runtime에만 둔다.
 - Agent에게 credential·database connection·raw secret을 전달하지 않는다.
-- `retrieve_project_docs`는 user·project scope를 API가 서명한 context로 받는다.
+- `retrieve_project_documents`는 user·venture project scope를 API가 서명한 5분 이내 context로 받으며 project id를 tool argument로 받지 않는다.
 - write tool은 현재 제공하지 않는다.
 
 ## 금지된 MCP Tool
@@ -148,7 +155,7 @@ source_trace: []
 - read tool retry는 connector별 최대 횟수와 timeout을 가진다.
 - schema invalid Agent output은 한 번만 repair한다.
 - 두 번째 실패는 `INVALID` 또는 `ABSTAIN`으로 종료한다.
-- timeout 뒤 늦은 응답은 State version이 같을 때만 고려한다.
+- timeout·cancel 뒤 늦은 응답은 full head가 같아도 폐기한다. 그 외 응답도 full head 여덟 차원이 모두 current와 같을 때만 고려한다.
 - tool 일부 실패를 전체 성공으로 숨기지 않는다.
 - Evidence가 부족하면 Proposal은 후보 수를 억지로 채우지 않는다.
 
@@ -190,7 +197,7 @@ source_trace: []
 - page/table anchor correctness
 - uncertain extraction escalation
 
-### Critic
+### Typed Candidate Auditor
 
 - missing cost recall
 - Hard violation recall

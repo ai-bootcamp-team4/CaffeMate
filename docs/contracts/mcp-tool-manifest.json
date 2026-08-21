@@ -1,0 +1,87 @@
+{
+  "manifest_version": "1.0.0",
+  "protocol_revision": "2026-07-28",
+  "transport": "STATELESS_STREAMABLE_HTTP",
+  "tools": [
+    {
+      "name": "resolve_area",
+      "version": "1.0.0",
+      "input_schema_id": "caffemate.mcp.resolve-area.input.v1",
+      "input_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/resolveAreaInput",
+      "output_schema_id": "caffemate.mcp.resolve-area.result.v1",
+      "output_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/resolveAreaResult"
+    },
+    {
+      "name": "get_area_profile",
+      "version": "1.0.0",
+      "input_schema_id": "caffemate.mcp.get-area-profile.input.v1",
+      "input_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/getAreaProfileInput",
+      "output_schema_id": "caffemate.mcp.get-area-profile.result.v1",
+      "output_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/getAreaProfileResult"
+    },
+    {
+      "name": "search_cafe_observations",
+      "version": "1.0.0",
+      "input_schema_id": "caffemate.mcp.search-cafe-observations.input.v1",
+      "input_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/searchCafeObservationsInput",
+      "output_schema_id": "caffemate.mcp.search-cafe-observations.result.v1",
+      "output_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/searchCafeObservationsResult"
+    },
+    {
+      "name": "search_business_events",
+      "version": "1.0.0",
+      "input_schema_id": "caffemate.mcp.search-business-events.input.v1",
+      "input_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/searchBusinessEventsInput",
+      "output_schema_id": "caffemate.mcp.search-business-events.result.v1",
+      "output_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/searchBusinessEventsResult"
+    },
+    {
+      "name": "list_franchise_universe",
+      "version": "1.0.0",
+      "input_schema_id": "caffemate.mcp.list-franchise-universe.input.v1",
+      "input_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/listFranchiseUniverseInput",
+      "output_schema_id": "caffemate.mcp.list-franchise-universe.result.v1",
+      "output_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/listFranchiseUniverseResult"
+    },
+    {
+      "name": "get_franchise_disclosure",
+      "version": "1.0.0",
+      "input_schema_id": "caffemate.mcp.get-franchise-disclosure.input.v1",
+      "input_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/getFranchiseDisclosureInput",
+      "output_schema_id": "caffemate.mcp.get-franchise-disclosure.result.v1",
+      "output_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/getFranchiseDisclosureResult"
+    },
+    {
+      "name": "retrieve_official_documents",
+      "version": "1.0.0",
+      "input_schema_id": "caffemate.mcp.retrieve-official-documents.input.v1",
+      "input_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/retrieveOfficialDocumentsInput",
+      "output_schema_id": "caffemate.mcp.retrieve-official-documents.result.v1",
+      "output_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/retrieveOfficialDocumentsResult"
+    },
+    {
+      "name": "retrieve_project_documents",
+      "version": "1.0.0",
+      "input_schema_id": "caffemate.mcp.retrieve-project-documents.input.v1",
+      "input_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/retrieveProjectDocumentsInput",
+      "output_schema_id": "caffemate.mcp.retrieve-project-documents.result.v1",
+      "output_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/retrieveProjectDocumentsResult"
+    },
+    {
+      "name": "get_official_procedure",
+      "version": "1.0.0",
+      "input_schema_id": "caffemate.mcp.get-official-procedure.input.v1",
+      "input_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/getOfficialProcedureInput",
+      "output_schema_id": "caffemate.mcp.get-official-procedure.result.v1",
+      "output_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/getOfficialProcedureResult"
+    },
+    {
+      "name": "get_source_health",
+      "version": "1.0.0",
+      "input_schema_id": "caffemate.mcp.get-source-health.input.v1",
+      "input_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/getSourceHealthInput",
+      "output_schema_id": "caffemate.mcp.get-source-health.result.v1",
+      "output_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/getSourceHealthResult"
+    }
+  ]
+}
