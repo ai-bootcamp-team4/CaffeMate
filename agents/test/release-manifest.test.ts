@@ -14,7 +14,7 @@ describe('local agent release manifest', () => {
     expect(releaseManifest.runtime_region).toBe(GCP_LOCATIONS.runtime)
     expect(releaseManifest.allow_global_fallback).toBe(false)
     expect(releaseManifest.network_mode).toBe('GCP_CONNECTED')
-    expect(releaseManifest.gcp_preflight_status).toBe('GENERATION_VERIFIED_RUNTIME_PENDING')
+    expect(releaseManifest.gcp_preflight_status).toBe('AGENT_RUNTIME_VERIFIED_RAG_RELEASE_BLOCKED')
     expect(releaseManifest.mcp).toEqual({
       protocol_revision: '2026-07-28',
       server_sdk: '@modelcontextprotocol/server@2.0.0',

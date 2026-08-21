@@ -12,7 +12,15 @@ export class GcpPreflightError extends Error {
 }
 
 export interface GcpPreflightCheck {
-  name: 'auth' | 'rag-corpus' | 'embedding' | 'rag-retrieval' | 'generation-model' | 'agent-runtime'
+  name:
+    | 'auth'
+    | 'rag-corpus'
+    | 'rag-files'
+    | 'embedding'
+    | 'rag-retrieval'
+    | 'reranker'
+    | 'generation-model'
+    | 'agent-runtime'
   ok: boolean
   code: string
   detail?: string
@@ -50,6 +58,11 @@ interface RagCorpusRow {
       vertexPredictionEndpoint?: { endpoint?: string }
     }
   }
+}
+
+interface RagFileRow {
+  name?: string
+  fileStatus?: { state?: string }
 }
 
 interface ReasoningEngineRow {
@@ -138,6 +151,30 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
     }
   }
 
+  if (!ragCorpusResource) {
+    checks.push(fail('rag-files', 'RAG_FILES_BLOCKED_BY_CORPUS'))
+  } else {
+    const corpusId = ragCorpusResource.split('/').at(-1)
+    if (!corpusId) {
+      checks.push(fail('rag-files', 'RAG_CORPUS_RESOURCE_INVALID', ragCorpusResource))
+    } else {
+      const filesResponse = await request(
+        fetchImpl,
+        token,
+        `${ragBase}/ragCorpora/${encodeURIComponent(corpusId)}/ragFiles?pageSize=100`,
+      )
+      if (!filesResponse.ok) {
+        checks.push(fail('rag-files', 'RAG_FILE_LIST_FAILED', `HTTP ${filesResponse.status}`))
+      } else {
+        const payload = await filesResponse.json() as { ragFiles?: RagFileRow[] }
+        const activeFiles = (payload.ragFiles ?? []).filter((file) => file.name && file.fileStatus?.state === 'ACTIVE')
+        checks.push(activeFiles.length > 0
+          ? pass('rag-files', 'RAG_FILES_OK', String(activeFiles.length))
+          : fail('rag-files', 'RAG_CORPUS_EMPTY'))
+      }
+    }
+  }
+
   const embeddingEndpoint = `${embeddingBase}/publishers/google/models/${EMBEDDING_MODEL_ID}:predict`
   const embeddingResponse = await request(fetchImpl, token, embeddingEndpoint, {
     method: 'POST',
@@ -172,6 +209,12 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
       ? pass('rag-retrieval', 'RAG_RETRIEVAL_OK')
       : fail('rag-retrieval', 'RAG_RETRIEVAL_FAILED', `HTTP ${retrievalResponse.status}`))
   }
+
+  checks.push(fail(
+    'reranker',
+    'RERANKER_NOT_APPROVED',
+    'Seoul Ranking API processing is not verified and global fallback is disabled',
+  ))
 
   if (!options.approvedModelId) {
     checks.push(fail('generation-model', 'MODEL_NOT_APPROVED'))

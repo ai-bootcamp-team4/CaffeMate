@@ -27,6 +27,14 @@ function successfulFetch() {
         }],
       })
     }
+    if (url.includes('/ragFiles?')) {
+      return Response.json({
+        ragFiles: [{
+          name: `projects/${PROJECT_ID}/locations/${RAG_REGION}/ragCorpora/5148740273991319552/ragFiles/1`,
+          fileStatus: { state: 'ACTIVE' },
+        }],
+      })
+    }
     if (url.includes('text-multilingual-embedding-002:predict')) {
       return Response.json({ predictions: [{ embeddings: { values: [0.1, 0.2] } }] })
     }
@@ -62,11 +70,11 @@ function options(fetchImpl = successfulFetch()) {
 }
 
 describe('GCP deployment preflight', () => {
-  it('passes with Seoul runtime/RAG/embedding and explicit global Gemini generation', async () => {
+  it('passes deployed component checks but keeps release blocked until a reranker is approved', async () => {
     const fetchImpl = successfulFetch()
     const result = await runGcpPreflight(options(fetchImpl))
 
-    expect(result.ok).toBe(true)
+    expect(result.ok).toBe(false)
     expect(result.projectId).toBe(PROJECT_ID)
     expect(result.runtimeRegion).toBe(RUNTIME_REGION)
     expect(result.generationRegion).toBe(GENERATION_REGION)
@@ -74,7 +82,16 @@ describe('GCP deployment preflight', () => {
     expect(result.embeddingRegion).toBe(EMBEDDING_REGION)
     expect(result.ragCorpusResource).toContain('/ragCorpora/5148740273991319552')
     expect(result.runtimeResource).toContain('/reasoningEngines/777')
-    expect(result.checks.every((check) => check.ok)).toBe(true)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'rag-files',
+      ok: true,
+      code: 'RAG_FILES_OK',
+    }))
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'reranker',
+      ok: false,
+      code: 'RERANKER_NOT_APPROVED',
+    }))
 
     const urls = fetchImpl.mock.calls.map(([input]) => String(input))
     expect(urls.filter((url) => url.includes('/locations/global/'))).toEqual([
@@ -82,6 +99,7 @@ describe('GCP deployment preflight', () => {
     ])
     expect(urls.filter((url) => url.includes('/reasoningEngines?')).every((url) => url.includes(RUNTIME_REGION))).toBe(true)
     expect(urls.filter((url) => url.includes('/ragCorpora?') || url.endsWith(':retrieveContexts')).every((url) => url.includes(RAG_REGION))).toBe(true)
+    expect(urls.some((url) => url.includes('discoveryengine.googleapis.com'))).toBe(false)
   })
 
   it('keeps the Agent path blocked and makes no generation request before a model is approved', async () => {
@@ -96,6 +114,26 @@ describe('GCP deployment preflight', () => {
       code: 'MODEL_NOT_APPROVED',
     }))
     expect(fetchImpl.mock.calls.some(([input]) => String(input).includes(':generateContent'))).toBe(false)
+  })
+
+  it('fails closed when the official corpus exists but contains no ACTIVE files', async () => {
+    const fetchImpl = successfulFetch()
+    const baseImplementation = fetchImpl.getMockImplementation()
+    fetchImpl.mockImplementation(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('/ragFiles?')) return Response.json({})
+      if (!baseImplementation) throw new Error('missing base fetch implementation')
+      return baseImplementation(input)
+    })
+
+    const result = await runGcpPreflight(options(fetchImpl))
+
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'rag-files',
+      ok: false,
+      code: 'RAG_CORPUS_EMPTY',
+    }))
   })
 
   it('fails when the CaffeMate RAG corpus is absent instead of reusing an unrelated corpus', async () => {
