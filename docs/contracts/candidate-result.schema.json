@@ -1,0 +1,309 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-bootcamp-team4/CaffeMate/docs/contracts/candidate-result.schema.json",
+  "title": "CaffeMate Candidate Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "candidate_id",
+    "project_id",
+    "state_version",
+    "case_type",
+    "display_name",
+    "review_status",
+    "reason_codes",
+    "summary",
+    "evidence_refs",
+    "financial_summary",
+    "missing_fields",
+    "risks",
+    "counterfactuals",
+    "next_actions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "case_type": {
+      "enum": ["INDEPENDENT", "FRANCHISE"]
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "review_status": {
+      "enum": ["REVIEW_RECOMMENDED", "CONDITIONAL_REVIEW", "EXCLUDED"]
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rank": {
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
+    "is_primary_next_review": {
+      "type": "boolean"
+    },
+    "franchise": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["eligibility", "availability_status"],
+      "properties": {
+        "brand_id": {
+          "type": ["string", "null"]
+        },
+        "eligibility": {
+          "enum": ["VERIFIED", "UNVERIFIED", "INELIGIBLE"]
+        },
+        "availability_status": {
+          "enum": ["AVAILABLE", "HQ_CONFIRMATION_REQUIRED", "UNAVAILABLE", "UNKNOWN"]
+        },
+        "disclosure_evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "independent_model": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["model_id", "adjusted_fields"],
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "adjusted_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "assumption_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "financial_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["initial_cash", "monthly_fixed_cost", "unknown_cost_fields"],
+      "properties": {
+        "initial_cash": {
+          "$ref": "#/$defs/moneyRange"
+        },
+        "monthly_fixed_cost": {
+          "$ref": "#/$defs/moneyRange"
+        },
+        "break_even_monthly_sales_krw": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "required_daily_orders": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "unknown_cost_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "missing_fields": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/missingField"
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/risk"
+      }
+    },
+    "counterfactuals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/counterfactual"
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "case_type": {
+            "const": "FRANCHISE"
+          }
+        }
+      },
+      "then": {
+        "required": ["franchise"],
+        "properties": {
+          "franchise": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "case_type": {
+            "const": "INDEPENDENT"
+          }
+        }
+      },
+      "then": {
+        "required": ["independent_model"],
+        "properties": {
+          "independent_model": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "moneyRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currency", "low", "base", "high", "provenance_refs"],
+      "properties": {
+        "currency": {
+          "const": "KRW"
+        },
+        "low": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "base": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "high": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "provenance_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "missingField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "impact", "next_check"],
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "impact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "next_check": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["risk_id", "severity", "summary", "evidence_refs"],
+      "properties": {
+        "risk_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "counterfactual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["variable", "condition", "decision_impact"],
+      "properties": {
+        "variable": {
+          "type": "string",
+          "minLength": 1
+        },
+        "condition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision_impact": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

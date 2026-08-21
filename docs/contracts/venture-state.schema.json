@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-bootcamp-team4/CaffeMate/docs/contracts/venture-state.schema.json",
+  "title": "CaffeMate Venture State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_id",
+    "user_id",
+    "state_version",
+    "status",
+    "founder",
+    "area",
+    "venture_cases",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "user_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "enum": [
+        "ONBOARDING",
+        "ANALYZING",
+        "RESULT_READY",
+        "WAITING_FOR_HUMAN",
+        "RECOMPUTE_REQUIRED"
+      ]
+    },
+    "active_case_id": {
+      "type": ["string", "null"]
+    },
+    "founder": {
+      "$ref": "#/$defs/founder"
+    },
+    "area": {
+      "$ref": "#/$defs/area"
+    },
+    "venture_cases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ventureCase"
+      }
+    },
+    "evidence_snapshot_id": {
+      "type": ["string", "null"]
+    },
+    "policy_version": {
+      "type": ["string", "null"]
+    },
+    "assumption_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "conflict_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "founder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_area_input",
+        "own_funds_krw",
+        "borrowing_intent",
+        "cafe_type_preference",
+        "operation_mode"
+      ],
+      "properties": {
+        "target_area_input": {
+          "type": "string",
+          "minLength": 1
+        },
+        "own_funds_krw": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "borrowing_intent": {
+          "enum": ["YES", "NO", "UNDECIDED"]
+        },
+        "cafe_type_preference": {
+          "enum": ["OPEN_TO_BOTH", "INDEPENDENT_ONLY", "FRANCHISE_ONLY"]
+        },
+        "operation_mode": {
+          "enum": [
+            "DIRECT_FULL_TIME",
+            "DIRECT_PART_TIME",
+            "EMPLOYEE_LED",
+            "UNDECIDED"
+          ]
+        },
+        "current_work_status": {
+          "type": ["string", "null"]
+        },
+        "desired_opening_period": {
+          "type": ["string", "null"]
+        },
+        "prior_cafe_experience": {
+          "type": ["string", "null"]
+        },
+        "preferences": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "avoidances": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_loss_krw": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "area": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resolution_status",
+        "coverage_profile",
+        "unavailable_fields"
+      ],
+      "properties": {
+        "resolution_status": {
+          "enum": ["UNRESOLVED", "AMBIGUOUS", "RESOLVED"]
+        },
+        "administrative_code": {
+          "type": ["string", "null"]
+        },
+        "display_name": {
+          "type": ["string", "null"]
+        },
+        "boundary_version": {
+          "type": ["string", "null"]
+        },
+        "coverage_profile": {
+          "enum": [
+            "N0_NATIONWIDE_FACTS",
+            "N1_NATIONWIDE_CONDITIONAL",
+            "R2_REGIONAL_CONNECTOR",
+            "C3_CASE_ARTIFACT"
+          ]
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "unavailable_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "ventureCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "case_type",
+        "maturity",
+        "status",
+        "confirmed_claim_ids",
+        "assumption_ids",
+        "missing_fields"
+      ],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "case_type": {
+          "enum": ["INDEPENDENT", "FRANCHISE"]
+        },
+        "maturity": {
+          "enum": ["CONCEPT", "CANDIDATE", "PROPERTY_LINKED", "DOCUMENT_LINKED"]
+        },
+        "status": {
+          "enum": ["DRAFT", "CONDITIONALLY_REVIEWABLE", "EXCLUDED", "SELECTED"]
+        },
+        "display_name": {
+          "type": ["string", "null"]
+        },
+        "franchise_eligibility": {
+          "enum": ["NOT_APPLICABLE", "VERIFIED", "UNVERIFIED", "INELIGIBLE"]
+        },
+        "confirmed_claim_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "assumption_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "missing_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}
