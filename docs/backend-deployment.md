@@ -43,6 +43,21 @@ CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
 bootstrap이 성공했다는 메시지만으로 생성 완료를 판단하지 않는다. 별도 verifier의 모든
 read-back 항목이 `PASS`여야 이 기반 리소스 묶음을 준비된 상태로 취급한다.
 
+Cloud SQL은 두 번째 bootstrap으로 생성한다. 기본 구성은 서울 리전의 PostgreSQL 16,
+`db-g1-small`, zonal availability, 10GB SSD 자동 증가, 자동 backup과 point-in-time recovery다.
+개발 속도를 위한 작은 tier이지만 backup과 삭제 보호는 생략하지 않는다. Cloud SQL Python
+Connector가 public IP로 인증·암호화 연결하며 authorized network는 한 건도 열지 않는다.
+
+```bash
+CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
+  ./scripts/bootstrap-cloud-sql.sh
+CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
+  ./scripts/verify-cloud-sql.sh
+```
+
+운영 트래픽이나 성능 시험을 시작하기 전에는 tier와 zonal availability를 다시 검토해야 한다.
+현재 구성을 고가용성 운영 준비 완료로 표현하지 않는다.
+
 API는 browser가 호출하므로 network ingress는 `all`이지만 모든 업무 요청을 Firebase ID
 token으로 다시 검증한다. `allUsers` Cloud Run Invoker가 필요하면 관리자가 API service에만
 한 번 부여하고 정책을 read-back한다. build는 IAM policy를 수정하지 않는다.

@@ -71,3 +71,31 @@ def test_backend_foundation_scripts_preserve_scope_and_secret_values() -> None:
     assert "roles/run.admin" in verifier
     assert "roles/iam.serviceAccountUser" in verifier
     assert "versions access" not in verifier
+
+
+def test_cloud_sql_scripts_lock_region_recovery_and_network_boundary() -> None:
+    bootstrap = (ROOT / "scripts" / "bootstrap-cloud-sql.sh").read_text(
+        encoding="utf-8"
+    )
+    verifier = (ROOT / "scripts" / "verify-cloud-sql.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "asia-northeast3" in bootstrap
+    assert "POSTGRES_16" in bootstrap
+    assert "--edition=enterprise" in bootstrap
+    assert "db-g1-small" in bootstrap
+    assert "--enable-point-in-time-recovery" in bootstrap
+    assert "--deletion-protection" in bootstrap
+    assert "--storage-auto-increase" in bootstrap
+    assert "--assign-ip" in bootstrap
+    assert "authorized-networks" not in bootstrap
+    assert "versions access latest" in bootstrap
+    assert "roles/cloudsql.client" in bootstrap
+    assert "roles/cloudsql.admin" not in bootstrap
+    assert "printf.*database_password" not in bootstrap
+
+    assert "public IP has no authorized networks" in verifier
+    assert "point-in-time recovery is enabled" in verifier
+    assert "deletion protection is enabled" in verifier
+    assert "Cloud SQL client" in verifier
