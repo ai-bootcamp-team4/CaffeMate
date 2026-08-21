@@ -1,0 +1,27 @@
+services:
+  agent-check:
+    image: node:22-alpine
+    working_dir: /workspace
+    network_mode: host
+    environment:
+      HOME: /tmp
+      npm_config_cache: /tmp/npm-cache
+    volumes:
+      - .:/workspace
+      - agent_node_modules:/workspace/node_modules
+    command: sh -lc "npm ci && npm run test:agents"
+
+  lockfile:
+    image: node:22-alpine
+    working_dir: /workspace
+    network_mode: host
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    environment:
+      HOME: /tmp
+      npm_config_cache: /tmp/npm-cache
+    volumes:
+      - .:/workspace
+    command: npm --version
+
+volumes:
+  agent_node_modules:

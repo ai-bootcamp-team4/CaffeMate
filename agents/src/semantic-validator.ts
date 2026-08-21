@@ -1,0 +1,241 @@
+import type { AgentTask, AgentTaskResult } from './types'
+
+export interface SemanticIssue {
+  code: string
+  path: string
+  message: string
+}
+
+export type SemanticValidation =
+  | { ok: true; issues: [] }
+  | { ok: false; issues: SemanticIssue[] }
+
+type JsonObject = Record<string, unknown>
+
+function object(value: unknown): JsonObject {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {}
+}
+
+function array(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function strings(value: unknown): string[] {
+  return array(value).filter((item): item is string => typeof item === 'string')
+}
+
+function add(issues: SemanticIssue[], code: string, path: string, message: string): void {
+  issues.push({ code, path, message })
+}
+
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value as JsonObject)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonicalJson(item)]),
+  )
+}
+
+function jsonKey(value: unknown): string {
+  return JSON.stringify(canonicalJson(value))
+}
+
+function requirePoolMember(issues: SemanticIssue[], pool: Set<string>, value: unknown, path: string): void {
+  if (typeof value !== 'string' || !pool.has(value)) {
+    add(issues, 'OUTPUT_ID_NOT_IN_POOL', path, `output id ${String(value)} was not supplied by the controller`)
+  }
+}
+
+function validateIntent(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
+  const opPool = new Set(strings(taskPayload.operation_id_pool))
+  const fieldPool = new Set(strings(taskPayload.allowed_field_paths))
+  for (const [index, rawOperation] of array(resultPayload.operations).entries()) {
+    const operation = object(rawOperation)
+    requirePoolMember(issues, opPool, operation.op_id, `/payload/operations/${index}/op_id`)
+    if (typeof operation.field_path !== 'string' || !fieldPool.has(operation.field_path)) {
+      add(issues, 'FIELD_PATH_NOT_ALLOWED', `/payload/operations/${index}/field_path`, 'field path is outside the controller-provided ontology')
+    }
+  }
+}
+
+function validateEvidencePlan(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
+  const claimIds = new Set(array(taskPayload.claims).map((raw) => object(raw).claim_id).filter((id): id is string => typeof id === 'string'))
+  const actionPool = new Set(strings(taskPayload.action_id_pool))
+  const constraints = object(taskPayload.planning_constraints)
+  const allowedTools = new Set(strings(constraints.allowed_tools))
+  const maxPerClaim = typeof constraints.max_actions_per_claim === 'number' ? constraints.max_actions_per_claim : 0
+  const maxTotal = typeof constraints.max_total_actions === 'number' ? constraints.max_total_actions : 0
+  let totalActions = 0
+
+  for (const [planIndex, rawPlan] of array(resultPayload.claim_plans).entries()) {
+    const plan = object(rawPlan)
+    requirePoolMember(issues, claimIds, plan.claim_id, `/payload/claim_plans/${planIndex}/claim_id`)
+    const support = array(plan.support_actions)
+    const counter = array(plan.counter_actions)
+    const route = plan.route
+
+    if (route !== 'SQL' && support.length === 0) {
+      add(issues, 'SUPPORT_ACTION_REQUIRED', `/payload/claim_plans/${planIndex}/support_actions`, 'non-SQL material claims require an explicit support action')
+    }
+    if (route !== 'SQL' && counter.length === 0) {
+      add(issues, 'COUNTEREVIDENCE_ACTION_REQUIRED', `/payload/claim_plans/${planIndex}/counter_actions`, 'non-SQL material claims require an explicit counterevidence action')
+    }
+
+    const actions = [...support, ...counter]
+    totalActions += actions.length
+    if (maxPerClaim > 0 && actions.length > maxPerClaim) {
+      add(issues, 'ACTION_LIMIT_EXCEEDED', `/payload/claim_plans/${planIndex}`, 'claim action count exceeds planning constraints')
+    }
+
+    for (const [actionIndex, rawAction] of actions.entries()) {
+      const action = object(rawAction)
+      requirePoolMember(issues, actionPool, action.action_id, `/payload/claim_plans/${planIndex}/actions/${actionIndex}/action_id`)
+      if (action.claim_id !== plan.claim_id) {
+        add(issues, 'CLAIM_REFERENCE_MISMATCH', `/payload/claim_plans/${planIndex}/actions/${actionIndex}/claim_id`, 'action claim_id must match its claim plan')
+      }
+      if (typeof action.tool_name !== 'string' || !allowedTools.has(action.tool_name)) {
+        add(issues, 'TOOL_NOT_ALLOWED', `/payload/claim_plans/${planIndex}/actions/${actionIndex}/tool_name`, 'tool is outside planning constraints')
+      }
+    }
+  }
+
+  if (maxTotal > 0 && totalActions > maxTotal) {
+    add(issues, 'ACTION_LIMIT_EXCEEDED', '/payload/claim_plans', 'total action count exceeds planning constraints')
+  }
+}
+
+function validateEvidenceAssess(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
+  const claimIds = new Set(array(taskPayload.claims).map((raw) => object(raw).claim_id).filter((id): id is string => typeof id === 'string'))
+  for (const [index, rawAssessment] of array(resultPayload.assessments).entries()) {
+    requirePoolMember(issues, claimIds, object(rawAssessment).claim_id, `/payload/assessments/${index}/claim_id`)
+  }
+  for (const [index, claimId] of strings(resultPayload.missing_claims).entries()) {
+    requirePoolMember(issues, claimIds, claimId, `/payload/missing_claims/${index}`)
+  }
+}
+
+function validateIndependentProposal(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
+  const seeds = new Map<string, JsonObject>()
+  for (const rawSeed of array(taskPayload.model_seeds)) {
+    const seed = object(rawSeed)
+    if (typeof seed.proposal_id === 'string') seeds.set(seed.proposal_id, seed)
+  }
+  for (const [index, rawProposal] of array(resultPayload.candidate_proposals).entries()) {
+    const proposal = object(rawProposal)
+    const proposalId = proposal.proposal_id
+    requirePoolMember(issues, new Set(seeds.keys()), proposalId, `/payload/candidate_proposals/${index}/proposal_id`)
+    const seed = typeof proposalId === 'string' ? seeds.get(proposalId) : undefined
+    if (seed && proposal.seed_or_brand_id !== seed.model_id) {
+      add(issues, 'SEED_REFERENCE_MISMATCH', `/payload/candidate_proposals/${index}/seed_or_brand_id`, 'proposal must reference the model seed paired with its proposal_id')
+    }
+    if (!seed) continue
+
+    const allowedParameters = new Map<string, JsonObject>()
+    for (const rawAllowed of array(seed.allowed_parameters)) {
+      const allowed = object(rawAllowed)
+      if (typeof allowed.field_path === 'string') allowedParameters.set(allowed.field_path, allowed)
+    }
+
+    for (const [parameterIndex, rawParameter] of array(proposal.adjusted_parameters).entries()) {
+      const parameter = object(rawParameter)
+      const fieldPath = parameter.field_path
+      const path = `/payload/candidate_proposals/${index}/adjusted_parameters/${parameterIndex}`
+      const allowed = typeof fieldPath === 'string' ? allowedParameters.get(fieldPath) : undefined
+      if (!allowed) {
+        add(issues, 'PARAMETER_FIELD_NOT_ALLOWED', `${path}/field_path`, 'adjusted parameter is outside the selected seed contract')
+        continue
+      }
+
+      const typedValue = object(parameter.value)
+      if (typedValue.kind !== allowed.value_kind) {
+        add(issues, 'PARAMETER_VALUE_KIND_INVALID', `${path}/value`, 'adjusted parameter value kind differs from the selected seed contract')
+      }
+      if (parameter.unit !== allowed.unit) {
+        add(issues, 'PARAMETER_UNIT_INVALID', `${path}/unit`, 'adjusted parameter unit differs from the selected seed contract')
+      }
+
+      const minimum = typeof allowed.minimum === 'number' ? allowed.minimum : null
+      const maximum = typeof allowed.maximum === 'number' ? allowed.maximum : null
+      const numericValues: number[] = []
+      if ((typedValue.kind === 'INTEGER' || typedValue.kind === 'DECIMAL') && typeof typedValue.value === 'number') {
+        numericValues.push(typedValue.value)
+      } else if (typedValue.kind === 'MONEY_RANGE') {
+        for (const key of ['low', 'base', 'high']) {
+          const value = typedValue[key]
+          if (typeof value === 'number') numericValues.push(value)
+        }
+      }
+      if (numericValues.some((value) => (minimum !== null && value < minimum) || (maximum !== null && value > maximum))) {
+        add(issues, 'PARAMETER_RANGE_INVALID', `${path}/value`, 'adjusted parameter value is outside the selected seed range')
+      }
+    }
+  }
+}
+
+function validateFranchiseProposal(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
+  const brands = new Map<string, JsonObject>()
+  for (const rawBrand of array(taskPayload.franchise_universe)) {
+    const brand = object(rawBrand)
+    if (typeof brand.proposal_id === 'string') brands.set(brand.proposal_id, brand)
+  }
+  for (const [index, rawProposal] of array(resultPayload.candidate_proposals).entries()) {
+    const proposal = object(rawProposal)
+    const proposalId = proposal.proposal_id
+    requirePoolMember(issues, new Set(brands.keys()), proposalId, `/payload/candidate_proposals/${index}/proposal_id`)
+    const brand = typeof proposalId === 'string' ? brands.get(proposalId) : undefined
+    if (brand && proposal.seed_or_brand_id !== brand.brand_id) {
+      add(issues, 'BRAND_REFERENCE_MISMATCH', `/payload/candidate_proposals/${index}/seed_or_brand_id`, 'proposal must reference the verified brand paired with its proposal_id')
+    }
+  }
+}
+
+function validateDocumentExtract(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
+  const claimPool = new Set(strings(taskPayload.claim_id_pool))
+  const revisionId = object(taskPayload.document_revision).document_revision_id
+  const allowedClaimTypes = new Set(strings(object(taskPayload.extraction_contract).claim_types))
+  const allowedAnchors = new Set(
+    array(taskPayload.parser_blocks).map((rawBlock) => jsonKey(object(rawBlock).anchor)),
+  )
+  for (const [index, rawClaim] of array(resultPayload.proposed_claims).entries()) {
+    const claim = object(rawClaim)
+    requirePoolMember(issues, claimPool, claim.claim_id, `/payload/proposed_claims/${index}/claim_id`)
+    if (typeof claim.predicate !== 'string' || !allowedClaimTypes.has(claim.predicate)) {
+      add(issues, 'CLAIM_TYPE_NOT_ALLOWED', `/payload/proposed_claims/${index}/predicate`, 'claim predicate is outside the supplied extraction contract')
+    }
+    if (claim.document_revision_id !== revisionId || object(claim.anchor).document_revision_id !== revisionId) {
+      add(issues, 'DOCUMENT_REVISION_MISMATCH', `/payload/proposed_claims/${index}`, 'extracted claims and anchors must stay within the supplied document revision')
+    }
+    if (!allowedAnchors.has(jsonKey(claim.anchor))) {
+      add(issues, 'DOCUMENT_ANCHOR_NOT_SUPPLIED', `/payload/proposed_claims/${index}/anchor`, 'claim anchor must exactly match an anchor supplied in parser blocks')
+    }
+  }
+}
+
+function validateCandidateAudit(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
+  const candidateIds = new Set(array(taskPayload.candidates).map((raw) => object(raw).candidate_id).filter((id): id is string => typeof id === 'string'))
+  for (const [index, rawAudit] of array(resultPayload.candidate_audits).entries()) {
+    requirePoolMember(issues, candidateIds, object(rawAudit).candidate_id, `/payload/candidate_audits/${index}/candidate_id`)
+  }
+}
+
+export function validateAgentSemantics(task: AgentTask, result: AgentTaskResult): SemanticValidation {
+  if (result.payload === null) return { ok: true, issues: [] }
+
+  const issues: SemanticIssue[] = []
+  const taskPayload = object(task.payload)
+  const resultPayload = object(result.payload)
+
+  switch (task.task_type) {
+    case 'INTENT_DELTA': validateIntent(taskPayload, resultPayload, issues); break
+    case 'EVIDENCE_PLAN': validateEvidencePlan(taskPayload, resultPayload, issues); break
+    case 'EVIDENCE_ASSESS': validateEvidenceAssess(taskPayload, resultPayload, issues); break
+    case 'PROPOSE_INDEPENDENT': validateIndependentProposal(taskPayload, resultPayload, issues); break
+    case 'PROPOSE_FRANCHISE': validateFranchiseProposal(taskPayload, resultPayload, issues); break
+    case 'DOCUMENT_EXTRACT': validateDocumentExtract(taskPayload, resultPayload, issues); break
+    case 'CANDIDATE_AUDIT': validateCandidateAudit(taskPayload, resultPayload, issues); break
+  }
+
+  return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues }
+}
