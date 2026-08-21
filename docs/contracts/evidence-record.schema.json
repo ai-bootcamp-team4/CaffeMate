@@ -16,11 +16,13 @@
     "original_anchor",
     "freshness_status",
     "conflict_status",
-    "retrieved_at"
+    "retrieved_at",
+    "missing_context",
+    "durable_evidence_refs"
   ],
   "properties": {
     "schema_version": {
-      "const": "1.0.0"
+      "const": "2.0.0"
     },
     "evidence_id": {
       "type": "string",
@@ -34,7 +36,9 @@
       "type": "string",
       "minLength": 1
     },
-    "value": {},
+    "value": {
+      "$ref": "./common-types.schema.json#/$defs/typedValue"
+    },
     "value_kind": {
       "enum": [
         "EVIDENCED_FACT",
@@ -48,25 +52,12 @@
       "type": ["string", "null"]
     },
     "geographic_scope": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["scope_type", "scope_id"],
-      "properties": {
-        "scope_type": {
-          "enum": ["NATIONAL", "REGION", "ADMINISTRATIVE_AREA", "PROPERTY", "CASE", "NOT_APPLICABLE"]
-        },
-        "scope_id": {
-          "type": ["string", "null"]
-        },
-        "boundary_version": {
-          "type": ["string", "null"]
-        }
-      }
+      "$ref": "./common-types.schema.json#/$defs/geographicScope"
     },
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["title", "source_ref", "authority", "source_type"],
+      "required": ["title", "source_ref", "authority", "source_type", "published_or_data_date", "source_observed_at"],
       "properties": {
         "title": {
           "type": "string",
@@ -90,7 +81,12 @@
           "enum": ["API", "DATASET", "WEB", "PDF", "USER_DOCUMENT", "USER_FIELD"]
         },
         "published_or_data_date": {
-          "type": ["string", "null"]
+          "type": ["string", "null"],
+          "format": "date"
+        },
+        "source_observed_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
         },
         "document_version": {
           "type": ["string", "null"]
@@ -141,5 +137,71 @@
       },
       "uniqueItems": true
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "value_kind": { "const": "UNKNOWN" } } },
+      "then": {
+        "properties": {
+          "value": {
+            "type": "object",
+            "properties": { "kind": { "const": "NULL" }, "value": { "const": null } },
+            "required": ["kind", "value"]
+          },
+          "freshness_status": { "const": "UNKNOWN" },
+          "missing_context": { "type": "array", "minItems": 1 },
+          "durable_evidence_refs": { "type": "array", "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "value_kind": { "const": "DECLARED_ASSUMPTION" } } },
+      "then": {
+        "properties": {
+          "freshness_status": { "const": "NOT_APPLICABLE" },
+          "durable_evidence_refs": { "type": "array", "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "freshness_status": { "const": "FRESH" } } },
+      "then": {
+        "properties": {
+          "source": {
+            "type": "object",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": { "published_or_data_date": { "type": "string" } },
+                "required": ["published_or_data_date"]
+              },
+              {
+                "type": "object",
+                "properties": { "source_observed_at": { "type": "string" } },
+                "required": ["source_observed_at"]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "value_kind": { "enum": ["EVIDENCED_FACT", "USER_CONFIRMED_FACT", "DERIVED_RESULT"] }
+        }
+      },
+      "then": {
+        "properties": {
+          "value": {
+            "not": {
+              "type": "object",
+              "properties": { "kind": { "const": "NULL" } },
+              "required": ["kind"]
+            }
+          }
+        }
+      }
+    }
+  ]
 }

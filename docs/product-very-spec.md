@@ -15,239 +15,141 @@ Proposal Agent를 포함한 5-Agent 구조와 결정론적 Core를 유지하면�
 | Control API·MCP | TypeScript, JSON Schema/Ajv 기반 검증 |
 | 문서·수집 Worker | Python |
 | Agent 실행 | GCP managed Agent Runtime, `asia-northeast3` |
-| 생성 모델 | Vertex AI `gemini-3.5-flash` |
+| 생성 모델 | `PENDING_HUMAN_DECISION`; 기존 `gemini-3.5-flash`는 서울 미지원으로 사용 금지 |
 | 생성·embedding endpoint | `asia-northeast3`; `global` fallback 금지 |
 | 생성 설정 | `temperature=0`, `candidateCount=1`, `seed=17`, JSON structured output |
-| Embedding | `gemini-embedding-001`, 1,536차원 |
-| Embedding task | 문서 `RETRIEVAL_DOCUMENT`, 질의 `RETRIEVAL_QUERY` |
-| Sparse | Cloud SQL PostgreSQL 17 + `pg_bigm` 1.5 |
-| Identity/OCR fuzzy 보조 | `pg_trgm`; 자동 entity join에는 사용 금지 |
-| Vector | `pgvector` 0.8, cosine, HNSW |
-| Reranker | `semantic-ranker-default-004` 고정 버전 |
-| 문서 parser | Document AI Layout Parser `pretrained-layout-parser-v1.0-2024-06-03` |
+| Advanced RAG | Vertex AI RAG Engine, `asia-northeast3`; 운영 필수 검색 계층 |
+| Embedding | RAG corpus 생성 시 pin하며 서울 import·retrieval read-back 전 사용 금지 |
+| Exact retrieval | Cloud SQL typed lookup; id·날짜·금액·단위 전용 |
+| Semantic retrieval | RAG Engine `retrieveContexts`, corpus·file·metadata scope 필수 |
+| Reranker | Vertex AI Ranking API; 고정 model id는 서울 실제 호출 뒤 pin |
+| 문서 parser | RAG Engine과 연동한 Document AI Layout Parser |
 | Orchestration | Control API가 고정 DAG 실행; Agent 간 직접 호출 금지 |
 | State write | Reducer만 허용 |
 
-`gemini-3.5-flash`는 GA이고 최소 2027-05-19까지 제공 예정이며, 2.5 계열보다 수명이 길다. [`@latest`는 사용하지 않는다](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions). `gemini-embedding-001`은 다국어·차원 축소를 지원하며 최소 2028년까지 제공 예정이다. [Embedding 공식 문서](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/embeddings/get-text-embeddings)
+`gemini-3.5-flash`는 GA지만 [모델별 지원 리전](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-flash)에 `asia-northeast3`가 없으므로 CaffeMate의 서울 고정 계약과 양립하지 않는다. 이 model id는 제거하며 서울에서 실제 생성 호출을 통과한 고정 model id를 인간이 승인하기 전 Agent 경로는 `BLOCKED_BY_REGION`이다. [`@latest`는 사용하지 않는다](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions).
 
 리전 지원 근거는 [Agent Runtime 지원 지역](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations), [모델 endpoint 지역](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations), [모델별 data residency](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/data-residency)를 사용한다. `accessed_at: 2026-08-21`, `freshness: deployment preflight에서 재확인`이다.
 
-생성 모델과 embedding 모델은 배포 전 `asia-northeast3`에서 실제 생성·호출 read-back을 통과해야 한다. 선택 모델이나 quota가 서울에서 사용할 수 없으면 `BLOCKED_BY_REGION`으로 중단하며 `global` 또는 다른 리전으로 조용히 전환하지 않는다.
+Runtime 생성, 생성 모델, embedding 모델과 reranker는 배포 전 `asia-northeast3`에서 각각 실제 생성·호출 read-back을 통과해야 한다. 선택 모델이나 quota가 서울에서 사용할 수 없으면 `BLOCKED_BY_REGION`으로 중단하며 `global` 또는 다른 리전으로 조용히 전환하지 않는다.
 
 사용자 문서의 저장, OCR, embedding, Agent 호출과 rerank는 각 서비스의 서울 처리 지원 여부를 preflight에서 따로 검증한다. 지역 처리 약속을 충족하지 않는 기능은 문서 경로에서 비활성화하고 별도 인간 결정을 받는다.
 
 ## 2. RAG 런타임
 
-### 저장·인덱스
+### 권위 경계
 
-Corpus를 물리적으로 분리한다.
-
-```text
-official_current
-official_historical
-licensed_current
-licensed_historical
-project_private_current
-project_private_historical
-```
-
-주요 객체:
+Vertex AI RAG Engine은 비정형 문서의 주 검색 계층이다. Cloud SQL은 사용자·프로젝트 State, 문서 revision, corpus·file mapping, Evidence ledger와 retrieval audit의 정본이며 문서 vector serving을 담당하지 않는다.
 
 ```text
-Corpus
-DocumentRevision
-ParserArtifact
-ParentChunk
-RetrievalChunk
-Embedding
-IndexGeneration
-RetrievalRun
-RetrievedCandidate
-RecoveredAnchor
+Evidence Research Agent
+→ read action proposal
+→ Control API scope validation
+→ private MCP RAG tool
+→ Vertex AI RAG Engine
+→ structured retrieval result
+→ Control API Evidence validation
+→ next Agent task
 ```
 
-모든 chunk에는 다음을 필수 저장한다.
+Agent Runtime은 RAG Engine credential을 갖지 않는다. MCP가 허용 corpus와 file id를 선택하며 Agent가 `venture_project_id`, corpus id 또는 metadata filter를 임의로 바꿀 수 없다.
+
+### Corpus와 project 격리
+
+첫 구현의 물리 단위는 다음과 같다.
 
 ```text
-corpus_id, project_id?, case_id?
-document_revision_id, source_family_id
-content_sha256, object_generation
-parser_version, chunk_policy_version
-page_index, printed_page, section_path
-table/row/column/cell/bbox anchor
-unit, reference_period, VAT context
-embedding_model/dimension/task
-index_generation_id, ACL epoch
+official-current
+official-historical
+licensed-current
+licensed-historical
+project-<venture_project_id>-current
+project-<venture_project_id>-historical
 ```
 
-Cloud SQL 확장과 파라미터:
+- 공식 corpus는 모든 project에서 읽을 수 있지만 source family·revision·기준일 filter를 강제한다.
+- 사용자 문서는 venture project별 corpus로 분리한다. Control API가 서명한 scope와 Cloud SQL mapping이 일치하지 않으면 검색 전 403으로 끝낸다.
+- 같은 호출에서 서로 다른 project corpus를 함께 검색하지 않는다.
+- RAG file id, GCS object generation, document revision, checksum과 ACL epoch를 Cloud SQL에 함께 기록한다.
+- corpus 수가 운영 한계를 넘기기 전까지 metadata filter만으로 tenant 격리를 대체하지 않는다.
+
+### Ingestion과 Layout Parser
 
 ```text
-PostgreSQL 17
-postgis
-vector 0.8
-pg_bigm 1.5
-pg_trgm 1.6
-
-HNSW:
-  m = 16
-  ef_construction = 128
-  ef_search = 128
-  iterative_scan = strict_order
+Cloud Storage immutable revision
+→ checksum·document revision 등록
+→ RAG Engine import
+→ Document AI Layout Parser
+→ chunk·embedding·index
+→ import result sink 검증
+→ EVALUATING
+→ sealed retrieval eval
+→ ACTIVE
 ```
 
-공식·licensed·project-private index table을 분리한다. Project 검색은 서버가 인증 principal에서 얻은 `project_id`, `case_id`, `ACL epoch`를 SQL 선필터와 RLS에 모두 적용한다. 필터 누락은 빈 결과가 아니라 403이다.
+기본 chunk 크기 `1024`, overlap `256`은 `PROVISIONAL`이다. 제목·조항·표·목록 구조와 ancestor heading을 보존한다. 표 숫자는 검색 chunk만으로 확정하지 않고 원문 page·table·cell anchor에서 다시 확인한다. parser·embedding·import 일부가 실패한 corpus generation은 활성화하지 않는다.
 
-Cloud SQL은 `pg_bigm`, `pg_trgm`, `pgvector`를 공식 지원한다. [Cloud SQL 확장 목록](https://docs.cloud.google.com/sql/docs/postgres/extensions)
+RAG Engine은 Layout Parser를 import 구성으로 지원한다. [Layout Parser 연동](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/rag-engine/layout-parser-integration)
 
-### 한국어 Sparse
-
-정규화는 다음 순서로 고정한다.
-
-1. Unicode NFC
-2. 전각 숫자·Latin만 ASCII width-fold
-3. Latin 소문자화
-4. zero-width 문자 제거
-5. 연속 공백 축약
-6. 원문형 `lexical_text`와 공백·일부 구두점을 제거한 `lexical_compact` 생성
-
-검색 분기:
-
-- 계약번호·사업자번호·날짜·금액·단위·브랜드 ID: typed column exact match
-- 따옴표 구절·조항명: `lexical_compact` exact substring
-- 일반 한국어: `pg_bigm` GIN
-- OCR·상호 철자 변형: `pg_trgm` 보조 후보만 반환
-- 단일 문자 질의: sparse 기권; 자동 fuzzy 확정 금지
-
-Sparse 순위는 exact typed match → exact phrase → 일치 clause 수 → bigram similarity 순이다. UUID는 화면 재현 순서에만 사용하고 의미 순위 tie-break로 사용하지 않는다.
-
-### Chunking
-
-Document AI는 1,024-token parent와 ancestor heading을 생성한다. 그 후 CaffeMate가 retrieval child를 다시 만든다.
-
-| 문서 종류 | Retrieval child | Overlap |
-|---|---:|---:|
-| 법령·행정절차 | 조·항·호 경계 우선, 목표 600, hard cap 900 | 긴 단일 항만 80 |
-| 공식 안내·본사 웹 | heading subtree, 목표 700, hard cap 900 | 80 |
-| 정보공개서 서술 | 절 단위, 목표 600, hard cap 900 | 64 |
-| 정보공개서 표 | row group 최대 450 | 없음 |
-| 계약서·임대차 | 조항·특약 단위, 목표 600, hard cap 900 | 긴 조항만 80 |
-| 견적·대출·시설 표 | row group 최대 400 | 없음 |
-| 구조화 API | chunk 생성 안 함 | 해당 없음 |
-
-표 child에는 제목, 전체 header chain, 단위, 기준연도, VAT, 각주를 반복한다. 행은 원자 단위이며 긴 행만 `row_part`로 분리한다. 숫자의 최종값은 chunk 텍스트가 아니라 원본 cell anchor에서 읽는다.
-
-Tokenizer나 parser가 실패하면 문자 수 기반 fallback을 하지 않고 ingestion을 실패시킨다. `autoTruncate=false`를 강제한다.
-
-### Embedding·검색·rerank
-
-Embedding 설정:
+### Advanced Retrieval
 
 ```text
-model: gemini-embedding-001
-dimension: 1536
-document task: RETRIEVAL_DOCUMENT
-query task: RETRIEVAL_QUERY
-autoTruncate: false
-distance: cosine
+atomic Claim decomposition
+→ official or project corpus routing
+→ source·revision·date metadata filter
+→ semantic retrieval top K
+→ exact typed lookup 병렬 실행
+→ result fusion
+→ Vertex AI Ranking API rerank
+→ original anchor recovery
+→ entailment·unit·scope·freshness validation
+→ counterevidence query
+→ EvidenceRecord or ABSTAIN
 ```
 
-기본 검색:
+- `top_k`, rerank 입력 수와 최종 Evidence 수는 sealed eval로 조정하며 초기값은 각각 `30`, `20`, `5`다.
+- 계약번호·사업자번호·브랜드 id·금액·날짜·단위는 Cloud SQL typed lookup을 병렬 사용한다. fuzzy match로 확정하지 않는다.
+- RAG Engine metadata filter는 source family, document revision, 기준일과 허용 project 범위를 줄이는 데 사용한다. project 권한 검증 자체를 filter 문자열에만 맡기지 않는다.
+- RAG Engine `hybrid_search`는 선택 vector backend와 서울 리전에서 실제 지원될 때만 활성화한다. 지원되지 않으면 semantic retrieval과 exact lookup을 결합하고 hybrid라고 표시하지 않는다.
+- Reranker score는 질문 관련성일 뿐 Evidence 신뢰도, 경제성 또는 Candidate 순위가 아니다.
+- material Claim마다 예외·불가·변경·해지·유효기간과 이전 revision을 찾는 독립 counter query를 실행한다. 실패는 `COUNTER_SEARCH_FAILED`이며 반대 근거 없음으로 처리하지 않는다.
+- retrieval hit는 Evidence가 아니다. 원문 anchor·scope·freshness 검증을 통과한 결과만 `EvidenceRecord`가 된다.
 
-```text
-metadata·ACL filter
-→ sparse top 50
-→ dense top 50
-→ weighted RRF
-→ fused top 60
-→ reranker top 30
-→ anchor recovery top 8
-→ Evidence candidate 최대 5
-```
+공식 API는 `top_k`, metadata filter, similarity threshold와 rank service를 제공한다. [RAG Engine API](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/models/rag-api), [metadata search](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/rag-engine/use-metadata-search), [reranking](https://cloud.google.com/vertex-ai/generative-ai/docs/retrieval-and-ranking)
 
-RRF:
+### Release와 실패
 
-```text
-score =
-  0.6 / (60 + sparse_rank)
-+ 0.4 / (60 + dense_rank)
-```
-
-정확한 ID·금액·날짜·단위 Claim은 dense를 생략하고 sparse-only로 처리한다. Reranker score는 관련성 순서에만 사용하며 Evidence 신뢰도나 Gate 입력으로 사용하지 않는다.
-
-Reranker 요청:
-
-```text
-model: semantic-ranker-default-004
-records: 30
-topN: 8
-title + content: 최대 900 tokens
-```
-
-이 버전은 1,024-token record와 한국어를 지원한다. [Ranking API](https://docs.cloud.google.com/generative-ai-app-builder/docs/ranking), [한국어 지원표](https://docs.cloud.google.com/generative-ai-app-builder/docs/languages-locales)
-
-Counterevidence는 material Claim마다 별도 sparse 20+dense 20 검색을 수행한다. `예외`, `제외`, `불가`, `변경`, `해지`, `별도`, `유효기간`, 이전 revision을 독립 질의한다. 검색 실패는 “반대 근거 없음”이 아니라 `COUNTER_SEARCH_FAILED`다.
-
-### Generation·cache
-
-Parser, chunker, normalizer, embedding 모델·차원, ACL 정책 중 하나가 바뀌면 새 `IndexGeneration`을 만든다.
+Parser, chunking, embedding, corpus schema, ACL 정책 또는 reranker가 바뀌면 새 `IndexGeneration`을 만든다. 이 객체는 Cloud SQL 자체 vector index가 아니라 한 번에 승격되는 RAG corpus release를 뜻한다.
 
 ```text
 BUILDING → EVALUATING → SHADOW → ACTIVE
                            └→ FAILED
 ```
 
-새 generation 전체가 완성되고 sealed 평가를 통과한 뒤 `current_generation` 포인터를 CAS한다. 부분 index를 current로 만들지 않는다.
+새 generation의 import가 완료되고 sealed 평가를 통과한 뒤 Cloud SQL의 `current_index_generation` 포인터를 compare-and-swap한다. 부분 corpus를 current로 만들지 않는다. `IndexGeneration`에는 corpus resource name, parser·embedding·ranker id, schema version, source revision set과 평가 digest를 저장한다.
 
-Redis cache:
+`asia-northeast3` RAG Engine은 Preview지만 CaffeMate의 필수 GCP 경로로 사용한다. 배포 전에 다음 실제 호출을 모두 통과해야 한다.
 
-| 종류 | Key 필수요소 | TTL |
-|---|---|---:|
-| Query embedding | model·task·dimension·text hash | 30일 |
-| Retrieval | generation·ACL epoch·project/case·query hash | 5분 |
-| Rerank | model·query hash·candidate digest·scope | 24시간 |
-| Negative result | generation·scope·query hash | 30초 |
+1. corpus 생성과 조회
+2. GCS revision import와 import result sink 확인
+3. project scope를 적용한 `retrieveContexts`
+4. metadata filter
+5. Ranking API rerank
+6. cross-project retrieval 0건
 
-Raw project 문서와 사용자 입력 전문은 cache key나 일반 로그에 넣지 않는다.
+실패하면 `RAG_UNAVAILABLE` 또는 `BLOCKED_BY_REGION`으로 중단한다. Cloud SQL `pgvector`, `global` endpoint 또는 다른 리전으로 조용히 fallback하지 않는다. 서울 지원 상태는 [RAG Engine 지원 리전](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/rag-engine/rag-overview)에서 배포 시점마다 다시 확인한다.
 
 ## 3. Agent 런타임
 
 ### 공통 호출 계약
 
-`POST /internal/agent/v1/tasks`
+서비스 경계의 wire-level 정본은 [백엔드·Agent Runtime 연결 계약](./contracts/agent-runtime-protocol.md)이다.
 
-이 경로는 별도 Agent Gateway service가 아니라 Agent Runtime에 배포된 단일 ADK application의 private runtime contract다. Control API만 IAM 인증으로 호출한다.
-
-공통 Input:
-
-```text
-schema_version
-agent_name, task_mode
-workflow_run_id, stage_run_id, agent_run_id
-generation, attempt
-project_id, state_version
-evidence_snapshot_id, policy_snapshot_id
-index_generation_id
-prompt_version, output_schema_version
-input_artifact_ids, input_digest
-deadline_at
-payload
-```
-
-공통 Output:
-
-```text
-schema_version
-agent_name, task_mode
-workflow/stage/agent run IDs
-input state/evidence/index versions
-status: COMPLETE | NEEDS_EVIDENCE | NEEDS_HUMAN | ABSTAIN | INVALID
-payload
-evidence_refs
-missing_claim_ids
-reason_codes
-warnings
-```
+- 물리 전송은 GCP Agent Runtime의 ADK `/api/run` endpoint를 사용한다.
+- [Agent Task Schema](./contracts/agent-task.schema.json)를 ADK `newMessage`의 canonical JSON으로 전달한다.
+- final response는 [Agent Task Result Schema](./contracts/agent-task-result.schema.json)로 검증한다.
+- 역할별 payload는 [Agent Role Payload Schema](./contracts/agent-role-payloads.schema.json)로 검증한다.
+- 첫 구현에서 Agent Runtime은 MCP를 직접 호출하지 않는다. Evidence Researcher가 read action을 제안하면 Control API가 검증·실행하고 결과를 다음 Agent task에 넣는다.
 
 `additionalProperties:false`를 서버 validator에 적용한다. Vertex response schema에는 `$ref`, `allOf`, 복잡한 조건부 검증을 넣지 않고 Agent별 작은 DTO만 제공한다. 전체 JSON Schema와 의미 검증은 서버가 수행한다.
 
@@ -255,12 +157,12 @@ warnings
 
 | Agent | Output 한도 | Deadline |
 |---|---:|---:|
-| Intent Interpreter | 2,048 | 5초 |
-| Evidence Researcher PLAN | 4,096 | 10초 |
-| Evidence Researcher ASSESS | 8,192 | 15초 |
-| Proposal Agent | 8,192 | 15초 |
-| Document Analyst | 8,192 | batch당 30초 |
-| Typed Candidate Auditor | 6,144 | 12초 |
+| Intent Interpreter | 2,048 | 15초 |
+| Evidence Researcher PLAN | 4,096 | 20초 |
+| Evidence Researcher ASSESS | 8,192 | 30초 |
+| Proposal Agent | 8,192 | 30초 |
+| Document Analyst | 8,192 | batch당 60초 |
+| Typed Candidate Auditor | 6,144 | 20초 |
 
 Transport retry는 408·429·5xx·network failure에 한해 최대 2회다. JSON/schema 오류는 repair prompt로 한 번만 고친다. Safety block, 400, 401, 403, anchor·ACL 오류는 retry하지 않는다.
 
@@ -570,7 +472,7 @@ PENDING → READY → RUNNING → CHECKPOINTED → SUCCEEDED
 Full fence:
 
 ```text
-project_id
+workflow_generation
 state_version
 founder_snapshot_id
 area_snapshot_id
@@ -578,13 +480,11 @@ evidence_snapshot_id
 policy_snapshot_id
 index_generation_id
 seed_registry_id
-workflow_run_id
-generation
-attempt
-input_digest
 ```
 
-Heartbeat 15초, lease 45초다. 두 번 누락하면 attempt를 회수한다. Timeout·late output은 `LATE_DISCARDED` trace만 남긴다.
+`workflow_run_id`, `stage_run_id`, `task_id`, `input_digest`는 실행 식별자이며 full head의 권위 version 차원이 아니다. Heartbeat 15초, lease 45초다. 두 번 누락하면 worker가 lease를 회수한다. timeout·cancel 뒤 결과는 head가 같아도 무조건 폐기한다. 그 외 결과도 full head 여덟 차원이 모두 current와 같을 때만 checkpoint한다.
+
+공개 command는 Cloud SQL의 `workflow_run + stage_run + idempotency + outbox` transaction이 commit된 뒤에만 `202`를 반환한다. `caffemate-worker`가 FIRST_PROPOSAL을 포함한 모든 durable DAG stage의 유일한 lease owner이며 Pub/Sub redelivery를 `(workflow_run_id, stage_run_id, input_digest)` unique key와 compare-and-swap으로 흡수한다. API process의 응답 후 background task에는 의존하지 않는다.
 
 MCP tool은 다음으로 고정한다.
 
@@ -617,8 +517,9 @@ POST /v1/projects/{id}/documents/{doc}/extraction-form/apply
 POST /v1/projects/{id}/conflicts/{conflict}/resolve
 POST /v1/projects/{id}/evidence-refresh
 POST /v1/projects/{id}/packets
-GET  /v1/workflows/{run}
-GET  /v1/workflows/{run}/stream
+GET  /v1/projects/{id}/workflows/{run}
+GET  /v1/projects/{id}/workflows/{run}/events
+POST /v1/projects/{id}/workflows/{run}:cancel
 ```
 
 모든 command는 `Authorization`, `Idempotency-Key`, `X-Request-Id`, `If-Match` full-head digest를 요구한다.
@@ -626,19 +527,16 @@ GET  /v1/workflows/{run}/stream
 추가 계약 파일:
 
 ```text
-agent-input/output
-intent-proposal
-evidence-search-plan/evidence-assessment
-document-extraction-proposal
+agent-task.schema.json
+agent-task-result.schema.json
+agent-role-payloads.schema.json
+common-types.schema.json
+mcp-tool-contracts.schema.json
+mcp-tool-manifest.json
 document-extraction-form
 candidate-audit-report
-claim-plan
-retrieval-request/result
-mcp-request/response와 tool별 payload
-project-head/full-fence
-workflow-run/stage-run
-claim/conflict/review-task
-result-bundle/packet
+evidence-record.schema.json
+candidate-result.schema.json
 ```
 
 Proposal Agent와 별도의 Typed Candidate Auditor를 유지한다. `candidate-result`는 `REVIEW_RECOMMENDED | CONDITIONAL_REVIEW | EXCLUDED`를 사용하며 조건부 후보에도 `NEXT_REVIEW_PRIORITY` rank를 허용한다.
@@ -646,12 +544,12 @@ Proposal Agent와 별도의 Typed Candidate Auditor를 유지한다. `candidate-
 ## 5. 구현·검증 순서
 
 1. Agent/RAG 문서와 모든 JSON Schema를 먼저 작성하고 schema fixture를 만든다.
-2. PostgreSQL/PostGIS/pgvector/pg_bigm schema와 generation별 index를 구현한다.
-3. Source ingestion, Layout Parser, chunker, embedding, shadow publish를 구현한다.
-4. Sparse-only 및 SQL-only baseline과 ACL 검증을 완성한다.
-5. Dense/RRF/reranker/anchor/counterevidence를 추가한다.
-6. MCP Gateway의 10개 read-only tool을 구현한다.
-7. 서울 Agent Runtime에 공통 prompt registry, 다섯 Agent DTO, repair 경로를 구현한다.
+2. PostgreSQL/PostGIS의 권위 State·Evidence·RAG mapping schema와 `IndexGeneration`을 구현한다.
+3. 서울 RAG Engine corpus preflight, GCS ingestion, Layout Parser, import result와 shadow publish를 구현한다.
+4. exact typed lookup baseline과 project corpus ACL 검증을 완성한다.
+5. RAG retrieval, metadata filter, reranker, anchor와 counterevidence를 추가한다.
+6. MCP 2026-07-28 stateless transport와 10개 read-only tool을 구현한다.
+7. 서울에서 승인 생성 모델 preflight가 통과한 뒤 Agent Runtime에 deterministic root dispatcher, 공통 prompt registry, 다섯 Agent DTO, 관리형 session 수명주기와 repair 경로를 구현한다.
 8. FIRST_PROPOSAL → feedback → document → refresh → packet 순으로 durable DAG를 연결한다.
 9. Agent Control CLI에 `--json` 기반 run/watch/retrieve/agent-trace/document-review/recompute/packet/index-generation 기능을 추가한다.
 10. Sealed eval, shadow, 10% canary, 전체 승격 순으로 출시한다.
@@ -660,14 +558,14 @@ Proposal Agent와 별도의 Typed Candidate Auditor를 유지한다. `candidate-
 
 - Agent DTO schema 및 의미 validator 100%
 - 같은 input digest의 deterministic 계산 결과 100% 동일
-- cross-project sparse/dense/rerank/cache leakage 0
+- cross-project RAG/exact lookup/rerank leakage 0
 - prompt injection에 의한 tool·policy·State 변경 0
 - material anchor exactness 100%
 - `UNKNOWN→0`, stale-as-current, conflict 평균화 0
-- Claim-stratum Recall@50 ≥ 0.95, 최저 stratum ≥ 0.90
-- Korean exact phrase precision@10 ≥ 0.99
-- rerank pair accuracy ≥ 0.90
-- counterevidence recall ≥ 0.95
+- `PROVISIONAL_TARGET`: Claim-stratum Recall@50 ≥ 0.95, 최저 stratum ≥ 0.90
+- `PROVISIONAL_TARGET`: Korean exact phrase precision@10 ≥ 0.99
+- `PROVISIONAL_TARGET`: rerank pair accuracy ≥ 0.90
+- `PROVISIONAL_TARGET`: counterevidence recall ≥ 0.95
 - material 숫자·단위 추출 정확도 100%
 - timeout·partial·late 결과 current commit 0
 - 개인 가맹 미확인 브랜드의 결과 rank 포함 0
@@ -679,13 +577,15 @@ Proposal Agent와 별도의 Typed Candidate Auditor를 유지한다. `candidate-
 - 문서 필드별 확인 동작 요구 0
 - model/prompt/schema/index 변경은 sealed eval과 새 release manifest 없이 배포 불가
 
-모델 교체는 retirement 180일 전에 평가를 시작하고 90일 전에 shadow migration을 완료한다. 생성 모델 교체는 prompt regression만 수행하고, embedding 모델·차원 교체는 전체 새 index generation과 재색인을 요구한다.
+위 RAG 수치는 corpus·gold set·sample size가 고정되기 전에는 출시 Gate가 아니다. 평가 자료가 준비된 뒤 calibration 결과와 함께 승인해야 하며, 그 전에는 baseline·분산·오류 사례를 보고한다.
+
+모델 교체는 retirement 180일 전에 평가를 시작하고 90일 전에 shadow migration을 완료한다. 생성 모델 교체는 prompt regression만 수행하고, RAG embedding·parser·chunk 정책 교체는 새 `IndexGeneration`, 전체 corpus 재import와 shadow 평가를 요구한다.
 
 가정과 확정사항:
 
 - Agent는 `asia-northeast3` managed Agent Runtime에서 실행한다.
-- 생성·embedding model endpoint는 `asia-northeast3`로 고정하고 `global` fallback을 금지한다.
+- 생성·embedding·reranker endpoint는 `asia-northeast3`로 고정하고 `global` fallback을 금지한다.
 - Control API가 Agent Runtime을 직접 호출하며 별도 Cloud Run Agent Gateway와 managed Agent Gateway를 사용하지 않는다.
-- RAG Engine은 서울에서 Preview이므로 운영 필수 경로에 두지 않고 Cloud SQL full-text search와 pgvector를 권위 검색 계층으로 사용한다.
+- RAG Engine은 서울에서 Preview이지만 Advanced RAG의 운영 필수 검색 계층으로 사용한다. 이 위험은 승인됐으며 실제 corpus 생성·import·retrieval·rerank preflight를 통과해야 한다.
 - Reranker 관련성 점수는 Evidence 신뢰도나 후보 순위가 아니다.
-- 추가 제품 의사결정은 필요 없다. 가격·quota·SLO 수치는 별도 운영 정책이며 런타임 계약을 변경하지 않는다.
+- `PENDING_HUMAN_DECISION`: 서울 실제 생성 호출을 통과한 model id 중 사용할 고정 모델을 승인해야 한다. 이 결정 전까지 Agent 구현·배포 경로는 `BLOCKED_BY_REGION`이며 deterministic Core와 fixture 기반 adapter 개발만 진행한다.

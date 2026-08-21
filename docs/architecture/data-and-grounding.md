@@ -129,21 +129,26 @@ N0_NATIONWIDE_FACTS
 
 ### CONFIRMED — 첫 운영 RAG backend
 
-- 원문과 parsing 산출물은 Cloud Storage에, 문서 revision·chunk·anchor·project scope metadata는 Cloud SQL에 저장한다.
-- 첫 운영 hybrid retrieval은 PostgreSQL full-text search와 pgvector를 사용한다.
-- retrieval interface는 backend와 분리해 동일한 Claim query와 `EvidenceRecord` 계약을 유지한다.
-- 서울 리전에서 Preview인 RAG Engine은 운영 필수 경로에 두지 않는다. 필요하면 같은 interface 뒤의 실험 adapter로만 연결한다.
-- corpus 규모나 평가 결과가 Cloud SQL 기준을 넘으면 Vertex AI Vector Search를 후보로 비교한다. 서비스 이름이나 기능 선호만으로 미리 이전하지 않는다.
-- backend 변경 전후에 동일한 sealed retrieval set으로 Recall@k, anchor accuracy, project 격리, latency와 비용을 비교한다.
-- embedding model은 `asia-northeast3` 지원 여부를 배포 시점에 확인하고, 미지원이면 `BLOCKED_BY_REGION`으로 중단한다. `global` 또는 다른 리전으로 전환하지 않는다.
+- Vertex AI RAG Engine을 공식 문서·정보공개서·사용자 문서의 주 검색 계층으로 사용한다.
+- 원본 revision은 Cloud Storage에 불변 보관하고, RAG corpus·file id와 document revision·checksum·project scope·원문 anchor의 대응 관계는 Cloud SQL에 기록한다. Cloud SQL은 제품 State와 Evidence ledger의 정본이지 주 vector serving 계층이 아니다.
+- 공식 corpus와 사용자 project corpus를 물리적으로 분리한다. 첫 구현에서 사용자 문서는 venture project별 허용 corpus 또는 명시적인 허용 file id 밖으로 검색할 수 없다.
+- RAG Engine의 Document AI Layout Parser 연동으로 제목·조항·표·목록 구조를 보존한 chunk를 생성한다. import 결과와 실패 목록은 Worker가 기록하고 불완전 generation을 검색에 사용하지 않는다.
+- 검색은 Claim 분해, corpus routing, source·문서 revision·기준일 metadata filter, semantic retrieval, Vertex AI Ranking API rerank, 원문 anchor 복구, entailment·단위·scope 검증과 반대 근거 검색 순서로 수행한다.
+- 계약번호·사업자번호·브랜드 id·금액·날짜 같은 exact field는 Cloud SQL의 typed lookup을 병렬 사용한다. 이 결과와 RAG context는 같은 `EvidenceRecord` 검증을 통과해야 한다.
+- RAG Engine이 제공하는 hybrid search는 선택한 vector backend와 서울 리전에서 실제 지원되는 경우에만 사용한다. 지원되지 않으면 semantic retrieval과 exact lookup을 결합하며 기능을 허위 표기하지 않는다.
+- `asia-northeast3`의 Preview 위험은 승인된 구현 제약이다. corpus 생성, Layout Parser import, retrieval, metadata filter와 rerank read-back을 배포 Gate로 둔다.
+- RAG Engine 장애를 Cloud SQL `pgvector`, `global` endpoint 또는 다른 리전으로 조용히 우회하지 않는다. 필수 경로 실패는 `RAG_UNAVAILABLE` 또는 `BLOCKED_BY_REGION`으로 노출한다.
+- 동일한 sealed retrieval set으로 Recall@k, nDCG 또는 pair accuracy, anchor accuracy, project 격리, latency와 비용을 측정한다.
+
+공식 기능 근거: [RAG Engine 지원 리전](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/rag-engine/rag-overview), [RAG Engine API](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/models/rag-api), [Layout Parser 연동](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/rag-engine/layout-parser-integration), [metadata search](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/rag-engine/use-metadata-search), [reranking](https://cloud.google.com/vertex-ai/generative-ai/docs/retrieval-and-ranking). `accessed_at: 2026-08-21`, `freshness: deployment preflight에서 재확인`이다.
 
 ## Advanced RAG Pipeline
 
 ```text
 Claim query decomposition
 → authority·region·document type·data date filter
-→ keyword and vector retrieval
-→ reciprocal rank fusion
+→ RAG semantic retrieval + exact typed lookup
+→ result fusion
 → rerank
 → page·table·API row anchor recovery
 → entailment·unit·scope validation

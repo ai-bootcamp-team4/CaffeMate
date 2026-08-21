@@ -9,7 +9,7 @@
 - 사용자 한 명은 여러 창업 검토 프로젝트를 가질 수 있다.
 - 프로젝트 사이의 State·Evidence·문서·계산은 섞이지 않는다.
 - State version마다 그 판단에 사용한 Evidence와 Policy snapshot을 고정한다.
-- Agent와 MCP는 State를 직접 쓰지 않는다.
+- Agent는 현재 State snapshot을 읽어 추론하지만 권위 State를 직접 쓰지 않는다. MCP도 read-only이며 검증된 변경은 reducer만 반영한다.
 - persistent write는 reducer 하나만 수행한다.
 
 ## Aggregate 경계
@@ -213,20 +213,25 @@ new source snapshot
 ```text
 QUEUED
 → RUNNING
-→ WAITING_FOR_HUMAN | SUCCEEDED | PARTIAL | FAILED
+→ WAITING_FOR_HUMAN | SUCCEEDED | PARTIAL | FAILED | CANCELLED | STALE
 ```
 
 - `PARTIAL`은 완성된 결과를 의미하지 않는다.
 - `WAITING_FOR_HUMAN`은 필요한 질문과 대상 field를 포함해야 한다.
 - timeout·retry 횟수와 tool trace를 저장한다.
 - 실패한 Agent output은 State input으로 승격하지 않는다.
+- `CANCELLED`와 timeout 이후 결과는 full head가 같아도 적용하지 않는다.
+- `STALE`은 current full head 여덟 차원 중 하나라도 달라 checkpoint가 거절된 terminal 상태다.
 
 ## 동시성
 
 - command는 `base_state_version`을 요구한다.
 - current version과 다르면 conflict를 반환하고 자동 덮어쓰지 않는다.
-- 같은 idempotency key와 payload 재시도는 같은 Event·결과를 반환한다.
-- 이전 State version을 사용한 늦은 Agent 결과는 폐기한다.
+- 같은 idempotency key와 같은 canonical payload는 진행 중이면 같은 run id와 현재 상태, 완료됐으면 같은 Event·결과를 반환한다.
+- 같은 idempotency key와 다른 payload digest는 `409 IDEMPOTENCY_KEY_REUSED`로 거절한다.
+- concurrent duplicate는 database unique constraint로 workflow run 하나만 생성한다.
+- 이전 State만이 아니라 Founder·Area·Evidence·Policy·index·seed·Workflow generation 중 하나라도 다른 Agent 결과는 폐기한다.
+- command API는 workflow·stage·idempotency·outbox transaction commit 뒤에만 `202`를 반환한다.
 
 ## 수용 기준
 

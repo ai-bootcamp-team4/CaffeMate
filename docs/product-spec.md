@@ -1,6 +1,8 @@
+status:: main
+
 # CaffeMate 제품 명세
 
-> 상태: active development contract
+> 구현 단계: active development
 >
 > 갱신일: 2026-08-21
 >
@@ -260,7 +262,12 @@ OCR·문서 분석 결과는 필드별 확인 팝업이 아니라 한 화면의 
 - 선택 모델이 서울 리전에서 사용할 수 없거나 quota가 부족하면 `BLOCKED_BY_REGION`으로 중단하고 모델 변경을 별도 승인받는다.
 - Control API가 IAM 인증으로 Agent Runtime을 직접 호출한다.
 - 서울 리전에서 지원되지 않는 managed Agent Gateway를 사용하지 않는다.
-- 서울 리전에서 Preview인 RAG Engine은 운영 필수 의존성으로 사용하지 않는다.
+- Agent는 Control API가 고정한 현재 State snapshot을 읽고 typed proposal 또는 State delta를 반환한다. Agent Runtime session은 임시 실행 문맥일 뿐 제품 State가 아니다.
+- Agent와 MCP는 권위 State를 직접 수정하지 않는다. Schema·근거·버전 검증을 통과한 변경만 Control API의 단일 reducer가 영구 반영한다.
+- Vertex AI RAG Engine을 공식 문서·정보공개서·사용자 문서 Advanced RAG의 주 검색 계층으로 사용한다.
+- `asia-northeast3` RAG Engine의 Preview 위험은 본 프로젝트에서 수용한다. 배포 전 corpus 생성, 문서 import, retrieval과 rerank 실제 호출을 각각 검증한다.
+- RAG Engine 실패를 Cloud SQL `pgvector`나 다른 리전으로 조용히 우회하지 않는다. 필수 사전 검증이 실패하면 문서 RAG 경로를 `BLOCKED_BY_REGION` 또는 `RAG_UNAVAILABLE`로 중단한다.
+- 인구·카페 수·개폐업·매출 관측처럼 계산에 쓰이는 정형 수치는 RAG가 아니라 검증된 API·BigQuery·SQL Tool로 조회한다.
 
 ## 17. 현재 미결정 또는 검증 필요
 

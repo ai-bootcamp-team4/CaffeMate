@@ -1,0 +1,941 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-bootcamp-team4/CaffeMate/docs/contracts/agent-role-payloads.schema.json",
+  "title": "CaffeMate Agent Role Payload Library",
+  "$defs": {
+    "founderProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_area_input",
+        "own_funds_krw",
+        "borrowing_intent",
+        "cafe_type_preference",
+        "operation_mode",
+        "preferences",
+        "avoidances"
+      ],
+      "properties": {
+        "target_area_input": { "type": "string", "minLength": 1 },
+        "own_funds_krw": { "type": "integer", "minimum": 0 },
+        "borrowing_intent": { "enum": ["YES", "NO", "UNDECIDED"] },
+        "cafe_type_preference": { "enum": ["OPEN_TO_BOTH", "INDEPENDENT_ONLY", "FRANCHISE_ONLY"] },
+        "operation_mode": { "enum": ["DIRECT_FULL_TIME", "DIRECT_PART_TIME", "EMPLOYEE_LED", "UNDECIDED"] },
+        "preferences": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "avoidances": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "max_loss_krw": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "areaProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resolution_status",
+        "administrative_code",
+        "display_name",
+        "boundary_version",
+        "coverage_profile",
+        "evidence_ids",
+        "unavailable_fields"
+      ],
+      "properties": {
+        "resolution_status": { "enum": ["UNRESOLVED", "AMBIGUOUS", "RESOLVED"] },
+        "administrative_code": { "type": ["string", "null"] },
+        "display_name": { "type": ["string", "null"] },
+        "boundary_version": { "type": ["string", "null"] },
+        "coverage_profile": {
+          "enum": ["N0_NATIONWIDE_FACTS", "N1_NATIONWIDE_CONDITIONAL", "R2_REGIONAL_CONNECTOR", "C3_CASE_ARTIFACT"]
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "unavailable_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "ventureCaseProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "case_type", "maturity", "status"],
+      "properties": {
+        "case_id": { "type": "string", "minLength": 1 },
+        "case_type": { "enum": ["INDEPENDENT", "FRANCHISE"] },
+        "maturity": { "enum": ["CONCEPT", "CANDIDATE", "PROPERTY_LINKED", "DOCUMENT_LINKED"] },
+        "status": { "enum": ["DRAFT", "CONDITIONALLY_REVIEWABLE", "EXCLUDED", "SELECTED"] }
+      }
+    },
+    "stateProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state_version", "founder", "area", "active_case_id", "venture_cases"],
+      "properties": {
+        "state_version": { "type": "integer", "minimum": 1 },
+        "founder": { "$ref": "#/$defs/founderProjection" },
+        "area": { "$ref": "#/$defs/areaProjection" },
+        "active_case_id": { "type": ["string", "null"] },
+        "venture_cases": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ventureCaseProjection" }
+        }
+      }
+    },
+    "sourceSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "claimInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "claim_type", "materiality", "geographic_scope", "required_freshness"],
+      "properties": {
+        "claim_id": { "type": "string", "minLength": 1 },
+        "claim_type": { "type": "string", "minLength": 1 },
+        "materiality": { "enum": ["LOW", "MEDIUM", "HIGH"] },
+        "current_value": { "$ref": "./common-types.schema.json#/$defs/typedValue" },
+        "geographic_scope": { "$ref": "./common-types.schema.json#/$defs/geographicScope" },
+        "required_freshness": { "type": ["string", "null"] }
+      }
+    },
+    "toolAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "claim_id",
+        "polarity",
+        "tool_name",
+        "tool_version",
+        "typed_arguments",
+        "required_authority",
+        "date_constraints",
+        "scope_constraints"
+      ],
+      "properties": {
+        "action_id": { "type": "string", "minLength": 1 },
+        "claim_id": { "type": "string", "minLength": 1 },
+        "polarity": { "enum": ["SUPPORT", "COUNTER"] },
+        "tool_name": {
+          "enum": [
+            "resolve_area",
+            "get_area_profile",
+            "search_cafe_observations",
+            "search_business_events",
+            "list_franchise_universe",
+            "get_franchise_disclosure",
+            "retrieve_official_documents",
+            "retrieve_project_documents",
+            "get_official_procedure",
+            "get_source_health"
+          ]
+        },
+        "tool_version": { "const": "1.0.0" },
+        "typed_arguments": {
+          "oneOf": [
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/resolveAreaInput" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getAreaProfileInput" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchCafeObservationsInput" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchBusinessEventsInput" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/listFranchiseUniverseInput" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getFranchiseDisclosureInput" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/retrieveOfficialDocumentsInput" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/retrieveProjectDocumentsInput" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getOfficialProcedureInput" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getSourceHealthInput" }
+          ]
+        },
+        "required_authority": {
+          "type": "array",
+          "items": {
+            "enum": ["PRIMARY_OFFICIAL", "COMPANY_OFFICIAL", "PRIMARY_DATA", "VALIDATED_BENCHMARK", "USER_ARTIFACT", "SECONDARY"]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "date_constraints": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["as_of", "max_age_days"],
+          "properties": {
+            "as_of": { "type": "string", "format": "date" },
+            "max_age_days": { "type": ["integer", "null"], "minimum": 0 }
+          }
+        },
+        "scope_constraints": { "$ref": "./common-types.schema.json#/$defs/geographicScope" }
+      },
+      "allOf": [
+        { "if": { "properties": { "tool_name": { "const": "resolve_area" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/resolveAreaInput" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_area_profile" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getAreaProfileInput" } } } },
+        { "if": { "properties": { "tool_name": { "const": "search_cafe_observations" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchCafeObservationsInput" } } } },
+        { "if": { "properties": { "tool_name": { "const": "search_business_events" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchBusinessEventsInput" } } } },
+        { "if": { "properties": { "tool_name": { "const": "list_franchise_universe" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/listFranchiseUniverseInput" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_franchise_disclosure" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getFranchiseDisclosureInput" } } } },
+        { "if": { "properties": { "tool_name": { "const": "retrieve_official_documents" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/retrieveOfficialDocumentsInput" } } } },
+        { "if": { "properties": { "tool_name": { "const": "retrieve_project_documents" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/retrieveProjectDocumentsInput" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_official_procedure" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getOfficialProcedureInput" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_source_health" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getSourceHealthInput" } } } }
+      ]
+    },
+    "executedAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action_id", "claim_id", "tool_name", "request_id", "structured_result"],
+      "properties": {
+        "action_id": { "type": "string", "minLength": 1 },
+        "claim_id": { "type": "string", "minLength": 1 },
+        "tool_name": {
+          "enum": [
+            "resolve_area",
+            "get_area_profile",
+            "search_cafe_observations",
+            "search_business_events",
+            "list_franchise_universe",
+            "get_franchise_disclosure",
+            "retrieve_official_documents",
+            "retrieve_project_documents",
+            "get_official_procedure",
+            "get_source_health"
+          ]
+        },
+        "request_id": { "type": "string", "minLength": 1 },
+        "structured_result": {
+          "oneOf": [
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/resolveAreaResult" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getAreaProfileResult" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchCafeObservationsResult" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchBusinessEventsResult" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/listFranchiseUniverseResult" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getFranchiseDisclosureResult" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/retrieveOfficialDocumentsResult" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/retrieveProjectDocumentsResult" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getOfficialProcedureResult" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getSourceHealthResult" }
+          ]
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "tool_name": { "const": "resolve_area" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/resolveAreaResult" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_area_profile" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getAreaProfileResult" } } } },
+        { "if": { "properties": { "tool_name": { "const": "search_cafe_observations" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchCafeObservationsResult" } } } },
+        { "if": { "properties": { "tool_name": { "const": "search_business_events" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchBusinessEventsResult" } } } },
+        { "if": { "properties": { "tool_name": { "const": "list_franchise_universe" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/listFranchiseUniverseResult" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_franchise_disclosure" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getFranchiseDisclosureResult" } } } },
+        { "if": { "properties": { "tool_name": { "const": "retrieve_official_documents" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/retrieveOfficialDocumentsResult" } } } },
+        { "if": { "properties": { "tool_name": { "const": "retrieve_project_documents" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/retrieveProjectDocumentsResult" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_official_procedure" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getOfficialProcedureResult" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_source_health" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getSourceHealthResult" } } } }
+      ]
+    },
+    "adjustedParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field_path", "value", "unit", "support_refs"],
+      "properties": {
+        "field_path": { "type": "string", "minLength": 1 },
+        "value": { "$ref": "./common-types.schema.json#/$defs/typedValue" },
+        "unit": { "type": ["string", "null"] },
+        "support_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "candidateProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proposal_id",
+        "case_type",
+        "display_name",
+        "seed_or_brand_id",
+        "adjusted_parameters",
+        "claim_refs",
+        "evidence_refs",
+        "assumption_refs",
+        "missing_fields",
+        "warnings"
+      ],
+      "properties": {
+        "proposal_id": { "type": "string", "minLength": 1 },
+        "case_type": { "enum": ["INDEPENDENT", "FRANCHISE"] },
+        "display_name": { "type": "string", "minLength": 1 },
+        "seed_or_brand_id": { "type": "string", "minLength": 1 },
+        "adjusted_parameters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/adjustedParameter" }
+        },
+        "claim_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "assumption_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "missing_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "documentAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_revision_id", "page_index"],
+      "properties": {
+        "document_revision_id": { "type": "string", "minLength": 1 },
+        "page_index": { "type": "integer", "minimum": 0 },
+        "section_path": { "type": ["string", "null"] },
+        "table_id": { "type": ["string", "null"] },
+        "row": { "type": ["integer", "null"], "minimum": 0 },
+        "column": { "type": ["integer", "null"], "minimum": 0 },
+        "bbox": {
+          "type": ["array", "null"],
+          "items": { "type": "number" },
+          "minItems": 4,
+          "maxItems": 8
+        }
+      }
+    },
+    "intentInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current_state_projection", "latest_user_input", "allowed_field_paths", "current_candidate_refs", "operation_id_pool"],
+      "properties": {
+        "current_state_projection": { "$ref": "#/$defs/stateProjection" },
+        "latest_user_input": { "type": "string", "minLength": 1, "maxLength": 8000 },
+        "allowed_field_paths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "current_candidate_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "operation_id_pool": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true
+        }
+      }
+    },
+    "intentResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "operations", "clarifying_questions", "affected_workflow_codes", "risk_flags"],
+      "properties": {
+        "decision": { "enum": ["PROPOSE_DELTA", "CLARIFY", "NOOP", "UNSUPPORTED"] },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "op_id",
+              "kind",
+              "field_path",
+              "expected_old_value",
+              "typed_value",
+              "unit",
+              "semantic_kind",
+              "source_span",
+              "ambiguity_codes"
+            ],
+            "properties": {
+              "op_id": { "type": "string", "minLength": 1 },
+              "kind": { "enum": ["SET", "UNSET", "ADD", "REMOVE", "SELECT", "REJECT", "REQUEST_ACTION"] },
+              "field_path": { "type": "string", "minLength": 1 },
+              "expected_old_value": { "$ref": "./common-types.schema.json#/$defs/typedValue" },
+              "typed_value": { "$ref": "./common-types.schema.json#/$defs/typedValue" },
+              "unit": { "type": ["string", "null"] },
+              "semantic_kind": { "enum": ["HARD_CONSTRAINT", "SOFT_PREFERENCE", "USER_ASSERTION"] },
+              "source_span": { "$ref": "#/$defs/sourceSpan" },
+              "ambiguity_codes": {
+                "type": "array",
+                "items": { "type": "string" },
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        "clarifying_questions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "affected_workflow_codes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "risk_flags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "evidencePlanInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claims", "planning_constraints", "action_id_pool"],
+      "properties": {
+        "claims": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claimInput" },
+          "minItems": 1
+        },
+        "planning_constraints": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["as_of", "max_actions_per_claim", "max_total_actions", "allowed_tools"],
+          "properties": {
+            "as_of": { "type": "string", "format": "date" },
+            "max_actions_per_claim": { "type": "integer", "minimum": 1, "maximum": 4 },
+            "max_total_actions": { "type": "integer", "minimum": 1, "maximum": 20 },
+            "allowed_tools": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "resolve_area",
+                  "get_area_profile",
+                  "search_cafe_observations",
+                  "search_business_events",
+                  "list_franchise_universe",
+                  "get_franchise_disclosure",
+                  "retrieve_official_documents",
+                  "retrieve_project_documents",
+                  "get_official_procedure",
+                  "get_source_health"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          }
+        },
+        "action_id_pool": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true
+        }
+      }
+    },
+    "evidencePlanResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_plans"],
+      "properties": {
+        "claim_plans": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["claim_id", "route", "support_actions", "counter_actions", "stop_condition", "abstain_condition"],
+            "properties": {
+              "claim_id": { "type": "string", "minLength": 1 },
+              "route": { "enum": ["SQL", "MCP_STRUCTURED", "RAG_OFFICIAL", "RAG_PROJECT"] },
+              "support_actions": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/toolAction" }
+              },
+              "counter_actions": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/toolAction" }
+              },
+              "stop_condition": { "type": "string", "minLength": 1 },
+              "abstain_condition": { "type": "string", "minLength": 1 }
+            }
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "evidenceAssessInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claims", "executed_actions"],
+      "properties": {
+        "claims": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claimInput" },
+          "minItems": 1
+        },
+        "executed_actions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/executedAction" }
+        }
+      }
+    },
+    "evidenceAssessResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assessments", "missing_claims", "conflict_proposals"],
+      "properties": {
+        "assessments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "claim_id",
+              "candidate_ref",
+              "relation",
+              "scope_status",
+              "date_status",
+              "freshness_status",
+              "anchor_status",
+              "authority_status",
+              "missing_context"
+            ],
+            "properties": {
+              "claim_id": { "type": "string", "minLength": 1 },
+              "candidate_ref": { "type": "string", "minLength": 1 },
+              "relation": { "enum": ["SUPPORTS", "CONTRADICTS", "IRRELEVANT", "AMBIGUOUS"] },
+              "scope_status": { "enum": ["MATCH", "MISMATCH", "UNKNOWN"] },
+              "date_status": { "enum": ["MATCH", "MISMATCH", "UNKNOWN"] },
+              "freshness_status": { "enum": ["FRESH", "STALE", "UNKNOWN", "NOT_APPLICABLE"] },
+              "anchor_status": { "enum": ["VALID", "INVALID", "MISSING"] },
+              "authority_status": { "enum": ["ACCEPTABLE", "INSUFFICIENT", "UNKNOWN"] },
+              "missing_context": {
+                "type": "array",
+                "items": { "type": "string" },
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        "missing_claims": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "conflict_proposals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["claim_id", "candidate_refs", "reason"],
+            "properties": {
+              "claim_id": { "type": "string", "minLength": 1 },
+              "candidate_refs": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 2,
+                "uniqueItems": true
+              },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "independentProposalInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["founder", "area", "evidence_records", "model_seeds", "requested_candidate_count"],
+      "properties": {
+        "founder": { "$ref": "#/$defs/founderProjection" },
+        "area": { "$ref": "#/$defs/areaProjection" },
+        "evidence_records": {
+          "type": "array",
+          "items": { "$ref": "./evidence-record.schema.json" }
+        },
+        "model_seeds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["proposal_id", "model_id", "display_name", "allowed_parameters", "support_refs"],
+            "properties": {
+              "proposal_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "model_id": { "type": "string", "minLength": 1 },
+              "display_name": { "type": "string", "minLength": 1 },
+              "allowed_parameters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["field_path", "value_kind", "unit"],
+                  "properties": {
+                    "field_path": { "type": "string", "minLength": 1 },
+                    "value_kind": { "enum": ["STRING", "INTEGER", "DECIMAL", "BOOLEAN", "DATE", "DATE_TIME", "MONEY_RANGE"] },
+                    "unit": { "type": ["string", "null"] },
+                    "minimum": { "type": ["number", "null"] },
+                    "maximum": { "type": ["number", "null"] }
+                  }
+                },
+                "uniqueItems": true
+              },
+              "support_refs": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            }
+          },
+          "minItems": 1
+        },
+        "requested_candidate_count": { "type": "integer", "minimum": 1, "maximum": 3 }
+      }
+    },
+    "franchiseProposalInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["founder", "area", "evidence_records", "franchise_universe", "requested_candidate_count"],
+      "properties": {
+        "founder": { "$ref": "#/$defs/founderProjection" },
+        "area": { "$ref": "#/$defs/areaProjection" },
+        "evidence_records": {
+          "type": "array",
+          "items": { "$ref": "./evidence-record.schema.json" }
+        },
+        "franchise_universe": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["proposal_id", "brand_id", "display_name", "individual_franchise_eligibility", "evidence_refs", "missing_fields"],
+            "properties": {
+              "proposal_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "brand_id": { "type": "string", "minLength": 1 },
+              "display_name": { "type": "string", "minLength": 1 },
+              "individual_franchise_eligibility": { "const": "VERIFIED" },
+              "evidence_refs": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "missing_fields": {
+                "type": "array",
+                "items": { "type": "string" },
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        "requested_candidate_count": { "type": "integer", "minimum": 1, "maximum": 3 }
+      }
+    },
+    "independentProposalResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_proposals"],
+      "properties": {
+        "candidate_proposals": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/$defs/candidateProposal" },
+              {
+                "type": "object",
+                "required": ["case_type"],
+                "properties": { "case_type": { "const": "INDEPENDENT" } }
+              }
+            ]
+          },
+          "maxItems": 3
+        }
+      }
+    },
+    "franchiseProposalResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_proposals"],
+      "properties": {
+        "candidate_proposals": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/$defs/candidateProposal" },
+              {
+                "type": "object",
+                "required": ["case_type"],
+                "properties": { "case_type": { "const": "FRANCHISE" } }
+              }
+            ]
+          },
+          "maxItems": 3
+        }
+      }
+    },
+    "documentExtractInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_revision", "extraction_contract", "parser_blocks", "claim_id_pool"],
+      "properties": {
+        "document_revision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["document_id", "document_revision_id", "document_type", "checksum"],
+          "properties": {
+            "document_id": { "type": "string", "minLength": 1 },
+            "document_revision_id": { "type": "string", "minLength": 1 },
+            "document_type": { "type": "string", "minLength": 1 },
+            "checksum": { "type": "string", "minLength": 1 }
+          }
+        },
+        "extraction_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["claim_types"],
+          "properties": {
+            "claim_types": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          }
+        },
+        "parser_blocks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["block_id", "text", "anchor"],
+            "properties": {
+              "block_id": { "type": "string", "minLength": 1 },
+              "text": { "type": "string" },
+              "anchor": { "$ref": "#/$defs/documentAnchor" }
+            }
+          },
+          "minItems": 1,
+          "maxItems": 12
+        },
+        "claim_id_pool": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true
+        }
+      }
+    },
+    "documentExtractResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proposed_claims", "unresolved_fields", "document_risk_flags"],
+      "properties": {
+        "proposed_claims": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "claim_id",
+              "predicate",
+              "raw_value_text",
+              "typed_value",
+              "unit",
+              "currency",
+              "vat_status",
+              "inclusion_scope",
+              "effective_from",
+              "effective_to",
+              "valid_until",
+              "document_revision_id",
+              "anchor",
+              "extraction_status",
+              "risk_flags"
+            ],
+            "properties": {
+              "claim_id": { "type": "string", "minLength": 1 },
+              "predicate": { "type": "string", "minLength": 1 },
+              "raw_value_text": { "type": ["string", "null"] },
+              "typed_value": { "$ref": "./common-types.schema.json#/$defs/typedValue" },
+              "unit": { "type": ["string", "null"] },
+              "currency": { "type": ["string", "null"] },
+              "vat_status": { "enum": ["INCLUDED", "EXCLUDED", "NOT_APPLICABLE", "UNKNOWN"] },
+              "inclusion_scope": { "type": ["string", "null"] },
+              "effective_from": { "type": ["string", "null"] },
+              "effective_to": { "type": ["string", "null"] },
+              "valid_until": { "type": ["string", "null"] },
+              "document_revision_id": { "type": "string", "minLength": 1 },
+              "anchor": { "$ref": "#/$defs/documentAnchor" },
+              "extraction_status": { "enum": ["PROPOSED", "UNKNOWN", "REVIEW_REQUIRED"] },
+              "risk_flags": {
+                "type": "array",
+                "items": { "type": "string" },
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        "unresolved_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "document_risk_flags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "candidateAuditInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidates", "evidence_records", "calculation_snapshot", "gate_snapshot"],
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "items": { "$ref": "./candidate-result.schema.json" },
+          "minItems": 1
+        },
+        "evidence_records": {
+          "type": "array",
+          "items": { "$ref": "./evidence-record.schema.json" }
+        },
+        "calculation_snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["calculation_version", "candidate_ids", "input_digest", "output_digest", "warning_codes"],
+          "properties": {
+            "calculation_version": { "type": "string", "minLength": 1 },
+            "candidate_ids": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "input_digest": { "$ref": "./common-types.schema.json#/$defs/digest" },
+            "output_digest": { "$ref": "./common-types.schema.json#/$defs/digest" },
+            "warning_codes": {
+              "type": "array",
+              "items": { "$ref": "./common-types.schema.json#/$defs/reasonCode" },
+              "uniqueItems": true
+            }
+          }
+        },
+        "gate_snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["gate_version", "candidate_gates"],
+          "properties": {
+            "gate_version": { "type": "string", "minLength": 1 },
+            "candidate_gates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["candidate_id", "hard_constraint", "economic_viability", "founder_fit", "risk_adjusted_status"],
+                "properties": {
+                  "candidate_id": { "type": "string", "minLength": 1 },
+                  "hard_constraint": { "enum": ["PASS", "FAIL", "UNKNOWN"] },
+                  "economic_viability": { "enum": ["PASS", "FAIL", "UNKNOWN"] },
+                  "founder_fit": { "enum": ["PASS", "FAIL", "UNKNOWN"] },
+                  "risk_adjusted_status": { "enum": ["REVIEW_RECOMMENDED", "CONDITIONAL_REVIEW", "EXCLUDED"] }
+                }
+              },
+              "minItems": 1
+            }
+          }
+        }
+      }
+    },
+    "candidateAuditResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_audits", "global_findings"],
+      "properties": {
+        "candidate_audits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["candidate_id", "status", "findings"],
+            "properties": {
+              "candidate_id": { "type": "string", "minLength": 1 },
+              "status": { "enum": ["PASS", "REQUIRES_EVIDENCE", "REQUIRES_HUMAN", "INVALID_INPUT"] },
+              "findings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "severity",
+                    "field_path",
+                    "claim_refs",
+                    "evidence_refs",
+                    "calculation_refs",
+                    "disposition"
+                  ],
+                  "properties": {
+                    "code": { "type": "string", "minLength": 1 },
+                    "severity": { "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+                    "field_path": { "type": "string", "minLength": 1 },
+                    "claim_refs": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "uniqueItems": true
+                    },
+                    "evidence_refs": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "uniqueItems": true
+                    },
+                    "calculation_refs": {
+                      "type": "array",
+                      "items": { "type": "string" },
+                      "uniqueItems": true
+                    },
+                    "disposition": { "enum": ["REQUIRE_EVIDENCE", "REQUIRE_HUMAN", "REMOVE_UNSUPPORTED_OUTPUT"] }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "global_findings": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

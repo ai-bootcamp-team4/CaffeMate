@@ -12,7 +12,7 @@
 
 1. `caffemate-web`: React·Tailwind 사용자 화면
 2. `caffemate-api`: 인증, State, Workflow, 계산, Agent 호출과 유일한 State write 권한
-3. `caffemate-worker`: 공공데이터 수집, 문서 parsing·embedding과 비동기 처리
+3. `caffemate-worker`: durable Workflow lease·heartbeat·redelivery, 공공데이터 수집, 문서 parsing·embedding
 4. `caffemate-agents`: ADK Multi-Agent application을 실행하는 managed Agent Runtime
 
 `caffemate-mcp`는 외부 자료 접근 권한을 분리하는 private read-only Cloud Run service다. 초기에는 API와 typed tool package를 공유할 수 있지만 Agent가 데이터베이스나 공급자 API를 직접 호출하지 못하게 한다.
@@ -23,10 +23,11 @@
 - Web, API, Worker, MCP와 사용자별 State·문서의 기본 배치 리전은 `asia-northeast3`로 통일한다.
 - ADK Agent들은 각각 서버로 배포하지 않고 하나의 Multi-Agent application으로 묶어 `asia-northeast3` Agent Runtime에 배포한다.
 - Control API가 IAM 인증으로 Agent Runtime을 직접 호출한다. 서울 리전에서 지원되지 않는 managed Agent Gateway를 필수 경로에 두지 않는다.
-- Agent Runtime과 MCP는 서로 다른 전용 service identity를 사용한다. Agent Runtime은 허용된 read-only MCP tool만 호출하며 State write는 계속 API만 수행한다.
+- 첫 구현에서는 Control API만 private MCP를 호출한다. Agent Runtime은 MCP invoke 권한을 갖지 않고 typed proposal만 반환하며 State write는 계속 API만 수행한다.
 - 생성·embedding model endpoint도 `asia-northeast3`로 고정하며 `global` endpoint로 자동 fallback하지 않는다.
-- 실제 사용할 Gemini model과 embedding model은 배포 전에 `asia-northeast3` 생성·호출 read-back을 통과해야 한다. 실패하면 `BLOCKED_BY_REGION`으로 중단하며 사용자 데이터 plane을 다른 리전으로 옮기지 않는다.
-- 서울 리전에서 Preview인 RAG Engine은 운영 필수 의존성으로 사용하지 않는다. 첫 운영 RAG는 Cloud SQL PostgreSQL full-text search와 pgvector를 사용하며 RAG Engine은 교체 가능한 adapter 뒤에서만 실험한다.
+- 기존 선택 `gemini-3.5-flash`는 공식 지원 생성 리전에 서울이 없어 제거한다. 대체 model id는 `PENDING_HUMAN_DECISION`이며 승인 전 Agent 경로는 `BLOCKED_BY_REGION`이다.
+- 실제 사용할 생성·embedding·reranker는 배포 전에 `asia-northeast3` 호출 read-back을 각각 통과해야 한다. 실패하면 `BLOCKED_BY_REGION`으로 중단하며 사용자 data plane을 다른 리전으로 옮기지 않는다.
+- Vertex AI RAG Engine을 공식·프로젝트 문서 Advanced RAG의 주 검색 계층으로 사용한다. 서울 Preview 위험은 수용하되 corpus 생성·import·retrieval·rerank read-back을 배포 Gate로 두고 다른 검색기로 조용히 우회하지 않는다.
 
 ## 구조도
 
@@ -38,14 +39,16 @@ flowchart LR
     webRun --> api[Cloud Run API and Workflow]
     api --> agents[ADK App on Agent Runtime]
     api --> mcp[Private MCP Tool Gateway]
-    agents --> mcp
+    mcp --> rag[Vertex AI RAG Engine]
     api --> postgres[(Cloud SQL PostgreSQL)]
     api --> warehouse[(BigQuery Area Warehouse)]
     api --> storage[(Cloud Storage Documents)]
     api --> pubsub[Pub Sub]
-    pubsub --> worker[Cloud Run Worker]
+    pubsub --> worker[Cloud Run Worker and Workflow Lease Owner]
+    worker -->|private stage execute| api
     worker --> postgres
     worker --> storage
+    worker --> rag
     agents --> vertex[Vertex AI Models]
     worker --> vertex
     mcp --> official[Official Data Sources]
@@ -57,8 +60,8 @@ flowchart LR
 | --- | --- | --- | --- |
 | Web | 정적 앱과 client routing | 정적 요청량 | 공개 |
 | API | 인증, 프로젝트, Workflow, reducer, 계산, 결과 | 동기 요청량 | 인증 API만 공개 |
-| Worker | 문서·embedding·수집 작업 | queue backlog | 비공개 |
-| Agent Runtime | ADK 역할 실행, tool 계획, 근거 기반 proposal·critic | Agent run과 model latency | 비공개 |
+| Worker | 모든 durable Workflow의 lease·heartbeat·redelivery, 문서·embedding·수집 작업 | queue backlog | 비공개 |
+| Agent Runtime | ADK 역할 실행, read action 계획, 근거 기반 proposal·audit | Agent run과 model latency | 비공개 |
 | MCP | 공식·프로젝트 자료 read tools | tool latency·권한 경계 | 비공개 |
 
 API 내부 모듈은 독립 테스트가 가능해야 하지만 첫 구현에서 각각 별도 서비스로 배포하지 않는다.
@@ -88,7 +91,7 @@ api/
 - Workflow run과 feedback proposal
 - 문서 metadata·chunk·embedding
 
-PostGIS는 행정동·생활권·점포 관측의 공간 결합에 사용한다. PostgreSQL full-text search와 pgvector는 공식·프로젝트 corpus의 MVP hybrid retrieval에 사용한다.
+PostGIS는 행정동·생활권·점포 관측의 공간 결합에 사용한다. Cloud SQL은 RAG corpus·file id와 document revision·원문 anchor·Evidence의 대응 관계를 저장하지만 문서 vector serving의 주 계층은 아니다.
 
 ### BigQuery
 
@@ -108,42 +111,58 @@ BigQuery는 분석·재생성 가능한 자료를 보관한다. 사용자별 tra
 
 사용자 문서는 project 경로와 IAM으로 격리한다. 영구 공개 URL을 만들지 않는다.
 
-## 동기 요청 경로
+### Vertex AI RAG Engine
+
+- 공식 문서·정보공개서와 project-private 문서 corpus
+- Document AI Layout Parser 기반 import·chunking·embedding
+- metadata filter·semantic retrieval·rerank
+- corpus·file id는 Cloud SQL의 허용 project mapping을 통과한 경우에만 조회
+
+RAG 검색 결과는 Evidence가 아니라 Evidence 후보다. MCP와 Control API가 원문 anchor·scope·freshness를 검증한 뒤에만 Evidence ledger에 반영한다.
+
+## Stage 실행 경로
 
 ```text
 Identity token 검증
 → project ownership 검증
-→ current State version 고정
-→ Workflow 선택
+→ workflow·stage·outbox transaction
+→ 202 반환
+→ Worker lease 획득
+→ private API stage execute
+→ current full head 고정
 → read-only MCP·retrieval
-→ Agent candidate
+→ validated tool result를 Agent 입력으로 전달
+→ typed Agent proposal
 → deterministic calculation·Gate
 → Critic
 → reducer validation
 → versioned atomic commit
-→ Candidate Result 반환
+→ stage compare-and-swap
+→ 다음 outbox 또는 Candidate Result
 ```
 
 ## 비동기 경로
 
 ```text
-API가 document·ingestion task 발행
+API가 workflow_run·stage_run·idempotency·outbox를 한 transaction으로 기록
 → Pub/Sub
 → Eventarc
-→ Worker
-→ parsing·embedding·validation
-→ proposed Claim 또는 Evidence 저장
-→ API Workflow가 후속 재계산
+→ Worker가 stage lease·heartbeat 소유
+→ Agent·MCP stage는 private API 실행 endpoint 호출
+→ parsing·embedding stage는 Worker 실행
+→ API reducer가 full head 검증 후 checkpoint
+→ 다음 stage outbox
 ```
 
-비동기 결과는 요청 시 고정한 project·State·document version과 일치할 때만 적용한다. 늦게 도착한 이전 version 결과는 자동 적용하지 않는다.
+공개 API는 DB outbox commit 전 `202`를 반환하지 않는다. Worker는 Agent Runtime·MCP credential을 갖지 않고, 이 두 호출은 계속 Control API만 수행한다. 비동기 결과는 요청 시 고정한 full head 여덟 차원과 일치할 때만 적용한다. timeout·cancel 이후 결과는 head가 같아도 폐기한다.
 
 ## 인증과 권한
 
 - Identity Platform ID token을 API에서 검증한다.
 - 모든 object는 `user_id`와 `project_id` scope를 가진다.
-- API, Worker, MCP는 별도 service identity를 사용한다.
+- API, Worker, MCP와 Agent Runtime은 별도 service identity를 사용한다.
 - MCP와 Worker는 public invoker를 허용하지 않는다.
+- MCP invoke 권한은 Control API identity에만 부여한다.
 - Agent는 raw credential을 받지 않는다.
 - Secret은 Secret Manager에서 runtime identity로 읽는다.
 - project ownership 검증 전 데이터베이스·문서 검색을 실행하지 않는다.

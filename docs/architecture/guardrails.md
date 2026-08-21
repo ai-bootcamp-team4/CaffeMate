@@ -15,8 +15,8 @@ CaffeMate의 Guardrail은 위험 문구를 뒤에 붙이는 기능이 아니라 
 | Tenant | 다른 project·user object 접근 금지 | 요청 차단과 security event |
 | File | MIME·크기·malware·parser 품질 검사 | 격리·거절·human review |
 | Prompt | 문서 안 명령을 data로만 처리 | tool·policy 변경 금지 |
-| Tool | read-only allowlist와 typed input | 허용되지 않은 tool 차단 |
-| Retrieval | authority·scope·data date·anchor 필수 | `STALE`, `PARTIAL`, `ABSTAIN` |
+| Tool | Control API만 read-only MCP allowlist 실행 | Agent direct call과 허용되지 않은 tool 차단 |
+| Retrieval | RAG corpus·project scope, authority·data date·anchor 필수 | `RAG_SCOPE_MISMATCH`, `STALE`, `PARTIAL`, `ABSTAIN` |
 | Claim | 사실·사용자 사실·가정·계산·UNKNOWN 분리 | 자동 승격 차단 |
 | Numeric | validated value·unit만 계산 입력 | 계산 중지·범위 축소 |
 | Candidate | 실제 브랜드와 개인 가맹 가능 확인 | 추천 순위 제외 |
@@ -24,6 +24,7 @@ CaffeMate의 Guardrail은 위험 문구를 뒤에 붙이는 기능이 아니라 
 | Decision | 자료 부족은 조건부, 확인된 위반만 제외 | reason code 강제 |
 | Action | 계약·금전·법률·외부 연락 자동화 금지 | human gate |
 | Output | 중요한 Claim에 Evidence 또는 가정 필요 | result commit 차단 |
+| Region | Runtime·RAG corpus·import·retrieval·생성·embedding·reranker 서울 read-back 필수 | `BLOCKED_BY_REGION`, global 호출 0 |
 
 ## Claim 승격
 
@@ -48,6 +49,7 @@ PROPOSED
 - retrieved text는 system·policy·tool 권한을 바꿀 수 없다.
 - URL·파일 안 지시로 외부 전송·추가 검색·credential 접근을 실행하지 않는다.
 - Agent prompt에는 allowed tools와 forbidden actions를 매 run 고정한다.
+- 첫 구현에서 Agent Runtime의 direct MCP 호출은 0건이어야 한다.
 - injection flag가 있으면 원문 anchor와 함께 Risk finding을 남긴다.
 
 ## 개인정보와 문서
@@ -108,6 +110,10 @@ AI가 할 수 없는 일:
 - 상태와 reason code 일치
 - 조건부 rank가 `NEXT_REVIEW_PRIORITY`로 표시되고 누락 영향이 함께 존재
 - 문서 추출값이 일괄 반영 전 계산 입력으로 사용되지 않음
+- Agent Task·Result의 venture project·full head·input digest echo 일치
+- Agent output id가 backend가 제공한 id pool의 부분집합
+- MCP scope token·manifest·tool input/output Schema·result project 일치
+- known money range의 `low <= base <= high`와 material provenance
 - human boundary 문구
 
 ## Reason Codes
@@ -122,6 +128,17 @@ FRANCHISE_ELIGIBILITY_UNVERIFIED
 AREA_SCOPE_MISMATCH
 UNIT_MISMATCH
 AGENT_SCHEMA_INVALID
+FENCE_ECHO_MISMATCH
+CURRENT_HEAD_MISMATCH
+UNALLOCATED_OUTPUT_ID
+UNSUPPORTED_REFERENCE
+ASSUMPTION_USED_AS_EVIDENCE
+MCP_TOOL_CONTRACT_MISMATCH
+MCP_PROJECT_SCOPE_MISMATCH
+RAG_SCOPE_MISMATCH
+RAG_UNAVAILABLE
+MONEY_RANGE_NON_MONOTONIC
+MATERIAL_PROVENANCE_MISSING
 HUMAN_REVIEW_REQUIRED
 RECOMPUTE_REQUIRED
 UNSAFE_ACTION_REQUEST
@@ -138,6 +155,7 @@ UNSAFE_ACTION_REQUEST
 ## 필수 평가
 
 - cross-project leakage 0건
+- cross-project RAG corpus·file retrieval 0건
 - unsafe action execution 0건
 - ungrounded important Claim 0건
 - 가맹 불가능 브랜드 추천 0건

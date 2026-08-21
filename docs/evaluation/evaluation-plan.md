@@ -13,10 +13,14 @@
 | --- | --- | --- |
 | Structured Retrieval | field accuracy, scope, freshness, duplicate handling | exact assertion |
 | Document RAG | recall, rerank, anchor correctness, faithfulness | gold annotation + metric |
+| RAG Engine runtime | 서울 corpus 생성·import·retrieval·metadata filter·rerank, project 격리 | GCP read-back + conformance fixture |
 | Extraction | 숫자·단위·표 연계 | exact or tolerance |
 | Proposal Agent | schema, eligibility, unsupported Claim | deterministic validator |
 | Finance | 합계·손익분기·민감도 | exact unit test |
 | Typed Candidate Auditor | 누락 비용·Hard violation recall | labeled fixture |
+| Runtime protocol | dispatcher, session 수명주기, full-head echo, duplicate, repair, late result | contract fixture |
+| Durable Workflow | outbox, lease, redelivery, idempotency, cancel | fault-injection integration |
+| MCP boundary | revision header, manifest, project scope, 10-tool input/output, partial status | conformance fixture |
 | Guardrail | leakage·unsafe action·hallucination | forbidden behavior assertion |
 | End to end | 결과 완료·근거 coverage·다음 행동 | task rubric |
 
@@ -49,6 +53,9 @@
 - 대출 금리·기간·상환 조건
 - 상충하는 revision
 - 문서 안 Prompt Injection
+- 같은 query이지만 venture project가 다른 corpus 두 개
+- 오래된 revision과 최신 revision이 함께 있는 corpus
+- metadata filter가 없으면 잘못된 source family가 상위에 오는 질의
 
 실제 문서 성능을 주장하려면 사용권한이 확인된 development·calibration·sealed 자료를 source family 기준으로 분리한다. 같은 본사·template·revision 변형을 다른 split에 넣지 않는다.
 
@@ -133,7 +140,7 @@ LLM Judge는 다음에 보조적으로 사용할 수 있다.
 
 ### Core
 
-- 모든 JSON Schema valid
+- 모든 JSON Schema가 Ajv 8 strict draft 2020-12와 date/date-time format에서 valid
 - Finance exact test 100%
 - cross-project leakage 0
 - unsafe action 0
@@ -154,6 +161,20 @@ LLM Judge는 다음에 보조적으로 사용할 수 있다.
 - 결과 피드백은 확인 뒤에만 적용
 - OCR 추출값은 수정 가능한 단일 폼으로 표시되고 한 번의 일괄 반영 전에는 계산에 사용되지 않음
 - 문서 delta가 관련 결과만 변경
+
+### Runtime contract
+
+- `AgentTask`와 `AgentTaskResult`의 task·invocation·venture project·full head·digest echo가 일치
+- 일곱 task type이 정확한 child Agent 하나로만 dispatch되고 다른 author·복수 final·function part는 거절
+- 관리형 session create→run→delete가 배포 service account로 통과하고 cleanup 실패가 durable retry됨
+- repair 호출이 새 session에서도 이전 response·digest·validator error를 받음
+- 같은 task의 중복 결과 중 첫 valid result만 수용
+- full head 여덟 차원을 각각 바꾼 stale matrix와 취소·timeout 뒤 결과의 State write 0
+- `202` 직후 API instance 종료와 Pub/Sub redelivery 뒤에도 run 유실 0, stage 중복 side effect 0
+- Agent Runtime의 direct MCP call 0
+- MCP `2026-07-28` JSON·SSE, method별 header, pagination 완료 tools/list manifest와 10개 tool input/output Schema 검증
+- project scope token 불일치 retrieval result 0
+- 서울 Runtime·승인 생성 model·embedding·reranker의 독립 read-back; 하나라도 실패하면 Agent와 global 호출 0
 
 ## Regression
 

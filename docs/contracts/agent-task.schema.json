@@ -1,0 +1,463 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-bootcamp-team4/CaffeMate/docs/contracts/agent-task.schema.json",
+  "title": "CaffeMate Agent Task",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "invocation_id",
+    "agent_name",
+    "task_type",
+    "workflow_run_id",
+    "stage_run_id",
+    "transport_attempt",
+    "repair_attempt",
+    "venture_project_id",
+    "head_fence",
+    "prompt_version",
+    "input_schema_id",
+    "output_schema_id",
+    "input_artifacts",
+    "input_digest",
+    "deadline_at",
+    "runtime_tool_policy",
+    "tool_manifest_digest",
+    "available_tool_catalog",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "invocation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "repair_of_invocation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "repair_context": {
+      "$ref": "#/$defs/repairContext"
+    },
+    "agent_name": {
+      "enum": [
+        "INTENT_INTERPRETER",
+        "EVIDENCE_RESEARCHER",
+        "PROPOSAL_AGENT",
+        "DOCUMENT_ANALYST",
+        "TYPED_CANDIDATE_AUDITOR"
+      ]
+    },
+    "task_type": {
+      "enum": [
+        "INTENT_DELTA",
+        "EVIDENCE_PLAN",
+        "EVIDENCE_ASSESS",
+        "PROPOSE_INDEPENDENT",
+        "PROPOSE_FRANCHISE",
+        "DOCUMENT_EXTRACT",
+        "CANDIDATE_AUDIT"
+      ]
+    },
+    "workflow_run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "stage_run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "transport_attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3
+    },
+    "repair_attempt": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "venture_project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "head_fence": {
+      "$ref": "#/$defs/headFence"
+    },
+    "prompt_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "input_schema_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "output_schema_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "input_artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifactRef"
+      },
+      "uniqueItems": true
+    },
+    "input_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "deadline_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "runtime_tool_policy": {
+      "const": "NO_DIRECT_TOOL_CALLS"
+    },
+    "tool_manifest_digest": {
+      "type": ["string", "null"],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "available_tool_catalog": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/toolRef"
+      },
+      "uniqueItems": true
+    },
+    "payload": {
+      "type": "object"
+    },
+    "trace_context": {
+      "$ref": "#/$defs/traceContext"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "repair_attempt": { "const": 1 } },
+        "required": ["repair_attempt"]
+      },
+      "then": {
+        "required": ["repair_of_invocation_id", "repair_context"],
+        "properties": {
+          "repair_of_invocation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "repair_context": {
+            "$ref": "#/$defs/repairContext"
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            { "required": ["repair_of_invocation_id"] },
+            { "required": ["repair_context"] }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "task_type": { "const": "INTENT_DELTA" } }
+      },
+      "then": {
+        "properties": {
+          "agent_name": { "const": "INTENT_INTERPRETER" },
+          "input_schema_id": { "const": "caffemate.agent.intent-input.v1" },
+          "output_schema_id": { "const": "caffemate.agent.intent-result.v1" },
+          "tool_manifest_digest": { "const": null },
+          "available_tool_catalog": { "type": "array", "maxItems": 0 },
+          "payload": { "$ref": "./agent-role-payloads.schema.json#/$defs/intentInput" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "task_type": { "const": "EVIDENCE_PLAN" } }
+      },
+      "then": {
+        "properties": {
+          "agent_name": { "const": "EVIDENCE_RESEARCHER" },
+          "input_schema_id": { "const": "caffemate.agent.evidence-plan-input.v1" },
+          "output_schema_id": { "const": "caffemate.agent.evidence-plan-result.v1" },
+          "tool_manifest_digest": { "type": "string" },
+          "available_tool_catalog": { "type": "array", "minItems": 10, "maxItems": 10 },
+          "payload": { "$ref": "./agent-role-payloads.schema.json#/$defs/evidencePlanInput" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "task_type": { "const": "EVIDENCE_ASSESS" } }
+      },
+      "then": {
+        "properties": {
+          "agent_name": { "const": "EVIDENCE_RESEARCHER" },
+          "input_schema_id": { "const": "caffemate.agent.evidence-assess-input.v1" },
+          "output_schema_id": { "const": "caffemate.agent.evidence-assess-result.v1" },
+          "tool_manifest_digest": { "const": null },
+          "available_tool_catalog": { "type": "array", "maxItems": 0 },
+          "payload": { "$ref": "./agent-role-payloads.schema.json#/$defs/evidenceAssessInput" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "task_type": { "const": "PROPOSE_INDEPENDENT" } }
+      },
+      "then": {
+        "properties": {
+          "agent_name": { "const": "PROPOSAL_AGENT" },
+          "input_schema_id": { "const": "caffemate.agent.independent-proposal-input.v1" },
+          "output_schema_id": { "const": "caffemate.agent.independent-proposal-result.v1" },
+          "tool_manifest_digest": { "const": null },
+          "available_tool_catalog": { "type": "array", "maxItems": 0 },
+          "payload": { "$ref": "./agent-role-payloads.schema.json#/$defs/independentProposalInput" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "task_type": { "const": "PROPOSE_FRANCHISE" } }
+      },
+      "then": {
+        "properties": {
+          "agent_name": { "const": "PROPOSAL_AGENT" },
+          "input_schema_id": { "const": "caffemate.agent.franchise-proposal-input.v1" },
+          "output_schema_id": { "const": "caffemate.agent.franchise-proposal-result.v1" },
+          "tool_manifest_digest": { "const": null },
+          "available_tool_catalog": { "type": "array", "maxItems": 0 },
+          "payload": { "$ref": "./agent-role-payloads.schema.json#/$defs/franchiseProposalInput" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "task_type": { "const": "DOCUMENT_EXTRACT" } }
+      },
+      "then": {
+        "properties": {
+          "agent_name": { "const": "DOCUMENT_ANALYST" },
+          "input_schema_id": { "const": "caffemate.agent.document-extract-input.v1" },
+          "output_schema_id": { "const": "caffemate.agent.document-extract-result.v1" },
+          "tool_manifest_digest": { "const": null },
+          "available_tool_catalog": { "type": "array", "maxItems": 0 },
+          "payload": { "$ref": "./agent-role-payloads.schema.json#/$defs/documentExtractInput" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "task_type": { "const": "CANDIDATE_AUDIT" } }
+      },
+      "then": {
+        "properties": {
+          "agent_name": { "const": "TYPED_CANDIDATE_AUDITOR" },
+          "input_schema_id": { "const": "caffemate.agent.candidate-audit-input.v1" },
+          "output_schema_id": { "const": "caffemate.agent.candidate-audit-result.v1" },
+          "tool_manifest_digest": { "const": null },
+          "available_tool_catalog": { "type": "array", "maxItems": 0 },
+          "payload": { "$ref": "./agent-role-payloads.schema.json#/$defs/candidateAuditInput" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "headFence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workflow_generation",
+        "state_version",
+        "founder_snapshot_id",
+        "area_snapshot_id",
+        "evidence_snapshot_id",
+        "policy_snapshot_id",
+        "index_generation_id",
+        "seed_registry_id"
+      ],
+      "properties": {
+        "workflow_generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "state_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "founder_snapshot_id": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        },
+        "area_snapshot_id": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        },
+        "evidence_snapshot_id": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        },
+        "policy_snapshot_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "index_generation_id": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        },
+        "seed_registry_id": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        }
+      }
+    },
+    "repairContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["previous_response_text", "previous_response_digest", "validator_errors"],
+      "properties": {
+        "previous_response_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "previous_response_digest": {
+          "$ref": "./common-types.schema.json#/$defs/digest"
+        },
+        "validator_errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "json_pointer", "message"],
+            "properties": {
+              "code": { "$ref": "./common-types.schema.json#/$defs/reasonCode" },
+              "json_pointer": { "type": "string", "pattern": "^(|/.*)$", "maxLength": 512 },
+              "message": { "type": "string", "minLength": 1, "maxLength": 500 }
+            }
+          },
+          "minItems": 1,
+          "maxItems": 50
+        }
+      }
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact_kind", "artifact_version", "content_digest"],
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "artifact_kind": {
+          "enum": [
+            "STATE_PROJECTION",
+            "AREA_SNAPSHOT",
+            "EVIDENCE_SNAPSHOT",
+            "POLICY_SNAPSHOT",
+            "MODEL_SEED_REGISTRY",
+            "FRANCHISE_UNIVERSE",
+            "MCP_RESULT_SET",
+            "DOCUMENT_REVISION",
+            "PARSER_BLOCK_SET",
+            "CALCULATION_SNAPSHOT",
+            "GATE_SNAPSHOT",
+            "CANDIDATE_SNAPSHOT"
+          ]
+        },
+        "artifact_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "content_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "toolRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool_name", "tool_version", "input_schema_id", "output_schema_id"],
+      "properties": {
+        "tool_name": {
+          "enum": [
+            "resolve_area",
+            "get_area_profile",
+            "search_cafe_observations",
+            "search_business_events",
+            "list_franchise_universe",
+            "get_franchise_disclosure",
+            "retrieve_official_documents",
+            "retrieve_project_documents",
+            "get_official_procedure",
+            "get_source_health"
+          ]
+        },
+        "tool_version": { "const": "1.0.0" },
+        "input_schema_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "output_schema_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "tool_name": { "const": "resolve_area" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.resolve-area.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.resolve-area.result.v1" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_area_profile" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.get-area-profile.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.get-area-profile.result.v1" } } } },
+        { "if": { "properties": { "tool_name": { "const": "search_cafe_observations" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.search-cafe-observations.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.search-cafe-observations.result.v1" } } } },
+        { "if": { "properties": { "tool_name": { "const": "search_business_events" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.search-business-events.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.search-business-events.result.v1" } } } },
+        { "if": { "properties": { "tool_name": { "const": "list_franchise_universe" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.list-franchise-universe.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.list-franchise-universe.result.v1" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_franchise_disclosure" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.get-franchise-disclosure.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.get-franchise-disclosure.result.v1" } } } },
+        { "if": { "properties": { "tool_name": { "const": "retrieve_official_documents" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.retrieve-official-documents.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.retrieve-official-documents.result.v1" } } } },
+        { "if": { "properties": { "tool_name": { "const": "retrieve_project_documents" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.retrieve-project-documents.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.retrieve-project-documents.result.v1" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_official_procedure" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.get-official-procedure.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.get-official-procedure.result.v1" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_source_health" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.get-source-health.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.get-source-health.result.v1" } } } }
+      ]
+    },
+    "traceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["traceparent"],
+      "properties": {
+        "traceparent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "tracestate": {
+          "type": ["string", "null"],
+          "maxLength": 512
+        }
+      }
+    }
+  }
+}
