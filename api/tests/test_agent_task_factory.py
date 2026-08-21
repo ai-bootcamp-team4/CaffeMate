@@ -125,3 +125,36 @@ def test_missing_claim_plan_is_rejected_before_runtime_invocation() -> None:
 
     with pytest.raises(ContractValidationError, match="Claim Plan"):
         AgentTaskFactory().build_evidence_plan(value)
+
+
+def test_evidence_assess_task_contains_only_normalized_retrieval_inputs() -> None:
+    value = evidence_plan_context()
+    claim_plan = value.dependency_results["CLAIM_PLAN"]["claim_plan"]
+    value.lease = value.lease.model_copy(
+        update={"stage_run_id": "assess-stage", "stage_code": "EVIDENCE_ASSESS"}
+    )
+    value.dependency_results = {
+        "EVIDENCE_RETRIEVAL": {
+            "evidence_retrieval": {
+                "claims": claim_plan["claims"],
+                "executed_actions": [],
+                "failed_actions": [],
+                "completeness": "PARTIAL",
+            }
+        }
+    }
+
+    task = AgentTaskFactory(
+        now=lambda: datetime(2026, 8, 21, 10, 0, tzinfo=UTC),
+        new_invocation_id=lambda: "invocation-assess",
+    ).build_evidence_assess(value)
+
+    assert task["task_type"] == "EVIDENCE_ASSESS"
+    assert task["deadline_at"] == "2026-08-21T10:00:30Z"
+    assert task["tool_manifest_digest"] is None
+    assert task["available_tool_catalog"] == []
+    assert task["payload"] == {
+        "claims": claim_plan["claims"],
+        "executed_actions": [],
+    }
+    assert task["input_digest"] == compute_agent_input_digest(task)

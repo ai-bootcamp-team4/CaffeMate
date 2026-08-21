@@ -46,6 +46,7 @@ from app.results.unavailable_repository import UnavailableResultRepository
 from app.settings import RuntimeSettings
 from app.workflows.area_resolution import AreaMcpClient, AreaResolutionStageHandler
 from app.workflows.claim_plan import ClaimPlanStageHandler
+from app.workflows.evidence_assess import EvidenceAssessStageHandler
 from app.workflows.evidence_plan import AgentRuntime, EvidencePlanStageHandler
 from app.workflows.evidence_retrieval import (
     EvidenceMcpClient,
@@ -179,6 +180,9 @@ def create_app(
         )
     if configured_agent_runtime is not None:
         stage_handlers[FirstProposalStage.EVIDENCE_PLAN] = EvidencePlanStageHandler(
+            configured_agent_runtime
+        )
+        stage_handlers[FirstProposalStage.EVIDENCE_ASSESS] = EvidenceAssessStageHandler(
             configured_agent_runtime
         )
 

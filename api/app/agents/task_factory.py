@@ -98,6 +98,51 @@ class AgentTaskFactory:
         self._contracts.validate_agent_task(task)
         return task
 
+    def build_evidence_assess(self, context: StageContext) -> dict[str, Any]:
+        dependency = context.dependency_results.get("EVIDENCE_RETRIEVAL")
+        retrieval = dependency.get("evidence_retrieval") if dependency else None
+        if not isinstance(retrieval, dict):
+            raise ContractValidationError(
+                "EVIDENCE_ASSESS requires Evidence Retrieval results"
+            )
+        claims = retrieval.get("claims")
+        executed_actions = retrieval.get("executed_actions")
+        if not isinstance(claims, list) or not claims:
+            raise ContractValidationError("EVIDENCE_ASSESS requires Claims")
+        if not isinstance(executed_actions, list):
+            raise ContractValidationError("EVIDENCE_ASSESS executed actions are invalid")
+        registry = self._release["tasks"]["EVIDENCE_ASSESS"]
+        deadline = self._now() + timedelta(seconds=30)
+        task: dict[str, Any] = {
+            "schema_version": "1.0.0",
+            "task_id": f"task-{context.lease.stage_run_id}",
+            "invocation_id": self._new_invocation_id(),
+            "agent_name": registry["agent_name"],
+            "task_type": "EVIDENCE_ASSESS",
+            "workflow_run_id": context.lease.workflow_run_id,
+            "stage_run_id": context.lease.stage_run_id,
+            "transport_attempt": context.lease.attempt,
+            "repair_attempt": 0,
+            "venture_project_id": context.project_id,
+            "head_fence": context.lease.head.model_dump(mode="json"),
+            "prompt_version": registry["prompt_version"],
+            "input_schema_id": registry["input_schema_id"],
+            "output_schema_id": registry["output_schema_id"],
+            "input_artifacts": [],
+            "input_digest": "",
+            "deadline_at": deadline.isoformat().replace("+00:00", "Z"),
+            "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+            "tool_manifest_digest": None,
+            "available_tool_catalog": [],
+            "payload": {
+                "claims": claims,
+                "executed_actions": executed_actions,
+            },
+        }
+        task["input_digest"] = compute_agent_input_digest(task)
+        self._contracts.validate_agent_task(task)
+        return task
+
     @staticmethod
     def _load_json(path: Path) -> dict[str, Any]:
         value = json.loads(path.read_text(encoding="utf-8"))
