@@ -12,7 +12,14 @@ from worker.pubsub import (
 )
 from worker.runtime import DeliveryOutcome, DurableWorker
 
-from app.workflows.models import CheckpointOutcome, HeadFence, StageLease
+from app.domain.errors import ContractValidationError
+from app.workflows.models import (
+    CheckpointOutcome,
+    FailureOutcome,
+    HeadFence,
+    StageFailure,
+    StageLease,
+)
 
 
 class FakeFuture:
@@ -86,9 +93,18 @@ def test_push_envelope_requires_subscription_and_payload_digest() -> None:
 
 
 class FakeExecution:
-    def __init__(self, lease: StageLease | None) -> None:
+    def __init__(
+        self,
+        lease: StageLease | None,
+        *,
+        failure_outcome: FailureOutcome = FailureOutcome.RETRY_SCHEDULED,
+        checkpoint_error: Exception | None = None,
+    ) -> None:
         self.lease = lease
         self.checkpoints = 0
+        self.failure_outcome = failure_outcome
+        self.checkpoint_error = checkpoint_error
+        self.failures: list[StageFailure] = []
 
     def claim(
         self,
@@ -112,8 +128,22 @@ class FakeExecution:
         result: dict[str, object],
     ) -> CheckpointOutcome:
         del stage_run_id, lease_token, input_digest, result
+        if self.checkpoint_error is not None:
+            raise self.checkpoint_error
         self.checkpoints += 1
         return CheckpointOutcome.APPLIED
+
+    def record_failure(
+        self,
+        *,
+        stage_run_id: str,
+        lease_token: str,
+        input_digest: str,
+        failure: StageFailure,
+    ) -> FailureOutcome:
+        del stage_run_id, lease_token, input_digest
+        self.failures.append(failure)
+        return self.failure_outcome
 
 
 class FakeProcessor:
@@ -151,7 +181,7 @@ def stage_lease() -> StageLease:
 def test_worker_absorbs_pubsub_redelivery_before_side_effect() -> None:
     execution = FakeExecution(stage_lease())
     processor = FakeProcessor()
-    worker = DurableWorker(execution, processor, worker_id="worker-1")  # type: ignore[arg-type]
+    worker = DurableWorker(execution, processor, worker_id="worker-1")
     delivery = PubSubDelivery(
         message_id="message-1",
         logical_topic="WORKFLOW_STAGE_READY",
@@ -163,3 +193,65 @@ def test_worker_absorbs_pubsub_redelivery_before_side_effect() -> None:
     assert worker.handle(delivery) == DeliveryOutcome.DUPLICATE_OR_INELIGIBLE
     assert processor.calls == 1
     assert execution.checkpoints == 1
+
+
+class FailingProcessor:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def process(self, lease: StageLease) -> dict[str, object]:
+        del lease
+        raise self._error
+
+
+def delivery() -> PubSubDelivery:
+    return PubSubDelivery(
+        message_id="message-1",
+        logical_topic="WORKFLOW_STAGE_READY",
+        payload={"stage_run_id": "stage-1", "input_digest": "a" * 64},
+        attributes={},
+    )
+
+
+def test_worker_nacks_retryable_failure_after_releasing_lease() -> None:
+    execution = FakeExecution(stage_lease())
+    worker = DurableWorker(
+        execution,
+        FailingProcessor(RuntimeError("secret provider response")),
+        worker_id="worker-1",
+    )
+
+    with pytest.raises(RuntimeError, match="secret provider response"):
+        worker.handle(delivery())
+
+    assert execution.failures == [
+        StageFailure(code="STAGE_PROCESSING_ERROR", retryable=True)
+    ]
+    assert execution.checkpoints == 0
+
+
+def test_worker_acks_terminal_failure_and_classifies_timeout() -> None:
+    execution = FakeExecution(
+        stage_lease(),
+        failure_outcome=FailureOutcome.TERMINAL_FAILED,
+    )
+    worker = DurableWorker(
+        execution,
+        FailingProcessor(TimeoutError("do not persist this message")),
+        worker_id="worker-1",
+    )
+
+    assert worker.handle(delivery()) == DeliveryOutcome.TERMINAL_FAILED
+    assert execution.failures == [StageFailure(code="STAGE_TIMEOUT", retryable=True)]
+
+
+def test_checkpoint_contract_rejection_is_terminal_without_retry() -> None:
+    execution = FakeExecution(
+        stage_lease(),
+        failure_outcome=FailureOutcome.TERMINAL_FAILED,
+        checkpoint_error=ContractValidationError("sensitive validation detail"),
+    )
+    worker = DurableWorker(execution, FakeProcessor(), worker_id="worker-1")
+
+    assert worker.handle(delivery()) == DeliveryOutcome.TERMINAL_FAILED
+    assert execution.failures == [StageFailure(code="CONTRACT_REJECTED", retryable=False)]
