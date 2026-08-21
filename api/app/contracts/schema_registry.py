@@ -19,6 +19,8 @@ class AgentContractValidator(Protocol):
 
     def validate_agent_task_result(self, value: dict[str, Any]) -> None: ...
 
+    def agent_task_result_errors(self, value: dict[str, Any]) -> list[dict[str, str]]: ...
+
 
 class McpContractValidator(Protocol):
     def validate_mcp_tool_input(self, tool_name: str, value: dict[str, Any]) -> None: ...
@@ -90,6 +92,20 @@ class ContractRegistry:
     def validate_agent_task_result(self, value: dict[str, Any]) -> None:
         self._validate("agent-task-result.schema.json", value)
 
+    def agent_task_result_errors(self, value: dict[str, Any]) -> list[dict[str, str]]:
+        errors = sorted(
+            self._validators["agent-task-result.schema.json"].iter_errors(value),
+            key=lambda error: tuple(str(part) for part in error.absolute_path),
+        )
+        return [
+            {
+                "code": "AGENT_RESULT_SCHEMA_INVALID",
+                "json_pointer": self._json_pointer(error.absolute_path),
+                "message": error.message[:500],
+            }
+            for error in errors[:50]
+        ]
+
     def validate_mcp_tool_input(self, tool_name: str, value: dict[str, Any]) -> None:
         validator = self._mcp_input_validators.get(tool_name)
         if validator is None:
@@ -130,3 +146,8 @@ class ContractRegistry:
             raise ContractValidationError(
                 f"{contract_name} rejected {location}: {error.message}"
             ) from error
+
+    @staticmethod
+    def _json_pointer(path: Any) -> str:
+        encoded = [str(part).replace("~", "~0").replace("/", "~1") for part in path]
+        return "" if not encoded else "/" + "/".join(encoded)
