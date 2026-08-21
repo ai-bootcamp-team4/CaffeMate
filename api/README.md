@@ -42,3 +42,8 @@ docker run --rm -p 8081:8080 caffemate-backend:local \
 
 같은 이미지에서 migration job은 `caffemate-api migrate`를 실행한다. API와 Worker의 업무
 endpoint는 필수 환경과 비밀값이 없으면 `503`으로 실패하며 `/healthz`만 liveness를 반환한다.
+
+Worker stage ingress에는 `PUBSUB_SUBSCRIPTION`, `CONTROL_API_URL`,
+`CONTROL_API_AUDIENCE`, `WORKER_ID`가 필요하다. DB outbox를 stage topic으로 전달하는
+`POST /internal/v1/outbox:publish`에는 `WORKFLOW_STAGE_TOPIC_RESOURCE`도 필요하다. 두
+endpoint는 public API가 아니며 private Cloud Run IAM 호출만 허용해야 한다.

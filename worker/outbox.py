@@ -42,22 +42,34 @@ class PostgresOutboxRepository:
         self._now = now or (lambda: datetime.now(UTC))
         self._new_token = new_token or (lambda: secrets.token_urlsafe(32))
 
-    def claim_next(self, *, publisher_id: str) -> ClaimedOutboxMessage | None:
+    def claim_next(
+        self,
+        *,
+        publisher_id: str,
+        logical_topic: str | None = None,
+    ) -> ClaimedOutboxMessage | None:
         now = self._now()
+        topic_clause = " AND topic=:logical_topic" if logical_topic is not None else ""
+        parameters: dict[str, object] = {"now": now}
+        if logical_topic is not None:
+            parameters["logical_topic"] = logical_topic
         with self._engine.begin() as connection:
             row = connection.execute(
                 text(
                     """
                     SELECT outbox_id, topic, aggregate_id, payload_json, payload_digest
                     FROM workflow_outbox
-                    WHERE status='PENDING'
-                       OR (status='PUBLISHING' AND claim_expires_at <= :now)
+                    WHERE (status='PENDING'
+                       OR (status='PUBLISHING' AND claim_expires_at <= :now))
+                    """
+                    + topic_clause
+                    + """
                     ORDER BY available_at, outbox_id
                     FOR UPDATE SKIP LOCKED
                     LIMIT 1
                     """
                 ),
-                {"now": now},
+                parameters,
             ).mappings().one_or_none()
             if row is None:
                 return None
@@ -126,13 +138,18 @@ class OutboxPublisher:
         publisher: MessagePublisher,
         *,
         publisher_id: str,
+        logical_topic: str | None = None,
     ) -> None:
         self._repository = repository
         self._publisher = publisher
         self._publisher_id = publisher_id
+        self._logical_topic = logical_topic
 
     def publish_one(self) -> bool:
-        message = self._repository.claim_next(publisher_id=self._publisher_id)
+        message = self._repository.claim_next(
+            publisher_id=self._publisher_id,
+            logical_topic=self._logical_topic,
+        )
         if message is None:
             return False
         message_id = self._publisher.publish(

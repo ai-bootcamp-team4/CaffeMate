@@ -1098,3 +1098,39 @@ def test_outbox_claim_recovery_is_at_least_once_and_token_fenced(
             text("SELECT status, attempts FROM workflow_outbox")
         ).one()
     assert (status, attempts) == ("PUBLISHED", 2)
+
+
+def test_outbox_topic_filter_does_not_publish_cleanup_to_stage_subscription(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    project, _stage_id, _input_digest, workflows = create_ready_stage(
+        repository, postgres_engine
+    )
+    with postgres_engine.connect() as connection:
+        workflow_run_id = connection.execute(
+            text("SELECT workflow_run_id FROM workflow_runs")
+        ).scalar_one()
+    workflows.cancel(
+        project_id=project.project_id,
+        workflow_run_id=workflow_run_id,
+        user_id="user-1",
+        idempotency_key="cancel-1",
+    )
+    outbox = PostgresOutboxRepository(postgres_engine, new_token=lambda: "cleanup-claim")
+
+    cleanup = outbox.claim_next(
+        publisher_id="cleanup-publisher",
+        logical_topic="WORKFLOW_CLEANUP",
+    )
+
+    assert cleanup is not None
+    assert cleanup.topic == "WORKFLOW_CLEANUP"
+    with postgres_engine.connect() as connection:
+        stage_status = connection.execute(
+            text(
+                "SELECT status FROM workflow_outbox "
+                "WHERE topic='WORKFLOW_STAGE_READY'"
+            )
+        ).scalar_one()
+    assert stage_status == "PENDING"

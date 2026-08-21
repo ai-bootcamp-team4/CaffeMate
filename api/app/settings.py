@@ -17,6 +17,7 @@ class RuntimeSettings:
     worker_service_account_email: str | None
     worker_id: str | None
     pubsub_subscription: str | None
+    workflow_stage_topic_resource: str | None
 
     @classmethod
     def from_environment(cls) -> "RuntimeSettings":
@@ -35,6 +36,7 @@ class RuntimeSettings:
             worker_service_account_email=os.getenv("WORKER_SERVICE_ACCOUNT_EMAIL"),
             worker_id=os.getenv("WORKER_ID") or os.getenv("HOSTNAME"),
             pubsub_subscription=os.getenv("PUBSUB_SUBSCRIPTION"),
+            workflow_stage_topic_resource=os.getenv("WORKFLOW_STAGE_TOPIC_RESOURCE"),
         )
 
     @property
