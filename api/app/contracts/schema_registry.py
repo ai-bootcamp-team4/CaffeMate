@@ -1,11 +1,15 @@
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
 
 from app.domain.errors import ContractValidationError
+
+
+class VentureStateValidator(Protocol):
+    def validate_venture_state(self, value: dict[str, Any]) -> None: ...
 
 
 class ContractRegistry:

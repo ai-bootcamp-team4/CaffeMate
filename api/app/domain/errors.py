@@ -24,5 +24,9 @@ class AuthenticationUnavailableError(DomainError):
     code = "AUTHENTICATION_UNAVAILABLE"
 
 
+class UnauthenticatedError(DomainError):
+    code = "UNAUTHENTICATED"
+
+
 class PersistenceUnavailableError(DomainError):
     code = "PERSISTENCE_UNAVAILABLE"

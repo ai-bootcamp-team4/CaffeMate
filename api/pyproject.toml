@@ -1,15 +1,21 @@
 [project]
 name = "caffemate-api"
-version = "0.1.0"
+version = "0.2.0"
 description = "CaffeMate authoritative Control API"
 requires-python = ">=3.12,<3.15"
 dependencies = [
+  "cloud-sql-python-connector[pg8000]>=1.18,<2",
   "fastapi>=0.116,<1",
+  "firebase-admin>=7.1,<8",
   "jsonschema[format]>=4.25,<5",
   "pydantic>=2.11,<3",
   "rfc8785>=0.1.4,<1",
+  "sqlalchemy>=2.0,<3",
   "uvicorn[standard]>=0.35,<1",
 ]
+
+[project.scripts]
+caffemate-api = "app.cli:main"
 
 [dependency-groups]
 dev = [
@@ -18,6 +24,7 @@ dev = [
   "pytest>=8.4,<10",
   "pytest-cov>=6.2,<8",
   "ruff>=0.12,<1",
+  "testcontainers>=4.13,<5",
   "types-jsonschema>=4.25,<5",
 ]
 
@@ -36,6 +43,10 @@ select = ["E", "F", "I", "B", "UP", "ASYNC"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["firebase_admin", "firebase_admin.*"]
+ignore_missing_imports = true
 
 [build-system]
 requires = ["hatchling"]

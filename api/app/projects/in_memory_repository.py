@@ -67,6 +67,14 @@ class InMemoryProjectRepository:
             project = self._owned_project(project_id=project_id, user_id=user_id)
             return project.model_copy(deep=True)
 
+    def list_for_user(self, *, user_id: str) -> list[Project]:
+        with self._lock:
+            return [
+                project.model_copy(deep=True)
+                for project in self._projects.values()
+                if project.user_id == user_id
+            ]
+
     def confirm_onboarding(self, command: ConfirmOnboardingCommand) -> Project:
         scope = (
             command.user_id,
