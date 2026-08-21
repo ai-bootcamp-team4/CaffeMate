@@ -106,6 +106,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0003_worker_lease_fence.sql",
             "0004_result_bundle.sql",
             "0005_stage_failure.sql",
+            "0006_first_proposal_dag.sql",
         ]
 
 
@@ -373,7 +374,13 @@ def test_workflow_start_atomically_writes_run_stage_event_and_outbox(
                 )
             ).scalars()
         )
-    assert counts == {table: 1 for table in counts}
+    assert counts == {
+        "workflow_runs": 1,
+        "stage_runs": 13,
+        "workflow_events": 1,
+        "workflow_idempotency_records": 1,
+        "workflow_outbox": 1,
+    }
     assert outbox["topic"] == "WORKFLOW_STAGE_READY"
     assert outbox["status"] == "PENDING"
     assert outbox["payload_json"]["workflow_run_id"] == run.workflow_run_id
@@ -475,14 +482,14 @@ def test_cancel_increments_generation_and_durably_cancels_stage(
             text("SELECT workflow_generation FROM venture_projects WHERE project_id=:id"),
             {"id": project.project_id},
         ).scalar_one()
-        stage_status = connection.execute(text("SELECT status FROM stage_runs")).scalar_one()
+        stage_statuses = list(connection.execute(text("SELECT status FROM stage_runs")).scalars())
         topics = list(
             connection.execute(
                 text("SELECT topic FROM workflow_outbox ORDER BY outbox_id")
             ).scalars()
         )
     assert generation == 2
-    assert stage_status == "CANCELLED"
+    assert set(stage_statuses) == {"CANCELLED"}
     assert topics == ["WORKFLOW_STAGE_READY", "WORKFLOW_CLEANUP"]
 
 
@@ -566,9 +573,125 @@ def create_ready_stage(
     )
     with postgres_engine.connect() as connection:
         stage_id, input_digest = connection.execute(
-            text("SELECT stage_run_id, input_digest FROM stage_runs")
+            text(
+                "SELECT stage_run_id, input_digest FROM stage_runs "
+                "WHERE status='READY'"
+            )
         ).one()
     return project, stage_id, input_digest, workflows
+
+
+def create_commit_stage(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> tuple[Project, str, str, WorkflowService]:
+    project, _stage_id, _input_digest, workflows = create_ready_stage(
+        repository, postgres_engine
+    )
+    with postgres_engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE workflow_runs SET status='RUNNING' "
+                "WHERE project_id=:project_id"
+            ),
+            {"project_id": project.project_id},
+        )
+        connection.execute(
+            text(
+                "UPDATE stage_runs SET status=CASE WHEN stage_code='COMMIT_RESULT' "
+                "THEN 'READY' ELSE 'SUCCEEDED' END"
+            )
+        )
+        stage_id, input_digest = connection.execute(
+            text(
+                "SELECT stage_run_id, input_digest FROM stage_runs "
+                "WHERE stage_code='COMMIT_RESULT'"
+            )
+        ).one()
+    return project, stage_id, input_digest, workflows
+
+
+def test_first_proposal_dag_promotes_ready_stages_and_joins_both_branches(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    project = onboarded_project(repository)
+    workflows = WorkflowService(
+        PostgresWorkflowRepository(postgres_engine, policy_snapshot_id="policy-v1")
+    )
+    run = workflows.start(
+        project_id=project.project_id,
+        user_id="user-1",
+        workflow_code=WorkflowCode.FIRST_PROPOSAL,
+        idempotency_key="workflow-1",
+    )
+    execution = PostgresStageExecutionRepository(postgres_engine)
+    expected_batches = [
+        {"AREA_RESOLUTION"},
+        {"CLAIM_PLAN"},
+        {"EVIDENCE_PLAN"},
+        {"EVIDENCE_RETRIEVAL"},
+        {"EVIDENCE_ASSESS"},
+        {"EVIDENCE_FREEZE"},
+        {"INDEPENDENT_SEED", "FRANCHISE_ELIGIBILITY"},
+        {"PROPOSE_INDEPENDENT", "PROPOSE_FRANCHISE"},
+        {"CALCULATE_GATE_RANK"},
+        {"CANDIDATE_AUDIT"},
+        {"COMMIT_RESULT"},
+    ]
+
+    for expected in expected_batches:
+        with postgres_engine.connect() as connection:
+            ready = connection.execute(
+                text(
+                    "SELECT stage_run_id, stage_code, input_digest FROM stage_runs "
+                    "WHERE workflow_run_id=:workflow_run_id AND status='READY'"
+                ),
+                {"workflow_run_id": run.workflow_run_id},
+            ).mappings().all()
+        assert {stage["stage_code"] for stage in ready} == expected
+        for stage in ready:
+            lease = execution.claim(
+                stage_run_id=stage["stage_run_id"],
+                worker_id="worker-1",
+                expected_input_digest=stage["input_digest"],
+            )
+            assert lease is not None
+            result = (
+                result_payload(project_id=project.project_id)
+                if stage["stage_code"] == "COMMIT_RESULT"
+                else {"stage": stage["stage_code"]}
+            )
+            assert execution.checkpoint(
+                stage_run_id=stage["stage_run_id"],
+                lease_token=lease.lease_token,
+                input_digest=lease.input_digest,
+                result=result,
+            ) == CheckpointOutcome.APPLIED
+
+    completed = workflows.get(
+        project_id=project.project_id,
+        workflow_run_id=run.workflow_run_id,
+        user_id="user-1",
+    )
+    assert completed.status == WorkflowStatus.SUCCEEDED
+    with postgres_engine.connect() as connection:
+        statuses = set(
+            connection.execute(
+                text(
+                    "SELECT status FROM stage_runs WHERE workflow_run_id=:workflow_run_id"
+                ),
+                {"workflow_run_id": run.workflow_run_id},
+            ).scalars()
+        )
+        ready_messages = connection.execute(
+            text(
+                "SELECT COUNT(*) FROM workflow_outbox "
+                "WHERE topic='WORKFLOW_STAGE_READY'"
+            )
+        ).scalar_one()
+    assert statuses == {"SUCCEEDED"}
+    assert ready_messages == 13
 
 
 def valid_candidate(*, project_id: str, state_version: int = 1) -> dict[str, object]:
@@ -638,7 +761,7 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
     postgres_engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project, stage_id, input_digest, _workflows = create_ready_stage(
+    project, stage_id, input_digest, _workflows = create_commit_stage(
         repository, postgres_engine
     )
     execution = PostgresStageExecutionRepository(
@@ -706,7 +829,7 @@ def test_invalid_result_contract_rolls_back_bundle_and_stage_checkpoint(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
 ) -> None:
-    project, stage_id, input_digest, _workflows = create_ready_stage(
+    project, stage_id, input_digest, _workflows = create_commit_stage(
         repository, postgres_engine
     )
     execution = PostgresStageExecutionRepository(postgres_engine)
@@ -750,7 +873,7 @@ def test_cancelled_worker_bundle_is_discarded_before_payload_validation(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
 ) -> None:
-    project, stage_id, input_digest, workflows = create_ready_stage(
+    project, stage_id, input_digest, workflows = create_commit_stage(
         repository, postgres_engine
     )
     execution = PostgresStageExecutionRepository(postgres_engine)

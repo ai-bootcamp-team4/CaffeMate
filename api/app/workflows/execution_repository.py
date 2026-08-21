@@ -5,6 +5,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import rfc8785
 from pydantic import ValidationError
 from sqlalchemy import Engine, text
 from sqlalchemy.engine import Connection, RowMapping
@@ -12,6 +13,7 @@ from sqlalchemy.engine import Connection, RowMapping
 from app.contracts.schema_registry import CandidateContractValidator, ContractRegistry
 from app.domain.errors import ContractValidationError
 from app.results.models import ResultBundlePayload
+from app.workflows.first_proposal import FirstProposalStage, stage_input_digest
 from app.workflows.models import (
     CheckpointOutcome,
     FailureOutcome,
@@ -167,6 +169,11 @@ class PostgresStageExecutionRepository:
                 return CheckpointOutcome.STALE_DISCARDED
 
             bundle = self._parse_result_bundle(result)
+            is_commit_stage = row["stage_code"] == FirstProposalStage.COMMIT_RESULT.value
+            if bundle is not None and not is_commit_stage:
+                raise ContractValidationError("Only COMMIT_RESULT may persist a ResultBundle")
+            if bundle is None and is_commit_stage:
+                raise ContractValidationError("COMMIT_RESULT requires a ResultBundle")
             result_bundle_id: str | None = None
             if bundle is not None:
                 try:
@@ -201,13 +208,6 @@ class PostgresStageExecutionRepository:
             )
             connection.execute(
                 text(
-                    "UPDATE workflow_runs SET status='SUCCEEDED', updated_at=:now "
-                    "WHERE workflow_run_id=:workflow_run_id"
-                ),
-                {"now": now, "workflow_run_id": row["workflow_run_id"]},
-            )
-            connection.execute(
-                text(
                     """
                     INSERT INTO workflow_events(
                         workflow_run_id, event_type, event_json, occurred_at
@@ -221,12 +221,110 @@ class PostgresStageExecutionRepository:
                     "event": json.dumps(
                         {
                             "stage_run_id": stage_run_id,
+                            "stage_code": row["stage_code"],
                             "result_bundle_id": result_bundle_id,
                         }
                     ),
                     "now": now,
                 },
             )
+            ready_stages = connection.execute(
+                text(
+                    """
+                    SELECT candidate.stage_run_id, candidate.stage_code,
+                           candidate.input_digest
+                    FROM stage_runs candidate
+                    WHERE candidate.workflow_run_id=:workflow_run_id
+                      AND candidate.status='PENDING'
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM stage_dependencies dependency
+                          JOIN stage_runs prerequisite
+                            ON prerequisite.stage_run_id=dependency.depends_on_stage_run_id
+                          WHERE dependency.stage_run_id=candidate.stage_run_id
+                            AND prerequisite.status <> 'SUCCEEDED'
+                      )
+                    ORDER BY candidate.created_at, candidate.stage_code
+                    FOR UPDATE OF candidate
+                    """
+                ),
+                {"workflow_run_id": row["workflow_run_id"]},
+            ).mappings().all()
+            for ready in ready_stages:
+                dependencies = connection.execute(
+                    text(
+                        """
+                        SELECT prerequisite.stage_code, prerequisite.input_digest,
+                               prerequisite.result_json
+                        FROM stage_dependencies dependency
+                        JOIN stage_runs prerequisite
+                          ON prerequisite.stage_run_id=dependency.depends_on_stage_run_id
+                        WHERE dependency.stage_run_id=:stage_run_id
+                        ORDER BY prerequisite.stage_code
+                        """
+                    ),
+                    {"stage_run_id": ready["stage_run_id"]},
+                ).mappings().all()
+                ready_digest = stage_input_digest(
+                    workflow_run_id=row["workflow_run_id"],
+                    stage_code=FirstProposalStage(ready["stage_code"]),
+                    head=self._stored_head(row),
+                    dependencies=tuple(
+                        {
+                            "stage_code": dependency["stage_code"],
+                            "input_digest": dependency["input_digest"],
+                            "result": dependency["result_json"],
+                        }
+                        for dependency in dependencies
+                    ),
+                )
+                connection.execute(
+                    text(
+                        "UPDATE stage_runs SET status='READY', input_digest=:input_digest, "
+                        "updated_at=:now "
+                        "WHERE stage_run_id=:stage_run_id AND status='PENDING'"
+                    ),
+                    {
+                        "input_digest": ready_digest,
+                        "now": now,
+                        "stage_run_id": ready["stage_run_id"],
+                    },
+                )
+                self._insert_stage_ready_event(
+                    connection,
+                    workflow_run_id=row["workflow_run_id"],
+                    stage_run_id=ready["stage_run_id"],
+                    stage_code=ready["stage_code"],
+                    input_digest=ready_digest,
+                    occurred_at=now,
+                )
+            incomplete = connection.execute(
+                text(
+                    "SELECT EXISTS(SELECT 1 FROM stage_runs "
+                    "WHERE workflow_run_id=:workflow_run_id AND status <> 'SUCCEEDED')"
+                ),
+                {"workflow_run_id": row["workflow_run_id"]},
+            ).scalar_one()
+            if not incomplete:
+                connection.execute(
+                    text(
+                        "UPDATE workflow_runs SET status='SUCCEEDED', updated_at=:now "
+                        "WHERE workflow_run_id=:workflow_run_id"
+                    ),
+                    {"now": now, "workflow_run_id": row["workflow_run_id"]},
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO workflow_events(
+                            workflow_run_id, event_type, event_json, occurred_at
+                        ) VALUES (
+                            :workflow_run_id, 'WORKFLOW_SUCCEEDED', '{}'::JSONB, :now
+                        )
+                        """
+                    ),
+                    {"workflow_run_id": row["workflow_run_id"], "now": now},
+                )
             return CheckpointOutcome.APPLIED
 
     def record_failure(
@@ -302,6 +400,22 @@ class PostgresStageExecutionRepository:
                 ),
                 {"now": now, "workflow_run_id": row["workflow_run_id"]},
             )
+            connection.execute(
+                text(
+                    """
+                    UPDATE stage_runs SET status='CANCELLED', completed_at=:now, updated_at=:now,
+                        lease_token_digest=NULL, lease_owner=NULL, lease_expires_at=NULL
+                    WHERE workflow_run_id=:workflow_run_id
+                      AND stage_run_id <> :stage_run_id
+                      AND status IN ('PENDING', 'READY', 'RUNNING', 'CHECKPOINTED')
+                    """
+                ),
+                {
+                    "now": now,
+                    "workflow_run_id": row["workflow_run_id"],
+                    "stage_run_id": stage_run_id,
+                },
+            )
             self._insert_failure_event(
                 connection,
                 workflow_run_id=row["workflow_run_id"],
@@ -312,6 +426,61 @@ class PostgresStageExecutionRepository:
                 occurred_at=now,
             )
             return FailureOutcome.TERMINAL_FAILED
+
+    @staticmethod
+    def _insert_stage_ready_event(
+        connection: Connection,
+        *,
+        workflow_run_id: str,
+        stage_run_id: str,
+        stage_code: str,
+        input_digest: str,
+        occurred_at: datetime,
+    ) -> None:
+        payload = {
+            "workflow_run_id": workflow_run_id,
+            "stage_run_id": stage_run_id,
+            "input_digest": input_digest,
+        }
+        payload_bytes = rfc8785.dumps(payload)
+        connection.execute(
+            text(
+                """
+                INSERT INTO workflow_events(
+                    workflow_run_id, event_type, event_json, occurred_at
+                ) VALUES (
+                    :workflow_run_id, 'STAGE_READY', CAST(:event_json AS JSONB), :occurred_at
+                )
+                """
+            ),
+            {
+                "workflow_run_id": workflow_run_id,
+                "event_json": json.dumps(
+                    {"stage_run_id": stage_run_id, "stage_code": stage_code},
+                    separators=(",", ":"),
+                ),
+                "occurred_at": occurred_at,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO workflow_outbox(
+                    topic, aggregate_id, payload_json, payload_digest,
+                    available_at, created_at
+                ) VALUES (
+                    'WORKFLOW_STAGE_READY', :aggregate_id, CAST(:payload_json AS JSONB),
+                    :payload_digest, :occurred_at, :occurred_at
+                )
+                """
+            ),
+            {
+                "aggregate_id": stage_run_id,
+                "payload_json": payload_bytes.decode(),
+                "payload_digest": hashlib.sha256(payload_bytes).hexdigest(),
+                "occurred_at": occurred_at,
+            },
+        )
 
     @staticmethod
     def _insert_failure_event(

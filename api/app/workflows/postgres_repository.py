@@ -14,6 +14,8 @@ from app.domain.errors import (
     WorkflowNotFoundError,
     WorkflowPreconditionError,
 )
+from app.domain.models import CafeTypePreference
+from app.workflows.first_proposal import compile_first_proposal_plan, stage_input_digest
 from app.workflows.models import (
     CancelWorkflowCommand,
     HeadFence,
@@ -156,7 +158,6 @@ class PostgresWorkflowRepository:
                 )
             ).hexdigest()
             workflow_run_id = self._new_id()
-            stage_run_id = self._new_id()
             occurred_at = self._now()
             connection.execute(
                 text(
@@ -187,34 +188,76 @@ class PostgresWorkflowRepository:
                     "updated_at": occurred_at,
                 },
             )
-            connection.execute(
-                text(
-                    """
-                    INSERT INTO stage_runs(
-                        stage_run_id, workflow_run_id, stage_code, status,
-                        input_digest, created_at, updated_at
-                    ) VALUES (
-                        :stage_run_id, :workflow_run_id, :stage_code, 'READY',
-                        :input_digest, :created_at, :updated_at
+            founder = state_json.get("founder") if isinstance(state_json, dict) else None
+            if not isinstance(founder, dict):
+                raise WorkflowPreconditionError("Founder State must exist before workflow start")
+            raw_preference = founder.get("cafe_type_preference")
+            if not isinstance(raw_preference, str):
+                raise WorkflowPreconditionError(
+                    "Cafe type preference must exist before workflow start"
+                )
+            try:
+                preference = CafeTypePreference(raw_preference)
+            except ValueError as error:
+                raise WorkflowPreconditionError("Cafe type preference is invalid") from error
+            plan = compile_first_proposal_plan(preference)
+            stage_ids = {stage.code: self._new_id() for stage in plan}
+            stage_digests = {
+                stage.code: stage_input_digest(
+                    workflow_run_id=workflow_run_id,
+                    stage_code=stage.code,
+                    head=head,
+                )
+                for stage in plan
+            }
+            for stage in plan:
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO stage_runs(
+                            stage_run_id, workflow_run_id, stage_code, status,
+                            input_digest, created_at, updated_at
+                        ) VALUES (
+                            :stage_run_id, :workflow_run_id, :stage_code, :status,
+                            :input_digest, :created_at, :updated_at
+                        )
+                        """
+                    ),
+                    {
+                        "stage_run_id": stage_ids[stage.code],
+                        "workflow_run_id": workflow_run_id,
+                        "stage_code": stage.code.value,
+                        "status": "READY" if not stage.dependencies else "PENDING",
+                        "input_digest": stage_digests[stage.code],
+                        "created_at": occurred_at,
+                        "updated_at": occurred_at,
+                    },
+                )
+                for dependency in stage.dependencies:
+                    connection.execute(
+                        text(
+                            """
+                            INSERT INTO stage_dependencies(stage_run_id, depends_on_stage_run_id)
+                            VALUES (:stage_run_id, :depends_on_stage_run_id)
+                            """
+                        ),
+                        {
+                            "stage_run_id": stage_ids[stage.code],
+                            "depends_on_stage_run_id": stage_ids[dependency],
+                        },
                     )
-                    """
-                ),
-                {
-                    "stage_run_id": stage_run_id,
-                    "workflow_run_id": workflow_run_id,
-                    "stage_code": command.workflow_code.value,
-                    "input_digest": input_digest,
-                    "created_at": occurred_at,
-                    "updated_at": occurred_at,
-                },
-            )
+            root = plan[0]
+            stage_run_id = stage_ids[root.code]
+            root_digest = stage_digests[root.code]
             self._insert_event(
                 connection,
                 workflow_run_id=workflow_run_id,
                 event_type="WORKFLOW_QUEUED",
                 data={
                     "stage_run_id": stage_run_id,
-                    "input_digest": input_digest,
+                    "input_digest": root_digest,
+                    "stage_code": root.code.value,
+                    "stage_count": len(plan),
                     "head": head.model_dump(mode="json"),
                 },
                 occurred_at=occurred_at,
@@ -226,7 +269,7 @@ class PostgresWorkflowRepository:
                 payload={
                     "workflow_run_id": workflow_run_id,
                     "stage_run_id": stage_run_id,
-                    "input_digest": input_digest,
+                    "input_digest": root_digest,
                 },
                 occurred_at=occurred_at,
             )
