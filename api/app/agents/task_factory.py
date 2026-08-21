@@ -143,6 +143,76 @@ class AgentTaskFactory:
         self._contracts.validate_agent_task(task)
         return task
 
+    def build_independent_proposal(self, context: StageContext) -> dict[str, Any]:
+        return self._build_proposal(
+            context,
+            task_type="PROPOSE_INDEPENDENT",
+            dependency_code="INDEPENDENT_SEED",
+            dependency_key="independent_seed",
+            candidate_collection="model_seeds",
+        )
+
+    def build_franchise_proposal(self, context: StageContext) -> dict[str, Any]:
+        return self._build_proposal(
+            context,
+            task_type="PROPOSE_FRANCHISE",
+            dependency_code="FRANCHISE_ELIGIBILITY",
+            dependency_key="franchise_eligibility",
+            candidate_collection="franchise_universe",
+        )
+
+    def _build_proposal(
+        self,
+        context: StageContext,
+        *,
+        task_type: str,
+        dependency_code: str,
+        dependency_key: str,
+        candidate_collection: str,
+    ) -> dict[str, Any]:
+        dependency = context.dependency_results.get(dependency_code)
+        prepared = dependency.get(dependency_key) if dependency else None
+        proposal_input = prepared.get("proposal_input") if isinstance(prepared, dict) else None
+        if not isinstance(proposal_input, dict):
+            raise ContractValidationError(f"{task_type} requires prepared candidate input")
+        candidates = proposal_input.get(candidate_collection)
+        requested_count = proposal_input.get("requested_candidate_count")
+        if (
+            not isinstance(candidates, list)
+            or not candidates
+            or not isinstance(requested_count, int)
+            or requested_count < 1
+        ):
+            raise ContractValidationError(f"{task_type} has no eligible candidate input")
+        registry = self._release["tasks"][task_type]
+        deadline = self._now() + timedelta(seconds=30)
+        task: dict[str, Any] = {
+            "schema_version": "1.0.0",
+            "task_id": f"task-{context.lease.stage_run_id}",
+            "invocation_id": self._new_invocation_id(),
+            "agent_name": registry["agent_name"],
+            "task_type": task_type,
+            "workflow_run_id": context.lease.workflow_run_id,
+            "stage_run_id": context.lease.stage_run_id,
+            "transport_attempt": context.lease.attempt,
+            "repair_attempt": 0,
+            "venture_project_id": context.project_id,
+            "head_fence": context.lease.head.model_dump(mode="json"),
+            "prompt_version": registry["prompt_version"],
+            "input_schema_id": registry["input_schema_id"],
+            "output_schema_id": registry["output_schema_id"],
+            "input_artifacts": [],
+            "input_digest": "",
+            "deadline_at": deadline.isoformat().replace("+00:00", "Z"),
+            "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+            "tool_manifest_digest": None,
+            "available_tool_catalog": [],
+            "payload": proposal_input,
+        }
+        task["input_digest"] = compute_agent_input_digest(task)
+        self._contracts.validate_agent_task(task)
+        return task
+
     @staticmethod
     def _load_json(path: Path) -> dict[str, Any]:
         value = json.loads(path.read_text(encoding="utf-8"))

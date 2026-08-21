@@ -309,6 +309,58 @@ def test_non_monotonic_money_range_is_rejected() -> None:
     assert "MONEY_RANGE_NON_MONOTONIC" in {error.code for error in validation.errors}
 
 
+def test_independent_proposal_must_preserve_seed_and_parameter_contract() -> None:
+    task, result = fixture_task_result("PROPOSE_INDEPENDENT")
+    proposal = result["payload"]["candidate_proposals"][0]
+    proposal["seed_or_brand_id"] = "invented-seed"
+    proposal["display_name"] = "임의 이름"
+    proposal["assumption_refs"] = []
+    proposal["adjusted_parameters"] = [
+        {
+            "field_path": "operations.seats",
+            "value": {"kind": "INTEGER", "value": 100},
+            "unit": "seat",
+            "support_refs": ["seed-registry-1"],
+        }
+    ]
+
+    validation = validate_agent_boundary(
+        task=task,
+        result=result,
+        current_head=fixture_head(task),
+    )
+
+    assert {
+        "SEED_REFERENCE_MISMATCH",
+        "PROPOSAL_DISPLAY_NAME_MISMATCH",
+        "SEED_ASSUMPTION_REFERENCE_DROPPED",
+        "PARAMETER_RANGE_INVALID",
+    } <= {error.code for error in validation.errors}
+
+
+def test_franchise_proposal_cannot_drop_identity_eligibility_or_missing_context() -> None:
+    task, result = fixture_task_result("PROPOSE_FRANCHISE")
+    proposal = result["payload"]["candidate_proposals"][0]
+    proposal["seed_or_brand_id"] = "invented-brand"
+    proposal["display_name"] = "가짜 브랜드"
+    proposal["evidence_refs"] = []
+    proposal["missing_fields"] = []
+    result["evidence_refs"] = []
+
+    validation = validate_agent_boundary(
+        task=task,
+        result=result,
+        current_head=fixture_head(task),
+    )
+
+    assert {
+        "BRAND_REFERENCE_MISMATCH",
+        "PROPOSAL_DISPLAY_NAME_MISMATCH",
+        "FRANCHISE_ELIGIBILITY_EVIDENCE_DROPPED",
+        "FRANCHISE_MISSING_CONTEXT_DROPPED",
+    } <= {error.code for error in validation.errors}
+
+
 def test_valid_evidence_assessment_candidate_ref_is_supported_by_executed_evidence() -> None:
     task, result = fixture_task_result("EVIDENCE_ASSESS")
     evidence = evidence_record("ev-current")

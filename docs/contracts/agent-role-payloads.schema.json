@@ -581,6 +581,11 @@
           "type": "array",
           "items": { "$ref": "./evidence-record.schema.json" }
         },
+        "claim_id_pool": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "uniqueItems": true
+        },
         "model_seeds": {
           "type": "array",
           "items": {
@@ -630,6 +635,11 @@
         "evidence_records": {
           "type": "array",
           "items": { "$ref": "./evidence-record.schema.json" }
+        },
+        "claim_id_pool": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "uniqueItems": true
         },
         "franchise_universe": {
           "type": "array",

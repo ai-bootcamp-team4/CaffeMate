@@ -117,6 +117,7 @@ def candidate_context(
                 "evidence_freeze": {
                     "snapshot_id": "evidence-1",
                     "evidence_records": [record],
+                    "missing_claim_ids": ["claim:MORE_EVIDENCE"],
                     "franchise_universe": [],
                 }
             },
