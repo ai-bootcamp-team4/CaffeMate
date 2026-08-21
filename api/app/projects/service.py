@@ -13,6 +13,9 @@ class ProjectService:
     def get_project(self, *, project_id: str, user_id: str) -> Project:
         return self._repository.get(project_id=project_id, user_id=user_id)
 
+    def list_projects(self, *, user_id: str) -> list[Project]:
+        return self._repository.list_for_user(user_id=user_id)
+
     def confirm_onboarding(
         self,
         *,

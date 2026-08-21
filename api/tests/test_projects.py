@@ -56,6 +56,21 @@ def test_project_has_no_state_until_onboarding_is_confirmed(client: TestClient) 
     assert state["founder"]["target_area_input"] == "수원 아주대 부근"
 
 
+def test_project_list_only_returns_current_users_projects(client: TestClient) -> None:
+    first = create_project(client)
+    second = client.post(
+        "/v1/projects",
+        headers={**auth("user-2"), "Idempotency-Key": "create-2"},
+        json={},
+    ).json()
+
+    response = client.get("/v1/projects", headers=auth())
+
+    assert response.status_code == 200
+    assert [project["project_id"] for project in response.json()] == [first["project_id"]]
+    assert second["project_id"] not in {project["project_id"] for project in response.json()}
+
+
 def test_same_idempotency_key_replays_without_new_event(
     client: TestClient,
     repository: InMemoryProjectRepository,
@@ -158,6 +173,11 @@ def test_concurrent_duplicate_creates_one_onboarding_event(
 def test_authentication_is_required(client: TestClient) -> None:
     response = client.post("/v1/projects", headers={"Idempotency-Key": "create-1"}, json={})
     assert response.status_code == 401
+    assert response.json() == {"code": "UNAUTHENTICATED"}
+
+    wrong_scheme = client.get("/v1/projects", headers={"Authorization": "Basic value"})
+    assert wrong_scheme.status_code == 401
+    assert wrong_scheme.json() == {"code": "UNAUTHENTICATED"}
 
 
 def test_default_app_fails_closed_when_identity_is_unconfigured() -> None:

@@ -14,6 +14,10 @@ class UnavailableProjectRepository:
         del project_id, user_id
         raise PersistenceUnavailableError("PostgreSQL repository is not configured")
 
+    def list_for_user(self, *, user_id: str) -> list[Project]:
+        del user_id
+        raise PersistenceUnavailableError("PostgreSQL repository is not configured")
+
     def confirm_onboarding(self, command: ConfirmOnboardingCommand) -> Project:
         del command
         raise PersistenceUnavailableError("PostgreSQL repository is not configured")
