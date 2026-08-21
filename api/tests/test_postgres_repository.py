@@ -1,14 +1,20 @@
 import hashlib
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 import rfc8785
 from sqlalchemy import Engine, create_engine, text
 from testcontainers.community.postgres import PostgresContainer
-from worker.outbox import PostgresOutboxRepository
+from worker.outbox import OutboxPublisher, PostgresOutboxRepository
+from worker.pubsub import PubSubDelivery
+from worker.runtime import DeliveryOutcome, DurableWorker
 
 from app.agents.runtime import PostgresAgentCleanupSink
+from app.candidates.seed_registry import IndependentSeedRegistry
 from app.domain.errors import (
     ContractValidationError,
     IdempotencyKeyReusedError,
@@ -24,28 +30,249 @@ from app.domain.models import (
     Project,
 )
 from app.main import create_app
+from app.mcp.client import McpCallOutcome
 from app.migrations import apply_migrations
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
+from app.workflows.area_resolution import AreaResolutionStageHandler
+from app.workflows.calculate_gate_rank import CalculateGateRankStageHandler
+from app.workflows.candidate_audit import CandidateAuditStageHandler
+from app.workflows.candidate_inputs import (
+    FranchiseEligibilityStageHandler,
+    IndependentSeedStageHandler,
+)
+from app.workflows.claim_plan import ClaimPlanStageHandler
+from app.workflows.commit_result import CommitResultStageHandler
+from app.workflows.evidence_assess import EvidenceAssessStageHandler
+from app.workflows.evidence_freeze import EvidenceFreezeStageHandler
+from app.workflows.evidence_plan import EvidencePlanStageHandler
+from app.workflows.evidence_retrieval import EvidenceRetrievalStageHandler
 from app.workflows.execution_repository import PostgresStageExecutionRepository
+from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import (
     CheckpointOutcome,
     FailureOutcome,
     StageFailure,
+    StageLease,
     WorkflowCode,
     WorkflowStatus,
 )
 from app.workflows.postgres_repository import PostgresWorkflowRepository
+from app.workflows.proposal import ProposalStageHandler
 from app.workflows.service import WorkflowService
 from app.workflows.stage_context import PostgresStageContextRepository
+from app.workflows.stage_router import (
+    FirstProposalStageHandler,
+    FirstProposalStageRouter,
+)
+from tests.test_candidate_audit_stage import audit_result
+from tests.test_proposal_stages import proposal_result
 
 
 class FixedIdentityVerifier:
     def verify(self, bearer_token: str) -> str:
         assert bearer_token == "valid-token"
         return "user-1"
+
+
+class ConfiguredExternalDependencies:
+    def invoke(self, task: dict[str, object]) -> dict[str, object]:
+        del task
+        raise AssertionError("Agent Runtime must not run while starting a workflow")
+
+    async def call_tool(self, **kwargs: object) -> object:
+        del kwargs
+        raise AssertionError("MCP must not run while starting a workflow")
+
+
+class FirstProposalMcpFixture:
+    def __init__(self) -> None:
+        self.tool_names: list[str] = []
+
+    async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+        tool_name = kwargs["tool_name"]
+        self.tool_names.append(tool_name)
+        if tool_name == "get_source_health":
+            return McpCallOutcome(
+                request_id="request-source-health-1",
+                tool_name=tool_name,
+                tool_version="1.0.0",
+                status="OK",
+                is_complete=True,
+                structured_content={
+                    "schema_version": "1.0.0",
+                    "request_id": "request-source-health-1",
+                    "tool_name": tool_name,
+                    "tool_version": "1.0.0",
+                    "status": "OK",
+                    "project_id": kwargs["venture_project_id"],
+                    "data": [],
+                    "evidence_records": [],
+                    "missing_fields": ["source_health"],
+                    "conflicts": [],
+                    "source_trace": [],
+                    "error_codes": [],
+                    "observed_at": "2026-08-21T10:00:00Z",
+                },
+            )
+        if tool_name != "resolve_area":
+            raise AssertionError(f"Unexpected MCP tool in integration: {tool_name}")
+        return McpCallOutcome(
+            request_id="request-area-1",
+            tool_name="resolve_area",
+            tool_version="1.0.0",
+            status="OK",
+            is_complete=True,
+            structured_content={
+                "data": [
+                    {
+                        "administrative_code": "4111756000",
+                        "display_name": "경기도 수원시 영통구 원천동",
+                        "boundary_version": "2026-01",
+                        "match_kind": "EXACT",
+                    }
+                ],
+                "evidence_records": [],
+                "missing_fields": [],
+                "conflicts": [],
+                "source_trace": [],
+                "observed_at": "2026-08-21T10:00:00Z",
+            },
+        )
+
+
+class FirstProposalAgentFixture:
+    def __init__(self) -> None:
+        self.task_types: list[str] = []
+
+    def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+        task_type = task["task_type"]
+        self.task_types.append(task_type)
+        if task_type == "EVIDENCE_PLAN":
+            first_claim = task["payload"]["claims"][0]
+            payload = {
+                "claim_plans": [
+                    {
+                        "claim_id": claim["claim_id"],
+                        "route": "MCP_STRUCTURED",
+                        "support_actions": (
+                            [
+                                {
+                                    "action_id": task["payload"]["action_id_pool"][0],
+                                    "claim_id": claim["claim_id"],
+                                    "polarity": "SUPPORT",
+                                    "tool_name": "get_source_health",
+                                    "tool_version": "1.0.0",
+                                    "typed_arguments": {
+                                        "source_ids": ["area-profile"],
+                                        "as_of": task["payload"][
+                                            "planning_constraints"
+                                        ]["as_of"],
+                                    },
+                                    "required_authority": ["PRIMARY_DATA"],
+                                    "date_constraints": {
+                                        "as_of": task["payload"][
+                                            "planning_constraints"
+                                        ]["as_of"],
+                                        "max_age_days": 365,
+                                    },
+                                    "scope_constraints": claim["geographic_scope"],
+                                }
+                            ]
+                            if claim["claim_id"] == first_claim["claim_id"]
+                            else []
+                        ),
+                        "counter_actions": [],
+                        "stop_condition": "No configured fixture action is required",
+                        "abstain_condition": "The claim remains explicitly missing",
+                    }
+                    for claim in task["payload"]["claims"]
+                ]
+            }
+            return self._result(task, payload=payload)
+        if task_type == "EVIDENCE_ASSESS":
+            missing = [claim["claim_id"] for claim in task["payload"]["claims"]]
+            return self._result(
+                task,
+                payload={
+                    "assessments": [],
+                    "missing_claims": missing,
+                    "conflict_proposals": [],
+                },
+                missing_claim_ids=missing,
+            )
+        if task_type == "PROPOSE_INDEPENDENT":
+            return proposal_result(task)
+        if task_type == "CANDIDATE_AUDIT":
+            return audit_result(task)
+        raise AssertionError(f"Unexpected Agent task in minimal integration: {task_type}")
+
+    @staticmethod
+    def _result(
+        task: dict[str, Any],
+        *,
+        payload: dict[str, Any],
+        missing_claim_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": "1.0.0",
+            "task_id": task["task_id"],
+            "invocation_id": task["invocation_id"],
+            "agent_name": task["agent_name"],
+            "task_type": task["task_type"],
+            "workflow_run_id": task["workflow_run_id"],
+            "stage_run_id": task["stage_run_id"],
+            "venture_project_id": task["venture_project_id"],
+            "head_fence_seen": deepcopy(task["head_fence"]),
+            "input_digest": task["input_digest"],
+            "output_schema_id": task["output_schema_id"],
+            "status": "COMPLETE",
+            "payload": payload,
+            "evidence_refs": [],
+            "missing_claim_ids": missing_claim_ids or [],
+            "reason_codes": [],
+            "warnings": [],
+        }
+
+
+class RouterStageProcessor:
+    def __init__(self, router: FirstProposalStageRouter) -> None:
+        self._router = router
+        self.errors: list[Exception] = []
+
+    def process(self, lease: StageLease) -> dict[str, object]:
+        try:
+            return self._router.execute(lease)
+        except Exception as error:
+            self.errors.append(error)
+            raise
+
+
+class ImmediateWorkerPublisher:
+    def __init__(self, worker: DurableWorker) -> None:
+        self._worker = worker
+        self.outcomes: list[DeliveryOutcome] = []
+
+    def publish(
+        self,
+        *,
+        topic: str,
+        payload: Mapping[str, object],
+        attributes: Mapping[str, str],
+    ) -> str:
+        message_id = f"integration-message-{len(self.outcomes) + 1}"
+        outcome = self._worker.handle(
+            PubSubDelivery(
+                message_id=message_id,
+                logical_topic=topic,
+                payload=payload,
+                attributes={**attributes, "logical_topic": topic},
+            )
+        )
+        self.outcomes.append(outcome)
+        return message_id
 
 
 @pytest.fixture(scope="module")
@@ -566,7 +793,14 @@ def test_http_202_workflow_survives_api_instance_shutdown(
     from fastapi.testclient import TestClient
 
     headers = {"Authorization": "Bearer valid-token"}
-    with TestClient(create_app(identity_verifier=FixedIdentityVerifier())) as client:
+    dependencies = ConfiguredExternalDependencies()
+    with TestClient(
+        create_app(
+            identity_verifier=FixedIdentityVerifier(),
+            agent_runtime=dependencies,  # type: ignore[arg-type]
+            mcp_client=dependencies,  # type: ignore[arg-type]
+        )
+    ) as client:
         project = client.post(
             "/v1/projects",
             headers={**headers, "Idempotency-Key": "create-1"},
@@ -603,7 +837,13 @@ def test_http_202_workflow_survives_api_instance_shutdown(
             == 1
         )
 
-    with TestClient(create_app(identity_verifier=FixedIdentityVerifier())) as restarted_client:
+    with TestClient(
+        create_app(
+            identity_verifier=FixedIdentityVerifier(),
+            agent_runtime=dependencies,  # type: ignore[arg-type]
+            mcp_client=dependencies,  # type: ignore[arg-type]
+        )
+    ) as restarted_client:
         cancelled = restarted_client.post(
             f"/v1/projects/{project['project_id']}/workflows/{workflow_run_id}:cancel",
             headers={**headers, "Idempotency-Key": "cancel-1"},
@@ -611,6 +851,166 @@ def test_http_202_workflow_survives_api_instance_shutdown(
         )
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "CANCELLED"
+
+
+def test_workflow_start_reports_exact_missing_stage_configuration(
+    postgres_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with postgres_engine.begin() as connection:
+        connection.execute(
+            text(
+                "TRUNCATE result_bundles, workflow_outbox, workflow_idempotency_records, "
+                "workflow_events, stage_runs, workflow_runs, idempotency_records, "
+                "project_events, venture_states, venture_projects CASCADE"
+            )
+        )
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        postgres_engine.url.render_as_string(hide_password=False),
+    )
+    monkeypatch.setenv("CAFFEMATE_POLICY_SNAPSHOT_ID", "policy-v1")
+
+    from fastapi.testclient import TestClient
+
+    headers = {"Authorization": "Bearer valid-token"}
+    with TestClient(create_app(identity_verifier=FixedIdentityVerifier())) as client:
+        project = client.post(
+            "/v1/projects",
+            headers={**headers, "Idempotency-Key": "create-1"},
+            json={},
+        ).json()
+        client.post(
+            f"/v1/projects/{project['project_id']}/onboarding/confirm",
+            headers={**headers, "Idempotency-Key": "onboarding-1"},
+            json={"founder": founder().model_dump(mode="json")},
+        )
+        response = client.post(
+            f"/v1/projects/{project['project_id']}/workflows/FIRST_PROPOSAL",
+            headers={**headers, "Idempotency-Key": "workflow-1"},
+            json={},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "code": "FIRST_PROPOSAL_CONFIGURATION_UNAVAILABLE",
+        "missing_stage_codes": [
+            "AREA_RESOLUTION",
+            "CANDIDATE_AUDIT",
+            "EVIDENCE_ASSESS",
+            "EVIDENCE_PLAN",
+            "EVIDENCE_RETRIEVAL",
+            "PROPOSE_FRANCHISE",
+            "PROPOSE_INDEPENDENT",
+        ],
+    }
+    with postgres_engine.connect() as connection:
+        assert connection.execute(text("SELECT COUNT(*) FROM workflow_runs")).scalar_one() == 0
+
+
+def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    project = onboarded_project(repository)
+    seed_registry = IndependentSeedRegistry.load_default()
+    runtime = FirstProposalAgentFixture()
+    mcp = FirstProposalMcpFixture()
+    handlers: dict[FirstProposalStage, FirstProposalStageHandler] = {
+        FirstProposalStage.AREA_RESOLUTION: AreaResolutionStageHandler(mcp),
+        FirstProposalStage.CLAIM_PLAN: ClaimPlanStageHandler(),
+        FirstProposalStage.EVIDENCE_PLAN: EvidencePlanStageHandler(runtime),
+        FirstProposalStage.EVIDENCE_RETRIEVAL: EvidenceRetrievalStageHandler(mcp),
+        FirstProposalStage.EVIDENCE_ASSESS: EvidenceAssessStageHandler(runtime),
+        FirstProposalStage.EVIDENCE_FREEZE: EvidenceFreezeStageHandler(),
+        FirstProposalStage.INDEPENDENT_SEED: IndependentSeedStageHandler(seed_registry),
+        FirstProposalStage.FRANCHISE_ELIGIBILITY: FranchiseEligibilityStageHandler(),
+        FirstProposalStage.PROPOSE_INDEPENDENT: ProposalStageHandler.independent(runtime),
+        FirstProposalStage.PROPOSE_FRANCHISE: ProposalStageHandler.franchise(runtime),
+        FirstProposalStage.CALCULATE_GATE_RANK: CalculateGateRankStageHandler(),
+        FirstProposalStage.CANDIDATE_AUDIT: CandidateAuditStageHandler(runtime),
+        FirstProposalStage.COMMIT_RESULT: CommitResultStageHandler(),
+    }
+    workflows = WorkflowService(
+        PostgresWorkflowRepository(
+            postgres_engine,
+            policy_snapshot_id="policy-v1",
+            seed_registry_id=seed_registry.registry_id,
+        )
+    )
+    run = workflows.start(
+        project_id=project.project_id,
+        user_id="user-1",
+        workflow_code=WorkflowCode.FIRST_PROPOSAL,
+        idempotency_key="workflow-integration-1",
+    )
+    execution = PostgresStageExecutionRepository(postgres_engine)
+    router = FirstProposalStageRouter(
+        PostgresStageContextRepository(postgres_engine), handlers
+    )
+    processor = RouterStageProcessor(router)
+    worker = DurableWorker(
+        execution,
+        processor,
+        worker_id="integration-worker",
+    )
+    immediate = ImmediateWorkerPublisher(worker)
+    dispatcher = OutboxPublisher(
+        PostgresOutboxRepository(postgres_engine),
+        immediate,
+        publisher_id="integration-publisher",
+        logical_topic="WORKFLOW_STAGE_READY",
+    )
+
+    published = 0
+    while dispatcher.publish_one():
+        published += 1
+
+    completed = workflows.get(
+        project_id=project.project_id,
+        workflow_run_id=run.workflow_run_id,
+        user_id="user-1",
+    )
+    with postgres_engine.connect() as connection:
+        stage_rows = connection.execute(
+            text(
+                "SELECT stage_code, status, attempt, failure_json FROM stage_runs "
+                "WHERE workflow_run_id=:workflow_run_id ORDER BY stage_code"
+            ),
+            {"workflow_run_id": run.workflow_run_id},
+        ).mappings().all()
+        committed_events = connection.execute(
+            text(
+                "SELECT COUNT(*) FROM workflow_events "
+                "WHERE workflow_run_id=:workflow_run_id "
+                "AND event_type='RESULT_BUNDLE_COMMITTED'"
+            ),
+            {"workflow_run_id": run.workflow_run_id},
+        ).scalar_one()
+
+    assert completed.status == WorkflowStatus.SUCCEEDED, (stage_rows, processor.errors)
+    assert published == 13
+    assert immediate.outcomes == [DeliveryOutcome.APPLIED] * 13
+    assert processor.errors == []
+    assert len(stage_rows) == 13
+    assert {row["status"] for row in stage_rows} == {"SUCCEEDED"}
+    assert {row["attempt"] for row in stage_rows} == {1}
+    result = ResultService(PostgresResultRepository(postgres_engine)).get_current(
+        project_id=project.project_id,
+        user_id="user-1",
+    )
+    assert result.workflow_run_id == run.workflow_run_id
+    assert len(result.candidates) == 1
+    assert result.candidates[0]["case_type"] == "INDEPENDENT"
+    assert result.candidates[0]["rank"] == 1
+    assert committed_events == 1
+    assert mcp.tool_names == ["resolve_area", "get_source_health"]
+    assert runtime.task_types == [
+        "EVIDENCE_PLAN",
+        "EVIDENCE_ASSESS",
+        "PROPOSE_INDEPENDENT",
+        "CANDIDATE_AUDIT",
+    ]
 
 
 def create_ready_stage(

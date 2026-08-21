@@ -24,6 +24,7 @@ from app.domain.errors import (
     ContractValidationError,
     DomainError,
     ExternalExecutionUnavailableError,
+    FirstProposalConfigurationUnavailableError,
     IdempotencyKeyReusedError,
     PersistenceUnavailableError,
     ProjectNotFoundError,
@@ -77,6 +78,7 @@ from app.workflows.stage_service import (
     StageExecutionService,
     UnavailableStageExecutionService,
 )
+from app.workflows.start_guard import FirstProposalStartGuard
 from app.workflows.unavailable_repository import UnavailableWorkflowRepository
 
 
@@ -124,20 +126,6 @@ def create_app(
         service = ProjectService(repository)
     else:
         service = project_service
-
-    if workflow_service is None:
-        workflow_repository = (
-            PostgresWorkflowRepository(
-                database_handle.engine,
-                policy_snapshot_id=settings.policy_snapshot_id,
-                seed_registry_id=seed_registry.registry_id,
-            )
-            if database_handle is not None and settings.policy_snapshot_id is not None
-            else UnavailableWorkflowRepository()
-        )
-        workflows = WorkflowService(workflow_repository)
-    else:
-        workflows = workflow_service
 
     if result_service is None:
         result_repository = (
@@ -212,6 +200,25 @@ def create_app(
             configured_agent_runtime
         )
 
+    if workflow_service is None:
+        workflow_repository = (
+            PostgresWorkflowRepository(
+                database_handle.engine,
+                policy_snapshot_id=settings.policy_snapshot_id,
+                seed_registry_id=seed_registry.registry_id,
+            )
+            if database_handle is not None and settings.policy_snapshot_id is not None
+            else UnavailableWorkflowRepository()
+        )
+        start_guard = (
+            FirstProposalStartGuard(stage_handlers)
+            if database_handle is not None and settings.policy_snapshot_id is not None
+            else None
+        )
+        workflows = WorkflowService(workflow_repository, start_guard=start_guard)
+    else:
+        workflows = workflow_service
+
     if stage_execution_service is not None:
         internal_stages = stage_execution_service
     elif database_handle is not None:
@@ -275,8 +282,14 @@ def create_app(
             WorkflowPreconditionError: status.HTTP_409_CONFLICT,
             StageLeaseRejectedError: status.HTTP_409_CONFLICT,
             ExternalExecutionUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
+            FirstProposalConfigurationUnavailableError: (
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
         }.get(type(error), status.HTTP_400_BAD_REQUEST)
-        return JSONResponse(status_code=status_code, content={"code": error.code})
+        content: dict[str, object] = {"code": error.code}
+        if isinstance(error, FirstProposalConfigurationUnavailableError):
+            content["missing_stage_codes"] = error.missing_stage_codes
+        return JSONResponse(status_code=status_code, content=content)
 
     @app.get("/healthz", tags=["operations"])
     def healthz() -> dict[str, str]:
