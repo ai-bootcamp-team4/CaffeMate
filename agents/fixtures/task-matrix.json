@@ -1,0 +1,1694 @@
+{
+  "schema_version": "1.0.0",
+  "cases": [
+    {
+      "id": "intent_delta-complete",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-1-complete",
+        "invocation_id": "inv-1-complete",
+        "agent_name": "INTENT_INTERPRETER",
+        "task_type": "INTENT_DELTA",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-1",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "intent-interpreter.v1",
+        "input_schema_id": "caffemate.agent.intent-input.v1",
+        "output_schema_id": "caffemate.agent.intent-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "current_state_projection": {
+            "state_version": 1,
+            "founder": {
+              "target_area_input": "성수동",
+              "own_funds_krw": 100000000,
+              "borrowing_intent": "NO",
+              "cafe_type_preference": "OPEN_TO_BOTH",
+              "operation_mode": "DIRECT_FULL_TIME",
+              "preferences": [
+                "조용한 매장"
+              ],
+              "avoidances": []
+            },
+            "area": {
+              "resolution_status": "RESOLVED",
+              "administrative_code": "11200690",
+              "display_name": "서울 성동구 성수2가3동",
+              "boundary_version": "2026-01",
+              "coverage_profile": "N0_NATIONWIDE_FACTS",
+              "evidence_ids": [
+                "ev-area-1"
+              ],
+              "unavailable_fields": [
+                "sales",
+                "foot_traffic"
+              ]
+            },
+            "active_case_id": null,
+            "venture_cases": []
+          },
+          "latest_user_input": "대출은 받지 않겠습니다.",
+          "allowed_field_paths": [
+            "founder.borrowing_intent"
+          ],
+          "current_candidate_refs": [],
+          "operation_id_pool": [
+            "op-1"
+          ]
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-1-complete",
+        "invocation_id": "inv-1-complete",
+        "agent_name": "INTENT_INTERPRETER",
+        "task_type": "INTENT_DELTA",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-1",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+        "output_schema_id": "caffemate.agent.intent-result.v1",
+        "status": "COMPLETE",
+        "payload": {
+          "decision": "NOOP",
+          "operations": [],
+          "clarifying_questions": [],
+          "affected_workflow_codes": [],
+          "risk_flags": []
+        },
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "intent_delta-abstain",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-1-abstain",
+        "invocation_id": "inv-1-abstain",
+        "agent_name": "INTENT_INTERPRETER",
+        "task_type": "INTENT_DELTA",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-1",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "intent-interpreter.v1",
+        "input_schema_id": "caffemate.agent.intent-input.v1",
+        "output_schema_id": "caffemate.agent.intent-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "current_state_projection": {
+            "state_version": 1,
+            "founder": {
+              "target_area_input": "성수동",
+              "own_funds_krw": 100000000,
+              "borrowing_intent": "NO",
+              "cafe_type_preference": "OPEN_TO_BOTH",
+              "operation_mode": "DIRECT_FULL_TIME",
+              "preferences": [
+                "조용한 매장"
+              ],
+              "avoidances": []
+            },
+            "area": {
+              "resolution_status": "RESOLVED",
+              "administrative_code": "11200690",
+              "display_name": "서울 성동구 성수2가3동",
+              "boundary_version": "2026-01",
+              "coverage_profile": "N0_NATIONWIDE_FACTS",
+              "evidence_ids": [
+                "ev-area-1"
+              ],
+              "unavailable_fields": [
+                "sales",
+                "foot_traffic"
+              ]
+            },
+            "active_case_id": null,
+            "venture_cases": []
+          },
+          "latest_user_input": "대출은 받지 않겠습니다.",
+          "allowed_field_paths": [
+            "founder.borrowing_intent"
+          ],
+          "current_candidate_refs": [],
+          "operation_id_pool": [
+            "op-1"
+          ]
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-1-abstain",
+        "invocation_id": "inv-1-abstain",
+        "agent_name": "INTENT_INTERPRETER",
+        "task_type": "INTENT_DELTA",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-1",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+        "output_schema_id": "caffemate.agent.intent-result.v1",
+        "status": "ABSTAIN",
+        "payload": null,
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [
+          "INSUFFICIENT_CONTEXT"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "evidence_plan-complete",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-2-complete",
+        "invocation_id": "inv-2-complete",
+        "agent_name": "EVIDENCE_RESEARCHER",
+        "task_type": "EVIDENCE_PLAN",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-2",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "evidence-researcher.v1",
+        "input_schema_id": "caffemate.agent.evidence-plan-input.v1",
+        "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": "sha256:e0e7a8142bb23b2380f3fb9a8b242bbeb86c58b85b7418f7b02289692b0e1b9d",
+        "available_tool_catalog": [
+          {
+            "tool_name": "resolve_area",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.resolve-area.input.v1",
+            "output_schema_id": "caffemate.mcp.resolve-area.result.v1"
+          },
+          {
+            "tool_name": "get_area_profile",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.get-area-profile.input.v1",
+            "output_schema_id": "caffemate.mcp.get-area-profile.result.v1"
+          },
+          {
+            "tool_name": "search_cafe_observations",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.search-cafe-observations.input.v1",
+            "output_schema_id": "caffemate.mcp.search-cafe-observations.result.v1"
+          },
+          {
+            "tool_name": "search_business_events",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.search-business-events.input.v1",
+            "output_schema_id": "caffemate.mcp.search-business-events.result.v1"
+          },
+          {
+            "tool_name": "list_franchise_universe",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.list-franchise-universe.input.v1",
+            "output_schema_id": "caffemate.mcp.list-franchise-universe.result.v1"
+          },
+          {
+            "tool_name": "get_franchise_disclosure",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.get-franchise-disclosure.input.v1",
+            "output_schema_id": "caffemate.mcp.get-franchise-disclosure.result.v1"
+          },
+          {
+            "tool_name": "retrieve_official_documents",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.retrieve-official-documents.input.v1",
+            "output_schema_id": "caffemate.mcp.retrieve-official-documents.result.v1"
+          },
+          {
+            "tool_name": "retrieve_project_documents",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.retrieve-project-documents.input.v1",
+            "output_schema_id": "caffemate.mcp.retrieve-project-documents.result.v1"
+          },
+          {
+            "tool_name": "get_official_procedure",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.get-official-procedure.input.v1",
+            "output_schema_id": "caffemate.mcp.get-official-procedure.result.v1"
+          },
+          {
+            "tool_name": "get_source_health",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.get-source-health.input.v1",
+            "output_schema_id": "caffemate.mcp.get-source-health.result.v1"
+          }
+        ],
+        "payload": {
+          "claims": [
+            {
+              "claim_id": "claim-1",
+              "claim_type": "AREA_POPULATION",
+              "materiality": "HIGH",
+              "geographic_scope": {
+                "scope_type": "ADMINISTRATIVE_AREA",
+                "scope_id": "11200690",
+                "boundary_version": "2026-01"
+              },
+              "required_freshness": "P365D"
+            }
+          ],
+          "planning_constraints": {
+            "as_of": "2026-08-21",
+            "max_actions_per_claim": 2,
+            "max_total_actions": 4,
+            "allowed_tools": [
+              "get_area_profile",
+              "get_source_health"
+            ]
+          },
+          "action_id_pool": [
+            "action-1",
+            "action-2"
+          ]
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-2-complete",
+        "invocation_id": "inv-2-complete",
+        "agent_name": "EVIDENCE_RESEARCHER",
+        "task_type": "EVIDENCE_PLAN",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-2",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+        "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
+        "status": "COMPLETE",
+        "payload": {
+          "claim_plans": [
+            {
+              "claim_id": "claim-1",
+              "route": "MCP_STRUCTURED",
+              "support_actions": [],
+              "counter_actions": [],
+              "stop_condition": "근거가 충분하면 종료",
+              "abstain_condition": "권위 자료가 없으면 기권"
+            }
+          ]
+        },
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "evidence_plan-abstain",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-2-abstain",
+        "invocation_id": "inv-2-abstain",
+        "agent_name": "EVIDENCE_RESEARCHER",
+        "task_type": "EVIDENCE_PLAN",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-2",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "evidence-researcher.v1",
+        "input_schema_id": "caffemate.agent.evidence-plan-input.v1",
+        "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": "sha256:e0e7a8142bb23b2380f3fb9a8b242bbeb86c58b85b7418f7b02289692b0e1b9d",
+        "available_tool_catalog": [
+          {
+            "tool_name": "resolve_area",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.resolve-area.input.v1",
+            "output_schema_id": "caffemate.mcp.resolve-area.result.v1"
+          },
+          {
+            "tool_name": "get_area_profile",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.get-area-profile.input.v1",
+            "output_schema_id": "caffemate.mcp.get-area-profile.result.v1"
+          },
+          {
+            "tool_name": "search_cafe_observations",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.search-cafe-observations.input.v1",
+            "output_schema_id": "caffemate.mcp.search-cafe-observations.result.v1"
+          },
+          {
+            "tool_name": "search_business_events",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.search-business-events.input.v1",
+            "output_schema_id": "caffemate.mcp.search-business-events.result.v1"
+          },
+          {
+            "tool_name": "list_franchise_universe",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.list-franchise-universe.input.v1",
+            "output_schema_id": "caffemate.mcp.list-franchise-universe.result.v1"
+          },
+          {
+            "tool_name": "get_franchise_disclosure",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.get-franchise-disclosure.input.v1",
+            "output_schema_id": "caffemate.mcp.get-franchise-disclosure.result.v1"
+          },
+          {
+            "tool_name": "retrieve_official_documents",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.retrieve-official-documents.input.v1",
+            "output_schema_id": "caffemate.mcp.retrieve-official-documents.result.v1"
+          },
+          {
+            "tool_name": "retrieve_project_documents",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.retrieve-project-documents.input.v1",
+            "output_schema_id": "caffemate.mcp.retrieve-project-documents.result.v1"
+          },
+          {
+            "tool_name": "get_official_procedure",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.get-official-procedure.input.v1",
+            "output_schema_id": "caffemate.mcp.get-official-procedure.result.v1"
+          },
+          {
+            "tool_name": "get_source_health",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.get-source-health.input.v1",
+            "output_schema_id": "caffemate.mcp.get-source-health.result.v1"
+          }
+        ],
+        "payload": {
+          "claims": [
+            {
+              "claim_id": "claim-1",
+              "claim_type": "AREA_POPULATION",
+              "materiality": "HIGH",
+              "geographic_scope": {
+                "scope_type": "ADMINISTRATIVE_AREA",
+                "scope_id": "11200690",
+                "boundary_version": "2026-01"
+              },
+              "required_freshness": "P365D"
+            }
+          ],
+          "planning_constraints": {
+            "as_of": "2026-08-21",
+            "max_actions_per_claim": 2,
+            "max_total_actions": 4,
+            "allowed_tools": [
+              "get_area_profile",
+              "get_source_health"
+            ]
+          },
+          "action_id_pool": [
+            "action-1",
+            "action-2"
+          ]
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-2-abstain",
+        "invocation_id": "inv-2-abstain",
+        "agent_name": "EVIDENCE_RESEARCHER",
+        "task_type": "EVIDENCE_PLAN",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-2",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+        "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
+        "status": "ABSTAIN",
+        "payload": null,
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [
+          "INSUFFICIENT_CONTEXT"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "evidence_assess-complete",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-3-complete",
+        "invocation_id": "inv-3-complete",
+        "agent_name": "EVIDENCE_RESEARCHER",
+        "task_type": "EVIDENCE_ASSESS",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-3",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "evidence-researcher.v1",
+        "input_schema_id": "caffemate.agent.evidence-assess-input.v1",
+        "output_schema_id": "caffemate.agent.evidence-assess-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "claims": [
+            {
+              "claim_id": "claim-1",
+              "claim_type": "AREA_POPULATION",
+              "materiality": "HIGH",
+              "geographic_scope": {
+                "scope_type": "ADMINISTRATIVE_AREA",
+                "scope_id": "11200690",
+                "boundary_version": "2026-01"
+              },
+              "required_freshness": "P365D"
+            }
+          ],
+          "executed_actions": []
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-3-complete",
+        "invocation_id": "inv-3-complete",
+        "agent_name": "EVIDENCE_RESEARCHER",
+        "task_type": "EVIDENCE_ASSESS",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-3",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+        "output_schema_id": "caffemate.agent.evidence-assess-result.v1",
+        "status": "COMPLETE",
+        "payload": {
+          "assessments": [],
+          "missing_claims": [],
+          "conflict_proposals": []
+        },
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "evidence_assess-abstain",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-3-abstain",
+        "invocation_id": "inv-3-abstain",
+        "agent_name": "EVIDENCE_RESEARCHER",
+        "task_type": "EVIDENCE_ASSESS",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-3",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "evidence-researcher.v1",
+        "input_schema_id": "caffemate.agent.evidence-assess-input.v1",
+        "output_schema_id": "caffemate.agent.evidence-assess-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "claims": [
+            {
+              "claim_id": "claim-1",
+              "claim_type": "AREA_POPULATION",
+              "materiality": "HIGH",
+              "geographic_scope": {
+                "scope_type": "ADMINISTRATIVE_AREA",
+                "scope_id": "11200690",
+                "boundary_version": "2026-01"
+              },
+              "required_freshness": "P365D"
+            }
+          ],
+          "executed_actions": []
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-3-abstain",
+        "invocation_id": "inv-3-abstain",
+        "agent_name": "EVIDENCE_RESEARCHER",
+        "task_type": "EVIDENCE_ASSESS",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-3",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+        "output_schema_id": "caffemate.agent.evidence-assess-result.v1",
+        "status": "ABSTAIN",
+        "payload": null,
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [
+          "INSUFFICIENT_CONTEXT"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "propose_independent-complete",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-4-complete",
+        "invocation_id": "inv-4-complete",
+        "agent_name": "PROPOSAL_AGENT",
+        "task_type": "PROPOSE_INDEPENDENT",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-4",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "proposal-agent.v1",
+        "input_schema_id": "caffemate.agent.independent-proposal-input.v1",
+        "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "founder": {
+            "target_area_input": "성수동",
+            "own_funds_krw": 100000000,
+            "borrowing_intent": "NO",
+            "cafe_type_preference": "OPEN_TO_BOTH",
+            "operation_mode": "DIRECT_FULL_TIME",
+            "preferences": [
+              "조용한 매장"
+            ],
+            "avoidances": []
+          },
+          "area": {
+            "resolution_status": "RESOLVED",
+            "administrative_code": "11200690",
+            "display_name": "서울 성동구 성수2가3동",
+            "boundary_version": "2026-01",
+            "coverage_profile": "N0_NATIONWIDE_FACTS",
+            "evidence_ids": [
+              "ev-area-1"
+            ],
+            "unavailable_fields": [
+              "sales",
+              "foot_traffic"
+            ]
+          },
+          "evidence_records": [],
+          "model_seeds": [
+            {
+              "proposal_id": "proposal-independent-1",
+              "model_id": "independent-small-v1",
+              "display_name": "소형 개인카페 모델",
+              "allowed_parameters": [
+                {
+                  "field_path": "operations.seats",
+                  "value_kind": "INTEGER",
+                  "unit": "seat",
+                  "minimum": 8,
+                  "maximum": 24
+                }
+              ],
+              "support_refs": [
+                "seed-registry-1"
+              ]
+            }
+          ],
+          "requested_candidate_count": 1
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-4-complete",
+        "invocation_id": "inv-4-complete",
+        "agent_name": "PROPOSAL_AGENT",
+        "task_type": "PROPOSE_INDEPENDENT",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-4",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
+        "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
+        "status": "COMPLETE",
+        "payload": {
+          "candidate_proposals": [
+            {
+              "proposal_id": "proposal-independent-1",
+              "case_type": "INDEPENDENT",
+              "display_name": "소형 개인카페 모델",
+              "seed_or_brand_id": "independent-small-v1",
+              "adjusted_parameters": [],
+              "claim_refs": [],
+              "evidence_refs": [],
+              "assumption_refs": [
+                "seed-registry-1"
+              ],
+              "missing_fields": [
+                "rent"
+              ],
+              "warnings": [
+                "임대료 근거 필요"
+              ]
+            }
+          ]
+        },
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "propose_independent-abstain",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-4-abstain",
+        "invocation_id": "inv-4-abstain",
+        "agent_name": "PROPOSAL_AGENT",
+        "task_type": "PROPOSE_INDEPENDENT",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-4",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "proposal-agent.v1",
+        "input_schema_id": "caffemate.agent.independent-proposal-input.v1",
+        "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "founder": {
+            "target_area_input": "성수동",
+            "own_funds_krw": 100000000,
+            "borrowing_intent": "NO",
+            "cafe_type_preference": "OPEN_TO_BOTH",
+            "operation_mode": "DIRECT_FULL_TIME",
+            "preferences": [
+              "조용한 매장"
+            ],
+            "avoidances": []
+          },
+          "area": {
+            "resolution_status": "RESOLVED",
+            "administrative_code": "11200690",
+            "display_name": "서울 성동구 성수2가3동",
+            "boundary_version": "2026-01",
+            "coverage_profile": "N0_NATIONWIDE_FACTS",
+            "evidence_ids": [
+              "ev-area-1"
+            ],
+            "unavailable_fields": [
+              "sales",
+              "foot_traffic"
+            ]
+          },
+          "evidence_records": [],
+          "model_seeds": [
+            {
+              "proposal_id": "proposal-independent-1",
+              "model_id": "independent-small-v1",
+              "display_name": "소형 개인카페 모델",
+              "allowed_parameters": [
+                {
+                  "field_path": "operations.seats",
+                  "value_kind": "INTEGER",
+                  "unit": "seat",
+                  "minimum": 8,
+                  "maximum": 24
+                }
+              ],
+              "support_refs": [
+                "seed-registry-1"
+              ]
+            }
+          ],
+          "requested_candidate_count": 1
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-4-abstain",
+        "invocation_id": "inv-4-abstain",
+        "agent_name": "PROPOSAL_AGENT",
+        "task_type": "PROPOSE_INDEPENDENT",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-4",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
+        "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
+        "status": "ABSTAIN",
+        "payload": null,
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [
+          "INSUFFICIENT_CONTEXT"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "propose_franchise-complete",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-5-complete",
+        "invocation_id": "inv-5-complete",
+        "agent_name": "PROPOSAL_AGENT",
+        "task_type": "PROPOSE_FRANCHISE",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-5",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "proposal-agent.v1",
+        "input_schema_id": "caffemate.agent.franchise-proposal-input.v1",
+        "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000005",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "founder": {
+            "target_area_input": "성수동",
+            "own_funds_krw": 100000000,
+            "borrowing_intent": "NO",
+            "cafe_type_preference": "OPEN_TO_BOTH",
+            "operation_mode": "DIRECT_FULL_TIME",
+            "preferences": [
+              "조용한 매장"
+            ],
+            "avoidances": []
+          },
+          "area": {
+            "resolution_status": "RESOLVED",
+            "administrative_code": "11200690",
+            "display_name": "서울 성동구 성수2가3동",
+            "boundary_version": "2026-01",
+            "coverage_profile": "N0_NATIONWIDE_FACTS",
+            "evidence_ids": [
+              "ev-area-1"
+            ],
+            "unavailable_fields": [
+              "sales",
+              "foot_traffic"
+            ]
+          },
+          "evidence_records": [],
+          "franchise_universe": [
+            {
+              "proposal_id": "proposal-franchise-1",
+              "brand_id": "brand-1",
+              "display_name": "검증 브랜드",
+              "individual_franchise_eligibility": "VERIFIED",
+              "evidence_refs": [
+                "ev-franchise-1"
+              ],
+              "missing_fields": [
+                "royalty"
+              ]
+            }
+          ],
+          "requested_candidate_count": 1
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-5-complete",
+        "invocation_id": "inv-5-complete",
+        "agent_name": "PROPOSAL_AGENT",
+        "task_type": "PROPOSE_FRANCHISE",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-5",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000005",
+        "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
+        "status": "COMPLETE",
+        "payload": {
+          "candidate_proposals": [
+            {
+              "proposal_id": "proposal-franchise-1",
+              "case_type": "FRANCHISE",
+              "display_name": "검증 브랜드",
+              "seed_or_brand_id": "brand-1",
+              "adjusted_parameters": [],
+              "claim_refs": [],
+              "evidence_refs": [
+                "ev-franchise-1"
+              ],
+              "assumption_refs": [],
+              "missing_fields": [
+                "royalty"
+              ],
+              "warnings": [
+                "로열티 확인 필요"
+              ]
+            }
+          ]
+        },
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "propose_franchise-abstain",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-5-abstain",
+        "invocation_id": "inv-5-abstain",
+        "agent_name": "PROPOSAL_AGENT",
+        "task_type": "PROPOSE_FRANCHISE",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-5",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "proposal-agent.v1",
+        "input_schema_id": "caffemate.agent.franchise-proposal-input.v1",
+        "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000005",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "founder": {
+            "target_area_input": "성수동",
+            "own_funds_krw": 100000000,
+            "borrowing_intent": "NO",
+            "cafe_type_preference": "OPEN_TO_BOTH",
+            "operation_mode": "DIRECT_FULL_TIME",
+            "preferences": [
+              "조용한 매장"
+            ],
+            "avoidances": []
+          },
+          "area": {
+            "resolution_status": "RESOLVED",
+            "administrative_code": "11200690",
+            "display_name": "서울 성동구 성수2가3동",
+            "boundary_version": "2026-01",
+            "coverage_profile": "N0_NATIONWIDE_FACTS",
+            "evidence_ids": [
+              "ev-area-1"
+            ],
+            "unavailable_fields": [
+              "sales",
+              "foot_traffic"
+            ]
+          },
+          "evidence_records": [],
+          "franchise_universe": [
+            {
+              "proposal_id": "proposal-franchise-1",
+              "brand_id": "brand-1",
+              "display_name": "검증 브랜드",
+              "individual_franchise_eligibility": "VERIFIED",
+              "evidence_refs": [
+                "ev-franchise-1"
+              ],
+              "missing_fields": [
+                "royalty"
+              ]
+            }
+          ],
+          "requested_candidate_count": 1
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-5-abstain",
+        "invocation_id": "inv-5-abstain",
+        "agent_name": "PROPOSAL_AGENT",
+        "task_type": "PROPOSE_FRANCHISE",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-5",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000005",
+        "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
+        "status": "ABSTAIN",
+        "payload": null,
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [
+          "INSUFFICIENT_CONTEXT"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "document_extract-complete",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-6-complete",
+        "invocation_id": "inv-6-complete",
+        "agent_name": "DOCUMENT_ANALYST",
+        "task_type": "DOCUMENT_EXTRACT",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-6",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "document-analyst.v1",
+        "input_schema_id": "caffemate.agent.document-extract-input.v1",
+        "output_schema_id": "caffemate.agent.document-extract-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "document_revision": {
+            "document_id": "doc-1",
+            "document_revision_id": "docrev-1",
+            "document_type": "LEASE",
+            "checksum": "sha256:fixture"
+          },
+          "extraction_contract": {
+            "claim_types": [
+              "LEASE_DEPOSIT"
+            ]
+          },
+          "parser_blocks": [
+            {
+              "block_id": "block-1",
+              "text": "보증금 5,000만원",
+              "anchor": {
+                "document_revision_id": "docrev-1",
+                "page_index": 0,
+                "section_path": "임대조건",
+                "table_id": null,
+                "row": null,
+                "column": null,
+                "bbox": null
+              }
+            }
+          ],
+          "claim_id_pool": [
+            "doc-claim-1"
+          ]
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-6-complete",
+        "invocation_id": "inv-6-complete",
+        "agent_name": "DOCUMENT_ANALYST",
+        "task_type": "DOCUMENT_EXTRACT",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-6",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+        "output_schema_id": "caffemate.agent.document-extract-result.v1",
+        "status": "COMPLETE",
+        "payload": {
+          "proposed_claims": [
+            {
+              "claim_id": "doc-claim-1",
+              "predicate": "LEASE_DEPOSIT",
+              "raw_value_text": "보증금 5,000만원",
+              "typed_value": {
+                "kind": "INTEGER",
+                "value": 50000000
+              },
+              "unit": "KRW",
+              "currency": "KRW",
+              "vat_status": "NOT_APPLICABLE",
+              "inclusion_scope": "보증금",
+              "effective_from": null,
+              "effective_to": null,
+              "valid_until": null,
+              "document_revision_id": "docrev-1",
+              "anchor": {
+                "document_revision_id": "docrev-1",
+                "page_index": 0,
+                "section_path": "임대조건",
+                "table_id": null,
+                "row": null,
+                "column": null,
+                "bbox": null
+              },
+              "extraction_status": "PROPOSED",
+              "risk_flags": []
+            }
+          ],
+          "unresolved_fields": [],
+          "document_risk_flags": []
+        },
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "document_extract-abstain",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-6-abstain",
+        "invocation_id": "inv-6-abstain",
+        "agent_name": "DOCUMENT_ANALYST",
+        "task_type": "DOCUMENT_EXTRACT",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-6",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "document-analyst.v1",
+        "input_schema_id": "caffemate.agent.document-extract-input.v1",
+        "output_schema_id": "caffemate.agent.document-extract-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "document_revision": {
+            "document_id": "doc-1",
+            "document_revision_id": "docrev-1",
+            "document_type": "LEASE",
+            "checksum": "sha256:fixture"
+          },
+          "extraction_contract": {
+            "claim_types": [
+              "LEASE_DEPOSIT"
+            ]
+          },
+          "parser_blocks": [
+            {
+              "block_id": "block-1",
+              "text": "보증금 5,000만원",
+              "anchor": {
+                "document_revision_id": "docrev-1",
+                "page_index": 0,
+                "section_path": "임대조건",
+                "table_id": null,
+                "row": null,
+                "column": null,
+                "bbox": null
+              }
+            }
+          ],
+          "claim_id_pool": [
+            "doc-claim-1"
+          ]
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-6-abstain",
+        "invocation_id": "inv-6-abstain",
+        "agent_name": "DOCUMENT_ANALYST",
+        "task_type": "DOCUMENT_EXTRACT",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-6",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+        "output_schema_id": "caffemate.agent.document-extract-result.v1",
+        "status": "ABSTAIN",
+        "payload": null,
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [
+          "INSUFFICIENT_CONTEXT"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "candidate_audit-complete",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-7-complete",
+        "invocation_id": "inv-7-complete",
+        "agent_name": "TYPED_CANDIDATE_AUDITOR",
+        "task_type": "CANDIDATE_AUDIT",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-7",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "typed-candidate-auditor.v1",
+        "input_schema_id": "caffemate.agent.candidate-audit-input.v1",
+        "output_schema_id": "caffemate.agent.candidate-audit-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "candidates": [
+            {
+              "schema_version": "2.0.0",
+              "candidate_id": "candidate-1",
+              "project_id": "project-1",
+              "state_version": 1,
+              "case_type": "INDEPENDENT",
+              "display_name": "소형 개인카페 모델",
+              "review_status": "EXCLUDED",
+              "reason_codes": [
+                "INSUFFICIENT_EVIDENCE"
+              ],
+              "summary": "검증용 제외 후보",
+              "rank": null,
+              "rank_basis": "NOT_RANKED",
+              "is_primary_next_review": false,
+              "franchise": null,
+              "independent_model": {
+                "model_id": "independent-small-v1",
+                "adjusted_fields": []
+              },
+              "evidence_refs": [],
+              "assumption_refs": [],
+              "financial_summary": {
+                "initial_cash": {
+                  "currency": "KRW",
+                  "low": null,
+                  "base": null,
+                  "high": null,
+                  "provenance_refs": []
+                },
+                "monthly_fixed_cost": {
+                  "currency": "KRW",
+                  "low": null,
+                  "base": null,
+                  "high": null,
+                  "provenance_refs": []
+                },
+                "break_even_monthly_sales_krw": null,
+                "required_daily_orders": null,
+                "unknown_cost_fields": [
+                  "rent"
+                ]
+              },
+              "missing_fields": [
+                {
+                  "field": "rent",
+                  "impact": "월 고정비 계산 불가",
+                  "next_check": "임대 조건 확인"
+                }
+              ],
+              "risks": [],
+              "counterfactuals": [],
+              "next_actions": [
+                "임대 조건을 확인한다"
+              ]
+            }
+          ],
+          "evidence_records": [],
+          "calculation_snapshot": {
+            "calculation_version": "calc-v1",
+            "candidate_ids": [
+              "candidate-1"
+            ],
+            "input_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "output_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "warning_codes": [
+              "INSUFFICIENT_EVIDENCE"
+            ]
+          },
+          "gate_snapshot": {
+            "gate_version": "gate-v1",
+            "candidate_gates": [
+              {
+                "candidate_id": "candidate-1",
+                "hard_constraint": "UNKNOWN",
+                "economic_viability": "UNKNOWN",
+                "founder_fit": "UNKNOWN",
+                "risk_adjusted_status": "EXCLUDED"
+              }
+            ]
+          }
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-7-complete",
+        "invocation_id": "inv-7-complete",
+        "agent_name": "TYPED_CANDIDATE_AUDITOR",
+        "task_type": "CANDIDATE_AUDIT",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-7",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+        "output_schema_id": "caffemate.agent.candidate-audit-result.v1",
+        "status": "COMPLETE",
+        "payload": {
+          "candidate_audits": [
+            {
+              "candidate_id": "candidate-1",
+              "status": "PASS",
+              "findings": []
+            }
+          ],
+          "global_findings": []
+        },
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "candidate_audit-abstain",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-7-abstain",
+        "invocation_id": "inv-7-abstain",
+        "agent_name": "TYPED_CANDIDATE_AUDITOR",
+        "task_type": "CANDIDATE_AUDIT",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-7",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "typed-candidate-auditor.v1",
+        "input_schema_id": "caffemate.agent.candidate-audit-input.v1",
+        "output_schema_id": "caffemate.agent.candidate-audit-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+        "deadline_at": "2026-08-21T09:00:00Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "candidates": [
+            {
+              "schema_version": "2.0.0",
+              "candidate_id": "candidate-1",
+              "project_id": "project-1",
+              "state_version": 1,
+              "case_type": "INDEPENDENT",
+              "display_name": "소형 개인카페 모델",
+              "review_status": "EXCLUDED",
+              "reason_codes": [
+                "INSUFFICIENT_EVIDENCE"
+              ],
+              "summary": "검증용 제외 후보",
+              "rank": null,
+              "rank_basis": "NOT_RANKED",
+              "is_primary_next_review": false,
+              "franchise": null,
+              "independent_model": {
+                "model_id": "independent-small-v1",
+                "adjusted_fields": []
+              },
+              "evidence_refs": [],
+              "assumption_refs": [],
+              "financial_summary": {
+                "initial_cash": {
+                  "currency": "KRW",
+                  "low": null,
+                  "base": null,
+                  "high": null,
+                  "provenance_refs": []
+                },
+                "monthly_fixed_cost": {
+                  "currency": "KRW",
+                  "low": null,
+                  "base": null,
+                  "high": null,
+                  "provenance_refs": []
+                },
+                "break_even_monthly_sales_krw": null,
+                "required_daily_orders": null,
+                "unknown_cost_fields": [
+                  "rent"
+                ]
+              },
+              "missing_fields": [
+                {
+                  "field": "rent",
+                  "impact": "월 고정비 계산 불가",
+                  "next_check": "임대 조건 확인"
+                }
+              ],
+              "risks": [],
+              "counterfactuals": [],
+              "next_actions": [
+                "임대 조건을 확인한다"
+              ]
+            }
+          ],
+          "evidence_records": [],
+          "calculation_snapshot": {
+            "calculation_version": "calc-v1",
+            "candidate_ids": [
+              "candidate-1"
+            ],
+            "input_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "output_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "warning_codes": [
+              "INSUFFICIENT_EVIDENCE"
+            ]
+          },
+          "gate_snapshot": {
+            "gate_version": "gate-v1",
+            "candidate_gates": [
+              {
+                "candidate_id": "candidate-1",
+                "hard_constraint": "UNKNOWN",
+                "economic_viability": "UNKNOWN",
+                "founder_fit": "UNKNOWN",
+                "risk_adjusted_status": "EXCLUDED"
+              }
+            ]
+          }
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-7-abstain",
+        "invocation_id": "inv-7-abstain",
+        "agent_name": "TYPED_CANDIDATE_AUDITOR",
+        "task_type": "CANDIDATE_AUDIT",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-7",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+        "output_schema_id": "caffemate.agent.candidate-audit-result.v1",
+        "status": "ABSTAIN",
+        "payload": null,
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": [
+          "INSUFFICIENT_CONTEXT"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

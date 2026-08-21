@@ -10,6 +10,8 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "check:api": "uv run --project api ruff check api && uv run --project api mypy --config-file api/pyproject.toml api/app && uv run --project api pytest api/tests",
+    "test:agents": "vitest run agents/test mcp/test rag/test worker/pipelines/**/*.test.ts",
+    "typecheck:agents": "tsc -p tsconfig.agents.json --pretty false",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build && npm run check:api"
   },
   "dependencies": {
@@ -24,12 +26,16 @@
     "@eslint/js": "10.0.1",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.5",
+    "@types/node": "^26.2.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "eslint": "10.8.1",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.4",
     "jsdom": "30.0.1",
+    "tsx": "^4.23.12",
     "typescript": "6.0.3",
     "typescript-eslint": "8.67.0",
     "vitest": "4.1.11"
