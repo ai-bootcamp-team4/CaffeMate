@@ -199,3 +199,16 @@ version과 실제로 달라진 경우에만 해당 Evidence를 `STALE`로 표시
 동시에 `EVIDENCE_RETRIEVAL`부터의 선택적 Workflow를 원자적으로 생성한다. 새 Snapshot이 검증되어
 커밋되면 새 Evidence는 `ACTIVE`, 같은 원본의 이전 Evidence는 `SUPERSEDED`, 검증된 상충 자료는
 `CONFLICT`가 된다. 재계산이 이미 실행 중이면 새 Workflow를 중첩 생성하지 않고 `409`로 거절한다.
+
+## 공식 창업 준비 절차
+
+후보를 선택한 뒤
+`GET /v1/projects/{project_id}/candidate-selections/{selection_id}/preparation-guide`로 현재
+행정구역의 공식 준비 절차를 조회한다. Control API는 `get_official_procedure`를 사용해 사업자등록,
+식품접객업 영업신고, 시설 기준, 위생교육, 옥외광고물과 소방 확인을 각각 조회한다. 응답에는 절차별
+관할 기관, 기준일, Evidence와 공식 source trace가 포함된다.
+
+일부 공식 자료가 없거나 오래됐거나 MCP 호출이 실패해도 빈 정상 안내로 바꾸지 않는다. 해당 절차를
+`ERROR`, `NOT_FOUND`, `STALE` 또는 `PARTIAL`로 보존하고 전체 안내를 `REVIEW_REQUIRED` 또는
+`UNAVAILABLE`로 표시한다. 현재 선택 후보와 확정 행정구역이 없으면 `409`다. 이 API는 안내와 인간
+행동 체크만 제공하며 신고, 등록, 계약 또는 결제를 외부 기관에 제출하지 않는다.
