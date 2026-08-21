@@ -19,6 +19,7 @@
 10. [평가 계획](./evaluation/evaluation-plan.md)
 11. [구현 계획](./implementation-plan.md)
 12. [프론트엔드 배포](./deployment.md)
+13. [백엔드 배포](./backend-deployment.md)
 
 ## 문서 권한
 
