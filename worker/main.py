@@ -7,9 +7,12 @@ from app.settings import RuntimeSettings
 from app.workflows.execution_repository import PostgresStageExecutionRepository
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, ConfigDict, Field
 
 from worker.control_api import ControlApiStageProcessor, GoogleIdentityTokenProvider
+from worker.outbox import OutboxPublisher, PostgresOutboxRepository
 from worker.pubsub import (
+    GooglePubSubPublisher,
     InvalidPubSubEnvelopeError,
     PubSubDelivery,
     decode_push_envelope,
@@ -21,15 +24,42 @@ class WorkerHandler(Protocol):
     def handle(self, delivery: PubSubDelivery) -> DeliveryOutcome: ...
 
 
+class OutboxDispatcher(Protocol):
+    def publish_one(self) -> bool: ...
+
+
+class OutboxDispatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class OutboxDispatchResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    published: int = Field(ge=0)
+    drained: bool
+
+
+class OutboxConfigurationUnavailableError(RuntimeError):
+    pass
+
+
 class UnavailableWorker:
     def handle(self, delivery: PubSubDelivery) -> DeliveryOutcome:
         del delivery
         raise RuntimeError("Worker runtime is not configured")
 
 
+class UnavailableOutboxDispatcher:
+    def publish_one(self) -> bool:
+        raise OutboxConfigurationUnavailableError("Outbox publisher is not configured")
+
+
 def create_worker_app(
     *,
     worker: WorkerHandler | None = None,
+    outbox_dispatcher: OutboxDispatcher | None = None,
     expected_subscription: str | None = None,
 ) -> FastAPI:
     database_handle: DatabaseHandle | None = None
@@ -59,6 +89,26 @@ def create_worker_app(
             )
         else:
             runtime = UnavailableWorker()
+
+    if outbox_dispatcher is not None:
+        dispatcher = outbox_dispatcher
+    elif (
+        database_handle is not None
+        and settings.workflow_stage_topic_resource
+        and settings.worker_id
+    ):
+        dispatcher = OutboxPublisher(
+            PostgresOutboxRepository(database_handle.engine),
+            GooglePubSubPublisher(
+                topic_resources={
+                    "WORKFLOW_STAGE_READY": settings.workflow_stage_topic_resource,
+                }
+            ),
+            publisher_id=settings.worker_id,
+            logical_topic="WORKFLOW_STAGE_READY",
+        )
+    else:
+        dispatcher = UnavailableOutboxDispatcher()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -98,6 +148,26 @@ def create_worker_app(
                 content={"code": "WORKER_RETRY_REQUIRED"},
             )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.post(
+        "/internal/v1/outbox:publish",
+        response_model=OutboxDispatchResponse,
+        tags=["internal"],
+    )
+    def publish_outbox(request: OutboxDispatchRequest) -> OutboxDispatchResponse | JSONResponse:
+        published = 0
+        try:
+            while published < request.limit and dispatcher.publish_one():
+                published += 1
+        except OutboxConfigurationUnavailableError:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"code": "OUTBOX_CONFIGURATION_UNAVAILABLE"},
+            )
+        return OutboxDispatchResponse(
+            published=published,
+            drained=published < request.limit,
+        )
 
     return app
 

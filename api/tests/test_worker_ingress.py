@@ -27,6 +27,16 @@ class FakeWorker:
         return self.outcome
 
 
+class FakeOutboxDispatcher:
+    def __init__(self, outcomes: list[bool]) -> None:
+        self._outcomes = iter(outcomes)
+        self.calls = 0
+
+    def publish_one(self) -> bool:
+        self.calls += 1
+        return next(self._outcomes, False)
+
+
 def test_valid_pubsub_push_is_acked_after_worker_applies() -> None:
     worker = FakeWorker()
     app = create_worker_app(
@@ -115,3 +125,41 @@ def test_missing_subscription_fails_closed_while_liveness_remains_available(
     assert health.status_code == 200
     assert response.status_code == 503
     assert response.json() == {"code": "WORKER_CONFIGURATION_UNAVAILABLE"}
+
+
+def test_outbox_dispatch_drains_until_empty_or_bounded_limit() -> None:
+    drained_dispatcher = FakeOutboxDispatcher([True, True, False])
+    bounded_dispatcher = FakeOutboxDispatcher([True, True, True])
+    drained_app = create_worker_app(
+        worker=FakeWorker(),
+        outbox_dispatcher=drained_dispatcher,
+    )
+    bounded_app = create_worker_app(
+        worker=FakeWorker(),
+        outbox_dispatcher=bounded_dispatcher,
+    )
+
+    with TestClient(drained_app) as client:
+        drained = client.post("/internal/v1/outbox:publish", json={"limit": 10})
+    with TestClient(bounded_app) as client:
+        bounded = client.post("/internal/v1/outbox:publish", json={"limit": 2})
+
+    assert drained.status_code == 200
+    assert drained.json() == {"published": 2, "drained": True}
+    assert drained_dispatcher.calls == 3
+    assert bounded.status_code == 200
+    assert bounded.json() == {"published": 2, "drained": False}
+    assert bounded_dispatcher.calls == 2
+
+
+def test_outbox_dispatch_fails_closed_without_publisher_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("WORKFLOW_STAGE_TOPIC_RESOURCE", raising=False)
+    app = create_worker_app(worker=FakeWorker())
+
+    with TestClient(app) as client:
+        response = client.post("/internal/v1/outbox:publish", json={})
+
+    assert response.status_code == 503
+    assert response.json() == {"code": "OUTBOX_CONFIGURATION_UNAVAILABLE"}
