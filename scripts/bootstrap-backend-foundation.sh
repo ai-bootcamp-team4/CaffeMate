@@ -51,7 +51,7 @@ create_secret() {
     --filter='state=enabled' \
     --format='value(name)' | wc -l | tr -d ' ')
   if [ "$enabled_count" -eq 0 ]; then
-    openssl rand -base64 48 | gcloud secrets versions add "$secret_id" \
+    openssl rand -hex 48 | tr -d '\n' | gcloud secrets versions add "$secret_id" \
       --project="$project_id" \
       --data-file=- \
       --quiet >/dev/null
@@ -138,6 +138,25 @@ for role in \
   roles/run.admin; do
   grant_project_role "$build_sa" "$role"
 done
+
+cloud_build_source_bucket="gs://${project_id}_cloudbuild"
+if gcloud storage buckets describe "$cloud_build_source_bucket" >/dev/null 2>&1; then
+  if ! gcloud storage buckets get-iam-policy "$cloud_build_source_bucket" --format=json \
+    | BUILD_SA="$build_sa" python3 -c '
+import json, os, sys
+member = "serviceAccount:" + os.environ["BUILD_SA"]
+bindings = json.load(sys.stdin).get("bindings", [])
+raise SystemExit(0 if any(
+    item.get("role") == "roles/storage.objectViewer" and member in item.get("members", [])
+    for item in bindings
+) else 1)
+'; then
+    gcloud storage buckets add-iam-policy-binding "$cloud_build_source_bucket" \
+      --member="serviceAccount:${build_sa}" \
+      --role='roles/storage.objectViewer' \
+      --quiet >/dev/null
+  fi
+fi
 
 for runtime_sa in "$api_sa" "$worker_sa" "$migrate_sa"; do
   grant_service_account_user "$runtime_sa" "$build_sa"
