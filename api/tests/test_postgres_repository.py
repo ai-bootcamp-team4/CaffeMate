@@ -11,6 +11,11 @@ import rfc8785
 from sqlalchemy import Engine, create_engine, text
 from testcontainers.community.postgres import PostgresContainer
 from worker.agent_cleanup import AgentSessionCleanupConsumer, CleanupOutcome
+from worker.dead_letter import (
+    DeadLetterOperationError,
+    DeadLetterOperations,
+    ReprocessDeadLetterRequest,
+)
 from worker.outbox import OutboxPublisher, PostgresOutboxRepository
 from worker.pubsub import PubSubDelivery
 from worker.runtime import DeliveryOutcome, DurableWorker
@@ -481,6 +486,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0014_result_decision_delta.sql",
             "0015_outbox_dead_letter.sql",
             "0016_evidence_refresh.sql",
+            "0017_outbox_reprocess_audit.sql",
         ]
 
 
@@ -576,6 +582,83 @@ def test_agent_session_cleanup_consumer_completes_retries_and_dead_letters(
             "failure_code": "AGENT_CLEANUP_SCOPE_INVALID",
         },
     ]
+
+
+def test_dead_letter_reprocess_is_allowlisted_idempotent_and_audited(
+    postgres_engine: Engine,
+) -> None:
+    payload = {
+        "runtime_resource": (
+            "projects/test/locations/asia-northeast3/reasoningEngines/runtime-1"
+        ),
+        "user_id": "p-pseudonymous",
+        "session_id": "session-retry-exhausted",
+    }
+    payload_bytes = rfc8785.dumps(payload)
+    with postgres_engine.begin() as connection:
+        outbox_id = connection.execute(
+            text(
+                """
+                INSERT INTO workflow_outbox(
+                    topic, aggregate_id, payload_json, payload_digest, status,
+                    attempts, available_at, failure_code, failed_at, created_at
+                ) VALUES (
+                    'AGENT_SESSION_CLEANUP', 'session-retry-exhausted',
+                    CAST(:payload AS JSONB), :digest, 'DEAD_LETTER', 5, NOW(),
+                    'AGENT_CLEANUP_RETRY_EXHAUSTED', NOW(), NOW()
+                ) RETURNING outbox_id
+                """
+            ),
+            {
+                "payload": payload_bytes.decode(),
+                "digest": hashlib.sha256(payload_bytes).hexdigest(),
+            },
+        ).scalar_one()
+    operations = DeadLetterOperations(
+        postgres_engine,
+        now=lambda: datetime(2026, 8, 21, 12, 0, tzinfo=UTC),
+        new_id=lambda: "reprocess-event-1",
+    )
+    page = operations.list(limit=10)
+    record = next(item for item in page.items if item.outbox_id == outbox_id)
+    assert record.reprocessable is True
+    assert not hasattr(record, "payload")
+    request = ReprocessDeadLetterRequest(
+        request_id="request-1",
+        expected_failure_code="AGENT_CLEANUP_RETRY_EXHAUSTED",
+        remediation_code="RUNTIME_RECOVERED",
+        change_reference="INC-42",
+    )
+    applied = operations.reprocess(outbox_id=outbox_id, request=request)
+    replay = operations.reprocess(outbox_id=outbox_id, request=request)
+    assert replay == applied
+    with pytest.raises(DeadLetterOperationError, match="DEAD_LETTER_REQUEST_ID_REUSED"):
+        operations.reprocess(
+            outbox_id=outbox_id + 1,
+            request=request,
+        )
+    with postgres_engine.connect() as connection:
+        outbox = connection.execute(
+            text(
+                "SELECT status, attempts, failure_code, failed_at "
+                "FROM workflow_outbox WHERE outbox_id=:outbox_id"
+            ),
+            {"outbox_id": outbox_id},
+        ).one()
+        audit = connection.execute(
+            text(
+                "SELECT previous_failure_code, previous_attempts, remediation_code, "
+                "change_reference FROM outbox_reprocess_events WHERE outbox_id=:outbox_id"
+            ),
+            {"outbox_id": outbox_id},
+        ).one()
+    assert outbox == ("PENDING", 0, None, None)
+    assert audit == (
+        "AGENT_CLEANUP_RETRY_EXHAUSTED",
+        5,
+        "RUNTIME_RECOVERED",
+        "INC-42",
+    )
 
 
 def test_evidence_refresh_invalidates_result_and_starts_scoped_selective_rerun(

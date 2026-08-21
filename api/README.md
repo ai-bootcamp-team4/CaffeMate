@@ -194,6 +194,17 @@ transport 오류는 최대 다섯 번까지 지수형 지연으로 다시 시도
 또는 재시도 소진은 원문 오류를 저장하지 않은 안정적인 failure code와 함께 `DEAD_LETTER`로
 보낸다. 운영 환경에서는 Scheduler가 IAM 인증으로 이 내부 endpoint를 주기적으로 호출해야 한다.
 
+private Worker의 `GET /internal/v1/dead-letters`는 payload 원문 없이 outbox id, topic, aggregate id,
+시도 횟수, failure code, 시각과 digest만 반환한다. 재처리는
+`POST /internal/v1/dead-letters/{outbox_id}:reprocess`에서 현재 failure code를 다시 잠그고,
+허용된 일시 장애 코드에만 수행한다. 현재 허용값은 외부 Runtime 복구 뒤 다시 시도할 수 있는
+`AGENT_CLEANUP_RETRY_EXHAUSTED`뿐이다. payload·scope 오류는 자동 재처리하지 않는다.
+
+재처리 명령에는 고유 request id, 정형 remediation code와 `PR-`, `INC-`, `CHG-` change reference가
+필수다. 원문 운영 메모나 비밀값은 받지 않는다. 명령과 이전 failure·attempt는 별도 audit row에
+원자적으로 남기고 Outbox를 `PENDING`으로 되돌린다. 이 내부 API는 Cloud Run IAM 인증을 통과한
+운영 identity에만 호출 권한을 부여해야 한다.
+
 ## Evidence 갱신
 
 connector 감시 작업은 원본에서 확인한 revision과 관측 시각을
