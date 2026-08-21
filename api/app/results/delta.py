@@ -16,6 +16,7 @@ def build_result_decision_delta(
         _candidate_delta(key, previous.get(key), current.get(key))
         for key in sorted(set(previous) | set(current))
     ]
+    reason_codes = _human_review_reasons(changes, previous_bundle, current_bundle)
     return ResultDecisionDelta(
         previous_result_bundle_id=previous_result_bundle_id,
         current_result_bundle_id=current_result_bundle_id,
@@ -23,7 +24,42 @@ def build_result_decision_delta(
             _primary_key(previous_bundle) != _primary_key(current_bundle)
         ),
         candidate_changes=changes,
+        requires_human_review=bool(reason_codes),
+        human_review_reason_codes=reason_codes,
     )
+
+
+def _human_review_reasons(
+    changes: list[CandidateDecisionDelta],
+    previous_bundle: dict[str, Any],
+    current_bundle: dict[str, Any],
+) -> list[str]:
+    reasons: set[str] = set()
+    if _primary_key(previous_bundle) != _primary_key(current_bundle):
+        reasons.add("PRIMARY_CANDIDATE_CHANGED")
+    for change in changes:
+        if change.change_type in {"ADDED", "REMOVED"}:
+            reasons.add("CANDIDATE_SET_CHANGED")
+        if change.previous_rank != change.current_rank:
+            reasons.add("CANDIDATE_RANK_CHANGED")
+        if change.previous_review_status != change.current_review_status:
+            reasons.add("REVIEW_STATUS_CHANGED")
+        if (
+            change.initial_cash_base_delta_krw is not None
+            and abs(change.initial_cash_base_delta_krw) >= 5_000_000
+        ):
+            reasons.add("MATERIAL_INITIAL_CASH_CHANGE")
+        if (
+            change.monthly_fixed_cost_base_delta_krw is not None
+            and abs(change.monthly_fixed_cost_base_delta_krw) >= 500_000
+        ):
+            reasons.add("MATERIAL_MONTHLY_COST_CHANGE")
+        if (
+            change.break_even_monthly_sales_delta_krw is not None
+            and abs(change.break_even_monthly_sales_delta_krw) >= 1_000_000
+        ):
+            reasons.add("MATERIAL_BREAK_EVEN_CHANGE")
+    return sorted(reasons)
 
 
 def _candidate_map(bundle: dict[str, Any]) -> dict[str, dict[str, Any]]:

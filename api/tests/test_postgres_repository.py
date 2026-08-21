@@ -1,4 +1,5 @@
 import hashlib
+import json
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -35,6 +36,8 @@ from app.domain.models import (
     OperationMode,
     Project,
 )
+from app.evidence.models import EvidenceRefreshRequest
+from app.evidence.refresh import EvidenceRefreshService
 from app.feedback.models import FeedbackPreviewStatus
 from app.feedback.postgres_repository import PostgresFeedbackRepository
 from app.feedback.service import FeedbackService
@@ -77,6 +80,7 @@ from app.workflows.stage_router import (
     FirstProposalStageHandler,
     FirstProposalStageRouter,
 )
+from tests.test_agent_boundary import evidence_record
 from tests.test_candidate_audit_stage import audit_result
 from tests.test_proposal_stages import proposal_result
 
@@ -476,6 +480,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0013_document_claim_apply.sql",
             "0014_result_decision_delta.sql",
             "0015_outbox_dead_letter.sql",
+            "0016_evidence_refresh.sql",
         ]
 
 
@@ -571,6 +576,176 @@ def test_agent_session_cleanup_consumer_completes_retries_and_dead_letters(
             "failure_code": "AGENT_CLEANUP_SCOPE_INVALID",
         },
     ]
+
+
+def test_evidence_refresh_invalidates_result_and_starts_scoped_selective_rerun(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    project, stage_id, input_digest, _workflows = create_commit_stage(
+        repository, postgres_engine
+    )
+    execution = PostgresStageExecutionRepository(
+        postgres_engine,
+        new_result_id=lambda: "result-before-refresh",
+    )
+    lease = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-refresh",
+        expected_input_digest=input_digest,
+    )
+    assert lease is not None
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=lease.lease_token,
+        input_digest=lease.input_digest,
+        result=result_payload(project_id=project.project_id),
+    ) == CheckpointOutcome.APPLIED
+    record = evidence_record("evidence-refresh-1")
+    record["project_id"] = project.project_id
+    record["source"]["source_ref"] = "official://franchise/disclosure/brand-a"
+    record["source"]["document_version"] = "v1"
+    record["source"]["source_observed_at"] = "2026-08-22T00:00:00Z"
+    record["retrieved_at"] = "2026-08-22T00:00:00Z"
+    record_digest = hashlib.sha256(rfc8785.dumps(record)).hexdigest()
+    snapshot_id = "evidence-refresh-snapshot-v1"
+    with postgres_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO evidence_records(
+                    project_id, evidence_id, record_json, record_digest, created_at
+                ) VALUES (
+                    :project_id, :evidence_id, CAST(:record AS JSONB),
+                    :record_digest, :created_at
+                )
+                """
+            ),
+            {
+                "project_id": project.project_id,
+                "evidence_id": record["evidence_id"],
+                "record": json.dumps(record),
+                "record_digest": record_digest,
+                "created_at": datetime(2026, 8, 22, 0, 0, tzinfo=UTC),
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO evidence_snapshots(
+                    evidence_snapshot_id, project_id, workflow_run_id,
+                    source_stage_run_id, snapshot_json, snapshot_digest, created_at
+                ) VALUES (
+                    :snapshot_id, :project_id, :workflow_run_id, :stage_id,
+                    '{}'::JSONB, :digest, :created_at
+                )
+                """
+            ),
+            {
+                "snapshot_id": snapshot_id,
+                "project_id": project.project_id,
+                "workflow_run_id": lease.workflow_run_id,
+                "stage_id": stage_id,
+                "digest": "sha256:" + "a" * 64,
+                "created_at": datetime(2026, 8, 22, 0, 0, tzinfo=UTC),
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO evidence_snapshot_records("
+                "evidence_snapshot_id, project_id, evidence_id) "
+                "VALUES (:snapshot_id, :project_id, :evidence_id)"
+            ),
+            {
+                "snapshot_id": snapshot_id,
+                "project_id": project.project_id,
+                "evidence_id": record["evidence_id"],
+            },
+        )
+        connection.execute(
+            text(
+                "UPDATE project_heads SET evidence_snapshot_id=:snapshot_id "
+                "WHERE project_id=:project_id"
+            ),
+            {"snapshot_id": snapshot_id, "project_id": project.project_id},
+        )
+        connection.execute(
+            text(
+                "UPDATE workflow_runs SET evidence_snapshot_id=:snapshot_id "
+                "WHERE workflow_run_id=:workflow_run_id"
+            ),
+            {"snapshot_id": snapshot_id, "workflow_run_id": lease.workflow_run_id},
+        )
+        connection.execute(
+            text(
+                "UPDATE result_bundles SET evidence_snapshot_id=:snapshot_id "
+                "WHERE result_bundle_id=:result_bundle_id"
+            ),
+            {
+                "snapshot_id": snapshot_id,
+                "result_bundle_id": "result-before-refresh",
+            },
+        )
+    now = datetime(2026, 8, 22, 1, 0, tzinfo=UTC)
+    refresh = EvidenceRefreshService(
+        postgres_engine,
+        now=lambda: now,
+        new_id=iter(("refresh-1", "workflow-refresh", *(f"id-{i}" for i in range(30)))).__next__,
+    )
+    request = EvidenceRefreshRequest.model_validate(
+        {
+            "project_id": project.project_id,
+            "observations": [
+                {
+                    "source_ref": "official://franchise/disclosure/brand-a",
+                    "source_revision": "v2",
+                    "source_observed_at": now.isoformat(),
+                    "availability": "AVAILABLE",
+                }
+            ],
+        }
+    )
+    result = refresh.refresh(request)
+    replay = refresh.refresh(request)
+    unchanged = refresh.refresh(
+        request.model_copy(
+            update={
+                "observations": [
+                    request.observations[0].model_copy(
+                        update={
+                            "source_observed_at": now + timedelta(minutes=1),
+                        }
+                    )
+                ]
+            }
+        )
+    )
+
+    assert result == replay
+    assert unchanged.status == "NO_CHANGE"
+    assert unchanged.recompute_workflow_run_id is None
+    assert result.status == "RECOMPUTE_QUEUED"
+    assert result.changed_source_refs == ["official://franchise/disclosure/brand-a"]
+    assert result.affected_evidence_ids == ["evidence-refresh-1"]
+    assert result.invalidated_result_bundle_id == "result-before-refresh"
+    assert result.recompute_workflow_run_id == "workflow-refresh"
+    loaded = ResultService(PostgresResultRepository(postgres_engine)).get_current(
+        project_id=project.project_id, user_id="user-1"
+    )
+    assert loaded.freshness.value == "STALE"
+    assert loaded.invalidation_reason_codes == ["SOURCE_REVISION_CHANGED"]
+    with postgres_engine.connect() as connection:
+        lifecycle = connection.execute(
+            text(
+                "SELECT status, reason_code FROM evidence_lifecycle "
+                "WHERE project_id=:project_id AND evidence_id=:evidence_id"
+            ),
+            {"project_id": project.project_id, "evidence_id": "evidence-refresh-1"},
+        ).mappings().one()
+    assert dict(lifecycle) == {
+        "status": "STALE",
+        "reason_code": "SOURCE_REVISION_CHANGED",
+    }
 
 
 def test_project_and_state_survive_repository_recreation(

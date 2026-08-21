@@ -845,6 +845,87 @@ class PostgresStageExecutionRepository:
                 raise ContractValidationError(
                     "Evidence id refers to a different immutable record"
                 )
+        records_by_source: dict[str, set[str]] = {}
+        for record in output.evidence_records:
+            source = record.get("source")
+            source_ref = source.get("source_ref") if isinstance(source, dict) else None
+            if isinstance(source_ref, str):
+                records_by_source.setdefault(source_ref, set()).add(record["evidence_id"])
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO evidence_lifecycle(
+                        project_id, evidence_id, status, reason_code, updated_at
+                    ) VALUES (
+                        :project_id, :evidence_id, 'ACTIVE',
+                        'FRESH_SNAPSHOT_ACCEPTED', :updated_at
+                    ) ON CONFLICT(project_id, evidence_id) DO UPDATE SET
+                        status='ACTIVE', reason_code='FRESH_SNAPSHOT_ACCEPTED',
+                        updated_at=EXCLUDED.updated_at
+                    """
+                ),
+                {
+                    "project_id": row["project_id"],
+                    "evidence_id": record["evidence_id"],
+                    "updated_at": created_at,
+                },
+            )
+        for source_ref, current_ids in records_by_source.items():
+            previous_ids = connection.execute(
+                text(
+                    """
+                    SELECT evidence_id FROM evidence_records
+                    WHERE project_id=:project_id
+                      AND record_json->'source'->>'source_ref'=:source_ref
+                    """
+                ),
+                {"project_id": row["project_id"], "source_ref": source_ref},
+            ).scalars().all()
+            for evidence_id in previous_ids:
+                if evidence_id in current_ids:
+                    continue
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO evidence_lifecycle(
+                            project_id, evidence_id, status, reason_code, updated_at
+                        ) VALUES (
+                            :project_id, :evidence_id, 'SUPERSEDED',
+                            'NEW_SOURCE_SNAPSHOT_ACCEPTED', :updated_at
+                        ) ON CONFLICT(project_id, evidence_id) DO UPDATE SET
+                            status='SUPERSEDED',
+                            reason_code='NEW_SOURCE_SNAPSHOT_ACCEPTED',
+                            updated_at=EXCLUDED.updated_at
+                        """
+                    ),
+                    {
+                        "project_id": row["project_id"],
+                        "evidence_id": evidence_id,
+                        "updated_at": created_at,
+                    },
+                )
+        conflict_ids = {
+            evidence_id
+            for conflict in output.conflicts
+            for evidence_id in conflict.get("candidate_refs", [])
+            if isinstance(evidence_id, str)
+        }
+        for evidence_id in sorted(conflict_ids):
+            connection.execute(
+                text(
+                    """
+                    UPDATE evidence_lifecycle
+                    SET status='CONFLICT', reason_code='VALIDATED_EVIDENCE_CONFLICT',
+                        updated_at=:updated_at
+                    WHERE project_id=:project_id AND evidence_id=:evidence_id
+                    """
+                ),
+                {
+                    "project_id": row["project_id"],
+                    "evidence_id": evidence_id,
+                    "updated_at": created_at,
+                },
+            )
         snapshot_json = output.model_dump(mode="json")
         connection.execute(
             text(
