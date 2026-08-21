@@ -21,6 +21,7 @@ from app.domain.errors import (
     IdempotencyKeyReusedError,
     PersistenceUnavailableError,
     ProjectNotFoundError,
+    ResultNotFoundError,
     StageLeaseRejectedError,
     StateVersionConflictError,
     UnauthenticatedError,
@@ -31,6 +32,10 @@ from app.domain.models import FounderState, Project
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.projects.unavailable_repository import UnavailableProjectRepository
+from app.results.models import ResultBundle
+from app.results.postgres_repository import PostgresResultRepository
+from app.results.service import ResultService
+from app.results.unavailable_repository import UnavailableResultRepository
 from app.settings import RuntimeSettings
 from app.workflows.execution_repository import PostgresStageExecutionRepository
 from app.workflows.models import StageLease, WorkflowCode, WorkflowEvent, WorkflowRun
@@ -68,13 +73,14 @@ def create_app(
     *,
     project_service: ProjectService | None = None,
     workflow_service: WorkflowService | None = None,
+    result_service: ResultService | None = None,
     identity_verifier: IdentityVerifier | None = None,
     stage_execution_service: StageExecution | None = None,
     internal_identity_verifier: IdentityVerifier | None = None,
 ) -> FastAPI:
     database_handle: DatabaseHandle | None = None
     settings = RuntimeSettings.from_environment()
-    if project_service is None or workflow_service is None:
+    if project_service is None or workflow_service is None or result_service is None:
         database_handle = create_database_handle(settings)
     if project_service is None:
         repository = (
@@ -98,6 +104,16 @@ def create_app(
         workflows = WorkflowService(workflow_repository)
     else:
         workflows = workflow_service
+
+    if result_service is None:
+        result_repository = (
+            PostgresResultRepository(database_handle.engine)
+            if database_handle is not None
+            else UnavailableResultRepository()
+        )
+        results = ResultService(result_repository)
+    else:
+        results = result_service
 
     if stage_execution_service is not None:
         internal_stages = stage_execution_service
@@ -148,6 +164,7 @@ def create_app(
     async def domain_error_handler(_request: object, error: DomainError) -> JSONResponse:
         status_code = {
             ProjectNotFoundError: status.HTTP_404_NOT_FOUND,
+            ResultNotFoundError: status.HTTP_404_NOT_FOUND,
             StateVersionConflictError: status.HTTP_409_CONFLICT,
             IdempotencyKeyReusedError: status.HTTP_409_CONFLICT,
             ContractValidationError: status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -203,6 +220,13 @@ def create_app(
         user_id: Annotated[str, Depends(current_user)],
     ) -> Project:
         return service.get_project(project_id=project_id, user_id=user_id)
+
+    @app.get("/v1/projects/{project_id}/result", response_model=ResultBundle)
+    def get_current_result(
+        project_id: str,
+        user_id: Annotated[str, Depends(current_user)],
+    ) -> ResultBundle:
+        return results.get_current(project_id=project_id, user_id=user_id)
 
     @app.get("/v1/projects", response_model=list[Project])
     def list_projects(user_id: Annotated[str, Depends(current_user)]) -> list[Project]:

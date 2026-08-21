@@ -24,6 +24,10 @@ class McpContractValidator(Protocol):
     def validate_mcp_tool_result(self, tool_name: str, value: dict[str, Any]) -> None: ...
 
 
+class CandidateContractValidator(Protocol):
+    def validate_candidate_result(self, value: dict[str, Any]) -> None: ...
+
+
 class ContractRegistry:
     def __init__(self, schema_directory: Path | None = None) -> None:
         self._schema_directory = schema_directory or (
@@ -74,6 +78,9 @@ class ContractRegistry:
         if validator is None:
             raise ContractValidationError(f"Unknown MCP tool: {tool_name}")
         self._validate_with(validator, f"MCP tool {tool_name}", value)
+
+    def validate_candidate_result(self, value: dict[str, Any]) -> None:
+        self._validate("candidate-result.schema.json", value)
 
     def _validate(self, contract_name: str, value: dict[str, Any]) -> None:
         self._validate_with(self._validators[contract_name], contract_name, value)

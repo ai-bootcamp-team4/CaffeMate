@@ -46,3 +46,7 @@ class StageLeaseRejectedError(DomainError):
 
 class ExternalExecutionUnavailableError(DomainError):
     code = "EXTERNAL_EXECUTION_UNAVAILABLE"
+
+
+class ResultNotFoundError(DomainError):
+    code = "RESULT_NOT_FOUND"

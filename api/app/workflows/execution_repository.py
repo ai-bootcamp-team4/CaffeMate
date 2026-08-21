@@ -3,10 +3,15 @@ import json
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import Engine, text
 from sqlalchemy.engine import Connection, RowMapping
 
+from app.contracts.schema_registry import CandidateContractValidator, ContractRegistry
+from app.domain.errors import ContractValidationError
+from app.results.models import ResultBundlePayload
 from app.workflows.models import CheckpointOutcome, HeadFence, StageLease
 
 LEASE_SECONDS = 45
@@ -19,10 +24,14 @@ class PostgresStageExecutionRepository:
         *,
         now: Callable[[], datetime] | None = None,
         new_token: Callable[[], str] | None = None,
+        new_result_id: Callable[[], str] | None = None,
+        contracts: CandidateContractValidator | None = None,
     ) -> None:
         self._engine = engine
         self._now = now or (lambda: datetime.now(UTC))
         self._new_token = new_token or (lambda: secrets.token_urlsafe(32))
+        self._new_result_id = new_result_id or (lambda: str(uuid4()))
+        self._contracts = contracts or ContractRegistry()
 
     def authorize(self, lease: StageLease) -> bool:
         now = self._now()
@@ -150,6 +159,24 @@ class PostgresStageExecutionRepository:
             if self._stored_head(row) != self._current_head(row):
                 return CheckpointOutcome.STALE_DISCARDED
 
+            bundle = self._parse_result_bundle(result)
+            result_bundle_id: str | None = None
+            if bundle is not None:
+                try:
+                    bundle.validate_contracts(
+                        project_id=row["project_id"],
+                        state_version=row["state_version"],
+                        contracts=self._contracts,
+                    )
+                except ValueError as error:
+                    raise ContractValidationError(str(error)) from error
+                result_bundle_id = self._persist_result_bundle(
+                    connection,
+                    row=row,
+                    bundle=bundle,
+                    created_at=now,
+                )
+
             connection.execute(
                 text(
                     """
@@ -184,11 +211,73 @@ class PostgresStageExecutionRepository:
                 ),
                 {
                     "workflow_run_id": row["workflow_run_id"],
-                    "event": json.dumps({"stage_run_id": stage_run_id}),
+                    "event": json.dumps(
+                        {
+                            "stage_run_id": stage_run_id,
+                            "result_bundle_id": result_bundle_id,
+                        }
+                    ),
                     "now": now,
                 },
             )
             return CheckpointOutcome.APPLIED
+
+    def _persist_result_bundle(
+        self,
+        connection: Connection,
+        *,
+        row: RowMapping,
+        bundle: ResultBundlePayload,
+        created_at: datetime,
+    ) -> str:
+        result_bundle_id = self._new_result_id()
+        connection.execute(
+            text(
+                """
+                INSERT INTO result_bundles(
+                    result_bundle_id, project_id, workflow_run_id,
+                    workflow_generation, state_version, founder_snapshot_id,
+                    area_snapshot_id, evidence_snapshot_id, policy_snapshot_id,
+                    index_generation_id, seed_registry_id, bundle_json, created_at
+                ) VALUES (
+                    :result_bundle_id, :project_id, :workflow_run_id,
+                    :workflow_generation, :state_version, :founder_snapshot_id,
+                    :area_snapshot_id, :evidence_snapshot_id, :policy_snapshot_id,
+                    :index_generation_id, :seed_registry_id, CAST(:bundle_json AS JSONB),
+                    :created_at
+                )
+                """
+            ),
+            {
+                "result_bundle_id": result_bundle_id,
+                "project_id": row["project_id"],
+                "workflow_run_id": row["workflow_run_id"],
+                **self._stored_head(row).model_dump(mode="python"),
+                "bundle_json": json.dumps(bundle.model_dump(mode="json")),
+                "created_at": created_at,
+            },
+        )
+        connection.execute(
+            text(
+                "UPDATE venture_projects SET current_result_bundle_id=:result_bundle_id "
+                "WHERE project_id=:project_id"
+            ),
+            {
+                "result_bundle_id": result_bundle_id,
+                "project_id": row["project_id"],
+            },
+        )
+        return result_bundle_id
+
+    @staticmethod
+    def _parse_result_bundle(result: dict[str, object]) -> ResultBundlePayload | None:
+        value = result.get("result_bundle")
+        if value is None:
+            return None
+        try:
+            return ResultBundlePayload.model_validate(value)
+        except ValidationError as error:
+            raise ContractValidationError("Result bundle shape is invalid") from error
 
     @staticmethod
     def _load_stage(
@@ -203,7 +292,7 @@ class PostgresStageExecutionRepository:
                 """
                 SELECT s.stage_run_id, s.stage_code, s.status AS stage_status,
                        s.input_digest, s.attempt, s.lease_token_digest,
-                       s.lease_expires_at, w.workflow_run_id,
+                       s.lease_expires_at, w.workflow_run_id, w.project_id,
                        w.status AS workflow_status,
                        w.workflow_generation, w.state_version,
                        w.founder_snapshot_id, w.area_snapshot_id,
