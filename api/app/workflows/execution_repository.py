@@ -24,6 +24,24 @@ class PostgresStageExecutionRepository:
         self._now = now or (lambda: datetime.now(UTC))
         self._new_token = new_token or (lambda: secrets.token_urlsafe(32))
 
+    def authorize(self, lease: StageLease) -> bool:
+        now = self._now()
+        with self._engine.connect() as connection:
+            row = self._load_stage(
+                connection,
+                stage_run_id=lease.stage_run_id,
+                for_update=False,
+            )
+            return bool(
+                row is not None
+                and row["workflow_run_id"] == lease.workflow_run_id
+                and row["stage_code"] == lease.stage_code
+                and row["input_digest"] == lease.input_digest
+                and self._lease_is_current(row, lease_token=lease.lease_token, now=now)
+                and self._stored_head(row) == lease.head
+                and self._stored_head(row) == self._current_head(row)
+            )
+
     def claim(
         self,
         *,
