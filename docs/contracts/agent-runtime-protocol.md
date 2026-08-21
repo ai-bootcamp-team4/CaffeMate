@@ -550,7 +550,7 @@ validated parser blocks
 
 완료 기준:
 
-- `docs/contracts/*.schema.json` 전체가 Ajv 8 strict draft 2020-12와 date/date-time format 검증을 통과한다.
+- `docs/contracts/*.schema.json` 전체가 Python `jsonschema` draft 2020-12와 Ajv 8 strict draft 2020-12의 date/date-time format 검증을 통과하고 공통 fixture 판정이 일치한다.
 - task registry의 모든 payload Schema와 정상·기권 fixture가 존재한다.
 - 열 개 MCP tool의 정상·부분·실패 fixture가 input/output Schema와 manifest 검증을 통과한다.
 - 백엔드 fixture가 실제 Agent adapter 없이도 Workflow test를 통과한다.

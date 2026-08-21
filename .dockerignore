@@ -4,6 +4,13 @@
 node_modules
 dist
 coverage
+.venv
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/*.py[cod]
 .env
 .env.*
 !.env.example

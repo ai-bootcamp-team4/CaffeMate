@@ -140,7 +140,7 @@ LLM Judge는 다음에 보조적으로 사용할 수 있다.
 
 ### Core
 
-- 모든 JSON Schema가 Ajv 8 strict draft 2020-12와 date/date-time format에서 valid
+- 모든 JSON Schema가 Python `jsonschema` draft 2020-12와 Ajv 8 strict draft 2020-12의 date/date-time format에서 valid이고 공통 fixture 판정이 일치
 - Finance exact test 100%
 - cross-project leakage 0
 - unsafe action 0

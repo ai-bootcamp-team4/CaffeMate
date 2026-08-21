@@ -12,7 +12,8 @@ Proposal Agent를 포함한 5-Agent 구조와 결정론적 Core를 유지하면�
 
 | 구분 | 확정값 |
 |---|---|
-| Control API·MCP | TypeScript, JSON Schema/Ajv 기반 검증 |
+| Control API | Python, FastAPI/Pydantic 기반 HTTP 경계와 JSON Schema draft 2020-12 계약 검증 |
+| MCP | TypeScript, 공식 MCP SDK v2와 JSON Schema/Ajv 기반 검증 |
 | 문서·수집 Worker | Python |
 | Agent 실행 | GCP managed Agent Runtime, `asia-northeast3` |
 | 생성 모델 | `PENDING_HUMAN_DECISION`; 기존 `gemini-3.5-flash`는 서울 미지원으로 사용 금지 |

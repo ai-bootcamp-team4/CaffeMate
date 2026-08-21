@@ -25,7 +25,7 @@
 
 ### 완료 조건
 
-- 모든 JSON Schema가 Ajv 8 strict draft 2020-12와 date/date-time format 검사를 통과한다.
+- 모든 JSON Schema가 Python `jsonschema` draft 2020-12와 Ajv 8 strict draft 2020-12의 date/date-time format 검사를 모두 통과하며 공통 fixture 판정이 일치한다.
 - fixture가 현재 제품 상태와 금지 행동을 표현한다.
 - 문서 링크가 저장소 안에서 유효하다.
 

@@ -3,3 +3,9 @@ dist/
 coverage/
 *.log
 .DS_Store
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.py[cod]
