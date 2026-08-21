@@ -15,6 +15,8 @@ from worker.runtime import DeliveryOutcome, DurableWorker
 
 from app.agents.runtime import PostgresAgentCleanupSink
 from app.candidates.seed_registry import IndependentSeedRegistry
+from app.documents.service import DocumentService
+from app.documents.storage import StoredObject
 from app.domain.errors import (
     ContractValidationError,
     FeedbackPreconditionError,
@@ -91,6 +93,20 @@ class ConfiguredExternalDependencies:
     async def call_tool(self, **kwargs: object) -> object:
         del kwargs
         raise AssertionError("MCP must not run while starting a workflow")
+
+
+class DocumentStorageFixture:
+    def __init__(self) -> None:
+        self.objects: dict[str, StoredObject] = {}
+
+    def sign_upload(self, **kwargs: Any) -> str:
+        return f"https://upload.invalid/{kwargs['object_path']}"
+
+    def inspect(self, *, object_path: str) -> StoredObject | None:
+        return self.objects.get(object_path)
+
+    def sign_download(self, **kwargs: Any) -> str:
+        return f"https://download.invalid/{kwargs['object_path']}"
 
 
 class FirstProposalMcpFixture:
@@ -400,6 +416,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0008_feedback_preview.sql",
             "0009_feedback_resolution.sql",
             "0010_candidate_selection.sql",
+            "0011_document_upload.sql",
         ]
 
 
@@ -1812,7 +1829,15 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
     )
     from fastapi.testclient import TestClient
 
-    with TestClient(create_app(identity_verifier=FixedIdentityVerifier())) as client:
+    document_storage = DocumentStorageFixture()
+    document_service = DocumentService(postgres_engine, document_storage)
+    with TestClient(
+        create_app(
+            identity_verifier=FixedIdentityVerifier(),
+            internal_identity_verifier=FixedIdentityVerifier(),
+            document_service=document_service,
+        )
+    ) as client:
         response = client.get(
             f"/v1/projects/{project.project_id}/result",
             headers={"Authorization": "Bearer valid-token"},
@@ -1857,6 +1882,83 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
             f"/v1/projects/{project.project_id}",
             headers={"Authorization": "Bearer valid-token"},
         )
+        content = b"%PDF-1.7 caffemate"
+        content_sha256 = hashlib.sha256(content).hexdigest()
+        upload = client.post(
+            f"/v1/projects/{project.project_id}/documents/uploads",
+            headers={
+                "Authorization": "Bearer valid-token",
+                "Idempotency-Key": "document-upload-1",
+            },
+            json={
+                "document_type": "COMMERCIAL_LEASE",
+                "filename": "../lease.pdf",
+                "content_type": "application/pdf",
+                "size_bytes": len(content),
+                "sha256": content_sha256,
+            },
+        )
+        assert upload.status_code == 201, upload.json()
+        upload_body = upload.json()
+        assert upload_body["object_path"].startswith(
+            f"projects/{project.project_id}/documents/"
+        )
+        assert ".." not in upload_body["object_path"]
+        assert upload_body["required_headers"] == {
+            "Content-Type": "application/pdf",
+            "x-goog-meta-caffemate-sha256": content_sha256,
+        }
+        document_storage.objects[upload_body["object_path"]] = StoredObject(
+            content_type="application/pdf",
+            size_bytes=len(content),
+            sha256=content_sha256,
+        )
+        completed_upload = client.post(
+            f"/v1/projects/{project.project_id}/documents/uploads:complete",
+            headers={"Authorization": "Bearer valid-token"},
+            json={"document_revision_id": upload_body["document_revision_id"]},
+        )
+        scanned = client.post(
+            "/internal/v1/documents/"
+            f"{upload_body['document_revision_id']}:scan-result",
+            headers={"Authorization": "Bearer valid-token"},
+            json={"project_id": project.project_id, "clean": True, "threat_codes": []},
+        )
+        download = client.get(
+            f"/v1/projects/{project.project_id}/documents/"
+            f"{upload_body['document_revision_id']}/download",
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        bad_upload = client.post(
+            f"/v1/projects/{project.project_id}/documents/uploads",
+            headers={
+                "Authorization": "Bearer valid-token",
+                "Idempotency-Key": "document-upload-bad",
+            },
+            json={
+                "document_type": "EQUIPMENT_QUOTE",
+                "filename": "quote.pdf",
+                "content_type": "application/pdf",
+                "size_bytes": len(content),
+                "sha256": content_sha256,
+            },
+        )
+        bad_body = bad_upload.json()
+        document_storage.objects[bad_body["object_path"]] = StoredObject(
+            content_type="image/png",
+            size_bytes=len(content) + 1,
+            sha256="0" * 64,
+        )
+        quarantined = client.post(
+            f"/v1/projects/{project.project_id}/documents/uploads:complete",
+            headers={"Authorization": "Bearer valid-token"},
+            json={"document_revision_id": bad_body["document_revision_id"]},
+        )
+        quarantined_download = client.get(
+            f"/v1/projects/{project.project_id}/documents/"
+            f"{bad_body['document_revision_id']}/download",
+            headers={"Authorization": "Bearer valid-token"},
+        )
     assert response.status_code == 200
     assert response.json()["result_bundle_id"] == "result-1"
     assert missing.status_code == 409
@@ -1893,6 +1995,29 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
             "missing_fields": [],
         }
     ]
+    assert completed_upload.status_code == 200
+    assert completed_upload.json()["status"] == "SCAN_PENDING"
+    assert scanned.status_code == 200
+    assert scanned.json()["status"] == "READY_FOR_PARSING"
+    assert download.status_code == 200
+    assert download.json()["download_url"].startswith("https://download.invalid/")
+    assert quarantined.status_code == 200
+    assert quarantined.json()["status"] == "QUARANTINED"
+    assert quarantined.json()["failure_codes"] == [
+        "MIME_MISMATCH",
+        "SIZE_MISMATCH",
+        "CHECKSUM_MISMATCH",
+    ]
+    assert quarantined_download.status_code == 409
+    with postgres_engine.connect() as connection:
+        document_topics = connection.execute(
+            text(
+                "SELECT topic FROM workflow_outbox "
+                "WHERE aggregate_id=:revision_id ORDER BY outbox_id"
+            ),
+            {"revision_id": upload_body["document_revision_id"]},
+        ).scalars().all()
+    assert document_topics == ["DOCUMENT_SCAN_REQUESTED", "DOCUMENT_PARSE_REQUESTED"]
 
 
 def test_invalid_result_contract_rolls_back_bundle_and_stage_checkpoint(

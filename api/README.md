@@ -114,3 +114,21 @@ State, Event, Workflow, Result에는 쓰지 않는다. 두 명령 모두 `Idempo
 Venture Case를 `SELECTED`·`CANDIDATE`로 전환한다. 응답에는 점포·임대 조건·견적·자금 조건과
 개인카페 또는 프랜차이즈별 필수 자료 체크리스트가 포함된다. `property_intake_enabled`와
 `document_intake_enabled`는 실제 자료 입력을 열지만 `is_final_go_decision`은 항상 `false`다.
+
+## 문서 업로드 수명주기
+
+`POST /v1/projects/{project_id}/documents/uploads`는 후보가 선택된 프로젝트에만 10분짜리
+Cloud Storage V4 PUT URL을 발급한다. API가 강제하는 object path는
+`projects/{project}/documents/{document}/revisions/{revision}/source.{ext}`이며, 원본 파일명은
+경로에 사용하지 않는다. 허용 형식은 PDF, JPEG, PNG, DOCX이고 최대 크기는 50 MiB다.
+
+클라이언트는 `Content-Type`과 `x-goog-meta-caffemate-sha256` 헤더를 signed request에 그대로
+포함한다. `POST /documents/uploads:complete`에서 API는 실제 object를 읽어 magic 기반 MIME,
+크기, SHA-256을 다시 계산한다. 하나라도 다르면 `QUARANTINED`로 격리하며 다운로드와 parsing을
+금지한다. 모두 맞으면 `SCAN_PENDING`으로 전환하고 `DOCUMENT_SCAN_REQUESTED` Outbox를 만든다.
+
+내부 malware scanner는 service identity로
+`POST /internal/v1/documents/{revision}:scan-result`를 호출한다. clean 결과만
+`READY_FOR_PARSING`으로 전환하고 `DOCUMENT_PARSE_REQUESTED`를 발행한다. 감염 또는 의심 결과는
+`QUARANTINED`로 남는다. 사용자 다운로드 URL은 5분만 유효하며 격리·삭제 문서에는 발급하지
+않는다. 운영 구성에는 `DOCUMENT_BUCKET`이 필요하다.

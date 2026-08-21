@@ -24,6 +24,7 @@ class RuntimeSettings:
     mcp_base_url: str | None
     mcp_audience: str | None
     mcp_scope_hmac_secret: str | None
+    document_bucket: str | None
 
     @classmethod
     def from_environment(cls) -> "RuntimeSettings":
@@ -50,6 +51,7 @@ class RuntimeSettings:
             mcp_base_url=os.getenv("MCP_BASE_URL"),
             mcp_audience=os.getenv("MCP_AUDIENCE"),
             mcp_scope_hmac_secret=os.getenv("MCP_SCOPE_HMAC_SECRET"),
+            document_bucket=os.getenv("DOCUMENT_BUCKET"),
         )
 
     @property
