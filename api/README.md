@@ -148,3 +148,10 @@ Claim id, 계약에 없는 Claim type, Parser가 제공하지 않은 anchor를 �
 사용자는 같은 경로에 `PUT` 요청으로 여러 필드를 한 번에 수정하거나 `null`로 비울 수 있다.
 이 편집도 State를 바꾸지 않는다. 현재 State version이 form의 예상 version과 달라지면 `409`로
 거절한다. 실제 State 반영은 별도의 `반영하고 다시 계산` 명령에서만 수행한다.
+
+`POST /v1/projects/{project_id}/documents/{revision}/extraction-form:apply`는 form digest와
+State version을 함께 잠근다. 비어 있지 않은 값만 `CONFIRMED` Claim으로 승격하며, 같은 종류의
+기존 문서 Claim과 값이 다르면 어느 쪽도 자동 선택하지 않고 `OPEN` conflict를 만든다. Event,
+State revision, Claim, conflict와 `CALCULATE_GATE_RANK`부터 시작하는 선택적 재계산 Workflow는
+하나의 PostgreSQL transaction으로 저장된다. 재계산기는 선택된 후보의 문서 Claim을 사용자 확인
+값으로 우선 사용하며, 열린 충돌이 있는 비용 항목은 `UNKNOWN`으로 처리한다.

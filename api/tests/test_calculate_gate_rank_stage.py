@@ -64,9 +64,9 @@ def calculation_context(
         "independent_seed"
     ]["proposal_input"]
     independent_input["evidence_records"] = evidence_records or []
-    independent_result = ProposalStageHandler.independent(
-        FakeRuntime(proposal_result)
-    ).execute(independent_context)
+    independent_result = ProposalStageHandler.independent(FakeRuntime(proposal_result)).execute(
+        independent_context
+    )
     independent_proposal = independent_result["independent_proposal"]
     independent_proposal["candidate_proposals"][0]["missing_fields"] = []
     independent_proposal["candidate_proposals"][0]["warnings"] = []
@@ -75,9 +75,9 @@ def calculation_context(
     }
     if include_franchise:
         franchise_context = proposal_context("PROPOSE_FRANCHISE")
-        franchise_result = ProposalStageHandler.franchise(
-            FakeRuntime(proposal_result)
-        ).execute(franchise_context)
+        franchise_result = ProposalStageHandler.franchise(FakeRuntime(proposal_result)).execute(
+            franchise_context
+        )
         dependencies["PROPOSE_FRANCHISE"] = franchise_result
     return StageContext(
         lease=independent_context.lease.model_copy(
@@ -93,9 +93,7 @@ def calculation_context(
 
 
 def test_unknown_costs_remain_unknown_and_candidate_stays_conditional() -> None:
-    output = CalculateGateRankStageHandler().execute(calculation_context())[
-        "calculate_gate_rank"
-    ]
+    output = CalculateGateRankStageHandler().execute(calculation_context())["calculate_gate_rank"]
 
     assert isinstance(output, dict)
     candidate = output["candidates"][0]
@@ -107,9 +105,7 @@ def test_unknown_costs_remain_unknown_and_candidate_stays_conditional() -> None:
     assert candidate["capital_gate"]["status"] == "CONDITIONAL"
     assert candidate["decision"]["review_status"] == "CONDITIONAL_REVIEW"
     assert "MATERIAL_COST_UNKNOWN" in candidate["decision"]["reason_codes"]
-    assert candidate["counterfactuals"][0]["kind"] == (
-        "MISSING_COSTS_REQUIRED_TO_RESOLVE_GATE"
-    )
+    assert candidate["counterfactuals"][0]["kind"] == ("MISSING_COSTS_REQUIRED_TO_RESOLVE_GATE")
     assert "DEPOSIT" in candidate["counterfactuals"][0]["field_ids"]
     fee = next(
         value
@@ -147,9 +143,7 @@ def test_grounded_costs_produce_exact_finance_gate_and_recommended_rank() -> Non
 
 
 def test_confirmed_unfunded_minimum_excludes_and_emits_reversal_amount() -> None:
-    context = calculation_context(
-        evidence_records=complete_independent_finance(amount=10_000_000)
-    )
+    context = calculation_context(evidence_records=complete_independent_finance(amount=10_000_000))
     context.state.founder.borrowing_intent = BorrowingIntent.NO
 
     output = CalculateGateRankStageHandler().execute(context)["calculate_gate_rank"]
@@ -173,33 +167,27 @@ def test_confirmed_unfunded_minimum_excludes_and_emits_reversal_amount() -> None
 
 
 def test_franchise_with_missing_disclosure_remains_ranked_conditional() -> None:
-    output = CalculateGateRankStageHandler().execute(
-        calculation_context(include_franchise=True)
-    )["calculate_gate_rank"]
+    output = CalculateGateRankStageHandler().execute(calculation_context(include_franchise=True))[
+        "calculate_gate_rank"
+    ]
 
     assert isinstance(output, dict)
-    franchise = next(
-        value for value in output["candidates"] if value["case_type"] == "FRANCHISE"
-    )
+    franchise = next(value for value in output["candidates"] if value["case_type"] == "FRANCHISE")
     assert franchise["display_name"] == "검증 브랜드"
     assert franchise["franchise_availability"] == "HQ_CONFIRMATION_REQUIRED"
-    assert franchise["franchise_eligibility_evidence_refs"] == [
-        "ev-franchise-verified"
-    ]
+    assert franchise["franchise_eligibility_evidence_refs"] == ["ev-franchise-verified"]
     assert franchise["decision"]["review_status"] == "CONDITIONAL_REVIEW"
     assert franchise["decision"]["rank"] is not None
-    assert "FRANCHISE_AREA_AVAILABILITY_UNCONFIRMED" in franchise["decision"][
-        "reason_codes"
-    ]
+    assert "FRANCHISE_AREA_AVAILABILITY_UNCONFIRMED" in franchise["decision"]["reason_codes"]
 
 
 def test_conflicting_cost_evidence_is_not_auto_resolved() -> None:
     records = complete_independent_finance()
     records.append(money_evidence(CostCategory.DEPOSIT, 9_000_000, suffix="conflict"))
 
-    output = CalculateGateRankStageHandler().execute(
-        calculation_context(evidence_records=records)
-    )["calculate_gate_rank"]
+    output = CalculateGateRankStageHandler().execute(calculation_context(evidence_records=records))[
+        "calculate_gate_rank"
+    ]
 
     assert isinstance(output, dict)
     candidate = output["candidates"][0]
@@ -210,6 +198,43 @@ def test_conflicting_cost_evidence_is_not_auto_resolved() -> None:
     }
     assert any(value["severity"] == "CRITICAL" for value in candidate["risks"])
     assert candidate["decision"]["review_status"] == "CONDITIONAL_REVIEW"
+
+
+def test_confirmed_document_cost_overrides_benchmark_but_open_conflict_stays_unknown() -> None:
+    context = calculation_context(evidence_records=complete_independent_finance())
+    proposal = context.dependency_results["PROPOSE_INDEPENDENT"]["independent_proposal"]
+    source_id = proposal["candidate_proposals"][0]["seed_or_brand_id"]
+    context.document_claims = [
+        {
+            "claim_id": "document-claim-deposit",
+            "case_id": "selected-case",
+            "case_type": "INDEPENDENT",
+            "source_id": source_id,
+            "claim_type": "LEASE_DEPOSIT",
+            "value_json": 45_000_000,
+            "unit": "KRW",
+            "materiality": "HIGH",
+            "document_type": "COMMERCIAL_LEASE",
+            "has_open_conflict": False,
+        }
+    ]
+
+    output = CalculateGateRankStageHandler().execute(context)["calculate_gate_rank"]
+    assert output["candidates"][0]["finance"]["initial_cash"] == {
+        "low": 52_000_000,
+        "base": 52_000_000,
+        "high": 52_000_000,
+    }
+
+    context.document_claims[0]["has_open_conflict"] = True
+    conflicted = CalculateGateRankStageHandler().execute(context)["calculate_gate_rank"]
+    candidate = conflicted["candidates"][0]
+    assert candidate["finance"]["initial_cash"] == {
+        "low": None,
+        "base": None,
+        "high": None,
+    }
+    assert "DEPOSIT" in candidate["finance"]["unknown_cost_fields"]
 
 
 def test_calculation_and_ranking_are_repeatable() -> None:

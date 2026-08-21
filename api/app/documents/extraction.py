@@ -11,10 +11,14 @@ from sqlalchemy import Engine, text
 from app.agents.boundary import validate_agent_boundary
 from app.agents.task_factory import AgentTaskFactory
 from app.documents.models import (
+    AppliedDocumentClaim,
+    ApplyExtractionFormRequest,
+    DocumentClaimConflict,
     DocumentExtractionForm,
     DocumentRevisionStatus,
     EditStatus,
     ExtractionField,
+    ExtractionFormApplication,
     ExtractionStatus,
     ParserResultRequest,
     UpdateExtractionFormRequest,
@@ -25,7 +29,11 @@ from app.domain.errors import (
     DocumentPreconditionError,
     PersistenceUnavailableError,
 )
+from app.domain.events import DocumentClaimsApplied
+from app.domain.models import VentureState
+from app.domain.reducer import reduce_venture_state
 from app.workflows.models import HeadFence
+from app.workflows.selective_start import start_selective_first_proposal
 
 
 class DocumentAgentRuntime(Protocol):
@@ -153,9 +161,10 @@ class DocumentExtractionService:
         self._validate_blocks(document_revision_id, block_values)
         block_digest = f"sha256:{hashlib.sha256(rfc8785.dumps(block_values)).hexdigest()}"
         with self._engine.begin() as connection:
-            context = connection.execute(
-                text(
-                    """
+            context = (
+                connection.execute(
+                    text(
+                        """
                     SELECT r.document_revision_id, r.document_id, r.project_id,
                            r.declared_sha256, r.status, d.document_type, d.owner_user_id,
                            p.current_state_version,
@@ -171,13 +180,16 @@ class DocumentExtractionService:
                       AND r.project_id=:project_id AND r.document_id=:document_id
                     FOR UPDATE OF r
                     """
-                ),
-                {
-                    "revision_id": document_revision_id,
-                    "project_id": request.project_id,
-                    "document_id": request.document_id,
-                },
-            ).mappings().one_or_none()
+                    ),
+                    {
+                        "revision_id": document_revision_id,
+                        "project_id": request.project_id,
+                        "document_id": request.document_id,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
             if context is None:
                 raise DocumentNotFoundError("Document revision does not exist")
             existing_form = connection.execute(
@@ -281,20 +293,25 @@ class DocumentExtractionService:
             unresolved=unresolved,
             document_risk_flags=risk_flags,
         )
+        form_digest = self._form_digest(form)
+        form = form.model_copy(update={"form_digest": form_digest})
         form_value = form.model_dump(mode="json")
-        form_digest = f"sha256:{hashlib.sha256(rfc8785.dumps(form_value)).hexdigest()}"
         with self._engine.begin() as connection:
-            current = connection.execute(
-                text(
-                    """
+            current = (
+                connection.execute(
+                    text(
+                        """
                     SELECT p.current_state_version, r.status
                     FROM document_revisions r JOIN venture_projects p ON p.project_id=r.project_id
                     WHERE r.document_revision_id=:revision_id
                     FOR UPDATE OF r
                     """
-                ),
-                {"revision_id": document_revision_id},
-            ).mappings().one()
+                    ),
+                    {"revision_id": document_revision_id},
+                )
+                .mappings()
+                .one()
+            )
             if (
                 current["status"] != DocumentRevisionStatus.PARSING.value
                 or current["current_state_version"] != form.expected_state_version
@@ -375,9 +392,10 @@ class DocumentExtractionService:
         if len(edit_ids) != len(set(edit_ids)):
             raise ContractValidationError("Extraction form edit field ids must be unique")
         with self._engine.begin() as connection:
-            row = connection.execute(
-                text(
-                    """
+            row = (
+                connection.execute(
+                    text(
+                        """
                     SELECT f.form_json, f.expected_state_version,
                            p.current_state_version, r.status
                     FROM document_extraction_forms f
@@ -388,13 +406,16 @@ class DocumentExtractionService:
                       AND f.document_revision_id=:revision_id
                     FOR UPDATE OF f
                     """
-                ),
-                {
-                    "project_id": project_id,
-                    "user_id": user_id,
-                    "revision_id": document_revision_id,
-                },
-            ).mappings().one_or_none()
+                    ),
+                    {
+                        "project_id": project_id,
+                        "user_id": user_id,
+                        "revision_id": document_revision_id,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
             if row is None:
                 raise DocumentNotFoundError("Document extraction form does not exist")
             if (
@@ -433,8 +454,9 @@ class DocumentExtractionService:
                 },
                 deep=True,
             )
+            digest = self._form_digest(updated)
+            updated = updated.model_copy(update={"form_digest": digest})
             value = updated.model_dump(mode="json")
-            digest = f"sha256:{hashlib.sha256(rfc8785.dumps(value)).hexdigest()}"
             connection.execute(
                 text(
                     """
@@ -452,6 +474,431 @@ class DocumentExtractionService:
                 },
             )
             return updated
+
+    def apply_form(
+        self,
+        *,
+        project_id: str,
+        user_id: str,
+        document_revision_id: str,
+        idempotency_key: str,
+        request: ApplyExtractionFormRequest,
+    ) -> ExtractionFormApplication:
+        request_value = request.model_dump(mode="json")
+        request_digest = hashlib.sha256(rfc8785.dumps(request_value)).digest()
+        occurred_at = self._now()
+        with self._engine.begin() as connection:
+            replay = (
+                connection.execute(
+                    text(
+                        """
+                    SELECT request_digest, response_json
+                    FROM document_form_applications
+                    WHERE owner_user_id=:user_id AND project_id=:project_id
+                      AND idempotency_key=:idempotency_key
+                    """
+                    ),
+                    {
+                        "user_id": user_id,
+                        "project_id": project_id,
+                        "idempotency_key": idempotency_key,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if replay is not None:
+                if bytes(replay["request_digest"]) != request_digest:
+                    raise DocumentPreconditionError(
+                        "Document apply idempotency key was reused with another request"
+                    )
+                return ExtractionFormApplication.model_validate(replay["response_json"])
+
+            row = (
+                connection.execute(
+                    text(
+                        """
+                    SELECT f.form_id, f.form_json, f.form_digest,
+                           f.expected_state_version, f.document_id,
+                           r.status, d.document_type,
+                           p.current_state_version, p.current_result_bundle_id,
+                           s.state_json,
+                           h.workflow_generation, h.state_version,
+                           h.founder_snapshot_id, h.area_snapshot_id,
+                           h.evidence_snapshot_id, h.policy_snapshot_id,
+                           h.index_generation_id, h.seed_registry_id,
+                           b.workflow_run_id AS source_workflow_run_id,
+                           selected.candidate_json AS selected_candidate_json
+                    FROM document_extraction_forms f
+                    JOIN document_revisions r
+                      ON r.document_revision_id=f.document_revision_id
+                    JOIN documents d ON d.document_id=f.document_id
+                    JOIN venture_projects p ON p.project_id=f.project_id
+                    JOIN venture_states s
+                      ON s.project_id=p.project_id
+                     AND s.state_version=p.current_state_version
+                    JOIN project_heads h ON h.project_id=p.project_id
+                    LEFT JOIN result_bundles b
+                      ON b.result_bundle_id=p.current_result_bundle_id
+                     AND b.project_id=p.project_id
+                    LEFT JOIN LATERAL (
+                        SELECT candidate_json
+                        FROM candidate_selections
+                        WHERE project_id=p.project_id
+                          AND candidate_id=(s.state_json->>'active_case_id')
+                        ORDER BY created_at DESC LIMIT 1
+                    ) selected ON TRUE
+                    WHERE f.project_id=:project_id AND f.owner_user_id=:user_id
+                      AND f.document_revision_id=:revision_id
+                    FOR UPDATE OF f, r, p
+                    """
+                    ),
+                    {
+                        "project_id": project_id,
+                        "user_id": user_id,
+                        "revision_id": document_revision_id,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                raise DocumentNotFoundError("Document extraction form does not exist")
+            if (
+                row["status"] != DocumentRevisionStatus.EXTRACTION_READY.value
+                or row["expected_state_version"] != request.expected_state_version
+                or row["current_state_version"] != request.expected_state_version
+                or row["form_digest"] != request.expected_form_digest
+            ):
+                raise DocumentPreconditionError(
+                    "Extraction form State, revision, or digest is stale"
+                )
+            if row["source_workflow_run_id"] is None:
+                raise DocumentPreconditionError("Document apply requires a current result")
+            state = VentureState.model_validate(row["state_json"])
+            if state.active_case_id is None:
+                raise DocumentPreconditionError("Document apply requires an active candidate")
+            selected_candidate = row["selected_candidate_json"]
+            if not isinstance(selected_candidate, dict):
+                raise DocumentPreconditionError("Selected candidate scope is unavailable")
+            case_type = selected_candidate.get("case_type")
+            source_id = selected_candidate.get("source_id")
+            if not isinstance(source_id, str) and case_type == "INDEPENDENT":
+                independent = selected_candidate.get("independent_model")
+                source_id = independent.get("model_id") if isinstance(independent, dict) else None
+            if not isinstance(source_id, str) and case_type == "FRANCHISE":
+                franchise = selected_candidate.get("franchise")
+                source_id = franchise.get("brand_id") if isinstance(franchise, dict) else None
+            if case_type not in {"INDEPENDENT", "FRANCHISE"} or not isinstance(source_id, str):
+                raise DocumentPreconditionError("Selected candidate scope is invalid")
+            form = DocumentExtractionForm.model_validate(row["form_json"])
+            claims = self._confirmed_claims(
+                form=form,
+                document_type=row["document_type"],
+                case_id=state.active_case_id,
+            )
+            application_id = self._new_id()
+            event = DocumentClaimsApplied(
+                event_id=self._new_id(),
+                project_id=project_id,
+                user_id=user_id,
+                occurred_at=occurred_at,
+                application_id=application_id,
+                document_id=row["document_id"],
+                document_revision_id=document_revision_id,
+                expected_state_version=request.expected_state_version,
+                active_case_id=state.active_case_id,
+                confirmed_claim_ids=[claim.claim_id for claim in claims],
+                conflict_ids=[],
+            )
+            conflicts = self._find_conflicts(
+                connection,
+                project_id=project_id,
+                case_id=state.active_case_id,
+                claims=claims,
+                occurred_at=occurred_at,
+            )
+            event = event.model_copy(
+                update={"conflict_ids": [conflict.conflict_id for conflict in conflicts]}
+            )
+            next_state = reduce_venture_state(state, event)
+            if next_state is None:
+                raise AssertionError("Document apply reducer returned no State")
+            event_json = event.model_dump(mode="json")
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO project_events(
+                        event_id, project_id, event_type, event_json, occurred_at
+                    ) VALUES (
+                        :event_id, :project_id, :event_type,
+                        CAST(:event_json AS JSONB), :occurred_at
+                    )
+                    """
+                ),
+                {
+                    "event_id": event.event_id,
+                    "project_id": project_id,
+                    "event_type": event.event_type,
+                    "event_json": json.dumps(event_json, separators=(",", ":")),
+                    "occurred_at": occurred_at,
+                },
+            )
+            for claim in claims:
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO venture_claims(
+                            claim_id, project_id, case_id, case_type, source_id,
+                            claim_type, value_json, unit,
+                            materiality, status, document_id, document_revision_id,
+                            anchor_json, event_id, created_at
+                        ) VALUES (
+                            :claim_id, :project_id, :case_id, :case_type, :source_id,
+                            :claim_type,
+                            CAST(:value_json AS JSONB), :unit, :materiality, 'CONFIRMED',
+                            :document_id, :revision_id, CAST(:anchor_json AS JSONB),
+                            :event_id, :created_at
+                        )
+                        """
+                    ),
+                    {
+                        "claim_id": claim.claim_id,
+                        "project_id": project_id,
+                        "case_id": state.active_case_id,
+                        "case_type": case_type,
+                        "source_id": source_id,
+                        "claim_type": claim.claim_type,
+                        "value_json": json.dumps(claim.value),
+                        "unit": claim.unit,
+                        "materiality": claim.materiality,
+                        "document_id": row["document_id"],
+                        "revision_id": document_revision_id,
+                        "anchor_json": (
+                            json.dumps(claim.anchor.model_dump(mode="json"))
+                            if claim.anchor is not None
+                            else None
+                        ),
+                        "event_id": event.event_id,
+                        "created_at": occurred_at,
+                    },
+                )
+            for conflict in conflicts:
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO document_claim_conflicts(
+                            conflict_id, project_id, case_id, claim_type, materiality,
+                            competing_claim_ids, status, created_at
+                        ) VALUES (
+                            :conflict_id, :project_id, :case_id, :claim_type, :materiality,
+                            CAST(:claim_ids AS JSONB), 'OPEN', :created_at
+                        )
+                        """
+                    ),
+                    {
+                        "conflict_id": conflict.conflict_id,
+                        "project_id": project_id,
+                        "case_id": state.active_case_id,
+                        "claim_type": conflict.claim_type,
+                        "materiality": conflict.materiality,
+                        "claim_ids": json.dumps(conflict.competing_claim_ids),
+                        "created_at": occurred_at,
+                    },
+                )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO venture_states(project_id, state_version, state_json, created_at)
+                    VALUES (:project_id, :state_version, CAST(:state_json AS JSONB), :created_at)
+                    """
+                ),
+                {
+                    "project_id": project_id,
+                    "state_version": next_state.state_version,
+                    "state_json": json.dumps(
+                        next_state.model_dump(mode="json"), separators=(",", ":")
+                    ),
+                    "created_at": occurred_at,
+                },
+            )
+            connection.execute(
+                text(
+                    "UPDATE venture_projects SET current_state_version=:version "
+                    "WHERE project_id=:project_id"
+                ),
+                {"version": next_state.state_version, "project_id": project_id},
+            )
+            previous_head = self._head(row)
+            workflow = start_selective_first_proposal(
+                connection,
+                project_id=project_id,
+                user_id=user_id,
+                state=next_state,
+                source_workflow_run_id=row["source_workflow_run_id"],
+                affected_stage_codes=["CALCULATE_GATE_RANK"],
+                previous_head=previous_head,
+                now=occurred_at,
+                new_id=self._new_id,
+            )
+            response = ExtractionFormApplication(
+                application_id=application_id,
+                project_id=project_id,
+                document_revision_id=document_revision_id,
+                applied_state_version=next_state.state_version,
+                recompute_workflow_run_id=workflow.workflow_run_id,
+                claims=claims,
+                conflicts=conflicts,
+                requires_human_review=any(conflict.materiality == "HIGH" for conflict in conflicts),
+            )
+            response_json = response.model_dump(mode="json")
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO document_form_applications(
+                        application_id, project_id, owner_user_id, form_id,
+                        document_revision_id, expected_state_version, applied_state_version,
+                        form_digest, idempotency_key, request_digest, event_id,
+                        recompute_workflow_run_id, response_json, created_at
+                    ) VALUES (
+                        :application_id, :project_id, :user_id, :form_id,
+                        :revision_id, :expected_version, :applied_version,
+                        :form_digest, :idempotency_key, :request_digest, :event_id,
+                        :workflow_run_id, CAST(:response_json AS JSONB), :created_at
+                    )
+                    """
+                ),
+                {
+                    "application_id": application_id,
+                    "project_id": project_id,
+                    "user_id": user_id,
+                    "form_id": row["form_id"],
+                    "revision_id": document_revision_id,
+                    "expected_version": request.expected_state_version,
+                    "applied_version": next_state.state_version,
+                    "form_digest": request.expected_form_digest,
+                    "idempotency_key": idempotency_key,
+                    "request_digest": request_digest,
+                    "event_id": event.event_id,
+                    "workflow_run_id": workflow.workflow_run_id,
+                    "response_json": json.dumps(response_json, separators=(",", ":")),
+                    "created_at": occurred_at,
+                },
+            )
+            form = form.model_copy(
+                update={"form_status": "APPLIED", "applied_state_version": next_state.state_version}
+            )
+            connection.execute(
+                text(
+                    """
+                    UPDATE document_extraction_forms
+                    SET form_json=CAST(:form_json AS JSONB), updated_at=:updated_at
+                    WHERE form_id=:form_id
+                    """
+                ),
+                {
+                    "form_json": json.dumps(form.model_dump(mode="json"), separators=(",", ":")),
+                    "updated_at": occurred_at,
+                    "form_id": row["form_id"],
+                },
+            )
+            connection.execute(
+                text(
+                    "UPDATE document_revisions SET status='APPLIED', updated_at=:updated_at "
+                    "WHERE document_revision_id=:revision_id"
+                ),
+                {"updated_at": occurred_at, "revision_id": document_revision_id},
+            )
+            return response
+
+    def _confirmed_claims(
+        self, *, form: DocumentExtractionForm, document_type: str, case_id: str
+    ) -> list[AppliedDocumentClaim]:
+        claims: list[AppliedDocumentClaim] = []
+        for field in form.fields:
+            if field.current_value is None:
+                continue
+            digest = hashlib.sha256(
+                rfc8785.dumps(
+                    {
+                        "revision": form.document_revision_id,
+                        "field": field.field_id,
+                        "case": case_id,
+                        "type": document_type,
+                        "value": field.current_value,
+                        "unit": field.unit,
+                    }
+                )
+            ).hexdigest()
+            claims.append(
+                AppliedDocumentClaim(
+                    claim_id=f"document-claim-{digest[:32]}",
+                    claim_type=field.claim_type,
+                    value=field.current_value,
+                    unit=field.unit,
+                    materiality=field.materiality,
+                    document_revision_id=form.document_revision_id,
+                    anchor=field.anchor,
+                )
+            )
+        return claims
+
+    def _find_conflicts(
+        self,
+        connection: Any,
+        *,
+        project_id: str,
+        case_id: str,
+        claims: list[AppliedDocumentClaim],
+        occurred_at: datetime,
+    ) -> list[DocumentClaimConflict]:
+        del occurred_at
+        conflicts: list[DocumentClaimConflict] = []
+        for claim in claims:
+            rows = (
+                connection.execute(
+                    text(
+                        """
+                    SELECT claim_id, value_json, materiality
+                    FROM venture_claims
+                    WHERE project_id=:project_id AND case_id=:case_id
+                      AND claim_type=:claim_type AND status='CONFIRMED'
+                    ORDER BY created_at, claim_id
+                    """
+                    ),
+                    {
+                        "project_id": project_id,
+                        "case_id": case_id,
+                        "claim_type": claim.claim_type,
+                    },
+                )
+                .mappings()
+                .all()
+            )
+            competing = [row for row in rows if row["value_json"] != claim.value]
+            if not competing:
+                continue
+            ids = sorted({row["claim_id"] for row in competing} | {claim.claim_id})
+            digest = hashlib.sha256(rfc8785.dumps(ids)).hexdigest()
+            conflicts.append(
+                DocumentClaimConflict(
+                    conflict_id=f"document-conflict-{digest[:32]}",
+                    claim_type=claim.claim_type,
+                    materiality=(
+                        "HIGH"
+                        if claim.materiality == "HIGH"
+                        or any(row["materiality"] == "HIGH" for row in competing)
+                        else "MEDIUM"
+                    ),
+                    competing_claim_ids=ids,
+                )
+            )
+        return conflicts
+
+    @staticmethod
+    def _form_digest(form: DocumentExtractionForm) -> str:
+        value = form.model_dump(mode="json", exclude={"form_digest", "applied_state_version"})
+        return f"sha256:{hashlib.sha256(rfc8785.dumps(value)).hexdigest()}"
 
     @staticmethod
     def _validate_blocks(revision_id: str, blocks: list[dict[str, Any]]) -> None:
@@ -569,4 +1016,7 @@ class UnavailableDocumentExtractionService:
         raise PersistenceUnavailableError("Document extraction is unavailable")
 
     def update_form(self, **_: Any) -> DocumentExtractionForm:
+        raise PersistenceUnavailableError("Document extraction is unavailable")
+
+    def apply_form(self, **_: Any) -> ExtractionFormApplication:
         raise PersistenceUnavailableError("Document extraction is unavailable")

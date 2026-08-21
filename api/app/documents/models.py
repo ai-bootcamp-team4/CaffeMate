@@ -25,6 +25,7 @@ class DocumentRevisionStatus(StrEnum):
     READY_FOR_PARSING = "READY_FOR_PARSING"
     PARSING = "PARSING"
     EXTRACTION_READY = "EXTRACTION_READY"
+    APPLIED = "APPLIED"
     EXTRACTION_FAILED = "EXTRACTION_FAILED"
     QUARANTINED = "QUARANTINED"
     DELETED = "DELETED"
@@ -122,6 +123,7 @@ class DocumentExtractionForm(StrictModel):
     form_status: str
     fields: list[ExtractionField] = Field(min_length=1)
     apply_label: str = "반영하고 다시 계산"
+    form_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     applied_state_version: int | None = None
 
 
@@ -133,6 +135,40 @@ class ExtractionFieldEdit(StrictModel):
 class UpdateExtractionFormRequest(StrictModel):
     expected_state_version: int = Field(ge=1)
     edits: list[ExtractionFieldEdit] = Field(min_length=1)
+
+
+class ApplyExtractionFormRequest(StrictModel):
+    expected_state_version: int = Field(ge=1)
+    expected_form_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
+class AppliedDocumentClaim(StrictModel):
+    claim_id: str
+    claim_type: str
+    value: str | int | float | bool
+    unit: str | None
+    materiality: str
+    document_revision_id: str
+    anchor: DocumentAnchor | None
+
+
+class DocumentClaimConflict(StrictModel):
+    conflict_id: str
+    claim_type: str
+    materiality: str
+    competing_claim_ids: list[str] = Field(min_length=2)
+    status: str = "OPEN"
+
+
+class ExtractionFormApplication(StrictModel):
+    application_id: str
+    project_id: str
+    document_revision_id: str
+    applied_state_version: int = Field(ge=2)
+    recompute_workflow_run_id: str
+    claims: list[AppliedDocumentClaim]
+    conflicts: list[DocumentClaimConflict]
+    requires_human_review: bool
 
 
 class DocumentRevision(StrictModel):

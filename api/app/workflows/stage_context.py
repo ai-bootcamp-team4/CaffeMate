@@ -14,6 +14,7 @@ class StageContext(StrictModel):
     project_id: str
     state: VentureState
     dependency_results: dict[str, dict[str, Any]]
+    document_claims: list[dict[str, Any]] = []
 
 
 class PostgresStageContextRepository:
@@ -22,9 +23,10 @@ class PostgresStageContextRepository:
 
     def load(self, lease: StageLease) -> StageContext:
         with self._engine.connect() as connection:
-            row = connection.execute(
-                text(
-                    """
+            row = (
+                connection.execute(
+                    text(
+                        """
                     SELECT s.stage_code, s.status AS stage_status, s.input_digest,
                            w.workflow_run_id, w.project_id,
                            w.workflow_generation, w.state_version,
@@ -48,9 +50,12 @@ class PostgresStageContextRepository:
                      AND state.state_version=w.state_version
                     WHERE s.stage_run_id=:stage_run_id
                     """
-                ),
-                {"stage_run_id": lease.stage_run_id},
-            ).mappings().one_or_none()
+                    ),
+                    {"stage_run_id": lease.stage_run_id},
+                )
+                .mappings()
+                .one_or_none()
+            )
             if row is None:
                 raise StageLeaseRejectedError("Stage context does not exist")
             stored_head = self._head(row, prefix="")
@@ -65,9 +70,10 @@ class PostgresStageContextRepository:
             ):
                 raise StageLeaseRejectedError("Stage context is stale or mismatched")
 
-            dependencies = connection.execute(
-                text(
-                    """
+            dependencies = (
+                connection.execute(
+                    text(
+                        """
                     SELECT prerequisite.stage_code, prerequisite.input_digest,
                            prerequisite.status, prerequisite.result_json
                     FROM stage_dependencies dependency
@@ -76,9 +82,12 @@ class PostgresStageContextRepository:
                     WHERE dependency.stage_run_id=:stage_run_id
                     ORDER BY prerequisite.stage_code
                     """
-                ),
-                {"stage_run_id": lease.stage_run_id},
-            ).mappings().all()
+                    ),
+                    {"stage_run_id": lease.stage_run_id},
+                )
+                .mappings()
+                .all()
+            )
             if any(
                 dependency["status"] != "SUCCEEDED"
                 or not isinstance(dependency["result_json"], dict)
@@ -105,6 +114,32 @@ class PostgresStageContextRepository:
             state_json = row["state_json"]
             if isinstance(state_json, str):
                 state_json = json.loads(state_json)
+            document_claims = (
+                connection.execute(
+                    text(
+                        """
+                    SELECT DISTINCT ON (claim.claim_type)
+                           claim.claim_id, claim.case_id, claim.case_type,
+                           claim.source_id, claim.claim_type, claim.value_json,
+                           claim.unit, claim.materiality, document.document_type,
+                           EXISTS (
+                               SELECT 1 FROM document_claim_conflicts conflict
+                               WHERE conflict.project_id=claim.project_id
+                                 AND conflict.case_id=claim.case_id
+                                 AND conflict.claim_type=claim.claim_type
+                                 AND conflict.status='OPEN'
+                           ) AS has_open_conflict
+                    FROM venture_claims claim
+                    JOIN documents document ON document.document_id=claim.document_id
+                    WHERE claim.project_id=:project_id AND claim.status='CONFIRMED'
+                    ORDER BY claim.claim_type, claim.created_at DESC, claim.claim_id DESC
+                    """
+                    ),
+                    {"project_id": row["project_id"]},
+                )
+                .mappings()
+                .all()
+            )
             return StageContext(
                 lease=lease,
                 project_id=row["project_id"],
@@ -113,6 +148,7 @@ class PostgresStageContextRepository:
                     dependency["stage_code"]: dependency["result_json"]
                     for dependency in dependencies
                 },
+                document_claims=[dict(claim) for claim in document_claims],
             )
 
     @staticmethod

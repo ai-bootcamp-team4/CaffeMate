@@ -472,6 +472,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0010_candidate_selection.sql",
             "0011_document_upload.sql",
             "0012_document_extraction.sql",
+            "0013_document_claim_apply.sql",
         ]
 
 
@@ -2028,6 +2029,107 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
                 "edits": [{"field_id": deposit_id, "value": 45_000_000}],
             },
         )
+        applied_form = client.post(
+            f"/v1/projects/{project.project_id}/documents/"
+            f"{upload_body['document_revision_id']}/extraction-form:apply",
+            headers={
+                "Authorization": "Bearer valid-token",
+                "Idempotency-Key": "document-apply-1",
+            },
+            json={
+                "expected_state_version": 2,
+                "expected_form_digest": edited_form.json()["form_digest"],
+            },
+        )
+        applied_replay = client.post(
+            f"/v1/projects/{project.project_id}/documents/"
+            f"{upload_body['document_revision_id']}/extraction-form:apply",
+            headers={
+                "Authorization": "Bearer valid-token",
+                "Idempotency-Key": "document-apply-1",
+            },
+            json={
+                "expected_state_version": 2,
+                "expected_form_digest": edited_form.json()["form_digest"],
+            },
+        )
+        stale_apply = client.post(
+            f"/v1/projects/{project.project_id}/documents/"
+            f"{upload_body['document_revision_id']}/extraction-form:apply",
+            headers={
+                "Authorization": "Bearer valid-token",
+                "Idempotency-Key": "document-apply-stale",
+            },
+            json={
+                "expected_state_version": 2,
+                "expected_form_digest": edited_form.json()["form_digest"],
+            },
+        )
+        second_upload = client.post(
+            f"/v1/projects/{project.project_id}/documents/uploads",
+            headers={
+                "Authorization": "Bearer valid-token",
+                "Idempotency-Key": "document-upload-2",
+            },
+            json={
+                "document_type": "COMMERCIAL_LEASE",
+                "filename": "lease-revision-2.pdf",
+                "content_type": "application/pdf",
+                "size_bytes": len(content),
+                "sha256": content_sha256,
+            },
+        ).json()
+        document_storage.objects[second_upload["object_path"]] = StoredObject(
+            content_type="application/pdf",
+            size_bytes=len(content),
+            sha256=content_sha256,
+        )
+        client.post(
+            f"/v1/projects/{project.project_id}/documents/uploads:complete",
+            headers={"Authorization": "Bearer valid-token"},
+            json={"document_revision_id": second_upload["document_revision_id"]},
+        )
+        client.post(
+            f"/internal/v1/documents/{second_upload['document_revision_id']}:scan-result",
+            headers={"Authorization": "Bearer valid-token"},
+            json={"project_id": project.project_id, "clean": True, "threat_codes": []},
+        )
+        second_parser = client.post(
+            f"/internal/v1/documents/{second_upload['document_revision_id']}:parser-result",
+            headers={"Authorization": "Bearer valid-token"},
+            json={
+                "project_id": project.project_id,
+                "document_id": second_upload["document_id"],
+                "parser_version": "layout-parser.v1",
+                "blocks": [
+                    {
+                        "block_id": "block-2",
+                        "text": "보증금 5,000만원",
+                        "anchor": {
+                            "document_revision_id": second_upload["document_revision_id"],
+                            "page_index": 0,
+                        },
+                    }
+                ],
+            },
+        )
+        second_form = second_parser.json()
+        conflicting_apply = client.post(
+            f"/v1/projects/{project.project_id}/documents/"
+            f"{second_upload['document_revision_id']}/extraction-form:apply",
+            headers={
+                "Authorization": "Bearer valid-token",
+                "Idempotency-Key": "document-apply-2",
+            },
+            json={
+                "expected_state_version": 3,
+                "expected_form_digest": second_form["form_digest"],
+            },
+        )
+        project_after_documents = client.get(
+            f"/v1/projects/{project.project_id}",
+            headers={"Authorization": "Bearer valid-token"},
+        )
         download = client.get(
             f"/v1/projects/{project.project_id}/documents/"
             f"{upload_body['document_revision_id']}/download",
@@ -2114,7 +2216,7 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
     assert deposit_field["current_value"] == 50_000_000
     assert deposit_field["extraction_status"] == "AUTO_FILLED"
     assert deposit_field["anchor"]["page_index"] == 0
-    assert len(extraction_runtime.tasks) == 1
+    assert len(extraction_runtime.tasks) == 2
     assert edited_form.status_code == 200
     edited_deposit = next(
         field
@@ -2123,6 +2225,29 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
     )
     assert edited_deposit["current_value"] == 45_000_000
     assert edited_deposit["edit_status"] == "EDITED"
+    assert applied_form.status_code == 201, applied_form.json()
+    assert applied_replay.json() == applied_form.json()
+    assert stale_apply.status_code == 409
+    assert stale_apply.json()["code"] == "DOCUMENT_PRECONDITION_FAILED"
+    application = applied_form.json()
+    assert application["applied_state_version"] == 3
+    assert application["requires_human_review"] is False
+    assert application["conflicts"] == []
+    assert application["claims"][0]["value"] == 45_000_000
+    assert application["recompute_workflow_run_id"]
+    assert conflicting_apply.status_code == 201, conflicting_apply.json()
+    conflicting_application = conflicting_apply.json()
+    assert conflicting_application["applied_state_version"] == 4
+    assert conflicting_application["requires_human_review"] is True
+    assert conflicting_application["conflicts"][0]["claim_type"] == "LEASE_DEPOSIT"
+    assert len(conflicting_application["conflicts"][0]["competing_claim_ids"]) == 2
+    document_state = project_after_documents.json()["state"]
+    assert document_state["state_version"] == 4
+    assert document_state["status"] == "WAITING_FOR_HUMAN"
+    assert document_state["venture_cases"][0]["maturity"] == "DOCUMENT_LINKED"
+    assert document_state["conflict_ids"] == [
+        conflicting_application["conflicts"][0]["conflict_id"]
+    ]
     assert download.status_code == 200
     assert download.json()["download_url"].startswith("https://download.invalid/")
     assert quarantined.status_code == 200

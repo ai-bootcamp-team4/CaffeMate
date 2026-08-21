@@ -47,8 +47,27 @@ class CandidateSelected(StrictModel):
     candidate: dict[str, Any]
 
 
+class DocumentClaimsApplied(StrictModel):
+    event_id: str
+    event_type: Literal["DOCUMENT_CLAIMS_APPLIED"] = "DOCUMENT_CLAIMS_APPLIED"
+    project_id: str
+    user_id: str
+    occurred_at: datetime
+    application_id: str
+    document_id: str
+    document_revision_id: str
+    expected_state_version: int = Field(ge=1)
+    active_case_id: str
+    confirmed_claim_ids: list[str]
+    conflict_ids: list[str]
+
+
 DomainEvent = (
-    ProjectCreated | OnboardingConfirmed | FeedbackChangeConfirmed | CandidateSelected
+    ProjectCreated
+    | OnboardingConfirmed
+    | FeedbackChangeConfirmed
+    | CandidateSelected
+    | DocumentClaimsApplied
 )
 
 
