@@ -75,13 +75,13 @@ flowchart LR
 
 ### 4.1 현재 배포 가능 상태
 
-`asia-northeast3` Agent Runtime 배치는 확정이다. 그러나 2026-08-21 공식 모델 문서상 기존 선택인 `gemini-3.5-flash`의 지원 생성 리전에 서울이 없다. 따라서 생성 모델 id는 현재 `PENDING_HUMAN_DECISION`, Agent 경로는 `BLOCKED_BY_REGION`이다.
+`asia-northeast3` Agent Runtime 배치는 유지한다. 생성 모델은 사용자 승인에 따라 `global` endpoint의 `gemini-3.7-flash`로 고정하며, 2026-08-21 `global` `generateContent` 실호출에서 HTTP 200과 `STOP` 응답을 확인했다. RAG Engine과 embedding은 계속 `asia-northeast3`를 사용한다.
 
-- 서울 Runtime을 다른 리전으로 자동 변경하지 않는다.
-- `global` model endpoint로 자동 fallback하지 않는다.
-- Runtime 생성, 생성 모델 호출, embedding 호출, reranker 호출을 서로 독립된 배포 preflight로 실행한다.
-- 네 항목 중 필수 항목 하나라도 서울에서 실패하면 Agent Workflow를 시작하지 않고 global 호출 수가 0임을 검증한다.
-- 서울에서 실제 `generateContent` read-back을 통과한 모델 id를 인간이 승인하고 release manifest에 pin한 뒤에만 차단을 해제한다.
+- 서울 Runtime을 다른 리전으로 자동 변경하지 않는다. Agent Runtime 자체를 `global`에 배치하지 않는다.
+- `global`은 승인된 생성 위치이며 fallback이 아니다. 생성 실패 시 regional endpoint로 조용히 전환하지 않는다.
+- Runtime 생성, `global` 생성 모델 호출, 서울 embedding 호출, 서울 reranker 호출을 서로 독립된 배포 preflight로 실행한다.
+- 네 항목 중 필수 항목 하나라도 고정된 위치에서 실패하면 Agent Workflow를 시작하지 않고 대체 위치 호출 수가 0임을 검증한다.
+- release manifest에는 Runtime region과 generation region을 분리해 pin한다.
 
 ### 4.2 GCP endpoint와 관리형 session
 
@@ -544,7 +544,7 @@ validated parser blocks
 | `CP-006` | Workflow 취소 뒤 결과 도착 | `LATE_DISCARDED`, current write 0 |
 | `CP-007` | MCP scope token project 불일치 | 403, retrieval result 0 |
 | `CP-008` | MCP `PARTIAL` | 전체 성공으로 표시하지 않음 |
-| `CP-009` | 서울 Runtime·생성·embedding·reranker 독립 preflight 중 하나 실패 | `BLOCKED_BY_REGION`, Agent Workflow와 global 호출 0 |
+| `CP-009` | 서울 Runtime·global 생성·서울 embedding·서울 reranker 독립 preflight 중 하나 실패 | `BLOCKED_BY_REGION`, Agent Workflow와 대체 위치 호출 0 |
 | `CP-010` | 직접 Agent tool 호출 시도 | 실행 0, policy violation 기록 |
 | `CP-011` | 고정 조건부 프랜차이즈 fixture | expected `NEXT_REVIEW_PRIORITY` rank와 primary review target이 정확히 일치 |
 | `CP-012` | 문서 추출 폼 반영 전 | State·finance·Gate·rank 변경 0 |
@@ -565,7 +565,7 @@ validated parser blocks
 - 백엔드 fixture가 실제 Agent adapter 없이도 Workflow test를 통과한다.
 - Agent fixture가 실제 database·MCP write 없이 role test를 통과한다.
 - MCP client와 server가 `2026-07-28` conformance와 tool output validation을 통과한다.
-- 배포 뒤 서울 Runtime·승인된 생성·embedding·reranker endpoint, IAM identity, runtime revision과 MCP service를 각각 read-back한다.
+- 배포 뒤 서울 Runtime·`global` 승인 생성·서울 embedding·서울 reranker endpoint, IAM identity, runtime revision과 MCP service를 각각 read-back한다.
 
 ## 11. 버전 관리
 

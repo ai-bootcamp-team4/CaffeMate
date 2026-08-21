@@ -1,0 +1,137 @@
+import { describe, expect, it, vi } from 'vitest'
+import { runGcpPreflight } from '../src/gcp-preflight'
+
+const PROJECT_ID = 'proj-aj20-211200020328'
+const RUNTIME_REGION = 'asia-northeast3'
+const GENERATION_REGION = 'global'
+const RAG_REGION = 'asia-northeast3'
+const EMBEDDING_REGION = 'asia-northeast3'
+const MODEL_ID = 'gemini-3.7-flash'
+
+function successfulFetch() {
+  return vi.fn(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.includes('/ragCorpora?')) {
+      return Response.json({
+        ragCorpora: [{
+          name: `projects/${PROJECT_ID}/locations/${RAG_REGION}/ragCorpora/5148740273991319552`,
+          displayName: 'caffemate-official-v1',
+          corpusStatus: { state: 'ACTIVE' },
+          vectorDbConfig: {
+            ragEmbeddingModelConfig: {
+              vertexPredictionEndpoint: {
+                endpoint: `projects/${PROJECT_ID}/locations/${EMBEDDING_REGION}/publishers/google/models/text-multilingual-embedding-002`,
+              },
+            },
+          },
+        }],
+      })
+    }
+    if (url.includes('text-multilingual-embedding-002:predict')) {
+      return Response.json({ predictions: [{ embeddings: { values: [0.1, 0.2] } }] })
+    }
+    if (url.endsWith(':retrieveContexts')) return Response.json({})
+    if (url.includes(`${MODEL_ID}:generateContent`)) {
+      return Response.json({
+        candidates: [{ content: { parts: [{ text: '{"ok":true}' }] }, finishReason: 'STOP' }],
+      })
+    }
+    if (url.includes('/reasoningEngines?')) {
+      return Response.json({
+        reasoningEngines: [{
+          name: `projects/${PROJECT_ID}/locations/${RUNTIME_REGION}/reasoningEngines/777`,
+          displayName: 'caffemate-agents',
+        }],
+      })
+    }
+    return Response.json({ error: { message: `unexpected ${url}` } }, { status: 404 })
+  })
+}
+
+function options(fetchImpl = successfulFetch()) {
+  return {
+    projectId: PROJECT_ID,
+    runtimeRegion: RUNTIME_REGION,
+    generationRegion: GENERATION_REGION,
+    ragRegion: RAG_REGION,
+    embeddingRegion: EMBEDDING_REGION,
+    approvedModelId: MODEL_ID,
+    accessToken: async () => 'adc-token',
+    fetchImpl,
+  } as const
+}
+
+describe('GCP deployment preflight', () => {
+  it('passes with Seoul runtime/RAG/embedding and explicit global Gemini generation', async () => {
+    const fetchImpl = successfulFetch()
+    const result = await runGcpPreflight(options(fetchImpl))
+
+    expect(result.ok).toBe(true)
+    expect(result.projectId).toBe(PROJECT_ID)
+    expect(result.runtimeRegion).toBe(RUNTIME_REGION)
+    expect(result.generationRegion).toBe(GENERATION_REGION)
+    expect(result.ragRegion).toBe(RAG_REGION)
+    expect(result.embeddingRegion).toBe(EMBEDDING_REGION)
+    expect(result.ragCorpusResource).toContain('/ragCorpora/5148740273991319552')
+    expect(result.runtimeResource).toContain('/reasoningEngines/777')
+    expect(result.checks.every((check) => check.ok)).toBe(true)
+
+    const urls = fetchImpl.mock.calls.map(([input]) => String(input))
+    expect(urls.filter((url) => url.includes('/locations/global/'))).toEqual([
+      `https://aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/global/publishers/google/models/${MODEL_ID}:generateContent`,
+    ])
+    expect(urls.filter((url) => url.includes('/reasoningEngines?')).every((url) => url.includes(RUNTIME_REGION))).toBe(true)
+    expect(urls.filter((url) => url.includes('/ragCorpora?') || url.endsWith(':retrieveContexts')).every((url) => url.includes(RAG_REGION))).toBe(true)
+  })
+
+  it('keeps the Agent path blocked and makes no generation request before a model is approved', async () => {
+    const fetchImpl = successfulFetch()
+    const withoutModel = { ...options(fetchImpl), approvedModelId: undefined }
+    const result = await runGcpPreflight(withoutModel)
+
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'generation-model',
+      ok: false,
+      code: 'MODEL_NOT_APPROVED',
+    }))
+    expect(fetchImpl.mock.calls.some(([input]) => String(input).includes(':generateContent'))).toBe(false)
+  })
+
+  it('fails when the CaffeMate RAG corpus is absent instead of reusing an unrelated corpus', async () => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('/ragCorpora?')) {
+        return Response.json({
+          ragCorpora: [{
+            name: `projects/${PROJECT_ID}/locations/${RAG_REGION}/ragCorpora/1`,
+            displayName: 'crowd-route-official-grounding-v1',
+          }],
+        })
+      }
+      if (url.includes('/reasoningEngines?')) return Response.json({})
+      return Response.json({})
+    })
+
+    const result = await runGcpPreflight(options(fetchImpl))
+
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'rag-corpus',
+      ok: false,
+      code: 'RAG_CORPUS_NOT_FOUND',
+    }))
+  })
+
+  it('rejects location drift instead of changing runtime, generation, or data locations', async () => {
+    await expect(runGcpPreflight({
+      ...options(),
+      runtimeRegion: 'global' as typeof RUNTIME_REGION,
+    })).rejects.toMatchObject({ code: 'GCP_RUNTIME_REGION_NOT_ALLOWED' })
+
+    await expect(runGcpPreflight({
+      ...options(),
+      generationRegion: 'asia-northeast3' as typeof GENERATION_REGION,
+    })).rejects.toMatchObject({ code: 'GCP_GENERATION_REGION_NOT_ALLOWED' })
+  })
+})

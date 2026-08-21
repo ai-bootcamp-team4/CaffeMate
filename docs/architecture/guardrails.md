@@ -24,7 +24,7 @@ CaffeMate의 Guardrail은 위험 문구를 뒤에 붙이는 기능이 아니라 
 | Decision | 자료 부족은 조건부, 확인된 위반만 제외 | reason code 강제 |
 | Action | 계약·금전·법률·외부 연락 자동화 금지 | human gate |
 | Output | 중요한 Claim에 Evidence 또는 가정 필요 | result commit 차단 |
-| Region | Runtime·RAG corpus·import·retrieval·생성·embedding·reranker 서울 read-back 필수 | `BLOCKED_BY_REGION`, global 호출 0 |
+| Region | Runtime·RAG corpus·import·retrieval·embedding·reranker는 서울, 생성은 승인된 `global` endpoint read-back 필수 | `BLOCKED_BY_REGION`, 대체 위치 호출 0 |
 
 ## Claim 승격
 

@@ -1,0 +1,100 @@
+import { describe, expect, it, vi } from 'vitest'
+import fixtureMatrix from '../fixtures/task-matrix.json'
+import { buildModelInvocation } from '../src/model-executor'
+import { VertexAgentModelClient, VertexAgentModelError } from '../src/vertex-model-client'
+import type { AgentTask } from '../src/types'
+
+const PROJECT_ID = 'proj-aj20-211200020328'
+const REGION = 'global'
+const MODEL_ID = 'gemini-3.7-flash'
+
+function task(): AgentTask {
+  return structuredClone(fixtureMatrix.cases[0]?.task) as unknown as AgentTask
+}
+
+describe('Vertex Agent model client', () => {
+  it('calls only the explicit global Vertex endpoint with ADC bearer auth and JSON-only generation', async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe(
+        `https://aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${REGION}/publishers/google/models/${MODEL_ID}:generateContent`,
+      )
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer adc-token')
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body).toMatchObject({
+        systemInstruction: { parts: [{ text: expect.any(String) }] },
+        contents: [{ role: 'user', parts: [{ text: expect.any(String) }] }],
+        generationConfig: {
+          candidateCount: 1,
+          responseMimeType: 'application/json',
+          maxOutputTokens: 2048,
+        },
+      })
+      return Response.json({
+        candidates: [{
+          content: { parts: [{ text: '{"status":"ABSTAIN"}' }], role: 'model' },
+          finishReason: 'STOP',
+        }],
+      })
+    })
+    const client = new VertexAgentModelClient({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl,
+    })
+
+    const response = await client.generate(buildModelInvocation(task(), {
+      id: MODEL_ID,
+      region: REGION,
+      thinkingLevel: 'medium',
+    }))
+
+    expect(response).toEqual({ kind: 'TEXT', text: '{"status":"ABSTAIN"}' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects any non-global generation configuration instead of silently switching locations', () => {
+    expect(() => new VertexAgentModelClient({
+      projectId: PROJECT_ID,
+      region: 'asia-northeast3' as typeof REGION,
+      accessToken: async () => 'adc-token',
+    })).toThrowError('VERTEX_REGION_NOT_ALLOWED')
+  })
+
+  it('surfaces provider safety blocks as the model safety outcome', async () => {
+    const client = new VertexAgentModelClient({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl: async () => Response.json({
+        candidates: [{ content: { role: 'model' }, finishReason: 'SAFETY' }],
+      }),
+    })
+
+    await expect(client.generate(buildModelInvocation(task(), {
+      id: MODEL_ID,
+      region: REGION,
+      thinkingLevel: 'medium',
+    }))).resolves.toEqual({ kind: 'SAFETY_BLOCKED' })
+  })
+
+  it('fails closed on HTTP errors without returning provider response text as an Agent result', async () => {
+    const client = new VertexAgentModelClient({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl: async () => Response.json({ error: { message: 'quota exhausted' } }, { status: 429 }),
+    })
+
+    await expect(client.generate(buildModelInvocation(task(), {
+      id: MODEL_ID,
+      region: REGION,
+      thinkingLevel: 'medium',
+    }))).rejects.toBeInstanceOf(VertexAgentModelError)
+    await expect(client.generate(buildModelInvocation(task(), {
+      id: MODEL_ID,
+      region: REGION,
+      thinkingLevel: 'medium',
+    }))).rejects.toMatchObject({ code: 'VERTEX_MODEL_HTTP_ERROR', status: 429 })
+  })
+})

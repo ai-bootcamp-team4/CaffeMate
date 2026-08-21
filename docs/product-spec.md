@@ -257,9 +257,9 @@ OCR·문서 분석 결과는 필드별 확인 팝업이 아니라 한 화면의 
 ## 16. 확정 Runtime과 리전
 
 - ADK Multi-Agent application은 GCP managed Agent Runtime에 배포한다.
-- Agent Runtime, Gemini 생성 모델과 embedding 호출은 `asia-northeast3`를 사용한다.
-- `global` model endpoint로 자동 fallback하지 않는다.
-- 선택 모델이 서울 리전에서 사용할 수 없거나 quota가 부족하면 `BLOCKED_BY_REGION`으로 중단하고 모델 변경을 별도 승인받는다.
+- Agent Runtime과 embedding 호출은 `asia-northeast3`를 사용하고, Gemini 생성 모델은 명시적으로 `global` endpoint의 `gemini-3.7-flash`를 사용한다.
+- `global`은 fallback이 아니라 승인된 생성 위치다. Runtime·RAG·embedding을 다른 위치로 자동 전환하거나 생성 모델을 다른 endpoint로 조용히 fallback하지 않는다.
+- 승인 모델 또는 quota를 `global`에서 사용할 수 없으면 `BLOCKED_BY_REGION`으로 중단하고 모델·위치 변경을 별도 승인받는다.
 - Control API가 IAM 인증으로 Agent Runtime을 직접 호출한다.
 - 서울 리전에서 지원되지 않는 managed Agent Gateway를 사용하지 않는다.
 - Agent는 Control API가 고정한 현재 State snapshot을 읽고 typed proposal 또는 State delta를 반환한다. Agent Runtime session은 임시 실행 문맥일 뿐 제품 State가 아니다.

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { AgentTask } from './types'
 
-function canonicalize(value: unknown): string {
+export function canonicalizeJson(value: unknown): string {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') {
     return JSON.stringify(value)
   }
@@ -10,13 +10,13 @@ function canonicalize(value: unknown): string {
     return JSON.stringify(value)
   }
   if (Array.isArray(value)) {
-    return `[${value.map(canonicalize).join(',')}]`
+    return `[${value.map(canonicalizeJson).join(',')}]`
   }
   if (typeof value === 'object') {
     const object = value as Record<string, unknown>
     const entries = Object.keys(object)
       .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalize(object[key])}`)
+      .map((key) => `${JSON.stringify(key)}:${canonicalizeJson(object[key])}`)
     return `{${entries.join(',')}}`
   }
   throw new Error(`AGENT_INPUT_DIGEST_UNSUPPORTED_VALUE: ${typeof value}`)
@@ -44,6 +44,6 @@ export function agentTaskDigestProjection(task: AgentTask): Record<string, unkno
 }
 
 export function computeAgentTaskInputDigest(task: AgentTask): string {
-  const canonical = canonicalize(agentTaskDigestProjection(task))
+  const canonical = canonicalizeJson(agentTaskDigestProjection(task))
   return `sha256:${createHash('sha256').update(canonical, 'utf8').digest('hex')}`
 }

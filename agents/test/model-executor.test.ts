@@ -13,7 +13,7 @@ import type { AgentTask, AgentTaskResult } from '../src/types'
 
 const APPROVED_MODEL = {
   id: 'approved-model-after-gcp-preflight',
-  region: 'asia-northeast3',
+  region: 'global',
   thinkingLevel: 'medium',
 } as const
 
@@ -31,7 +31,7 @@ describe('local model-backed Agent executors', () => {
     const invocation = buildModelInvocation(task, APPROVED_MODEL)
 
     expect(invocation.model).toBe('approved-model-after-gcp-preflight')
-    expect(invocation.region).toBe('asia-northeast3')
+    expect(invocation.region).toBe('global')
     expect(invocation.thinkingLevel).toBe('medium')
     expect(invocation.maxOutputTokens).toBe(8192)
     expect(invocation.outputSchemaId).toBe('caffemate.agent.independent-proposal-result.v1')

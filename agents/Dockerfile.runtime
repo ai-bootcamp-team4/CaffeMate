@@ -1,0 +1,34 @@
+FROM node:22-alpine AS build
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY agents ./agents
+COPY docs/contracts ./docs/contracts
+
+RUN ./node_modules/.bin/esbuild agents/src/runtime-server.ts \
+    --bundle \
+    --platform=node \
+    --target=node22 \
+    --format=esm \
+    --packages=external \
+    --outfile=/app/runtime-server.mjs
+
+FROM node:22-alpine AS runtime
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY --chown=node:node package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY --chown=node:node --from=build /app/runtime-server.mjs ./runtime-server.mjs
+COPY --chown=node:node agents ./agents
+COPY --chown=node:node docs/contracts ./docs/contracts
+
+USER node
+EXPOSE 8080
+
+CMD ["node", "runtime-server.mjs"]

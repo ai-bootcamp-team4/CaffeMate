@@ -45,6 +45,15 @@ function assertTaskInputDigest(task: AgentTask): void {
   }
 }
 
+export function validateAgentTaskForDispatch(task: AgentTask): void {
+  const taskValidation = validateAgentTask(task)
+  if (!taskValidation.ok) {
+    throw new AgentDispatchError('TASK_SCHEMA_INVALID', JSON.stringify(taskValidation.errors))
+  }
+  assertTaskInputDigest(task)
+  assertTaskRegistry(task)
+}
+
 function assertResultEcho(task: AgentTask, result: AgentTaskResult): void {
   const matches = result.task_id === task.task_id
     && result.invocation_id === task.invocation_id
@@ -63,12 +72,7 @@ function assertResultEcho(task: AgentTask, result: AgentTaskResult): void {
 }
 
 export async function dispatchAgentTask(task: AgentTask, executors: AgentExecutorMap): Promise<AgentTaskResult> {
-  const taskValidation = validateAgentTask(task)
-  if (!taskValidation.ok) {
-    throw new AgentDispatchError('TASK_SCHEMA_INVALID', JSON.stringify(taskValidation.errors))
-  }
-  assertTaskInputDigest(task)
-  assertTaskRegistry(task)
+  validateAgentTaskForDispatch(task)
 
   const registration = TASK_REGISTRY[task.task_type]
   const executor = executors[registration.agentName]

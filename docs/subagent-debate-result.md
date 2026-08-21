@@ -276,7 +276,7 @@ PostgreSQL/PostGIS/pgvector가 제품의 transactional·검색 metadata 저장�
 
 Queue는 outbox+Pub/Sub 기반 at-least-once로 운영하며 retry budget, DLQ, heartbeat, progress, checkpoint를 필수화합니다.
 
-Control API가 IAM 인증으로 서울 Agent Runtime을 직접 호출합니다. 생성·embedding model endpoint도 `asia-northeast3`로 고정하고 `global` fallback, 별도 Cloud Run Agent Gateway와 서울에서 미지원인 managed Agent Gateway는 사용하지 않습니다. RAG Engine은 Preview이므로 운영 필수 경로에 두지 않습니다.
+Control API가 IAM 인증으로 서울 Agent Runtime을 직접 호출합니다. 생성 model endpoint는 승인된 `global`의 `gemini-3.7-flash`, embedding은 `asia-northeast3`로 고정하고 다른 위치 fallback, 별도 Cloud Run Agent Gateway와 서울에서 미지원인 managed Agent Gateway는 사용하지 않습니다. RAG Engine은 서울 Preview 위험을 수용하고 Advanced RAG의 운영 필수 검색 계층으로 사용하되 corpus 생성·import·retrieval·rerank preflight를 배포 Gate로 둡니다.
 
 Agent Control CLI는 Web과 같은 API·헤드리스 코어를 사용하고 `--json`, 프로젝트·workflow·Evidence·문서 검토·재계산·패킷·source health·진단·스크린샷을 지원합니다.
 

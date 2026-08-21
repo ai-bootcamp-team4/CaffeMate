@@ -1,10 +1,17 @@
 import type { AgentName, TaskType } from './types'
 
+export const GCP_LOCATIONS = Object.freeze({
+  runtime: 'asia-northeast3',
+  generation: 'global',
+  rag: 'asia-northeast3',
+  embedding: 'asia-northeast3',
+} as const)
+
 export const AGENT_MODEL = Object.freeze({
-  id: null,
-  approvalStatus: 'PENDING_HUMAN_DECISION',
-  region: 'asia-northeast3',
-  networkEnabled: false,
+  id: 'gemini-3.7-flash',
+  approvalStatus: 'APPROVED',
+  region: GCP_LOCATIONS.generation,
+  networkEnabled: true,
   allowGlobalFallback: false,
   thinkingLevel: 'medium',
 } as const)

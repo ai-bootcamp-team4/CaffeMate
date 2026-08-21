@@ -1,0 +1,38 @@
+services:
+  runtime:
+    build:
+      context: ..
+      dockerfile: agents/Dockerfile.runtime
+    environment:
+      GOOGLE_CLOUD_PROJECT: proj-aj20-211200020328
+      GOOGLE_CLOUD_LOCATION: asia-northeast3
+      GOOGLE_CLOUD_AGENT_ENGINE_LOCATION: asia-northeast3
+      GOOGLE_CLOUD_AGENT_ENGINE_ID: "123456789"
+      PORT: "8080"
+    expose:
+      - "8080"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
+
+  smoke:
+    image: node:22-alpine
+    depends_on:
+      runtime:
+        condition: service_healthy
+    command:
+      - node
+      - -e
+      - >-
+        Promise.all([
+          fetch('http://runtime:8080/health').then(async r => { if (!r.ok || await r.text() !== 'OK') throw new Error('health failed') }),
+          fetch('http://runtime:8080/list-apps').then(async r => { const body = await r.json(); if (!r.ok || !Array.isArray(body) || !body.includes('caffemate-agents')) throw new Error('agent discovery failed: ' + JSON.stringify(body)) }),
+          fetch('http://runtime:8080/api/reasoning_engine', {method:'POST', headers:{'content-type':'application/json'}, body:'{}'}).then(async r => { if (r.status !== 400) throw new Error('class method validation did not fail closed: ' + r.status + ' ' + await r.text()) })
+        ]).then(() => console.log('runtime smoke OK'))

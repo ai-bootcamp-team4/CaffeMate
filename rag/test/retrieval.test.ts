@@ -3,7 +3,16 @@ import { RagError, RetrievalCoordinator } from '../src/retrieval'
 
 const scope = { ventureProjectId: 'project-1' }
 const projectInput = { query: '임대료', documentRevisionIds: ['docrev-1'], limit: 5 }
-const mapping = { ventureProjectId: 'project-1', corpusId: 'corpus-project-1', documentRevisionIds: ['docrev-1', 'docrev-2'] }
+const mapping = {
+  ventureProjectId: 'project-1',
+  corpusId: 'corpus-project-1',
+  documentRevisionIds: ['docrev-1', 'docrev-2'],
+  ragFileIdsByDocumentRevisionId: {
+    'docrev-1': 'rag-file-1',
+    'docrev-2': 'rag-file-2',
+  },
+}
+const officialCorpusResource = 'projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552'
 
 function hit(documentRevisionId = 'docrev-1') {
   return {
@@ -39,6 +48,29 @@ describe('RAG retrieval coordinator', () => {
     await expect(coordinator.retrieveProject(projectInput, scope, mapping)).rejects.toMatchObject({ code: 'RAG_SCOPE_MISMATCH' })
   })
 
+  it('resolves requested document revisions to server-side RAG file ids before project retrieval', async () => {
+    const backend = vi.fn(async () => [hit()])
+    const coordinator = new RetrievalCoordinator({ project: backend })
+
+    await coordinator.retrieveProject(projectInput, scope, mapping)
+
+    expect(backend).toHaveBeenCalledWith(expect.objectContaining({
+      documentRevisionIds: ['docrev-1'],
+      ragFileIds: ['rag-file-1'],
+    }))
+  })
+
+  it('rejects project retrieval before backend execution when a revision has no pinned RAG file id', async () => {
+    const backend = vi.fn(async () => [hit()])
+    const coordinator = new RetrievalCoordinator({ project: backend })
+
+    await expect(coordinator.retrieveProject(projectInput, scope, {
+      ...mapping,
+      ragFileIdsByDocumentRevisionId: {},
+    })).rejects.toMatchObject({ code: 'RAG_SCOPE_MISMATCH' })
+    expect(backend).not.toHaveBeenCalled()
+  })
+
   it('does not silently fall back when the required backend is unavailable', async () => {
     const fallback = vi.fn(async () => [hit()])
     const coordinator = new RetrievalCoordinator({ official: fallback })
@@ -51,12 +83,28 @@ describe('RAG retrieval coordinator', () => {
   it('routes official retrieval only to the official corpus backend', async () => {
     const official = vi.fn(async () => [hit('official-rev-1')])
     const project = vi.fn(async () => [hit()])
-    const coordinator = new RetrievalCoordinator({ official, project })
+    const coordinator = new RetrievalCoordinator({ official, project }, { officialCorpusId: officialCorpusResource })
 
     const result = await coordinator.retrieveOfficial({ query: '가맹사업법', sourceFamilies: ['LAW'], asOf: '2026-08-21', limit: 5 })
 
     expect(result).toHaveLength(1)
-    expect(official).toHaveBeenCalledWith(expect.objectContaining({ corpusKind: 'OFFICIAL' }))
+    expect(official).toHaveBeenCalledWith(expect.objectContaining({
+      corpusKind: 'OFFICIAL',
+      corpusId: officialCorpusResource,
+    }))
     expect(project).not.toHaveBeenCalled()
+  })
+
+  it('rejects official retrieval before backend execution when no authoritative corpus mapping is configured', async () => {
+    const official = vi.fn(async () => [hit('official-rev-1')])
+    const coordinator = new RetrievalCoordinator({ official })
+
+    await expect(coordinator.retrieveOfficial({
+      query: '가맹사업법',
+      sourceFamilies: ['LAW'],
+      asOf: '2026-08-21',
+      limit: 5,
+    })).rejects.toMatchObject({ code: 'RAG_UNAVAILABLE' })
+    expect(official).not.toHaveBeenCalled()
   })
 })

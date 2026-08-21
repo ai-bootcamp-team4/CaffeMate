@@ -24,9 +24,9 @@
 - ADK Agent들은 각각 서버로 배포하지 않고 하나의 Multi-Agent application으로 묶어 `asia-northeast3` Agent Runtime에 배포한다.
 - Control API가 IAM 인증으로 Agent Runtime을 직접 호출한다. 서울 리전에서 지원되지 않는 managed Agent Gateway를 필수 경로에 두지 않는다.
 - 첫 구현에서는 Control API만 private MCP를 호출한다. Agent Runtime은 MCP invoke 권한을 갖지 않고 typed proposal만 반환하며 State write는 계속 API만 수행한다.
-- 생성·embedding model endpoint도 `asia-northeast3`로 고정하며 `global` endpoint로 자동 fallback하지 않는다.
-- 기존 선택 `gemini-3.5-flash`는 공식 지원 생성 리전에 서울이 없어 제거한다. 대체 model id는 `PENDING_HUMAN_DECISION`이며 승인 전 Agent 경로는 `BLOCKED_BY_REGION`이다.
-- 실제 사용할 생성·embedding·reranker는 배포 전에 `asia-northeast3` 호출 read-back을 각각 통과해야 한다. 실패하면 `BLOCKED_BY_REGION`으로 중단하며 사용자 data plane을 다른 리전으로 옮기지 않는다.
+- 생성 모델은 `global` endpoint의 `gemini-3.7-flash`로 고정하고, embedding·reranker는 `asia-northeast3`로 유지한다. `global`은 fallback이 아니라 승인된 생성 위치다.
+- `gemini-3.7-flash`는 2026-08-21 실제 `global` `generateContent` 호출에서 HTTP 200과 `STOP` 응답을 확인한 뒤 사용자 승인을 받아 pin했다.
+- 실제 사용할 서울 Runtime·global 생성·서울 embedding·서울 reranker는 배포 전에 각각 호출 read-back을 통과해야 한다. 실패하면 `BLOCKED_BY_REGION`으로 중단하며 다른 위치로 조용히 전환하지 않는다.
 - Vertex AI RAG Engine을 공식·프로젝트 문서 Advanced RAG의 주 검색 계층으로 사용한다. 서울 Preview 위험은 수용하되 corpus 생성·import·retrieval·rerank read-back을 배포 Gate로 두고 다른 검색기로 조용히 우회하지 않는다.
 
 ## 구조도

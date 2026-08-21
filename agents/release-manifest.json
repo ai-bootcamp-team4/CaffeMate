@@ -2,13 +2,14 @@
   "schema_version": "1.0.0",
   "runtime_region": "asia-northeast3",
   "model": {
-    "id": null,
-    "approval_status": "PENDING_HUMAN_DECISION",
-    "thinking_level": "medium"
+    "id": "gemini-3.7-flash",
+    "approval_status": "APPROVED",
+    "thinking_level": "medium",
+    "region": "global"
   },
   "allow_global_fallback": false,
-  "network_mode": "LOCAL_ONLY",
-  "gcp_preflight_status": "NOT_RUN",
+  "network_mode": "GCP_CONNECTED",
+  "gcp_preflight_status": "GENERATION_VERIFIED_RUNTIME_PENDING",
   "mcp": {
     "protocol_revision": "2026-07-28",
     "server_sdk": "@modelcontextprotocol/server@2.0.0",

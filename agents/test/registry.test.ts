@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AGENT_MODEL, TASK_REGISTRY } from '../src/registry'
+import { AGENT_MODEL, GCP_LOCATIONS, TASK_REGISTRY } from '../src/registry'
 
 const expected = {
   INTENT_DELTA: 'INTENT_INTERPRETER',
@@ -19,11 +19,17 @@ describe('task registry', () => {
     }
   })
 
-  it('pins the user-selected model without enabling a network fallback', () => {
-    expect(AGENT_MODEL.id).toBeNull()
-    expect(AGENT_MODEL.approvalStatus).toBe('PENDING_HUMAN_DECISION')
-    expect(AGENT_MODEL.region).toBe('asia-northeast3')
+  it('pins the approved global generation model while keeping runtime and RAG in Seoul', () => {
+    expect(GCP_LOCATIONS).toEqual({
+      runtime: 'asia-northeast3',
+      generation: 'global',
+      rag: 'asia-northeast3',
+      embedding: 'asia-northeast3',
+    })
+    expect(AGENT_MODEL.id).toBe('gemini-3.7-flash')
+    expect(AGENT_MODEL.approvalStatus).toBe('APPROVED')
+    expect(AGENT_MODEL.region).toBe('global')
     expect(AGENT_MODEL.allowGlobalFallback).toBe(false)
-    expect(AGENT_MODEL.networkEnabled).toBe(false)
+    expect(AGENT_MODEL.networkEnabled).toBe(true)
   })
 })

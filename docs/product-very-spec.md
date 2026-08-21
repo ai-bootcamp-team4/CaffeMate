@@ -16,8 +16,9 @@ Proposal Agent를 포함한 5-Agent 구조와 결정론적 Core를 유지하면�
 | MCP | TypeScript, 공식 MCP SDK v2와 JSON Schema/Ajv 기반 검증 |
 | 문서·수집 Worker | Python |
 | Agent 실행 | GCP managed Agent Runtime, `asia-northeast3` |
-| 생성 모델 | `PENDING_HUMAN_DECISION`; 기존 `gemini-3.5-flash`는 서울 미지원으로 사용 금지 |
-| 생성·embedding endpoint | `asia-northeast3`; `global` fallback 금지 |
+| 생성 모델 | `gemini-3.7-flash`, 사용자 승인 및 `global` 실호출 검증 완료 |
+| 생성 endpoint | `global` (`gemini-3.7-flash`); fallback 아님 |
+| embedding endpoint | `asia-northeast3`; 다른 리전 fallback 금지 |
 | 생성 설정 | `temperature=0`, `candidateCount=1`, `seed=17`, JSON structured output |
 | Advanced RAG | Vertex AI RAG Engine, `asia-northeast3`; 운영 필수 검색 계층 |
 | Embedding | RAG corpus 생성 시 pin하며 서울 import·retrieval read-back 전 사용 금지 |
@@ -28,11 +29,11 @@ Proposal Agent를 포함한 5-Agent 구조와 결정론적 Core를 유지하면�
 | Orchestration | Control API가 고정 DAG 실행; Agent 간 직접 호출 금지 |
 | State write | Reducer만 허용 |
 
-`gemini-3.5-flash`는 GA지만 [모델별 지원 리전](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-flash)에 `asia-northeast3`가 없으므로 CaffeMate의 서울 고정 계약과 양립하지 않는다. 이 model id는 제거하며 서울에서 실제 생성 호출을 통과한 고정 model id를 인간이 승인하기 전 Agent 경로는 `BLOCKED_BY_REGION`이다. [`@latest`는 사용하지 않는다](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions).
+`gemini-3.7-flash`는 사용자 승인에 따라 생성 모델로 고정한다. 생성 위치는 `global`이며, 2026-08-21 실제 `generateContent` 호출에서 HTTP 200과 `STOP` 응답을 확인했다. `global`은 fallback이 아니라 명시적 생성 위치다. [`@latest`는 사용하지 않는다](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions).
 
 리전 지원 근거는 [Agent Runtime 지원 지역](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations), [모델 endpoint 지역](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations), [모델별 data residency](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/data-residency)를 사용한다. `accessed_at: 2026-08-21`, `freshness: deployment preflight에서 재확인`이다.
 
-Runtime 생성, 생성 모델, embedding 모델과 reranker는 배포 전 `asia-northeast3`에서 각각 실제 생성·호출 read-back을 통과해야 한다. 선택 모델이나 quota가 서울에서 사용할 수 없으면 `BLOCKED_BY_REGION`으로 중단하며 `global` 또는 다른 리전으로 조용히 전환하지 않는다.
+Runtime 생성은 `asia-northeast3`, 생성 모델은 `global`, embedding 모델과 reranker는 `asia-northeast3`에서 각각 실제 생성·호출 read-back을 통과해야 한다. 고정된 위치에서 모델이나 quota를 사용할 수 없으면 `BLOCKED_BY_REGION`으로 중단하며 다른 위치로 조용히 전환하지 않는다.
 
 사용자 문서의 저장, OCR, embedding, Agent 호출과 rerank는 각 서비스의 서울 처리 지원 여부를 preflight에서 따로 검증한다. 지역 처리 약속을 충족하지 않는 기능은 문서 경로에서 비활성화하고 별도 인간 결정을 받는다.
 
@@ -550,7 +551,7 @@ Proposal Agent와 별도의 Typed Candidate Auditor를 유지한다. `candidate-
 4. exact typed lookup baseline과 project corpus ACL 검증을 완성한다.
 5. RAG retrieval, metadata filter, reranker, anchor와 counterevidence를 추가한다.
 6. MCP 2026-07-28 stateless transport와 10개 read-only tool을 구현한다.
-7. 서울에서 승인 생성 모델 preflight가 통과한 뒤 Agent Runtime에 deterministic root dispatcher, 공통 prompt registry, 다섯 Agent DTO, 관리형 session 수명주기와 repair 경로를 구현한다.
+7. `global` 승인 생성 모델 preflight가 통과한 뒤 서울 Agent Runtime에 deterministic root dispatcher, 공통 prompt registry, 다섯 Agent DTO, 관리형 session 수명주기와 repair 경로를 구현한다.
 8. FIRST_PROPOSAL → feedback → document → refresh → packet 순으로 durable DAG를 연결한다.
 9. Agent Control CLI에 `--json` 기반 run/watch/retrieve/agent-trace/document-review/recompute/packet/index-generation 기능을 추가한다.
 10. Sealed eval, shadow, 10% canary, 전체 승격 순으로 출시한다.
@@ -585,8 +586,8 @@ Proposal Agent와 별도의 Typed Candidate Auditor를 유지한다. `candidate-
 가정과 확정사항:
 
 - Agent는 `asia-northeast3` managed Agent Runtime에서 실행한다.
-- 생성·embedding·reranker endpoint는 `asia-northeast3`로 고정하고 `global` fallback을 금지한다.
+- 생성 endpoint는 `global`의 `gemini-3.7-flash`로 고정하고, embedding·reranker는 `asia-northeast3`로 고정한다. 어느 경로도 다른 위치로 fallback하지 않는다.
 - Control API가 Agent Runtime을 직접 호출하며 별도 Cloud Run Agent Gateway와 managed Agent Gateway를 사용하지 않는다.
 - RAG Engine은 서울에서 Preview이지만 Advanced RAG의 운영 필수 검색 계층으로 사용한다. 이 위험은 승인됐으며 실제 corpus 생성·import·retrieval·rerank preflight를 통과해야 한다.
 - Reranker 관련성 점수는 Evidence 신뢰도나 후보 순위가 아니다.
-- `PENDING_HUMAN_DECISION`: 서울 실제 생성 호출을 통과한 model id 중 사용할 고정 모델을 승인해야 한다. 이 결정 전까지 Agent 구현·배포 경로는 `BLOCKED_BY_REGION`이며 deterministic Core와 fixture 기반 adapter 개발만 진행한다.
+- 생성 모델 결정: `gemini-3.7-flash`와 `global` endpoint가 사용자 승인 및 실제 생성 호출 검증을 통과했다. Runtime은 계속 `asia-northeast3`에 배포한다.

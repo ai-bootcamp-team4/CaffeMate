@@ -18,6 +18,7 @@ export interface RagBackendRequest {
   sourceFamilies?: string[]
   documentType?: string | null
   documentRevisionIds?: string[]
+  ragFileIds?: string[]
   ventureProjectId?: string
 }
 
@@ -27,6 +28,7 @@ export interface ProjectCorpusMapping {
   ventureProjectId: string
   corpusId: string
   documentRevisionIds: string[]
+  ragFileIdsByDocumentRevisionId: Record<string, string>
 }
 
 export interface ProjectRetrievalInput {
@@ -54,15 +56,25 @@ export class RagError extends Error {
   }
 }
 
+export interface RetrievalCoordinatorConfig {
+  officialCorpusId?: string
+}
+
 export class RetrievalCoordinator {
-  constructor(private readonly backends: { official?: RagBackend; project?: RagBackend }) {}
+  constructor(
+    private readonly backends: { official?: RagBackend; project?: RagBackend },
+    private readonly config: RetrievalCoordinatorConfig = {},
+  ) {}
 
   async retrieveOfficial(input: OfficialRetrievalInput): Promise<RagHit[]> {
     const backend = this.backends.official
     if (!backend) throw new RagError('RAG_UNAVAILABLE', 'official RAG backend is not configured')
+    if (!this.config.officialCorpusId) {
+      throw new RagError('RAG_UNAVAILABLE', 'official RAG corpus is not configured')
+    }
     return backend({
       corpusKind: 'OFFICIAL',
-      corpusId: 'official',
+      corpusId: this.config.officialCorpusId,
       query: input.query,
       sourceFamilies: [...input.sourceFamilies],
       asOf: input.asOf,
@@ -86,6 +98,10 @@ export class RetrievalCoordinator {
     if (!backend) throw new RagError('RAG_UNAVAILABLE', 'project RAG backend is not configured')
 
     const requested = new Set(input.documentRevisionIds)
+    const ragFileIds = input.documentRevisionIds.map((revisionId) => mapping.ragFileIdsByDocumentRevisionId[revisionId])
+    if (ragFileIds.some((ragFileId) => !ragFileId)) {
+      throw new RagError('RAG_SCOPE_MISMATCH', 'every requested document revision must have a pinned RAG file id')
+    }
     const hits = await backend({
       corpusKind: 'PROJECT',
       corpusId: mapping.corpusId,
@@ -93,6 +109,7 @@ export class RetrievalCoordinator {
       query: input.query,
       documentType: input.documentType ?? null,
       documentRevisionIds: [...input.documentRevisionIds],
+      ragFileIds: ragFileIds as string[],
       limit: input.limit,
     })
 
