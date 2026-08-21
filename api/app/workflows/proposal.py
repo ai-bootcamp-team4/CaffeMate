@@ -87,6 +87,7 @@ class ProposalStageHandler:
                 reason_codes=reason_codes,
                 warnings=[],
                 agent_trace=None,
+                proposal_input=proposal_input,
             )
 
         task = self._build_task(self._task_factory, context)
@@ -111,6 +112,7 @@ class ProposalStageHandler:
                     "prompt_version": task["prompt_version"],
                     "output_schema_id": task["output_schema_id"],
                 },
+                proposal_input=proposal_input,
             )
         boundary = validate_agent_boundary(
             task=task,
@@ -145,6 +147,7 @@ class ProposalStageHandler:
                 "prompt_version": task["prompt_version"],
                 "output_schema_id": task["output_schema_id"],
             },
+            proposal_input=proposal_input,
         )
 
     def _prepared_input(self, context: StageContext) -> dict[str, Any]:
@@ -195,6 +198,7 @@ class ProposalStageHandler:
         reason_codes: list[str],
         warnings: list[str],
         agent_trace: dict[str, Any] | None,
+        proposal_input: dict[str, Any],
     ) -> dict[str, object]:
         return {
             "stage_control": control.model_dump(mode="json"),
@@ -206,5 +210,6 @@ class ProposalStageHandler:
                 "reason_codes": reason_codes,
                 "warnings": warnings,
                 "agent_trace": agent_trace,
+                "proposal_input": proposal_input,
             },
         }

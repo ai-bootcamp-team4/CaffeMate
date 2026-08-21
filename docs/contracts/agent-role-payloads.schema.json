@@ -596,6 +596,12 @@
               "proposal_id": { "type": "string", "minLength": 1, "maxLength": 128 },
               "model_id": { "type": "string", "minLength": 1 },
               "display_name": { "type": "string", "minLength": 1 },
+              "allowed_operation_modes": {
+                "type": "array",
+                "items": { "enum": ["DIRECT_FULL_TIME", "DIRECT_PART_TIME", "EMPLOYEE_LED", "UNDECIDED"] },
+                "minItems": 1,
+                "uniqueItems": true
+              },
               "allowed_parameters": {
                 "type": "array",
                 "items": {

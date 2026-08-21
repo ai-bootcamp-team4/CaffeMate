@@ -46,6 +46,7 @@ from app.results.service import ResultService
 from app.results.unavailable_repository import UnavailableResultRepository
 from app.settings import RuntimeSettings
 from app.workflows.area_resolution import AreaMcpClient, AreaResolutionStageHandler
+from app.workflows.calculate_gate_rank import CalculateGateRankStageHandler
 from app.workflows.candidate_inputs import (
     FranchiseEligibilityStageHandler,
     IndependentSeedStageHandler,
@@ -178,6 +179,7 @@ def create_app(
         FirstProposalStage.EVIDENCE_FREEZE: EvidenceFreezeStageHandler(),
         FirstProposalStage.INDEPENDENT_SEED: IndependentSeedStageHandler(seed_registry),
         FirstProposalStage.FRANCHISE_ELIGIBILITY: FranchiseEligibilityStageHandler(),
+        FirstProposalStage.CALCULATE_GATE_RANK: CalculateGateRankStageHandler(),
     }
     if configured_mcp_client is not None:
         stage_handlers.update(
