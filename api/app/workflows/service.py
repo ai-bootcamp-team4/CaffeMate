@@ -6,11 +6,18 @@ from app.workflows.models import (
     WorkflowRun,
 )
 from app.workflows.repository import WorkflowRepository
+from app.workflows.start_guard import WorkflowStartGuard
 
 
 class WorkflowService:
-    def __init__(self, repository: WorkflowRepository) -> None:
+    def __init__(
+        self,
+        repository: WorkflowRepository,
+        *,
+        start_guard: WorkflowStartGuard | None = None,
+    ) -> None:
         self._repository = repository
+        self._start_guard = start_guard
 
     def start(
         self,
@@ -20,6 +27,8 @@ class WorkflowService:
         workflow_code: WorkflowCode,
         idempotency_key: str,
     ) -> WorkflowRun:
+        if self._start_guard is not None:
+            self._start_guard.validate(workflow_code)
         return self._repository.start(
             StartWorkflowCommand(
                 project_id=project_id,

@@ -40,6 +40,14 @@ class WorkflowPreconditionError(DomainError):
     code = "WORKFLOW_PRECONDITION_FAILED"
 
 
+class FirstProposalConfigurationUnavailableError(DomainError):
+    code = "FIRST_PROPOSAL_CONFIGURATION_UNAVAILABLE"
+
+    def __init__(self, missing_stage_codes: list[str]) -> None:
+        super().__init__("FIRST_PROPOSAL stage composition is incomplete")
+        self.missing_stage_codes = list(missing_stage_codes)
+
+
 class StageLeaseRejectedError(DomainError):
     code = "STAGE_LEASE_REJECTED"
 
