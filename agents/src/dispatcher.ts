@@ -23,6 +23,9 @@ function sameHead(left: HeadFence, right: HeadFence): boolean {
 
 function assertTaskRegistry(task: AgentTask): void {
   const registration = TASK_REGISTRY[task.task_type]
+  if (!registration) {
+    throw new AgentDispatchError('TASK_REGISTRY_MISMATCH', `task type ${String(task.task_type)} is not registered`)
+  }
   const matches = task.agent_name === registration.agentName
     && task.prompt_version === registration.promptVersion
     && task.input_schema_id === registration.inputSchemaId
@@ -52,11 +55,11 @@ function assertResultEcho(task: AgentTask, result: AgentTaskResult): void {
 }
 
 export async function dispatchAgentTask(task: AgentTask, executors: AgentExecutorMap): Promise<AgentTaskResult> {
-  assertTaskRegistry(task)
   const taskValidation = validateAgentTask(task)
   if (!taskValidation.ok) {
     throw new AgentDispatchError('TASK_SCHEMA_INVALID', JSON.stringify(taskValidation.errors))
   }
+  assertTaskRegistry(task)
 
   const registration = TASK_REGISTRY[task.task_type]
   const executor = executors[registration.agentName]

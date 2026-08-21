@@ -56,14 +56,22 @@ describe('deterministic dispatcher', () => {
     expect(result.status).toBe('COMPLETE')
   })
 
-  it('rejects a task whose declared agent does not match the task registry', async () => {
+  it('schema-rejects a task whose declared agent does not match the task registry', async () => {
     const task = { ...makeIntentTask(), agent_name: 'PROPOSAL_AGENT' as const }
     const child = vi.fn()
 
-    await expect(dispatchAgentTask(task, { INTENT_INTERPRETER: child })).rejects.toThrow('TASK_REGISTRY_MISMATCH')
+    await expect(dispatchAgentTask(task, { INTENT_INTERPRETER: child })).rejects.toThrow('TASK_SCHEMA_INVALID')
     expect(child).not.toHaveBeenCalled()
   })
 
+
+  it('schema-validates an unknown task type before registry lookup', async () => {
+    const task = { ...makeIntentTask(), task_type: 'UNKNOWN_TASK' } as unknown as AgentTask
+    const child = vi.fn()
+
+    await expect(dispatchAgentTask(task, { INTENT_INTERPRETER: child })).rejects.toThrow('TASK_SCHEMA_INVALID')
+    expect(child).not.toHaveBeenCalled()
+  })
 
   it('rejects a schema-invalid task before invoking a child', async () => {
     const task = { ...makeIntentTask(), unexpected_field: 'nope' } as unknown as AgentTask
