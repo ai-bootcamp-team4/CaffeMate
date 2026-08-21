@@ -65,6 +65,26 @@ class WorkflowEvent(StrictModel):
     occurred_at: datetime
 
 
+class StageLease(StrictModel):
+    workflow_run_id: str
+    stage_run_id: str
+    stage_code: str
+    input_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    lease_token: str
+    lease_expires_at: datetime
+    attempt: int = Field(ge=1)
+    head: HeadFence
+
+
+class CheckpointOutcome(StrEnum):
+    APPLIED = "APPLIED"
+    DUPLICATE_DISCARDED = "DUPLICATE_DISCARDED"
+    LATE_DISCARDED = "LATE_DISCARDED"
+    CANCELLED_DISCARDED = "CANCELLED_DISCARDED"
+    STALE_DISCARDED = "STALE_DISCARDED"
+    LEASE_REJECTED = "LEASE_REJECTED"
+
+
 class StartWorkflowCommand(StrictModel):
     project_id: str
     user_id: str
