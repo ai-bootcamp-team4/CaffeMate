@@ -1,0 +1,20 @@
+{
+  "date": "2026-08-21",
+  "source": "empty unborn repository",
+  "signals": {
+    "designSystem": null,
+    "fontStack": null,
+    "palette": null,
+    "motion": "motion-cut",
+    "spacing": null,
+    "framework": null
+  },
+  "introduced": {
+    "framework": "React 19 + TypeScript + Vite + Tailwind CSS 4",
+    "genre": "modern-minimal",
+    "macrostructure": "Workbench",
+    "theme": "Coral",
+    "nav": "N9 Edge-aligned minimal",
+    "footer": "Ft2 Inline single line"
+  }
+}
