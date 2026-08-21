@@ -250,6 +250,30 @@ class PostgresStageExecutionRepository:
                     bundle=bundle,
                     created_at=now,
                 )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO workflow_events(
+                            workflow_run_id, event_type, event_json, occurred_at
+                        ) VALUES (
+                            :workflow_run_id, 'RESULT_BUNDLE_COMMITTED',
+                            CAST(:event AS JSONB), :now
+                        )
+                        """
+                    ),
+                    {
+                        "workflow_run_id": row["workflow_run_id"],
+                        "event": json.dumps(
+                            {
+                                "result_bundle_id": result_bundle_id,
+                                "primary_candidate_id": bundle.primary_candidate_id,
+                                "audit_status": bundle.audit_status.value,
+                            },
+                            separators=(",", ":"),
+                        ),
+                        "now": now,
+                    },
+                )
 
             connection.execute(
                 text(

@@ -53,6 +53,7 @@ from app.workflows.candidate_inputs import (
     IndependentSeedStageHandler,
 )
 from app.workflows.claim_plan import ClaimPlanStageHandler
+from app.workflows.commit_result import CommitResultStageHandler
 from app.workflows.evidence_assess import EvidenceAssessStageHandler
 from app.workflows.evidence_freeze import EvidenceFreezeStageHandler
 from app.workflows.evidence_plan import AgentRuntime, EvidencePlanStageHandler
@@ -181,6 +182,7 @@ def create_app(
         FirstProposalStage.INDEPENDENT_SEED: IndependentSeedStageHandler(seed_registry),
         FirstProposalStage.FRANCHISE_ELIGIBILITY: FranchiseEligibilityStageHandler(),
         FirstProposalStage.CALCULATE_GATE_RANK: CalculateGateRankStageHandler(),
+        FirstProposalStage.COMMIT_RESULT: CommitResultStageHandler(),
     }
     if configured_mcp_client is not None:
         stage_handlers.update(
