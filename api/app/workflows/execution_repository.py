@@ -24,7 +24,13 @@ class PostgresStageExecutionRepository:
         self._now = now or (lambda: datetime.now(UTC))
         self._new_token = new_token or (lambda: secrets.token_urlsafe(32))
 
-    def claim(self, *, stage_run_id: str, worker_id: str) -> StageLease | None:
+    def claim(
+        self,
+        *,
+        stage_run_id: str,
+        worker_id: str,
+        expected_input_digest: str,
+    ) -> StageLease | None:
         now = self._now()
         with self._engine.begin() as connection:
             row = self._load_stage(connection, stage_run_id=stage_run_id, for_update=True)
@@ -33,6 +39,8 @@ class PostgresStageExecutionRepository:
             if row["stage_status"] == "RUNNING" and row["lease_expires_at"] > now:
                 return None
             if row["stage_status"] not in {"READY", "RUNNING"}:
+                return None
+            if row["input_digest"] != expected_input_digest:
                 return None
             if self._stored_head(row) != self._current_head(row):
                 return None
