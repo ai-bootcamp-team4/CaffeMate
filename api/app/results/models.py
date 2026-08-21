@@ -99,6 +99,8 @@ class ResultDecisionDelta(StrictModel):
     current_result_bundle_id: str
     primary_candidate_changed: bool
     candidate_changes: list[CandidateDecisionDelta]
+    requires_human_review: bool = False
+    human_review_reason_codes: list[str] = Field(default_factory=list)
 
 
 class ResultView(ResultBundle):
@@ -106,3 +108,4 @@ class ResultView(ResultBundle):
     stale_head_dimensions: list[str]
     current_head: HeadFence
     decision_delta: ResultDecisionDelta | None = None
+    invalidation_reason_codes: list[str] = Field(default_factory=list)

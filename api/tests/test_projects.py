@@ -244,9 +244,30 @@ def test_openapi_exposes_control_api_contract(client: TestClient) -> None:
         "/v1/projects/{project_id}/documents/{document_revision_id}/extraction-form:apply"
         in schema["paths"]
     )
+    assert "/internal/v1/evidence:refresh" in schema["paths"]
     assert "/v1/projects/{project_id}/documents/uploads" in schema["paths"]
     assert "/v1/projects/{project_id}/documents/uploads:complete" in schema["paths"]
     assert (
         "/v1/projects/{project_id}/documents/{document_revision_id}/extraction-form"
         in schema["paths"]
     )
+
+
+def test_evidence_refresh_requires_worker_identity(client: TestClient) -> None:
+    response = client.post(
+        "/internal/v1/evidence:refresh",
+        json={
+            "project_id": "project-1",
+            "observations": [
+                {
+                    "source_ref": "official://source",
+                    "source_revision": "v2",
+                    "source_observed_at": "2026-08-22T00:00:00Z",
+                    "availability": "AVAILABLE",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"code": "UNAUTHENTICATED"}

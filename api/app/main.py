@@ -60,6 +60,11 @@ from app.domain.errors import (
     WorkflowPreconditionError,
 )
 from app.domain.models import FounderState, Project
+from app.evidence.models import EvidenceRefreshRequest, EvidenceRefreshResult
+from app.evidence.refresh import (
+    EvidenceRefreshService,
+    UnavailableEvidenceRefreshService,
+)
 from app.feedback.models import (
     ConfirmFeedbackRequest,
     CreateFeedbackPreviewRequest,
@@ -159,6 +164,9 @@ def create_app(
     document_service: DocumentService | UnavailableDocumentService | None = None,
     document_extraction_service: (
         DocumentExtractionService | UnavailableDocumentExtractionService | None
+    ) = None,
+    evidence_refresh_service: (
+        EvidenceRefreshService | UnavailableEvidenceRefreshService | None
     ) = None,
     identity_verifier: IdentityVerifier | None = None,
     stage_execution_service: StageExecution | None = None,
@@ -311,6 +319,13 @@ def create_app(
     else:
         document_extraction = UnavailableDocumentExtractionService()
 
+    if evidence_refresh_service is not None:
+        evidence_refresh = evidence_refresh_service
+    elif database_handle is not None:
+        evidence_refresh = EvidenceRefreshService(database_handle.engine)
+    else:
+        evidence_refresh = UnavailableEvidenceRefreshService()
+
     if stage_execution_service is not None:
         internal_stages = stage_execution_service
     elif database_handle is not None:
@@ -459,6 +474,23 @@ def create_app(
             document_revision_id=document_revision_id,
             request=request,
         )
+
+    @app.post(
+        "/internal/v1/evidence:refresh",
+        response_model=EvidenceRefreshResult,
+        tags=["internal"],
+    )
+    def refresh_evidence(
+        request: EvidenceRefreshRequest,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> EvidenceRefreshResult:
+        if authorization is None:
+            raise UnauthenticatedError("Worker service identity token is required")
+        scheme, separator, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not separator or not token.strip():
+            raise UnauthenticatedError("Worker service identity token is required")
+        worker_verifier.verify(token.strip())
+        return evidence_refresh.refresh(request)
 
     @app.post("/v1/projects", response_model=Project, status_code=status.HTTP_201_CREATED)
     def create_project(

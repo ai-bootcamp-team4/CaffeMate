@@ -27,6 +27,7 @@ class PostgresResultRepository:
                            r.index_generation_id, r.seed_registry_id,
                            r.bundle_json, r.created_at,
                            delta.delta_json,
+                           invalidation.reason_codes AS invalidation_reason_codes,
                            h.workflow_generation AS current_workflow_generation,
                            h.state_version AS current_state_version,
                            h.founder_snapshot_id AS current_founder_snapshot_id,
@@ -42,6 +43,8 @@ class PostgresResultRepository:
                     JOIN project_heads h ON h.project_id = p.project_id
                     LEFT JOIN result_decision_deltas delta
                       ON delta.result_bundle_id=r.result_bundle_id
+                    LEFT JOIN result_invalidations invalidation
+                      ON invalidation.result_bundle_id=r.result_bundle_id
                     WHERE p.project_id = :project_id
                       AND p.owner_user_id = :user_id
                     """
@@ -72,6 +75,7 @@ class PostgresResultRepository:
             for dimension in dimensions
             if getattr(result_head, dimension) != getattr(current_head, dimension)
         ]
+        invalidation_reasons = row["invalidation_reason_codes"] or []
         return ResultView(
             result_bundle_id=row["result_bundle_id"],
             project_id=row["project_id"],
@@ -83,7 +87,7 @@ class PostgresResultRepository:
             created_at=row["created_at"],
             freshness=(
                 ResultFreshness.STALE
-                if stale_dimensions
+                if stale_dimensions or invalidation_reasons
                 else ResultFreshness.CURRENT
             ),
             stale_head_dimensions=stale_dimensions,
@@ -93,6 +97,7 @@ class PostgresResultRepository:
                 if row["delta_json"] is not None
                 else None
             ),
+            invalidation_reason_codes=list(invalidation_reasons),
         )
 
     @staticmethod

@@ -170,3 +170,15 @@ private Worker의 `POST /internal/v1/agent-sessions:cleanup`은 이 항목만 �
 transport 오류는 최대 다섯 번까지 지수형 지연으로 다시 시도하고, 잘못된 payload·resource scope
 또는 재시도 소진은 원문 오류를 저장하지 않은 안정적인 failure code와 함께 `DEAD_LETTER`로
 보낸다. 운영 환경에서는 Scheduler가 IAM 인증으로 이 내부 endpoint를 주기적으로 호출해야 한다.
+
+## Evidence 갱신
+
+connector 감시 작업은 원본에서 확인한 revision과 관측 시각을
+`POST /internal/v1/evidence:refresh`에 전달한다. Control API는 저장된 원본 checksum 또는 문서
+version과 실제로 달라진 경우에만 해당 Evidence를 `STALE`로 표시한다. API 자료는 1일, dataset은
+30일, web·PDF는 90일의 기본 정책으로 만료를 평가하며, 기준일이 없으면 최신으로 간주하지 않는다.
+
+영향받은 current Result에는 `invalidation_reason_codes`가 추가되고 `freshness`가 `STALE`이 된다.
+동시에 `EVIDENCE_RETRIEVAL`부터의 선택적 Workflow를 원자적으로 생성한다. 새 Snapshot이 검증되어
+커밋되면 새 Evidence는 `ACTIVE`, 같은 원본의 이전 Evidence는 `SUPERSEDED`, 검증된 상충 자료는
+`CONFLICT`가 된다. 재계산이 이미 실행 중이면 새 Workflow를 중첩 생성하지 않고 `409`로 거절한다.

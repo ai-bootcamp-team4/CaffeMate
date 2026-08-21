@@ -36,6 +36,13 @@ def test_result_delta_matches_stable_candidate_identity_and_calculates_amounts()
     assert change.break_even_monthly_sales_delta_krw == 1_000_000
     assert change.previous_review_status == "REVIEW_RECOMMENDED"
     assert change.current_review_status == "CONDITIONAL_REVIEW"
+    assert delta.requires_human_review is True
+    assert delta.human_review_reason_codes == [
+        "MATERIAL_BREAK_EVEN_CHANGE",
+        "MATERIAL_INITIAL_CASH_CHANGE",
+        "MATERIAL_MONTHLY_COST_CHANGE",
+        "REVIEW_STATUS_CHANGED",
+    ]
 
 
 def test_result_delta_marks_removed_and_added_candidates_without_inventing_amounts() -> None:
@@ -52,6 +59,7 @@ def test_result_delta_marks_removed_and_added_candidates_without_inventing_amoun
     )
 
     assert delta.primary_candidate_changed is True
+    assert delta.requires_human_review is True
     assert [value.change_type for value in delta.candidate_changes] == ["ADDED", "REMOVED"]
     assert all(
         value.initial_cash_base_delta_krw is None for value in delta.candidate_changes
