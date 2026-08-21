@@ -19,6 +19,10 @@ class DeliveryOutcome(StrEnum):
     DUPLICATE_OR_INELIGIBLE = "DUPLICATE_OR_INELIGIBLE"
 
 
+class WorkerRetryRequiredError(RuntimeError):
+    """Signal a non-2xx Pub/Sub response without exposing provider details."""
+
+
 class StageProcessor(Protocol):
     def process(self, lease: StageLease) -> dict[str, object]: ...
 
@@ -92,7 +96,7 @@ class DurableWorker:
                 failure=failure,
             )
             if failure_outcome == FailureOutcome.RETRY_SCHEDULED:
-                raise
+                raise WorkerRetryRequiredError("Stage retry is required") from error
             if failure_outcome == FailureOutcome.TERMINAL_FAILED:
                 return DeliveryOutcome.TERMINAL_FAILED
             return DeliveryOutcome.DUPLICATE_OR_INELIGIBLE

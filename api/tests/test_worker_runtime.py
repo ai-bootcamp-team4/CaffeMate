@@ -10,7 +10,7 @@ from worker.pubsub import (
     PubSubDelivery,
     decode_push_envelope,
 )
-from worker.runtime import DeliveryOutcome, DurableWorker
+from worker.runtime import DeliveryOutcome, DurableWorker, WorkerRetryRequiredError
 
 from app.domain.errors import ContractValidationError
 from app.workflows.models import (
@@ -221,7 +221,7 @@ def test_worker_nacks_retryable_failure_after_releasing_lease() -> None:
         worker_id="worker-1",
     )
 
-    with pytest.raises(RuntimeError, match="secret provider response"):
+    with pytest.raises(WorkerRetryRequiredError, match="retry is required"):
         worker.handle(delivery())
 
     assert execution.failures == [
