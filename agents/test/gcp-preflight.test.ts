@@ -9,7 +9,7 @@ const EMBEDDING_REGION = 'asia-northeast3'
 const MODEL_ID = 'gemini-3.7-flash'
 
 function successfulFetch() {
-  return vi.fn(async (input: string | URL | Request) => {
+  return vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
     if (url.includes('/ragCorpora?')) {
       return Response.json({
@@ -38,7 +38,23 @@ function successfulFetch() {
     if (url.includes('text-multilingual-embedding-002:predict')) {
       return Response.json({ predictions: [{ embeddings: { values: [0.1, 0.2] } }] })
     }
-    if (url.endsWith(':retrieveContexts')) return Response.json({})
+    if (url.endsWith(':retrieveContexts')) {
+      const body = JSON.parse(String(init?.body)) as {
+        query?: { ragRetrievalConfig?: { ranking?: { rankService?: { modelName?: string } } } }
+      }
+      const rankerModel = body.query?.ragRetrievalConfig?.ranking?.rankService?.modelName
+      if (rankerModel) expect(rankerModel).toBe('semantic-ranker-default-004')
+      return Response.json({
+        contexts: {
+          contexts: [{
+            sourceUri: 'gs://caffemate-official/source.html',
+            sourceDisplayName: 'source.html',
+            text: '영업신고',
+            score: 0.1,
+          }],
+        },
+      })
+    }
     if (url.includes(`${MODEL_ID}:generateContent`)) {
       return Response.json({
         candidates: [{ content: { parts: [{ text: '{"ok":true}' }] }, finishReason: 'STOP' }],
@@ -70,11 +86,11 @@ function options(fetchImpl = successfulFetch()) {
 }
 
 describe('GCP deployment preflight', () => {
-  it('passes deployed component checks but keeps release blocked until a reranker is approved', async () => {
+  it('passes all deployed GCP checks including the pinned Seoul RAG reranker', async () => {
     const fetchImpl = successfulFetch()
     const result = await runGcpPreflight(options(fetchImpl))
 
-    expect(result.ok).toBe(false)
+    expect(result.ok).toBe(true)
     expect(result.projectId).toBe(PROJECT_ID)
     expect(result.runtimeRegion).toBe(RUNTIME_REGION)
     expect(result.generationRegion).toBe(GENERATION_REGION)
@@ -89,8 +105,9 @@ describe('GCP deployment preflight', () => {
     }))
     expect(result.checks).toContainEqual(expect.objectContaining({
       name: 'reranker',
-      ok: false,
-      code: 'RERANKER_NOT_APPROVED',
+      ok: true,
+      code: 'RERANKER_PREFLIGHT_OK',
+      detail: 'semantic-ranker-default-004',
     }))
 
     const urls = fetchImpl.mock.calls.map(([input]) => String(input))
@@ -100,6 +117,35 @@ describe('GCP deployment preflight', () => {
     expect(urls.filter((url) => url.includes('/reasoningEngines?')).every((url) => url.includes(RUNTIME_REGION))).toBe(true)
     expect(urls.filter((url) => url.includes('/ragCorpora?') || url.endsWith(':retrieveContexts')).every((url) => url.includes(RAG_REGION))).toBe(true)
     expect(urls.some((url) => url.includes('discoveryengine.googleapis.com'))).toBe(false)
+  })
+
+  it('fails closed when the pinned reranker cannot run through the Seoul RAG endpoint', async () => {
+    const fetchImpl = successfulFetch()
+    const baseImplementation = fetchImpl.getMockImplementation()
+    fetchImpl.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith(':retrieveContexts')) {
+        const body = JSON.parse(String(init?.body)) as {
+          query?: { ragRetrievalConfig?: { ranking?: unknown } }
+        }
+        if (body.query?.ragRetrievalConfig?.ranking) {
+          return Response.json({ error: { message: 'ranker unavailable' } }, { status: 503 })
+        }
+      }
+      if (!baseImplementation) throw new Error('missing base fetch implementation')
+      return baseImplementation(input, init)
+    })
+
+    const result = await runGcpPreflight(options(fetchImpl))
+
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'reranker',
+      ok: false,
+      code: 'RERANKER_PREFLIGHT_FAILED',
+      detail: 'HTTP 503',
+    }))
+    expect(fetchImpl.mock.calls.some(([input]) => String(input).includes('discoveryengine.googleapis.com'))).toBe(false)
   })
 
   it('keeps the Agent path blocked and makes no generation request before a model is approved', async () => {
@@ -119,11 +165,11 @@ describe('GCP deployment preflight', () => {
   it('fails closed when the official corpus exists but contains no ACTIVE files', async () => {
     const fetchImpl = successfulFetch()
     const baseImplementation = fetchImpl.getMockImplementation()
-    fetchImpl.mockImplementation(async (input: string | URL | Request) => {
+    fetchImpl.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/ragFiles?')) return Response.json({})
       if (!baseImplementation) throw new Error('missing base fetch implementation')
-      return baseImplementation(input)
+      return baseImplementation(input, init)
     })
 
     const result = await runGcpPreflight(options(fetchImpl))

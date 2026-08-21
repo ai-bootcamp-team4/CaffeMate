@@ -1,4 +1,5 @@
 import { GCP_LOCATIONS } from '../../agents/src/registry'
+import { RAG_RANKER } from './config'
 import type { RagBackend, RagBackendRequest, RagHit } from './retrieval'
 
 export class VertexRagError extends Error {
@@ -118,6 +119,9 @@ export function createVertexRagBackend(options: VertexRagBackendOptions): RagBac
           text: request.query,
           ragRetrievalConfig: {
             topK: request.limit,
+            ranking: {
+              rankService: { modelName: RAG_RANKER.id },
+            },
             ...(metadataFilter ? { filter: { metadataFilter } } : {}),
           },
         },

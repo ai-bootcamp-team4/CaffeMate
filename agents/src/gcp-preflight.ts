@@ -1,3 +1,4 @@
+import { RAG_RANKER } from '../../rag/src/config'
 import { GCP_LOCATIONS } from './registry'
 
 const OFFICIAL_CORPUS_DISPLAY_NAME = 'caffemate-official-v1'
@@ -127,6 +128,7 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
   const embeddingBase = regionalBase(options.projectId, options.embeddingRegion)
   const runtimeBase = regionalBase(options.projectId, options.runtimeRegion)
   let ragCorpusResource: string | undefined
+  let activeRagFileCount = 0
 
   const corporaResponse = await request(fetchImpl, token, `${ragBase}/ragCorpora?pageSize=100`)
   if (!corporaResponse.ok) {
@@ -168,6 +170,7 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
       } else {
         const payload = await filesResponse.json() as { ragFiles?: RagFileRow[] }
         const activeFiles = (payload.ragFiles ?? []).filter((file) => file.name && file.fileStatus?.state === 'ACTIVE')
+        activeRagFileCount = activeFiles.length
         checks.push(activeFiles.length > 0
           ? pass('rag-files', 'RAG_FILES_OK', String(activeFiles.length))
           : fail('rag-files', 'RAG_CORPUS_EMPTY'))
@@ -210,11 +213,38 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
       : fail('rag-retrieval', 'RAG_RETRIEVAL_FAILED', `HTTP ${retrievalResponse.status}`))
   }
 
-  checks.push(fail(
-    'reranker',
-    'RERANKER_NOT_APPROVED',
-    'Seoul Ranking API processing is not verified and global fallback is disabled',
-  ))
+  if (!ragCorpusResource) {
+    checks.push(fail('reranker', 'RERANKER_BLOCKED_BY_CORPUS'))
+  } else if (activeRagFileCount === 0) {
+    checks.push(fail('reranker', 'RERANKER_BLOCKED_BY_EMPTY_CORPUS'))
+  } else {
+    const rerankerResponse = await request(fetchImpl, token, `${ragBase}:retrieveContexts`, {
+      method: 'POST',
+      body: JSON.stringify({
+        vertexRagStore: { ragResources: [{ ragCorpus: ragCorpusResource }] },
+        query: {
+          text: '커피전문점 영업신고',
+          ragRetrievalConfig: {
+            topK: 2,
+            ranking: {
+              rankService: { modelName: RAG_RANKER.id },
+            },
+          },
+        },
+      }),
+    })
+    if (!rerankerResponse.ok) {
+      checks.push(fail('reranker', 'RERANKER_PREFLIGHT_FAILED', `HTTP ${rerankerResponse.status}`))
+    } else {
+      const rerankerPayload = await rerankerResponse.json() as {
+        contexts?: { contexts?: unknown[] }
+      }
+      const contexts = rerankerPayload.contexts?.contexts
+      checks.push(Array.isArray(contexts) && contexts.length > 0
+        ? pass('reranker', 'RERANKER_PREFLIGHT_OK', RAG_RANKER.id)
+        : fail('reranker', 'RERANKER_RESPONSE_INVALID'))
+    }
+  }
 
   if (!options.approvedModelId) {
     checks.push(fail('generation-model', 'MODEL_NOT_APPROVED'))

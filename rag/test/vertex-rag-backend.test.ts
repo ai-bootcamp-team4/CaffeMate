@@ -22,6 +22,9 @@ describe('Vertex RAG Engine backend', () => {
           text: '임대료',
           ragRetrievalConfig: {
             topK: 5,
+            ranking: {
+              rankService: { modelName: 'semantic-ranker-default-004' },
+            },
             filter: { metadataFilter: 'document_type == "LEASE"' },
           },
         },
@@ -79,6 +82,9 @@ describe('Vertex RAG Engine backend', () => {
       expect(JSON.parse(String(init?.body))).toMatchObject({
         query: {
           ragRetrievalConfig: {
+            ranking: {
+              rankService: { modelName: 'semantic-ranker-default-004' },
+            },
             filter: {
               metadataFilter: '(source_family == "LAW" || source_family == "GOVERNMENT_GUIDE") && published_or_data_date <= "2026-08-21"',
             },
