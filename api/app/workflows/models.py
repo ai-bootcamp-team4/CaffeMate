@@ -1,7 +1,8 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.domain.models import StrictModel
 
@@ -32,6 +33,23 @@ class StageStatus(StrEnum):
     TIMED_OUT = "TIMED_OUT"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+
+
+class StageDisposition(StrEnum):
+    CONTINUE = "CONTINUE"
+    WAITING_FOR_HUMAN = "WAITING_FOR_HUMAN"
+    ABSTAIN = "ABSTAIN"
+
+
+class StageControl(StrictModel):
+    disposition: StageDisposition = StageDisposition.CONTINUE
+    reason_codes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_reason_for_noncontinuing_stage(self) -> Self:
+        if self.disposition != StageDisposition.CONTINUE and not self.reason_codes:
+            raise ValueError("A non-continuing stage requires at least one reason code")
+        return self
 
 
 class HeadFence(StrictModel):

@@ -18,6 +18,8 @@ from app.workflows.models import (
     CheckpointOutcome,
     FailureOutcome,
     HeadFence,
+    StageControl,
+    StageDisposition,
     StageFailure,
     StageLease,
 )
@@ -167,6 +169,22 @@ class PostgresStageExecutionRepository:
                 return CheckpointOutcome.LEASE_REJECTED
             if self._stored_head(row) != self._current_head(row):
                 return CheckpointOutcome.STALE_DISCARDED
+
+            control = self._parse_stage_control(result)
+            if control.disposition != StageDisposition.CONTINUE:
+                if self._parse_result_bundle(result) is not None:
+                    raise ContractValidationError(
+                        "A waiting or abstained stage cannot persist a ResultBundle"
+                    )
+                self._apply_noncontinuing_stage(
+                    connection,
+                    row=row,
+                    stage_run_id=stage_run_id,
+                    result=result,
+                    control=control,
+                    occurred_at=now,
+                )
+                return CheckpointOutcome.APPLIED
 
             bundle = self._parse_result_bundle(result)
             is_commit_stage = row["stage_code"] == FirstProposalStage.COMMIT_RESULT.value
@@ -326,6 +344,99 @@ class PostgresStageExecutionRepository:
                     {"workflow_run_id": row["workflow_run_id"], "now": now},
                 )
             return CheckpointOutcome.APPLIED
+
+    @staticmethod
+    def _parse_stage_control(result: dict[str, object]) -> StageControl:
+        value = result.get("stage_control")
+        if value is None:
+            return StageControl()
+        try:
+            return StageControl.model_validate(value)
+        except ValidationError as error:
+            raise ContractValidationError("Stage control shape is invalid") from error
+
+    @staticmethod
+    def _apply_noncontinuing_stage(
+        connection: Connection,
+        *,
+        row: RowMapping,
+        stage_run_id: str,
+        result: dict[str, object],
+        control: StageControl,
+        occurred_at: datetime,
+    ) -> None:
+        waiting = control.disposition == StageDisposition.WAITING_FOR_HUMAN
+        stage_status = "WAITING_FOR_HUMAN" if waiting else "SKIPPED"
+        workflow_status = "WAITING_FOR_HUMAN" if waiting else "PARTIAL"
+        event_type = "STAGE_WAITING_FOR_HUMAN" if waiting else "WORKFLOW_ABSTAINED"
+        connection.execute(
+            text(
+                """
+                UPDATE stage_runs SET status=:stage_status, result_json=CAST(:result AS JSONB),
+                    completed_at=:occurred_at, updated_at=:occurred_at,
+                    lease_token_digest=NULL, lease_owner=NULL, lease_expires_at=NULL
+                WHERE stage_run_id=:stage_run_id
+                """
+            ),
+            {
+                "stage_status": stage_status,
+                "result": json.dumps(result, separators=(",", ":")),
+                "occurred_at": occurred_at,
+                "stage_run_id": stage_run_id,
+            },
+        )
+        connection.execute(
+            text(
+                "UPDATE workflow_runs SET status=:workflow_status, updated_at=:occurred_at "
+                "WHERE workflow_run_id=:workflow_run_id"
+            ),
+            {
+                "workflow_status": workflow_status,
+                "occurred_at": occurred_at,
+                "workflow_run_id": row["workflow_run_id"],
+            },
+        )
+        if not waiting:
+            connection.execute(
+                text(
+                    """
+                    UPDATE stage_runs SET status='CANCELLED', completed_at=:occurred_at,
+                        updated_at=:occurred_at
+                    WHERE workflow_run_id=:workflow_run_id
+                      AND stage_run_id <> :stage_run_id
+                      AND status IN ('PENDING', 'READY', 'RUNNING', 'CHECKPOINTED')
+                    """
+                ),
+                {
+                    "occurred_at": occurred_at,
+                    "workflow_run_id": row["workflow_run_id"],
+                    "stage_run_id": stage_run_id,
+                },
+            )
+        connection.execute(
+            text(
+                """
+                INSERT INTO workflow_events(
+                    workflow_run_id, event_type, event_json, occurred_at
+                ) VALUES (
+                    :workflow_run_id, :event_type, CAST(:event_json AS JSONB), :occurred_at
+                )
+                """
+            ),
+            {
+                "workflow_run_id": row["workflow_run_id"],
+                "event_type": event_type,
+                "event_json": json.dumps(
+                    {
+                        "stage_run_id": stage_run_id,
+                        "stage_code": row["stage_code"],
+                        "reason_codes": control.reason_codes,
+                    },
+                    separators=(",", ":"),
+                ),
+                "occurred_at": occurred_at,
+            },
+        )
 
     def record_failure(
         self,
