@@ -41,7 +41,7 @@ from app.mcp.scope import ScopeTokenSigner
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.projects.unavailable_repository import UnavailableProjectRepository
-from app.results.models import ResultBundle
+from app.results.models import ResultView
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
 from app.results.unavailable_repository import UnavailableResultRepository
@@ -340,11 +340,11 @@ def create_app(
     ) -> Project:
         return service.get_project(project_id=project_id, user_id=user_id)
 
-    @app.get("/v1/projects/{project_id}/result", response_model=ResultBundle)
+    @app.get("/v1/projects/{project_id}/result", response_model=ResultView)
     def get_current_result(
         project_id: str,
         user_id: Annotated[str, Depends(current_user)],
-    ) -> ResultBundle:
+    ) -> ResultView:
         return results.get_current(project_id=project_id, user_id=user_id)
 
     @app.get("/v1/projects", response_model=list[Project])
