@@ -41,6 +41,8 @@ class EvidencePlanStageHandler:
             "stage_control": control.model_dump(mode="json"),
             "evidence_plan": {
                 "status": status,
+                "claims": task["payload"]["claims"],
+                "planning_constraints": task["payload"]["planning_constraints"],
                 "claim_plans": (result["payload"] or {}).get("claim_plans", []),
                 "missing_claim_ids": result["missing_claim_ids"],
                 "reason_codes": result["reason_codes"],

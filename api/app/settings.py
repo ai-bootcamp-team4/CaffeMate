@@ -21,6 +21,9 @@ class RuntimeSettings:
     agent_runtime_project_id: str | None
     agent_runtime_resource_id: str | None
     agent_runtime_user_hmac_secret: str | None
+    mcp_base_url: str | None
+    mcp_audience: str | None
+    mcp_scope_hmac_secret: str | None
 
     @classmethod
     def from_environment(cls) -> "RuntimeSettings":
@@ -44,6 +47,9 @@ class RuntimeSettings:
             or os.getenv("GOOGLE_CLOUD_PROJECT"),
             agent_runtime_resource_id=os.getenv("AGENT_RUNTIME_RESOURCE_ID"),
             agent_runtime_user_hmac_secret=os.getenv("AGENT_RUNTIME_USER_HMAC_SECRET"),
+            mcp_base_url=os.getenv("MCP_BASE_URL"),
+            mcp_audience=os.getenv("MCP_AUDIENCE"),
+            mcp_scope_hmac_secret=os.getenv("MCP_SCOPE_HMAC_SECRET"),
         )
 
     @property
@@ -66,3 +72,7 @@ class RuntimeSettings:
                 self.agent_runtime_user_hmac_secret,
             )
         )
+
+    @property
+    def has_mcp_configuration(self) -> bool:
+        return all((self.mcp_base_url, self.mcp_audience, self.mcp_scope_hmac_secret))

@@ -48,6 +48,8 @@ bootstrap 시 기존 service와 migration job에 설정하고 배포 전후 read
   `WORKER_SERVICE_ACCOUNT_EMAIL`, `CONTROL_API_AUDIENCE`, `AGENT_RUNTIME_PROJECT_ID`,
   `AGENT_RUNTIME_RESOURCE_ID`
 - API의 Secret Manager 기반 `AGENT_RUNTIME_USER_HMAC_SECRET`
+- API의 `MCP_BASE_URL`, `MCP_AUDIENCE`
+- API와 MCP에만 주입하는 Secret Manager 기반 `MCP_SCOPE_HMAC_SECRET`
 - Worker의 `PUBSUB_SUBSCRIPTION`, `WORKFLOW_STAGE_TOPIC_RESOURCE`
 
 Migration job은 API 시작 명령을 사용하지 않고 `caffemate-api migrate`를 한 task, 재시도 0으로
