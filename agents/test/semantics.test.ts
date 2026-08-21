@@ -53,6 +53,30 @@ describe('agent semantic validator', () => {
     expect(validation.issues.some((issue) => issue.code === 'OUTPUT_ID_NOT_IN_POOL')).toBe(true)
   })
 
+  it('rejects independent proposal adjustments outside the selected seed contract', () => {
+    const { task, result } = fixture('PROPOSE_INDEPENDENT')
+    const payload = result.payload as {
+      candidate_proposals: Array<{
+        adjusted_parameters: Array<{
+          field_path: string
+          value: { kind: string; value: number }
+          unit: string | null
+          support_refs: string[]
+        }>
+      }>
+    }
+    payload.candidate_proposals[0].adjusted_parameters = [{
+      field_path: 'operations.seats',
+      value: { kind: 'INTEGER', value: 99 },
+      unit: 'seat',
+      support_refs: ['seed-registry-1'],
+    }]
+
+    const validation = validateAgentSemantics(task, result)
+    expect(validation.ok).toBe(false)
+    expect(validation.issues.some((issue) => issue.code === 'PARAMETER_RANGE_INVALID')).toBe(true)
+  })
+
   it('rejects document claims outside the supplied claim id pool', () => {
     const { task, result } = fixture('DOCUMENT_EXTRACT')
     const payload = result.payload as { proposed_claims: Array<{ claim_id: string }> }
@@ -61,5 +85,15 @@ describe('agent semantic validator', () => {
     const validation = validateAgentSemantics(task, result)
     expect(validation.ok).toBe(false)
     expect(validation.issues.some((issue) => issue.code === 'OUTPUT_ID_NOT_IN_POOL')).toBe(true)
+  })
+
+  it('rejects document claims whose anchor was not supplied in parser blocks', () => {
+    const { task, result } = fixture('DOCUMENT_EXTRACT')
+    const payload = result.payload as { proposed_claims: Array<{ anchor: { page_index: number } }> }
+    payload.proposed_claims[0].anchor.page_index = 9
+
+    const validation = validateAgentSemantics(task, result)
+    expect(validation.ok).toBe(false)
+    expect(validation.issues.some((issue) => issue.code === 'DOCUMENT_ANCHOR_NOT_SUPPLIED')).toBe(true)
   })
 })

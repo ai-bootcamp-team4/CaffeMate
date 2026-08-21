@@ -28,6 +28,20 @@ function add(issues: SemanticIssue[], code: string, path: string, message: strin
   issues.push({ code, path, message })
 }
 
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value as JsonObject)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonicalJson(item)]),
+  )
+}
+
+function jsonKey(value: unknown): string {
+  return JSON.stringify(canonicalJson(value))
+}
+
 function requirePoolMember(issues: SemanticIssue[], pool: Set<string>, value: unknown, path: string): void {
   if (typeof value !== 'string' || !pool.has(value)) {
     add(issues, 'OUTPUT_ID_NOT_IN_POOL', path, `output id ${String(value)} was not supplied by the controller`)
@@ -116,6 +130,47 @@ function validateIndependentProposal(taskPayload: JsonObject, resultPayload: Jso
     if (seed && proposal.seed_or_brand_id !== seed.model_id) {
       add(issues, 'SEED_REFERENCE_MISMATCH', `/payload/candidate_proposals/${index}/seed_or_brand_id`, 'proposal must reference the model seed paired with its proposal_id')
     }
+    if (!seed) continue
+
+    const allowedParameters = new Map<string, JsonObject>()
+    for (const rawAllowed of array(seed.allowed_parameters)) {
+      const allowed = object(rawAllowed)
+      if (typeof allowed.field_path === 'string') allowedParameters.set(allowed.field_path, allowed)
+    }
+
+    for (const [parameterIndex, rawParameter] of array(proposal.adjusted_parameters).entries()) {
+      const parameter = object(rawParameter)
+      const fieldPath = parameter.field_path
+      const path = `/payload/candidate_proposals/${index}/adjusted_parameters/${parameterIndex}`
+      const allowed = typeof fieldPath === 'string' ? allowedParameters.get(fieldPath) : undefined
+      if (!allowed) {
+        add(issues, 'PARAMETER_FIELD_NOT_ALLOWED', `${path}/field_path`, 'adjusted parameter is outside the selected seed contract')
+        continue
+      }
+
+      const typedValue = object(parameter.value)
+      if (typedValue.kind !== allowed.value_kind) {
+        add(issues, 'PARAMETER_VALUE_KIND_INVALID', `${path}/value`, 'adjusted parameter value kind differs from the selected seed contract')
+      }
+      if (parameter.unit !== allowed.unit) {
+        add(issues, 'PARAMETER_UNIT_INVALID', `${path}/unit`, 'adjusted parameter unit differs from the selected seed contract')
+      }
+
+      const minimum = typeof allowed.minimum === 'number' ? allowed.minimum : null
+      const maximum = typeof allowed.maximum === 'number' ? allowed.maximum : null
+      const numericValues: number[] = []
+      if ((typedValue.kind === 'INTEGER' || typedValue.kind === 'DECIMAL') && typeof typedValue.value === 'number') {
+        numericValues.push(typedValue.value)
+      } else if (typedValue.kind === 'MONEY_RANGE') {
+        for (const key of ['low', 'base', 'high']) {
+          const value = typedValue[key]
+          if (typeof value === 'number') numericValues.push(value)
+        }
+      }
+      if (numericValues.some((value) => (minimum !== null && value < minimum) || (maximum !== null && value > maximum))) {
+        add(issues, 'PARAMETER_RANGE_INVALID', `${path}/value`, 'adjusted parameter value is outside the selected seed range')
+      }
+    }
   }
 }
 
@@ -139,11 +194,21 @@ function validateFranchiseProposal(taskPayload: JsonObject, resultPayload: JsonO
 function validateDocumentExtract(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
   const claimPool = new Set(strings(taskPayload.claim_id_pool))
   const revisionId = object(taskPayload.document_revision).document_revision_id
+  const allowedClaimTypes = new Set(strings(object(taskPayload.extraction_contract).claim_types))
+  const allowedAnchors = new Set(
+    array(taskPayload.parser_blocks).map((rawBlock) => jsonKey(object(rawBlock).anchor)),
+  )
   for (const [index, rawClaim] of array(resultPayload.proposed_claims).entries()) {
     const claim = object(rawClaim)
     requirePoolMember(issues, claimPool, claim.claim_id, `/payload/proposed_claims/${index}/claim_id`)
+    if (typeof claim.predicate !== 'string' || !allowedClaimTypes.has(claim.predicate)) {
+      add(issues, 'CLAIM_TYPE_NOT_ALLOWED', `/payload/proposed_claims/${index}/predicate`, 'claim predicate is outside the supplied extraction contract')
+    }
     if (claim.document_revision_id !== revisionId || object(claim.anchor).document_revision_id !== revisionId) {
       add(issues, 'DOCUMENT_REVISION_MISMATCH', `/payload/proposed_claims/${index}`, 'extracted claims and anchors must stay within the supplied document revision')
+    }
+    if (!allowedAnchors.has(jsonKey(claim.anchor))) {
+      add(issues, 'DOCUMENT_ANCHOR_NOT_SUPPLIED', `/payload/proposed_claims/${index}/anchor`, 'claim anchor must exactly match an anchor supplied in parser blocks')
     }
   }
 }
