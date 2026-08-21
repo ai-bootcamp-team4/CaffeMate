@@ -47,3 +47,10 @@ Worker stage ingress에는 `PUBSUB_SUBSCRIPTION`, `CONTROL_API_URL`,
 `CONTROL_API_AUDIENCE`, `WORKER_ID`가 필요하다. DB outbox를 stage topic으로 전달하는
 `POST /internal/v1/outbox:publish`에는 `WORKFLOW_STAGE_TOPIC_RESOURCE`도 필요하다. 두
 endpoint는 public API가 아니며 private Cloud Run IAM 호출만 허용해야 한다.
+
+Control API가 관리형 Agent Runtime의 `EVIDENCE_PLAN` 단계를 실행하려면 다음 설정이 모두
+필요하다. 하나라도 없으면 Agent stage executor는 fail-closed 상태를 유지한다.
+
+- `AGENT_RUNTIME_PROJECT_ID`
+- `AGENT_RUNTIME_RESOURCE_ID`
+- `AGENT_RUNTIME_USER_HMAC_SECRET`: Secret Manager에서 주입하는 32바이트 이상의 비밀값

@@ -73,10 +73,121 @@ def validate_agent_boundary(
 
     errors.extend(_validate_allocated_ids(task, result))
     errors.extend(_validate_supported_references(task, result))
+    errors.extend(_validate_evidence_plan(task, result))
     errors.extend(_validate_evidence_coverage_kinds(task, result))
     errors.extend(_validate_money_ranges(result))
     errors.extend(_validate_evidence_assessment_metadata(task, result))
     return BoundaryValidation(accepted=not errors, errors=errors)
+
+
+def _validate_evidence_plan(
+    task: dict[str, Any],
+    result: dict[str, Any],
+) -> list[BoundaryError]:
+    if task["task_type"] != "EVIDENCE_PLAN" or result["status"] != "COMPLETE":
+        return []
+    task_payload = task["payload"]
+    result_payload = result["payload"]
+    if not isinstance(task_payload, dict) or not isinstance(result_payload, dict):
+        return []
+    claims = {
+        claim["claim_id"]: claim
+        for claim in task_payload.get("claims", [])
+        if isinstance(claim, dict) and isinstance(claim.get("claim_id"), str)
+    }
+    plans = result_payload.get("claim_plans", [])
+    plan_claim_ids = [
+        plan.get("claim_id") for plan in plans if isinstance(plan, dict)
+    ]
+    errors: list[BoundaryError] = []
+    if len(plan_claim_ids) != len(set(plan_claim_ids)) or set(plan_claim_ids) != set(claims):
+        errors.append(
+            BoundaryError(
+                code="EVIDENCE_PLAN_CLAIM_COVERAGE_INVALID",
+                json_pointer="/payload/claim_plans",
+                message="Complete plan must cover every input claim exactly once",
+            )
+        )
+
+    constraints = task_payload.get("planning_constraints", {})
+    allowed_tools = set(constraints.get("allowed_tools", []))
+    max_total = constraints.get("max_total_actions")
+    max_per_claim = constraints.get("max_actions_per_claim")
+    catalog = {
+        item["tool_name"]: item["tool_version"]
+        for item in task.get("available_tool_catalog", [])
+        if isinstance(item, dict)
+        and isinstance(item.get("tool_name"), str)
+        and isinstance(item.get("tool_version"), str)
+    }
+    actions: list[tuple[dict[str, Any], str, str]] = []
+    for plan in plans:
+        if not isinstance(plan, dict) or not isinstance(plan.get("claim_id"), str):
+            continue
+        action_groups = (
+            ("support_actions", "SUPPORT"),
+            ("counter_actions", "COUNTER"),
+        )
+        for collection, polarity in action_groups:
+            for action in plan.get(collection, []):
+                if isinstance(action, dict):
+                    actions.append((action, plan["claim_id"], polarity))
+
+    action_ids = [action.get("action_id") for action, _, _ in actions]
+    if len(action_ids) != len(set(action_ids)):
+        errors.append(
+            BoundaryError(
+                code="EVIDENCE_PLAN_ACTION_DUPLICATED",
+                json_pointer="/payload/claim_plans",
+                message="Planned action ids must be globally unique",
+            )
+        )
+    if isinstance(max_total, int) and len(actions) > max_total:
+        errors.append(
+            BoundaryError(
+                code="EVIDENCE_PLAN_ACTION_LIMIT_EXCEEDED",
+                json_pointer="/payload/claim_plans",
+                message="Planned action count exceeded the backend limit",
+            )
+        )
+
+    counts: dict[str, int] = {}
+    for action, plan_claim_id, expected_polarity in actions:
+        counts[plan_claim_id] = counts.get(plan_claim_id, 0) + 1
+        tool_name = action.get("tool_name")
+        if tool_name not in allowed_tools or catalog.get(tool_name) != action.get("tool_version"):
+            errors.append(
+                BoundaryError(
+                    code="EVIDENCE_PLAN_TOOL_NOT_ALLOWED",
+                    json_pointer="/payload/claim_plans",
+                    message="Planned tool is not in the pinned allowed catalog",
+                )
+            )
+        claim = claims.get(plan_claim_id)
+        if (
+            action.get("claim_id") != plan_claim_id
+            or action.get("polarity") != expected_polarity
+            or claim is None
+            or action.get("scope_constraints") != claim.get("geographic_scope")
+        ):
+            errors.append(
+                BoundaryError(
+                    code="EVIDENCE_PLAN_ACTION_CONTEXT_MISMATCH",
+                    json_pointer="/payload/claim_plans",
+                    message="Action claim, polarity, or geographic scope does not match its plan",
+                )
+            )
+    if isinstance(max_per_claim, int) and any(
+        count > max_per_claim for count in counts.values()
+    ):
+        errors.append(
+            BoundaryError(
+                code="EVIDENCE_PLAN_ACTION_LIMIT_EXCEEDED",
+                json_pointer="/payload/claim_plans",
+                message="Per-claim action count exceeded the backend limit",
+            )
+        )
+    return errors
 
 
 def _validate_contracts(

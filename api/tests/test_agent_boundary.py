@@ -118,6 +118,37 @@ def test_valid_typed_result_crosses_boundary() -> None:
     assert validation.errors == []
 
 
+def test_evidence_plan_rejects_tool_outside_backend_allowlist() -> None:
+    task, result = fixture_task_result("EVIDENCE_PLAN")
+    payload = task["payload"]
+    assert isinstance(payload, dict)
+    constraints = payload["planning_constraints"]
+    assert isinstance(constraints, dict)
+    constraints["allowed_tools"] = ["get_area_profile"]
+
+    assert "EVIDENCE_PLAN_TOOL_NOT_ALLOWED" in error_codes(task, result)
+
+
+def test_evidence_plan_rejects_duplicate_action_ids_across_polarities() -> None:
+    task, result = fixture_task_result("EVIDENCE_PLAN")
+    payload = result["payload"]
+    assert isinstance(payload, dict)
+    plan = payload["claim_plans"][0]
+    plan["counter_actions"][0]["action_id"] = plan["support_actions"][0]["action_id"]
+
+    assert "EVIDENCE_PLAN_ACTION_DUPLICATED" in error_codes(task, result)
+
+
+def test_evidence_plan_rejects_action_scope_that_differs_from_claim() -> None:
+    task, result = fixture_task_result("EVIDENCE_PLAN")
+    payload = result["payload"]
+    assert isinstance(payload, dict)
+    plan = payload["claim_plans"][0]
+    plan["support_actions"][0]["scope_constraints"]["scope_id"] = "other-area"
+
+    assert "EVIDENCE_PLAN_ACTION_CONTEXT_MISMATCH" in error_codes(task, result)
+
+
 @pytest.mark.parametrize("field", list(head_fence()))
 def test_every_echoed_head_dimension_is_fenced(field: str) -> None:
     task = agent_task()
