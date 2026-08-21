@@ -539,7 +539,7 @@ def test_http_202_workflow_survives_api_instance_shutdown(
 def create_ready_stage(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
-) -> tuple[Project, str, WorkflowService]:
+) -> tuple[Project, str, str, WorkflowService]:
     project = onboarded_project(repository)
     workflows = WorkflowService(
         PostgresWorkflowRepository(postgres_engine, policy_snapshot_id="policy-v1")
@@ -551,15 +551,17 @@ def create_ready_stage(
         idempotency_key="workflow-1",
     )
     with postgres_engine.connect() as connection:
-        stage_id = connection.execute(text("SELECT stage_run_id FROM stage_runs")).scalar_one()
-    return project, stage_id, workflows
+        stage_id, input_digest = connection.execute(
+            text("SELECT stage_run_id, input_digest FROM stage_runs")
+        ).one()
+    return project, stage_id, input_digest, workflows
 
 
 def test_expired_stage_lease_is_reclaimed_and_old_worker_cannot_checkpoint(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
 ) -> None:
-    _project, stage_id, _workflows = create_ready_stage(repository, postgres_engine)
+    _project, stage_id, input_digest, _workflows = create_ready_stage(repository, postgres_engine)
     clock = [datetime(2026, 8, 21, tzinfo=UTC)]
     tokens = iter(["old-token", "new-token"])
     execution = PostgresStageExecutionRepository(
@@ -568,11 +570,17 @@ def test_expired_stage_lease_is_reclaimed_and_old_worker_cannot_checkpoint(
         new_token=lambda: next(tokens),
     )
 
-    old = execution.claim(stage_run_id=stage_id, worker_id="worker-1")
+    old = execution.claim(
+        stage_run_id=stage_id, worker_id="worker-1", expected_input_digest=input_digest
+    )
     assert old is not None
-    assert execution.claim(stage_run_id=stage_id, worker_id="worker-2") is None
+    assert execution.claim(
+        stage_run_id=stage_id, worker_id="worker-2", expected_input_digest=input_digest
+    ) is None
     clock[0] += timedelta(seconds=46)
-    new = execution.claim(stage_run_id=stage_id, worker_id="worker-2")
+    new = execution.claim(
+        stage_run_id=stage_id, worker_id="worker-2", expected_input_digest=input_digest
+    )
     assert new is not None
     assert new.attempt == 2
     assert execution.checkpoint(
@@ -599,10 +607,12 @@ def test_cancelled_and_timed_out_results_are_never_checkpointed(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
 ) -> None:
-    project, stage_id, workflows = create_ready_stage(repository, postgres_engine)
+    project, stage_id, input_digest, workflows = create_ready_stage(repository, postgres_engine)
     clock = [datetime(2026, 8, 21, tzinfo=UTC)]
     execution = PostgresStageExecutionRepository(postgres_engine, now=lambda: clock[0])
-    lease = execution.claim(stage_run_id=stage_id, worker_id="worker-1")
+    lease = execution.claim(
+        stage_run_id=stage_id, worker_id="worker-1", expected_input_digest=input_digest
+    )
     assert lease is not None
     workflows.cancel(
         project_id=project.project_id,
@@ -622,10 +632,12 @@ def test_expired_result_is_late_and_heartbeat_extends_current_lease(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
 ) -> None:
-    _project, stage_id, _workflows = create_ready_stage(repository, postgres_engine)
+    _project, stage_id, input_digest, _workflows = create_ready_stage(repository, postgres_engine)
     clock = [datetime(2026, 8, 21, tzinfo=UTC)]
     execution = PostgresStageExecutionRepository(postgres_engine, now=lambda: clock[0])
-    lease = execution.claim(stage_run_id=stage_id, worker_id="worker-1")
+    lease = execution.claim(
+        stage_run_id=stage_id, worker_id="worker-1", expected_input_digest=input_digest
+    )
     assert lease is not None
     clock[0] += timedelta(seconds=15)
     assert execution.heartbeat(stage_run_id=stage_id, lease_token=lease.lease_token)
@@ -664,9 +676,11 @@ def test_each_full_head_dimension_blocks_checkpoint(
     column: str,
     replacement: object,
 ) -> None:
-    _project, stage_id, _workflows = create_ready_stage(repository, postgres_engine)
+    _project, stage_id, input_digest, _workflows = create_ready_stage(repository, postgres_engine)
     execution = PostgresStageExecutionRepository(postgres_engine)
-    lease = execution.claim(stage_run_id=stage_id, worker_id="worker-1")
+    lease = execution.claim(
+        stage_run_id=stage_id, worker_id="worker-1", expected_input_digest=input_digest
+    )
     assert lease is not None
     allowed_columns = {
         "workflow_generation", "state_version", "founder_snapshot_id", "area_snapshot_id",

@@ -7,6 +7,7 @@ dependencies = [
   "cloud-sql-python-connector[pg8000]>=1.18,<2",
   "fastapi>=0.116,<1",
   "firebase-admin>=7.1,<8",
+  "google-cloud-pubsub>=2.31,<3",
   "jsonschema[format]>=4.25,<5",
   "pydantic>=2.11,<3",
   "rfc8785>=0.1.4,<1",
@@ -46,7 +47,12 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["firebase_admin", "firebase_admin.*"]
+module = [
+  "firebase_admin",
+  "firebase_admin.*",
+  "google.cloud.pubsub_v1",
+  "google.cloud.pubsub_v1.*",
+]
 ignore_missing_imports = true
 
 [build-system]
