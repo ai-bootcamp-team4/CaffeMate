@@ -1,5 +1,6 @@
 from typing import Any
 
+import rfc8785
 from pydantic import Field
 
 from app.contracts.schema_registry import AgentContractValidator, ContractRegistry
@@ -79,7 +80,62 @@ def validate_agent_boundary(
     errors.extend(_validate_evidence_assessment_metadata(task, result))
     errors.extend(_validate_proposal_semantics(task, result))
     errors.extend(_validate_candidate_audit(task, result))
+    errors.extend(_validate_document_extract(task, result))
     return BoundaryValidation(accepted=not errors, errors=errors)
+
+
+def _validate_document_extract(
+    task: dict[str, Any], result: dict[str, Any]
+) -> list[BoundaryError]:
+    if task["task_type"] != "DOCUMENT_EXTRACT" or result["status"] != "COMPLETE":
+        return []
+    task_payload = task["payload"]
+    result_payload = result["payload"]
+    if not isinstance(task_payload, dict) or not isinstance(result_payload, dict):
+        return []
+    revision = task_payload.get("document_revision", {})
+    revision_id = revision.get("document_revision_id") if isinstance(revision, dict) else None
+    contract = task_payload.get("extraction_contract", {})
+    allowed_types = set(contract.get("claim_types", [])) if isinstance(contract, dict) else set()
+    allowed_anchors = {
+        rfc8785.dumps(block["anchor"])
+        for block in task_payload.get("parser_blocks", [])
+        if isinstance(block, dict) and isinstance(block.get("anchor"), dict)
+    }
+    errors: list[BoundaryError] = []
+    for index, claim in enumerate(result_payload.get("proposed_claims", [])):
+        if not isinstance(claim, dict):
+            continue
+        anchor = claim.get("anchor")
+        if claim.get("predicate") not in allowed_types:
+            errors.append(
+                BoundaryError(
+                    code="CLAIM_TYPE_NOT_ALLOWED",
+                    json_pointer=f"/payload/proposed_claims/{index}/predicate",
+                    message="Document claim type is outside the extraction contract",
+                )
+            )
+        if (
+            claim.get("document_revision_id") != revision_id
+            or not isinstance(anchor, dict)
+            or anchor.get("document_revision_id") != revision_id
+        ):
+            errors.append(
+                BoundaryError(
+                    code="DOCUMENT_REVISION_MISMATCH",
+                    json_pointer=f"/payload/proposed_claims/{index}",
+                    message="Document claim crossed its pinned revision",
+                )
+            )
+        elif rfc8785.dumps(anchor) not in allowed_anchors:
+            errors.append(
+                BoundaryError(
+                    code="DOCUMENT_ANCHOR_NOT_SUPPLIED",
+                    json_pointer=f"/payload/proposed_claims/{index}/anchor",
+                    message="Document claim anchor was not supplied by the parser",
+                )
+            )
+    return errors
 
 
 def _validate_evidence_plan(

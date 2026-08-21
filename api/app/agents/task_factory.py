@@ -167,6 +167,64 @@ class AgentTaskFactory:
         self._contracts.validate_agent_task(task)
         return task
 
+    def build_document_extract(
+        self,
+        *,
+        project_id: str,
+        document_id: str,
+        document_revision_id: str,
+        document_type: str,
+        checksum: str,
+        head: HeadFence,
+        parser_blocks: list[dict[str, Any]],
+        claim_types: list[str],
+        batch_index: int,
+    ) -> dict[str, Any]:
+        if not parser_blocks or len(parser_blocks) > 12:
+            raise ContractValidationError("DOCUMENT_EXTRACT requires 1..12 parser blocks")
+        registry = self._release["tasks"]["DOCUMENT_EXTRACT"]
+        task_id = f"task-document-{document_revision_id}-{batch_index}"
+        deadline = self._now() + timedelta(seconds=60)
+        task: dict[str, Any] = {
+            "schema_version": "1.0.0",
+            "task_id": task_id,
+            "invocation_id": self._new_invocation_id(),
+            "agent_name": registry["agent_name"],
+            "task_type": "DOCUMENT_EXTRACT",
+            "workflow_run_id": f"document-{document_revision_id}",
+            "stage_run_id": f"document-extract-{document_revision_id}-{batch_index}",
+            "transport_attempt": 1,
+            "repair_attempt": 0,
+            "venture_project_id": project_id,
+            "head_fence": head.model_dump(mode="json"),
+            "prompt_version": registry["prompt_version"],
+            "input_schema_id": registry["input_schema_id"],
+            "output_schema_id": registry["output_schema_id"],
+            "input_artifacts": [],
+            "input_digest": "",
+            "deadline_at": deadline.isoformat().replace("+00:00", "Z"),
+            "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+            "tool_manifest_digest": None,
+            "available_tool_catalog": [],
+            "payload": {
+                "document_revision": {
+                    "document_id": document_id,
+                    "document_revision_id": document_revision_id,
+                    "document_type": document_type,
+                    "checksum": f"sha256:{checksum}",
+                },
+                "extraction_contract": {"claim_types": sorted(set(claim_types))},
+                "parser_blocks": parser_blocks,
+                "claim_id_pool": [
+                    f"doc-claim-{document_revision_id}-{batch_index}-{index:02d}"
+                    for index in range(1, 101)
+                ],
+            },
+        }
+        task["input_digest"] = compute_agent_input_digest(task)
+        self._contracts.validate_agent_task(task)
+        return task
+
     def build_evidence_assess(self, context: StageContext) -> dict[str, Any]:
         dependency = context.dependency_results.get("EVIDENCE_RETRIEVAL")
         retrieval = dependency.get("evidence_retrieval") if dependency else None

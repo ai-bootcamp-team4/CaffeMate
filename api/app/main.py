@@ -19,13 +19,20 @@ from app.auth import (
 )
 from app.candidates.seed_registry import IndependentSeedRegistry
 from app.database import DatabaseHandle, create_database_handle
+from app.documents.extraction import (
+    DocumentExtractionService,
+    UnavailableDocumentExtractionService,
+)
 from app.documents.models import (
     BeginDocumentUploadRequest,
     CompleteDocumentUploadRequest,
     DocumentDownload,
+    DocumentExtractionForm,
     DocumentRevision,
     DocumentScanResultRequest,
+    ParserResultRequest,
     SignedUpload,
+    UpdateExtractionFormRequest,
 )
 from app.documents.service import DocumentService, UnavailableDocumentService
 from app.documents.storage import GoogleCloudDocumentStorage
@@ -148,6 +155,9 @@ def create_app(
         CandidateSelectionService | UnavailableCandidateSelectionService | None
     ) = None,
     document_service: DocumentService | UnavailableDocumentService | None = None,
+    document_extraction_service: (
+        DocumentExtractionService | UnavailableDocumentExtractionService | None
+    ) = None,
     identity_verifier: IdentityVerifier | None = None,
     stage_execution_service: StageExecution | None = None,
     internal_identity_verifier: IdentityVerifier | None = None,
@@ -290,6 +300,15 @@ def create_app(
     else:
         documents = UnavailableDocumentService()
 
+    if document_extraction_service is not None:
+        document_extraction = document_extraction_service
+    elif database_handle is not None and configured_agent_runtime is not None:
+        document_extraction = DocumentExtractionService(
+            database_handle.engine, configured_agent_runtime
+        )
+    else:
+        document_extraction = UnavailableDocumentExtractionService()
+
     if stage_execution_service is not None:
         internal_stages = stage_execution_service
     elif database_handle is not None:
@@ -416,6 +435,27 @@ def create_app(
             document_revision_id=document_revision_id,
             clean=request.clean,
             threat_codes=request.threat_codes,
+        )
+
+    @app.post(
+        "/internal/v1/documents/{document_revision_id}:parser-result",
+        response_model=DocumentExtractionForm,
+        tags=["internal"],
+    )
+    def record_document_parser_result(
+        document_revision_id: str,
+        request: ParserResultRequest,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> DocumentExtractionForm:
+        if authorization is None:
+            raise UnauthenticatedError("Worker service identity token is required")
+        scheme, separator, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not separator or not token.strip():
+            raise UnauthenticatedError("Worker service identity token is required")
+        worker_verifier.verify(token.strip())
+        return document_extraction.accept_parser_result(
+            document_revision_id=document_revision_id,
+            request=request,
         )
 
     @app.post("/v1/projects", response_model=Project, status_code=status.HTTP_201_CREATED)
@@ -576,6 +616,38 @@ def create_app(
             project_id=project_id,
             user_id=user_id,
             document_revision_id=document_revision_id,
+        )
+
+    @app.get(
+        "/v1/projects/{project_id}/documents/{document_revision_id}/extraction-form",
+        response_model=DocumentExtractionForm,
+    )
+    def get_document_extraction_form(
+        project_id: str,
+        document_revision_id: str,
+        user_id: Annotated[str, Depends(current_user)],
+    ) -> DocumentExtractionForm:
+        return document_extraction.get_form(
+            project_id=project_id,
+            user_id=user_id,
+            document_revision_id=document_revision_id,
+        )
+
+    @app.put(
+        "/v1/projects/{project_id}/documents/{document_revision_id}/extraction-form",
+        response_model=DocumentExtractionForm,
+    )
+    def update_document_extraction_form(
+        project_id: str,
+        document_revision_id: str,
+        request: UpdateExtractionFormRequest,
+        user_id: Annotated[str, Depends(current_user)],
+    ) -> DocumentExtractionForm:
+        return document_extraction.update_form(
+            project_id=project_id,
+            user_id=user_id,
+            document_revision_id=document_revision_id,
+            request=request,
         )
 
     @app.get("/v1/projects", response_model=list[Project])

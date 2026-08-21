@@ -132,3 +132,19 @@ Cloud Storage V4 PUT URL을 발급한다. API가 강제하는 object path는
 `READY_FOR_PARSING`으로 전환하고 `DOCUMENT_PARSE_REQUESTED`를 발행한다. 감염 또는 의심 결과는
 `QUARANTINED`로 남는다. 사용자 다운로드 URL은 5분만 유효하며 격리·삭제 문서에는 발급하지
 않는다. 운영 구성에는 `DOCUMENT_BUCKET`이 필요하다.
+
+Parser Worker는 service identity로
+`POST /internal/v1/documents/{revision}:parser-result`에 revision이 고정된 ParserBlock과 anchor를
+제출한다. Control API는 block id 중복, revision 교차, page·table anchor 형식을 검사하고 불변
+block set을 저장한다. 최대 12개씩 `DOCUMENT_EXTRACT` Task로 나누며, Agent가 할당되지 않은
+Claim id, 계약에 없는 Claim type, Parser가 제공하지 않은 anchor를 반환하면 전체 결과를
+거절한다.
+
+검증된 제안은 `PROPOSED` Claim으로만 저장되고 State·재무·Gate·순위에는 아직 반영되지 않는다.
+`GET /v1/projects/{project_id}/documents/{revision}/extraction-form`은 추출값, 원문 anchor, 단위,
+중요도, 경고와 미해결 필드를 한 화면용 폼으로 반환한다. 프롬프트 주입 flag가 있거나 Agent가
+불확실하다고 표시한 값은 `REVIEW_REQUIRED` 또는 `UNRESOLVED`로 남긴다.
+
+사용자는 같은 경로에 `PUT` 요청으로 여러 필드를 한 번에 수정하거나 `null`로 비울 수 있다.
+이 편집도 State를 바꾸지 않는다. 현재 State version이 form의 예상 version과 달라지면 `409`로
+거절한다. 실제 State 반영은 별도의 `반영하고 다시 계산` 명령에서만 수행한다.

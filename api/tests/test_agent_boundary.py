@@ -465,3 +465,31 @@ def test_evidence_assessment_cannot_overstate_scope_or_freshness() -> None:
     )
 
     assert "EVIDENCE_SCOPE_OR_DATE_INVALID" in {error.code for error in validation.errors}
+
+
+def test_document_extract_rejects_anchor_not_supplied_by_parser() -> None:
+    task, result = fixture_task_result("DOCUMENT_EXTRACT")
+    result["payload"]["proposed_claims"][0]["anchor"]["section_path"] = "다른 조항"
+
+    validation = validate_agent_boundary(
+        task=task,
+        result=result,
+        current_head=fixture_head(task),
+    )
+
+    assert "DOCUMENT_ANCHOR_NOT_SUPPLIED" in {
+        error.code for error in validation.errors
+    }
+
+
+def test_document_extract_rejects_claim_type_outside_contract() -> None:
+    task, result = fixture_task_result("DOCUMENT_EXTRACT")
+    result["payload"]["proposed_claims"][0]["predicate"] = "LEGAL_SAFETY"
+
+    validation = validate_agent_boundary(
+        task=task,
+        result=result,
+        current_head=fixture_head(task),
+    )
+
+    assert "CLAIM_TYPE_NOT_ALLOWED" in {error.code for error in validation.errors}
