@@ -10,9 +10,11 @@ import rfc8785
 
 from app.contracts.schema_registry import AgentContractValidator, ContractRegistry
 from app.domain.errors import ContractValidationError
+from app.domain.models import VentureState
 from app.finance.calculator import calculate_finance, evaluate_capital_gate
 from app.finance.models import CapitalGateInput, FinanceInput
 from app.results.projection import project_candidate_results
+from app.workflows.models import HeadFence
 from app.workflows.stage_context import StageContext
 
 DIGEST_FIELDS = (
@@ -32,6 +34,17 @@ DIGEST_FIELDS = (
     "tool_manifest_digest",
     "available_tool_catalog",
     "payload",
+)
+
+FEEDBACK_ALLOWED_FIELD_PATHS = (
+    "/founder/avoidances",
+    "/founder/borrowing_intent",
+    "/founder/cafe_type_preference",
+    "/founder/max_loss_krw",
+    "/founder/operation_mode",
+    "/founder/own_funds_krw",
+    "/founder/preferences",
+    "/founder/target_area_input",
 )
 
 
@@ -96,6 +109,59 @@ class AgentTaskFactory:
             "tool_manifest_digest": self._release["mcp_manifest_digest"],
             "available_tool_catalog": catalog,
             "payload": payload,
+        }
+        task["input_digest"] = compute_agent_input_digest(task)
+        self._contracts.validate_agent_task(task)
+        return task
+
+    def build_intent_delta(
+        self,
+        *,
+        project_id: str,
+        workflow_run_id: str,
+        preview_id: str,
+        head: HeadFence,
+        state: VentureState,
+        latest_user_input: str,
+        current_candidate_refs: list[str],
+    ) -> dict[str, Any]:
+        if state.project_id != project_id:
+            raise ContractValidationError("Feedback State crossed project scope")
+        if not latest_user_input.strip():
+            raise ContractValidationError("Feedback input must not be empty")
+        registry = self._release["tasks"]["INTENT_DELTA"]
+        deadline = self._now() + timedelta(seconds=15)
+        task: dict[str, Any] = {
+            "schema_version": "1.0.0",
+            "task_id": f"task-feedback-{preview_id}",
+            "invocation_id": self._new_invocation_id(),
+            "agent_name": registry["agent_name"],
+            "task_type": "INTENT_DELTA",
+            "workflow_run_id": workflow_run_id,
+            "stage_run_id": f"feedback-preview-{preview_id}",
+            "transport_attempt": 1,
+            "repair_attempt": 0,
+            "venture_project_id": project_id,
+            "head_fence": head.model_dump(mode="json"),
+            "prompt_version": registry["prompt_version"],
+            "input_schema_id": registry["input_schema_id"],
+            "output_schema_id": registry["output_schema_id"],
+            "input_artifacts": [],
+            "input_digest": "",
+            "deadline_at": deadline.isoformat().replace("+00:00", "Z"),
+            "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+            "tool_manifest_digest": None,
+            "available_tool_catalog": [],
+            "payload": {
+                "current_state_projection": self._state_projection(state),
+                "latest_user_input": latest_user_input.strip(),
+                "allowed_field_paths": list(FEEDBACK_ALLOWED_FIELD_PATHS),
+                "current_candidate_refs": sorted(set(current_candidate_refs)),
+                "operation_id_pool": [
+                    f"feedback-{preview_id}-op-{index:02d}"
+                    for index in range(1, 21)
+                ],
+            },
         }
         task["input_digest"] = compute_agent_input_digest(task)
         self._contracts.validate_agent_task(task)
@@ -316,6 +382,43 @@ class AgentTaskFactory:
         if not isinstance(value, dict):
             raise ValueError(f"Expected JSON object: {path.name}")
         return value
+
+    @staticmethod
+    def _state_projection(state: VentureState) -> dict[str, Any]:
+        founder = state.founder
+        area = state.area
+        return {
+            "state_version": state.state_version,
+            "founder": {
+                "target_area_input": founder.target_area_input,
+                "own_funds_krw": founder.own_funds_krw,
+                "borrowing_intent": founder.borrowing_intent.value,
+                "cafe_type_preference": founder.cafe_type_preference.value,
+                "operation_mode": founder.operation_mode.value,
+                "preferences": founder.preferences,
+                "avoidances": founder.avoidances,
+                "max_loss_krw": founder.max_loss_krw,
+            },
+            "area": {
+                "resolution_status": area.resolution_status.value,
+                "administrative_code": area.administrative_code,
+                "display_name": area.display_name,
+                "boundary_version": area.boundary_version,
+                "coverage_profile": area.coverage_profile.value,
+                "evidence_ids": area.evidence_ids,
+                "unavailable_fields": area.unavailable_fields,
+            },
+            "active_case_id": state.active_case_id,
+            "venture_cases": [
+                {
+                    "case_id": venture_case.case_id,
+                    "case_type": venture_case.case_type.value,
+                    "maturity": venture_case.maturity.value,
+                    "status": venture_case.status.value,
+                }
+                for venture_case in state.venture_cases
+            ],
+        }
 
     @staticmethod
     def _content_digest(value: Any) -> str:

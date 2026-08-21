@@ -102,6 +102,52 @@ def test_evidence_plan_task_is_manifest_pinned_schema_valid_and_digest_bound() -
     assert task["tool_manifest_digest"].startswith("sha256:")
 
 
+def test_intent_delta_task_pins_state_candidates_and_editable_fields() -> None:
+    context = evidence_plan_context()
+    task = AgentTaskFactory(
+        now=lambda: datetime(2026, 8, 21, 10, 0, tzinfo=UTC),
+        new_invocation_id=lambda: "invocation-feedback",
+    ).build_intent_delta(
+        project_id=context.project_id,
+        workflow_run_id=context.lease.workflow_run_id,
+        preview_id="preview-1",
+        head=context.lease.head,
+        state=context.state,
+        latest_user_input=" 자금은 4천만 원으로 바꿀래 ",
+        current_candidate_refs=["candidate-2", "candidate-1", "candidate-1"],
+    )
+
+    assert task["task_type"] == "INTENT_DELTA"
+    assert task["agent_name"] == "INTENT_INTERPRETER"
+    assert task["deadline_at"] == "2026-08-21T10:00:15Z"
+    assert task["runtime_tool_policy"] == "NO_DIRECT_TOOL_CALLS"
+    assert task["available_tool_catalog"] == []
+    assert task["payload"]["latest_user_input"] == "자금은 4천만 원으로 바꿀래"
+    assert task["payload"]["current_candidate_refs"] == [
+        "candidate-1",
+        "candidate-2",
+    ]
+    assert task["payload"]["current_state_projection"]["state_version"] == 1
+    assert "/founder/own_funds_krw" in task["payload"]["allowed_field_paths"]
+    assert len(task["payload"]["operation_id_pool"]) == 20
+    assert task["input_digest"] == compute_agent_input_digest(task)
+
+
+def test_intent_delta_rejects_cross_project_state_before_runtime() -> None:
+    context = evidence_plan_context()
+
+    with pytest.raises(ContractValidationError, match="crossed project"):
+        AgentTaskFactory().build_intent_delta(
+            project_id="another-project",
+            workflow_run_id=context.lease.workflow_run_id,
+            preview_id="preview-1",
+            head=context.lease.head,
+            state=context.state,
+            latest_user_input="자금을 바꿔줘",
+            current_candidate_refs=[],
+        )
+
+
 def test_evidence_plan_digest_changes_with_claim_payload_but_not_invocation_id() -> None:
     factory = AgentTaskFactory(
         now=lambda: datetime(2026, 8, 21, 10, 0, tzinfo=UTC),
