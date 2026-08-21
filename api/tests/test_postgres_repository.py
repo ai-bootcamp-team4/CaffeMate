@@ -1,7 +1,9 @@
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import rfc8785
 from sqlalchemy import Engine, create_engine, text
 from testcontainers.community.postgres import PostgresContainer
 from worker.outbox import PostgresOutboxRepository
@@ -109,6 +111,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0004_result_bundle.sql",
             "0005_stage_failure.sql",
             "0006_first_proposal_dag.sql",
+            "0007_evidence_snapshot.sql",
         ]
 
 
@@ -788,6 +791,7 @@ def test_first_proposal_dag_promotes_ready_stages_and_joins_both_branches(
         {"CANDIDATE_AUDIT"},
         {"COMMIT_RESULT"},
     ]
+    expected_snapshot_id: str | None = None
 
     for expected in expected_batches:
         with postgres_engine.connect() as connection:
@@ -806,11 +810,33 @@ def test_first_proposal_dag_promotes_ready_stages_and_joins_both_branches(
                 expected_input_digest=stage["input_digest"],
             )
             assert lease is not None
-            result = (
-                result_payload(project_id=project.project_id)
-                if stage["stage_code"] == "COMMIT_RESULT"
-                else {"stage": stage["stage_code"]}
-            )
+            if stage["stage_code"] == "COMMIT_RESULT":
+                result = result_payload(project_id=project.project_id)
+            elif stage["stage_code"] == "EVIDENCE_FREEZE":
+                snapshot_body = {
+                    "schema_version": "1.0.0",
+                    "project_id": project.project_id,
+                    "workflow_run_id": run.workflow_run_id,
+                    "source_stage_run_id": stage["stage_run_id"],
+                    "evidence_records": [],
+                    "conflicts": [],
+                    "missing_claim_ids": ["claim:AREA_PROFILE"],
+                    "reason_codes": ["MISSING_EVIDENCE"],
+                    "retrieval_completeness": "UNAVAILABLE",
+                }
+                snapshot_digest = hashlib.sha256(
+                    rfc8785.dumps(snapshot_body)
+                ).hexdigest()
+                expected_snapshot_id = f"evidence-{snapshot_digest[:40]}"
+                result = {
+                    "evidence_freeze": {
+                        "snapshot_id": expected_snapshot_id,
+                        "snapshot_digest": f"sha256:{snapshot_digest}",
+                        **snapshot_body,
+                    }
+                }
+            else:
+                result = {"stage": stage["stage_code"]}
             assert execution.checkpoint(
                 stage_run_id=stage["stage_run_id"],
                 lease_token=lease.lease_token,
@@ -839,8 +865,41 @@ def test_first_proposal_dag_promotes_ready_stages_and_joins_both_branches(
                 "WHERE topic='WORKFLOW_STAGE_READY'"
             )
         ).scalar_one()
+        snapshot = connection.execute(
+            text(
+                "SELECT evidence_snapshot_id, project_id, workflow_run_id "
+                "FROM evidence_snapshots WHERE workflow_run_id=:workflow_run_id"
+            ),
+            {"workflow_run_id": run.workflow_run_id},
+        ).mappings().one()
+        head_snapshot_ids = connection.execute(
+            text(
+                "SELECT w.evidence_snapshot_id AS workflow_snapshot_id, "
+                "h.evidence_snapshot_id AS project_snapshot_id "
+                "FROM workflow_runs w JOIN project_heads h ON h.project_id=w.project_id "
+                "WHERE w.workflow_run_id=:workflow_run_id"
+            ),
+            {"workflow_run_id": run.workflow_run_id},
+        ).mappings().one()
     assert statuses == {"SUCCEEDED"}
     assert ready_messages == 13
+    assert expected_snapshot_id is not None
+    assert snapshot == {
+        "evidence_snapshot_id": expected_snapshot_id,
+        "project_id": project.project_id,
+        "workflow_run_id": run.workflow_run_id,
+    }
+    assert head_snapshot_ids == {
+        "workflow_snapshot_id": expected_snapshot_id,
+        "project_snapshot_id": expected_snapshot_id,
+    }
+    next_run = workflows.start(
+        project_id=project.project_id,
+        user_id="user-1",
+        workflow_code=WorkflowCode.FIRST_PROPOSAL,
+        idempotency_key="workflow-2",
+    )
+    assert next_run.head.evidence_snapshot_id == expected_snapshot_id
 
 
 def valid_candidate(*, project_id: str, state_version: int = 1) -> dict[str, object]:

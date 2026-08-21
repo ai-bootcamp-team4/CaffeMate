@@ -102,8 +102,11 @@ class PostgresWorkflowRepository:
             state_json = project["state_json"]
             if isinstance(state_json, str):
                 state_json = json.loads(state_json)
-            evidence_snapshot_id = (
+            state_evidence_snapshot_id = (
                 state_json.get("evidence_snapshot_id") if isinstance(state_json, dict) else None
+            )
+            evidence_snapshot_id = (
+                project["head_evidence_snapshot_id"] or state_evidence_snapshot_id
             )
             head = HeadFence(
                 workflow_generation=generation,
@@ -112,8 +115,8 @@ class PostgresWorkflowRepository:
                 area_snapshot_id=project["area_snapshot_id"],
                 evidence_snapshot_id=evidence_snapshot_id,
                 policy_snapshot_id=self._policy_snapshot_id,
-                index_generation_id=None,
-                seed_registry_id=None,
+                index_generation_id=project["head_index_generation_id"],
+                seed_registry_id=project["head_seed_registry_id"],
             )
             connection.execute(
                 text(
@@ -459,11 +462,15 @@ class PostgresWorkflowRepository:
             text(
                 """
                 SELECT p.project_id, p.current_state_version, p.workflow_generation,
-                       s.founder_snapshot_id, s.area_snapshot_id, s.state_json
+                       s.founder_snapshot_id, s.area_snapshot_id, s.state_json,
+                       h.evidence_snapshot_id AS head_evidence_snapshot_id,
+                       h.index_generation_id AS head_index_generation_id,
+                       h.seed_registry_id AS head_seed_registry_id
                 FROM venture_projects p
                 LEFT JOIN venture_states s
                   ON s.project_id = p.project_id
                  AND s.state_version = p.current_state_version
+                LEFT JOIN project_heads h ON h.project_id = p.project_id
                 WHERE p.project_id = :project_id AND p.owner_user_id = :user_id
                 FOR UPDATE OF p
                 """

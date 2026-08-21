@@ -47,6 +47,7 @@ from app.settings import RuntimeSettings
 from app.workflows.area_resolution import AreaMcpClient, AreaResolutionStageHandler
 from app.workflows.claim_plan import ClaimPlanStageHandler
 from app.workflows.evidence_assess import EvidenceAssessStageHandler
+from app.workflows.evidence_freeze import EvidenceFreezeStageHandler
 from app.workflows.evidence_plan import AgentRuntime, EvidencePlanStageHandler
 from app.workflows.evidence_retrieval import (
     EvidenceMcpClient,
@@ -166,6 +167,7 @@ def create_app(
 
     stage_handlers: dict[FirstProposalStage, FirstProposalStageHandler] = {
         FirstProposalStage.CLAIM_PLAN: ClaimPlanStageHandler(),
+        FirstProposalStage.EVIDENCE_FREEZE: EvidenceFreezeStageHandler(),
     }
     if configured_mcp_client is not None:
         stage_handlers.update(
