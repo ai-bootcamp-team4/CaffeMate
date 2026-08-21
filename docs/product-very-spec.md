@@ -19,7 +19,7 @@ Proposal Agent를 포함한 5-Agent 구조와 결정론적 Core를 유지하면�
 | 생성 모델 | `gemini-3.7-flash`, 사용자 승인 및 `global` 실호출 검증 완료 |
 | 생성 endpoint | `global` (`gemini-3.7-flash`); fallback 아님 |
 | embedding endpoint | `asia-northeast3`; 다른 리전 fallback 금지 |
-| 생성 설정 | `temperature=0`, `candidateCount=1`, `seed=17`, JSON structured output |
+| 생성 설정 | `thinking_level=HIGH`, `candidateCount=1`, `seed=17`, JSON structured output; `temperature`/`topP`/`topK`는 모델 기본값 사용 |
 | Advanced RAG | Vertex AI RAG Engine, `asia-northeast3`; 운영 필수 검색 계층 |
 | Embedding | RAG corpus 생성 시 pin하며 서울 import·retrieval read-back 전 사용 금지 |
 | Exact retrieval | Cloud SQL typed lookup; id·날짜·금액·단위 전용 |

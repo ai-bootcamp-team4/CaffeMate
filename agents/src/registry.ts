@@ -13,7 +13,7 @@ export const AGENT_MODEL = Object.freeze({
   region: GCP_LOCATIONS.generation,
   networkEnabled: true,
   allowGlobalFallback: false,
-  thinkingLevel: 'medium',
+  thinkingLevel: 'high',
 } as const)
 
 export interface TaskRegistration {
@@ -32,7 +32,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     inputSchemaId: 'caffemate.agent.intent-input.v1',
     outputSchemaId: 'caffemate.agent.intent-result.v1',
     deadlineSeconds: 15,
-    maxOutputTokens: 2048,
+    maxOutputTokens: 4096,
   },
   EVIDENCE_PLAN: {
     agentName: 'EVIDENCE_RESEARCHER',

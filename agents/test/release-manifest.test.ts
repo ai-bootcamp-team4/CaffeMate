@@ -9,6 +9,7 @@ describe('local agent release manifest', () => {
       id: AGENT_MODEL.id,
       approval_status: AGENT_MODEL.approvalStatus,
       region: AGENT_MODEL.region,
+      thinking_level: AGENT_MODEL.thinkingLevel,
     })
     expect(releaseManifest.runtime_region).toBe(GCP_LOCATIONS.runtime)
     expect(releaseManifest.allow_global_fallback).toBe(false)

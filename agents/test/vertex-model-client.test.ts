@@ -26,9 +26,57 @@ describe('Vertex Agent model client', () => {
         generationConfig: {
           candidateCount: 1,
           responseMimeType: 'application/json',
-          maxOutputTokens: 2048,
+          maxOutputTokens: 4096,
+          seed: 17,
+          thinkingConfig: { thinkingLevel: 'HIGH' },
+          responseJsonSchema: {
+            type: 'object',
+            additionalProperties: false,
+            required: expect.arrayContaining([
+              'schema_version',
+              'task_id',
+              'invocation_id',
+              'agent_name',
+              'task_type',
+              'head_fence_seen',
+              'input_digest',
+              'output_schema_id',
+              'status',
+              'payload',
+            ]),
+            properties: {
+              schema_version: { type: 'string', enum: ['1.0.0'] },
+              task_id: { type: 'string', enum: ['task-1-complete'] },
+              invocation_id: { type: 'string', enum: ['inv-1-complete'] },
+              agent_name: { type: 'string', enum: ['INTENT_INTERPRETER'] },
+              task_type: { type: 'string', enum: ['INTENT_DELTA'] },
+              output_schema_id: { type: 'string', enum: ['caffemate.agent.intent-result.v1'] },
+              status: {
+                type: 'string',
+                enum: ['COMPLETE', 'NEEDS_EVIDENCE', 'NEEDS_HUMAN', 'ABSTAIN', 'INVALID'],
+              },
+              payload: {
+                anyOf: [
+                  {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['decision', 'operations', 'clarifying_questions', 'affected_workflow_codes', 'risk_flags'],
+                    properties: {
+                      decision: { enum: ['PROPOSE_DELTA', 'CLARIFY', 'NOOP', 'UNSUPPORTED'] },
+                      operations: { type: 'array', items: expect.any(Object) },
+                      clarifying_questions: { type: 'array', items: { type: 'string' } },
+                      affected_workflow_codes: { type: 'array', items: { type: 'string' } },
+                      risk_flags: { type: 'array', items: { type: 'string' } },
+                    },
+                  },
+                  { type: 'null' },
+                ],
+              },
+            },
+          },
         },
       })
+      expect((body.generationConfig as Record<string, unknown>).temperature).toBeUndefined()
       return Response.json({
         candidates: [{
           content: { parts: [{ text: '{"status":"ABSTAIN"}' }], role: 'model' },
@@ -46,7 +94,7 @@ describe('Vertex Agent model client', () => {
     const response = await client.generate(buildModelInvocation(task(), {
       id: MODEL_ID,
       region: REGION,
-      thinkingLevel: 'medium',
+      thinkingLevel: 'high',
     }))
 
     expect(response).toEqual({ kind: 'TEXT', text: '{"status":"ABSTAIN"}' })
@@ -74,8 +122,30 @@ describe('Vertex Agent model client', () => {
     await expect(client.generate(buildModelInvocation(task(), {
       id: MODEL_ID,
       region: REGION,
-      thinkingLevel: 'medium',
+      thinkingLevel: 'high',
     }))).resolves.toEqual({ kind: 'SAFETY_BLOCKED' })
+  })
+
+  it('fails closed when the provider candidate did not finish with STOP', async () => {
+    const client = new VertexAgentModelClient({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl: async () => Response.json({
+        candidates: [{
+          content: { role: 'model', parts: [{ text: '{"schema_version":"1.0.0"' }] },
+          finishReason: 'MAX_TOKENS',
+        }],
+      }),
+    })
+
+    await expect(client.generate(buildModelInvocation(task(), {
+      id: MODEL_ID,
+      region: REGION,
+      thinkingLevel: 'high',
+    }))).rejects.toMatchObject({
+      code: 'VERTEX_MODEL_RESPONSE_INCOMPLETE',
+    })
   })
 
   it('fails closed on HTTP errors without returning provider response text as an Agent result', async () => {
@@ -89,12 +159,12 @@ describe('Vertex Agent model client', () => {
     await expect(client.generate(buildModelInvocation(task(), {
       id: MODEL_ID,
       region: REGION,
-      thinkingLevel: 'medium',
+      thinkingLevel: 'high',
     }))).rejects.toBeInstanceOf(VertexAgentModelError)
     await expect(client.generate(buildModelInvocation(task(), {
       id: MODEL_ID,
       region: REGION,
-      thinkingLevel: 'medium',
+      thinkingLevel: 'high',
     }))).rejects.toMatchObject({ code: 'VERTEX_MODEL_HTTP_ERROR', status: 429 })
   })
 })

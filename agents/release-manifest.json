@@ -4,7 +4,7 @@
   "model": {
     "id": "gemini-3.7-flash",
     "approval_status": "APPROVED",
-    "thinking_level": "medium",
+    "thinking_level": "high",
     "region": "global"
   },
   "allow_global_fallback": false,

@@ -29,6 +29,7 @@ describe('task registry', () => {
     expect(AGENT_MODEL.id).toBe('gemini-3.7-flash')
     expect(AGENT_MODEL.approvalStatus).toBe('APPROVED')
     expect(AGENT_MODEL.region).toBe('global')
+    expect(AGENT_MODEL.thinkingLevel).toBe('high')
     expect(AGENT_MODEL.allowGlobalFallback).toBe(false)
     expect(AGENT_MODEL.networkEnabled).toBe(true)
   })

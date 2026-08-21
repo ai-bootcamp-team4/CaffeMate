@@ -9,7 +9,7 @@ import type { AgentTask, AgentTaskResult } from '../src/types'
 const approvedModel: ApprovedAgentModelConfig = {
   id: 'gemini-3.7-flash',
   region: 'global',
-  thinkingLevel: 'medium',
+  thinkingLevel: 'high',
 }
 
 function fixture(id: string): { task: AgentTask; result: AgentTaskResult } {
