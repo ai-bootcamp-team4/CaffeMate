@@ -12,9 +12,16 @@ from sqlalchemy.engine import Connection, RowMapping
 from app.contracts.schema_registry import CandidateContractValidator, ContractRegistry
 from app.domain.errors import ContractValidationError
 from app.results.models import ResultBundlePayload
-from app.workflows.models import CheckpointOutcome, HeadFence, StageLease
+from app.workflows.models import (
+    CheckpointOutcome,
+    FailureOutcome,
+    HeadFence,
+    StageFailure,
+    StageLease,
+)
 
 LEASE_SECONDS = 45
+MAX_STAGE_ATTEMPTS = 3
 
 
 class PostgresStageExecutionRepository:
@@ -221,6 +228,126 @@ class PostgresStageExecutionRepository:
                 },
             )
             return CheckpointOutcome.APPLIED
+
+    def record_failure(
+        self,
+        *,
+        stage_run_id: str,
+        lease_token: str,
+        input_digest: str,
+        failure: StageFailure,
+    ) -> FailureOutcome:
+        now = self._now()
+        with self._engine.begin() as connection:
+            row = self._load_stage(connection, stage_run_id=stage_run_id, for_update=True)
+            if row is None:
+                return FailureOutcome.LEASE_REJECTED
+            if row["stage_status"] in {"SUCCEEDED", "FAILED", "TIMED_OUT"}:
+                return FailureOutcome.DUPLICATE_DISCARDED
+            if row["workflow_status"] == "CANCELLED" or row["stage_status"] == "CANCELLED":
+                return FailureOutcome.CANCELLED_DISCARDED
+            if row["input_digest"] != input_digest:
+                return FailureOutcome.LEASE_REJECTED
+            if not self._lease_is_current(row, lease_token=lease_token, now=now):
+                return FailureOutcome.LEASE_REJECTED
+            if self._stored_head(row) != self._current_head(row):
+                return FailureOutcome.STALE_DISCARDED
+
+            failure_json = json.dumps(failure.model_dump(mode="json"), separators=(",", ":"))
+            retryable = failure.retryable and int(row["attempt"]) < MAX_STAGE_ATTEMPTS
+            if retryable:
+                connection.execute(
+                    text(
+                        """
+                        UPDATE stage_runs SET status='READY', failure_json=CAST(:failure AS JSONB),
+                            lease_token_digest=NULL, lease_owner=NULL, lease_expires_at=NULL,
+                            heartbeat_at=NULL, updated_at=:now
+                        WHERE stage_run_id=:stage_run_id
+                        """
+                    ),
+                    {"failure": failure_json, "now": now, "stage_run_id": stage_run_id},
+                )
+                self._insert_failure_event(
+                    connection,
+                    workflow_run_id=row["workflow_run_id"],
+                    stage_run_id=stage_run_id,
+                    event_type="STAGE_RETRY_SCHEDULED",
+                    attempt=int(row["attempt"]),
+                    failure=failure,
+                    occurred_at=now,
+                )
+                return FailureOutcome.RETRY_SCHEDULED
+
+            stage_status = "TIMED_OUT" if failure.code == "STAGE_TIMEOUT" else "FAILED"
+            connection.execute(
+                text(
+                    """
+                    UPDATE stage_runs SET status=:stage_status,
+                        failure_json=CAST(:failure AS JSONB), completed_at=:now, updated_at=:now,
+                        lease_token_digest=NULL, lease_owner=NULL, lease_expires_at=NULL
+                    WHERE stage_run_id=:stage_run_id
+                    """
+                ),
+                {
+                    "stage_status": stage_status,
+                    "failure": failure_json,
+                    "now": now,
+                    "stage_run_id": stage_run_id,
+                },
+            )
+            connection.execute(
+                text(
+                    "UPDATE workflow_runs SET status='FAILED', updated_at=:now "
+                    "WHERE workflow_run_id=:workflow_run_id"
+                ),
+                {"now": now, "workflow_run_id": row["workflow_run_id"]},
+            )
+            self._insert_failure_event(
+                connection,
+                workflow_run_id=row["workflow_run_id"],
+                stage_run_id=stage_run_id,
+                event_type="STAGE_FAILED",
+                attempt=int(row["attempt"]),
+                failure=failure,
+                occurred_at=now,
+            )
+            return FailureOutcome.TERMINAL_FAILED
+
+    @staticmethod
+    def _insert_failure_event(
+        connection: Connection,
+        *,
+        workflow_run_id: str,
+        stage_run_id: str,
+        event_type: str,
+        attempt: int,
+        failure: StageFailure,
+        occurred_at: datetime,
+    ) -> None:
+        connection.execute(
+            text(
+                """
+                INSERT INTO workflow_events(
+                    workflow_run_id, event_type, event_json, occurred_at
+                ) VALUES (
+                    :workflow_run_id, :event_type, CAST(:event AS JSONB), :occurred_at
+                )
+                """
+            ),
+            {
+                "workflow_run_id": workflow_run_id,
+                "event_type": event_type,
+                "event": json.dumps(
+                    {
+                        "stage_run_id": stage_run_id,
+                        "attempt": attempt,
+                        "failure": failure.model_dump(mode="json"),
+                    },
+                    separators=(",", ":"),
+                ),
+                "occurred_at": occurred_at,
+            },
+        )
 
     def _persist_result_bundle(
         self,

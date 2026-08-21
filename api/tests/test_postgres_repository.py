@@ -27,7 +27,13 @@ from app.projects.service import ProjectService
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
 from app.workflows.execution_repository import PostgresStageExecutionRepository
-from app.workflows.models import CheckpointOutcome, WorkflowCode, WorkflowStatus
+from app.workflows.models import (
+    CheckpointOutcome,
+    FailureOutcome,
+    StageFailure,
+    WorkflowCode,
+    WorkflowStatus,
+)
 from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.service import WorkflowService
 
@@ -99,6 +105,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0002_workflow_outbox.sql",
             "0003_worker_lease_fence.sql",
             "0004_result_bundle.sql",
+            "0005_stage_failure.sql",
         ]
 
 
@@ -814,6 +821,123 @@ def test_expired_stage_lease_is_reclaimed_and_old_worker_cannot_checkpoint(
         input_digest=new.input_digest,
         result={"worker": "new"},
     ) == CheckpointOutcome.DUPLICATE_DISCARDED
+
+
+def test_retryable_stage_failure_is_fenced_and_third_attempt_terminates_workflow(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    _project, stage_id, input_digest, _workflows = create_ready_stage(
+        repository, postgres_engine
+    )
+    tokens = iter(["attempt-1", "attempt-2", "attempt-3"])
+    execution = PostgresStageExecutionRepository(
+        postgres_engine,
+        new_token=lambda: next(tokens),
+    )
+    failure = StageFailure(code="STAGE_PROCESSING_ERROR", retryable=True)
+
+    first = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-1",
+        expected_input_digest=input_digest,
+    )
+    assert first is not None
+    assert execution.record_failure(
+        stage_run_id=stage_id,
+        lease_token=first.lease_token,
+        input_digest=input_digest,
+        failure=failure,
+    ) == FailureOutcome.RETRY_SCHEDULED
+
+    second = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-2",
+        expected_input_digest=input_digest,
+    )
+    assert second is not None
+    assert execution.record_failure(
+        stage_run_id=stage_id,
+        lease_token=first.lease_token,
+        input_digest=input_digest,
+        failure=failure,
+    ) == FailureOutcome.LEASE_REJECTED
+    assert execution.record_failure(
+        stage_run_id=stage_id,
+        lease_token=second.lease_token,
+        input_digest=input_digest,
+        failure=failure,
+    ) == FailureOutcome.RETRY_SCHEDULED
+
+    third = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-3",
+        expected_input_digest=input_digest,
+    )
+    assert third is not None
+    assert third.attempt == 3
+    assert execution.record_failure(
+        stage_run_id=stage_id,
+        lease_token=third.lease_token,
+        input_digest=input_digest,
+        failure=failure,
+    ) == FailureOutcome.TERMINAL_FAILED
+
+    with postgres_engine.connect() as connection:
+        stage_status, stored_failure = connection.execute(
+            text("SELECT status, failure_json FROM stage_runs WHERE stage_run_id=:id"),
+            {"id": stage_id},
+        ).one()
+        workflow_status = connection.execute(
+            text("SELECT status FROM workflow_runs")
+        ).scalar_one()
+        events = list(
+            connection.execute(
+                text(
+                    "SELECT event_type FROM workflow_events "
+                    "WHERE event_type LIKE 'STAGE_%' ORDER BY sequence_id"
+                )
+            ).scalars()
+        )
+    assert stage_status == "FAILED"
+    assert stored_failure == {"code": "STAGE_PROCESSING_ERROR", "retryable": True}
+    assert workflow_status == "FAILED"
+    assert events == ["STAGE_RETRY_SCHEDULED", "STAGE_RETRY_SCHEDULED", "STAGE_FAILED"]
+    assert execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-4",
+        expected_input_digest=input_digest,
+    ) is None
+
+
+def test_nonretryable_failure_terminates_on_first_attempt_without_raw_message(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    _project, stage_id, input_digest, _workflows = create_ready_stage(
+        repository, postgres_engine
+    )
+    execution = PostgresStageExecutionRepository(postgres_engine)
+    lease = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-1",
+        expected_input_digest=input_digest,
+    )
+    assert lease is not None
+
+    assert execution.record_failure(
+        stage_run_id=stage_id,
+        lease_token=lease.lease_token,
+        input_digest=input_digest,
+        failure=StageFailure(code="CONTRACT_REJECTED", retryable=False),
+    ) == FailureOutcome.TERMINAL_FAILED
+    with postgres_engine.connect() as connection:
+        stage_status, stored_failure = connection.execute(
+            text("SELECT status, failure_json FROM stage_runs WHERE stage_run_id=:id"),
+            {"id": stage_id},
+        ).one()
+    assert stage_status == "FAILED"
+    assert stored_failure == {"code": "CONTRACT_REJECTED", "retryable": False}
 
 
 def test_internal_stage_authorization_requires_exact_live_lease(
