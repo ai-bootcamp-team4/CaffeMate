@@ -18,6 +18,9 @@ class RuntimeSettings:
     worker_id: str | None
     pubsub_subscription: str | None
     workflow_stage_topic_resource: str | None
+    agent_runtime_project_id: str | None
+    agent_runtime_resource_id: str | None
+    agent_runtime_user_hmac_secret: str | None
 
     @classmethod
     def from_environment(cls) -> "RuntimeSettings":
@@ -37,6 +40,10 @@ class RuntimeSettings:
             worker_id=os.getenv("WORKER_ID") or os.getenv("HOSTNAME"),
             pubsub_subscription=os.getenv("PUBSUB_SUBSCRIPTION"),
             workflow_stage_topic_resource=os.getenv("WORKFLOW_STAGE_TOPIC_RESOURCE"),
+            agent_runtime_project_id=os.getenv("AGENT_RUNTIME_PROJECT_ID")
+            or os.getenv("GOOGLE_CLOUD_PROJECT"),
+            agent_runtime_resource_id=os.getenv("AGENT_RUNTIME_RESOURCE_ID"),
+            agent_runtime_user_hmac_secret=os.getenv("AGENT_RUNTIME_USER_HMAC_SECRET"),
         )
 
     @property
@@ -47,5 +54,15 @@ class RuntimeSettings:
                 self.database_user,
                 self.database_password,
                 self.database_name,
+            )
+        )
+
+    @property
+    def has_agent_runtime_configuration(self) -> bool:
+        return all(
+            (
+                self.agent_runtime_project_id,
+                self.agent_runtime_resource_id,
+                self.agent_runtime_user_hmac_secret,
             )
         )

@@ -1,11 +1,16 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import Depends, FastAPI, Header, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
+from app.agents.runtime import (
+    AgentRuntimeHttpClient,
+    GoogleAccessTokenProvider,
+    PostgresAgentCleanupSink,
+)
 from app.auth import (
     FirebaseIdentityVerifier,
     GoogleServiceIdentityVerifier,
@@ -37,10 +42,15 @@ from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
 from app.results.unavailable_repository import UnavailableResultRepository
 from app.settings import RuntimeSettings
+from app.workflows.claim_plan import ClaimPlanStageHandler
+from app.workflows.evidence_plan import AgentRuntime, EvidencePlanStageHandler
 from app.workflows.execution_repository import PostgresStageExecutionRepository
+from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import StageLease, WorkflowCode, WorkflowEvent, WorkflowRun
 from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.service import WorkflowService
+from app.workflows.stage_context import PostgresStageContextRepository
+from app.workflows.stage_router import FirstProposalStageRouter
 from app.workflows.stage_service import (
     StageExecution,
     StageExecutionService,
@@ -77,6 +87,7 @@ def create_app(
     identity_verifier: IdentityVerifier | None = None,
     stage_execution_service: StageExecution | None = None,
     internal_identity_verifier: IdentityVerifier | None = None,
+    agent_runtime: AgentRuntime | None = None,
 ) -> FastAPI:
     database_handle: DatabaseHandle | None = None
     settings = RuntimeSettings.from_environment()
@@ -115,8 +126,35 @@ def create_app(
     else:
         results = result_service
 
+    configured_agent_runtime = agent_runtime
+    if (
+        configured_agent_runtime is None
+        and database_handle is not None
+        and settings.has_agent_runtime_configuration
+    ):
+        configured_agent_runtime = AgentRuntimeHttpClient(
+            gcp_project_id=cast(str, settings.agent_runtime_project_id),
+            resource_id=cast(str, settings.agent_runtime_resource_id),
+            user_hmac_secret=cast(str, settings.agent_runtime_user_hmac_secret),
+            access_tokens=GoogleAccessTokenProvider(),
+            cleanup_sink=PostgresAgentCleanupSink(database_handle.engine),
+        )
+
     if stage_execution_service is not None:
         internal_stages = stage_execution_service
+    elif database_handle is not None and configured_agent_runtime is not None:
+        internal_stages = StageExecutionService(
+            PostgresStageExecutionRepository(database_handle.engine),
+            FirstProposalStageRouter(
+                PostgresStageContextRepository(database_handle.engine),
+                {
+                    FirstProposalStage.CLAIM_PLAN: ClaimPlanStageHandler(),
+                    FirstProposalStage.EVIDENCE_PLAN: EvidencePlanStageHandler(
+                        configured_agent_runtime
+                    )
+                },
+            ),
+        )
     elif database_handle is not None:
         internal_stages = StageExecutionService(
             PostgresStageExecutionRepository(database_handle.engine),
