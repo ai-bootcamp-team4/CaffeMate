@@ -62,6 +62,7 @@ from app.workflows.execution_repository import PostgresStageExecutionRepository
 from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import StageLease, WorkflowCode, WorkflowEvent, WorkflowRun
 from app.workflows.postgres_repository import PostgresWorkflowRepository
+from app.workflows.proposal import ProposalStageHandler
 from app.workflows.service import WorkflowService
 from app.workflows.stage_context import PostgresStageContextRepository
 from app.workflows.stage_router import (
@@ -195,6 +196,12 @@ def create_app(
         )
         stage_handlers[FirstProposalStage.EVIDENCE_ASSESS] = EvidenceAssessStageHandler(
             configured_agent_runtime
+        )
+        stage_handlers[FirstProposalStage.PROPOSE_INDEPENDENT] = (
+            ProposalStageHandler.independent(configured_agent_runtime)
+        )
+        stage_handlers[FirstProposalStage.PROPOSE_FRANCHISE] = (
+            ProposalStageHandler.franchise(configured_agent_runtime)
         )
 
     if stage_execution_service is not None:

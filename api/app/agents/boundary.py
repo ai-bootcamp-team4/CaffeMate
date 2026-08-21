@@ -77,6 +77,7 @@ def validate_agent_boundary(
     errors.extend(_validate_evidence_coverage_kinds(task, result))
     errors.extend(_validate_money_ranges(result))
     errors.extend(_validate_evidence_assessment_metadata(task, result))
+    errors.extend(_validate_proposal_semantics(task, result))
     return BoundaryValidation(accepted=not errors, errors=errors)
 
 
@@ -371,6 +372,223 @@ def _validate_money_ranges(result: dict[str, Any]) -> list[BoundaryError]:
             message="Known money range must satisfy low <= base <= high",
         )
     ]
+
+
+def _validate_proposal_semantics(
+    task: dict[str, Any],
+    result: dict[str, Any],
+) -> list[BoundaryError]:
+    task_type = task["task_type"]
+    if task_type not in {"PROPOSE_INDEPENDENT", "PROPOSE_FRANCHISE"}:
+        return []
+    result_payload = result.get("payload")
+    if not isinstance(result_payload, dict):
+        return []
+    task_payload = task["payload"]
+    proposals = result_payload.get("candidate_proposals", [])
+    if not isinstance(task_payload, dict) or not isinstance(proposals, list):
+        return []
+    source_key = "model_seeds" if task_type == "PROPOSE_INDEPENDENT" else "franchise_universe"
+    sources = {
+        value["proposal_id"]: value
+        for value in task_payload.get(source_key, [])
+        if isinstance(value, dict) and isinstance(value.get("proposal_id"), str)
+    }
+    requested_count = task_payload.get("requested_candidate_count")
+    proposal_ids = [
+        value.get("proposal_id") for value in proposals if isinstance(value, dict)
+    ]
+    errors: list[BoundaryError] = []
+    if len(proposal_ids) != len(set(proposal_ids)):
+        errors.append(
+            BoundaryError(
+                code="PROPOSAL_DUPLICATED",
+                json_pointer="/payload/candidate_proposals",
+                message="Proposal ids must be unique",
+            )
+        )
+    if isinstance(requested_count, int) and len(proposals) > requested_count:
+        errors.append(
+            BoundaryError(
+                code="PROPOSAL_COUNT_EXCEEDED",
+                json_pointer="/payload/candidate_proposals",
+                message="Agent returned more candidates than requested",
+            )
+        )
+    evidence_ids = set(_collect_evidence_records(task_payload))
+    result_evidence_refs = {
+        value for value in result.get("evidence_refs", []) if isinstance(value, str)
+    }
+    if not result_evidence_refs.issubset(evidence_ids):
+        errors.append(
+            BoundaryError(
+                code="PROPOSAL_EVIDENCE_REFERENCE_INVALID",
+                json_pointer="/evidence_refs",
+                message="Proposal result evidence refs must point to frozen Evidence records",
+            )
+        )
+    for index, proposal in enumerate(proposals):
+        if not isinstance(proposal, dict):
+            continue
+        path = f"/payload/candidate_proposals/{index}"
+        source = sources.get(proposal.get("proposal_id"))
+        if source is None:
+            continue
+        expected_source_id = source.get(
+            "model_id" if task_type == "PROPOSE_INDEPENDENT" else "brand_id"
+        )
+        if proposal.get("seed_or_brand_id") != expected_source_id:
+            errors.append(
+                BoundaryError(
+                    code=(
+                        "SEED_REFERENCE_MISMATCH"
+                        if task_type == "PROPOSE_INDEPENDENT"
+                        else "BRAND_REFERENCE_MISMATCH"
+                    ),
+                    json_pointer=f"{path}/seed_or_brand_id",
+                    message="Proposal source does not match its allocated input",
+                )
+            )
+        if proposal.get("display_name") != source.get("display_name"):
+            errors.append(
+                BoundaryError(
+                    code="PROPOSAL_DISPLAY_NAME_MISMATCH",
+                    json_pointer=f"{path}/display_name",
+                    message="Proposal display name must preserve its registered source",
+                )
+            )
+        referenced_evidence = {
+            value for value in proposal.get("evidence_refs", []) if isinstance(value, str)
+        }
+        if not referenced_evidence.issubset(evidence_ids):
+            errors.append(
+                BoundaryError(
+                    code="PROPOSAL_EVIDENCE_REFERENCE_INVALID",
+                    json_pointer=f"{path}/evidence_refs",
+                    message="Proposal evidence refs must point to frozen Evidence records",
+                )
+            )
+        if task_type == "PROPOSE_FRANCHISE":
+            required_evidence = {
+                value for value in source.get("evidence_refs", []) if isinstance(value, str)
+            }
+            required_missing = {
+                value for value in source.get("missing_fields", []) if isinstance(value, str)
+            }
+            proposal_missing = {
+                value for value in proposal.get("missing_fields", []) if isinstance(value, str)
+            }
+            if not required_evidence.issubset(referenced_evidence):
+                errors.append(
+                    BoundaryError(
+                        code="FRANCHISE_ELIGIBILITY_EVIDENCE_DROPPED",
+                        json_pointer=f"{path}/evidence_refs",
+                        message="Franchise proposal dropped its eligibility Evidence",
+                    )
+                )
+            if not required_missing.issubset(proposal_missing):
+                errors.append(
+                    BoundaryError(
+                        code="FRANCHISE_MISSING_CONTEXT_DROPPED",
+                        json_pointer=f"{path}/missing_fields",
+                        message="Franchise proposal dropped required missing context",
+                    )
+                )
+        else:
+            required_assumptions = {
+                value for value in source.get("support_refs", []) if isinstance(value, str)
+            }
+            proposal_assumptions = {
+                value for value in proposal.get("assumption_refs", []) if isinstance(value, str)
+            }
+            if not required_assumptions.issubset(proposal_assumptions):
+                errors.append(
+                    BoundaryError(
+                        code="SEED_ASSUMPTION_REFERENCE_DROPPED",
+                        json_pointer=f"{path}/assumption_refs",
+                        message="Independent proposal dropped its seed assumptions",
+                    )
+                )
+            errors.extend(_validate_independent_parameters(source, proposal, path))
+    return errors
+
+
+def _validate_independent_parameters(
+    source: dict[str, Any],
+    proposal: dict[str, Any],
+    path: str,
+) -> list[BoundaryError]:
+    allowed = {
+        value["field_path"]: value
+        for value in source.get("allowed_parameters", [])
+        if isinstance(value, dict) and isinstance(value.get("field_path"), str)
+    }
+    errors: list[BoundaryError] = []
+    for index, parameter in enumerate(proposal.get("adjusted_parameters", [])):
+        if not isinstance(parameter, dict):
+            continue
+        parameter_path = f"{path}/adjusted_parameters/{index}"
+        contract = allowed.get(parameter.get("field_path"))
+        if contract is None:
+            errors.append(
+                BoundaryError(
+                    code="PARAMETER_FIELD_NOT_ALLOWED",
+                    json_pointer=f"{parameter_path}/field_path",
+                    message="Adjusted parameter is outside the selected seed contract",
+                )
+            )
+            continue
+        typed_value = parameter.get("value")
+        if not isinstance(typed_value, dict) or typed_value.get("kind") != contract.get(
+            "value_kind"
+        ):
+            errors.append(
+                BoundaryError(
+                    code="PARAMETER_VALUE_KIND_INVALID",
+                    json_pointer=f"{parameter_path}/value",
+                    message="Adjusted parameter kind differs from its seed contract",
+                )
+            )
+        if parameter.get("unit") != contract.get("unit"):
+            errors.append(
+                BoundaryError(
+                    code="PARAMETER_UNIT_INVALID",
+                    json_pointer=f"{parameter_path}/unit",
+                    message="Adjusted parameter unit differs from its seed contract",
+                )
+            )
+        numeric_values = _typed_numeric_values(typed_value)
+        minimum = contract.get("minimum")
+        maximum = contract.get("maximum")
+        if any(
+            (isinstance(minimum, (int, float)) and value < minimum)
+            or (isinstance(maximum, (int, float)) and value > maximum)
+            for value in numeric_values
+        ):
+            errors.append(
+                BoundaryError(
+                    code="PARAMETER_RANGE_INVALID",
+                    json_pointer=f"{parameter_path}/value",
+                    message="Adjusted parameter is outside its seed range",
+                )
+            )
+    return errors
+
+
+def _typed_numeric_values(value: object) -> list[float]:
+    if not isinstance(value, dict):
+        return []
+    kind = value.get("kind")
+    if kind in {"INTEGER", "DECIMAL"}:
+        number = value.get("value")
+        return [float(number)] if isinstance(number, (int, float)) else []
+    if kind == "MONEY_RANGE":
+        return [
+            float(value[key])
+            for key in ("low", "base", "high")
+            if isinstance(value.get(key), (int, float))
+        ]
+    return []
 
 
 def _validate_evidence_assessment_metadata(
