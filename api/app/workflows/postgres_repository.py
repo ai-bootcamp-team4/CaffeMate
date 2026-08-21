@@ -113,6 +113,36 @@ class PostgresWorkflowRepository:
                 index_generation_id=None,
                 seed_registry_id=None,
             )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO project_heads(
+                        project_id, workflow_generation, state_version,
+                        founder_snapshot_id, area_snapshot_id, evidence_snapshot_id,
+                        policy_snapshot_id, index_generation_id, seed_registry_id, updated_at
+                    ) VALUES (
+                        :project_id, :workflow_generation, :state_version,
+                        :founder_snapshot_id, :area_snapshot_id, :evidence_snapshot_id,
+                        :policy_snapshot_id, :index_generation_id, :seed_registry_id, :updated_at
+                    )
+                    ON CONFLICT (project_id) DO UPDATE SET
+                        workflow_generation = EXCLUDED.workflow_generation,
+                        state_version = EXCLUDED.state_version,
+                        founder_snapshot_id = EXCLUDED.founder_snapshot_id,
+                        area_snapshot_id = EXCLUDED.area_snapshot_id,
+                        evidence_snapshot_id = EXCLUDED.evidence_snapshot_id,
+                        policy_snapshot_id = EXCLUDED.policy_snapshot_id,
+                        index_generation_id = EXCLUDED.index_generation_id,
+                        seed_registry_id = EXCLUDED.seed_registry_id,
+                        updated_at = EXCLUDED.updated_at
+                    """
+                ),
+                {
+                    "project_id": command.project_id,
+                    **head.model_dump(mode="python"),
+                    "updated_at": self._now(),
+                },
+            )
             input_digest = hashlib.sha256(
                 rfc8785.dumps(
                     {
@@ -310,6 +340,14 @@ class PostgresWorkflowRepository:
                 )
                 connection.execute(
                     text(
+                        "UPDATE project_heads "
+                        "SET workflow_generation = workflow_generation + 1, updated_at=:now "
+                        "WHERE project_id = :project_id"
+                    ),
+                    {"now": occurred_at, "project_id": command.project_id},
+                )
+                connection.execute(
+                    text(
                         """
                         UPDATE workflow_runs
                         SET status = 'CANCELLED', updated_at = :occurred_at,
@@ -327,7 +365,7 @@ class PostgresWorkflowRepository:
                         """
                         UPDATE stage_runs
                         SET status = 'CANCELLED', updated_at = :occurred_at,
-                            completed_at = :occurred_at, lease_token = NULL,
+                            completed_at = :occurred_at, lease_token_digest = NULL,
                             lease_owner = NULL, lease_expires_at = NULL
                         WHERE workflow_run_id = :workflow_run_id
                           AND status IN ('PENDING', 'READY', 'RUNNING', 'CHECKPOINTED')

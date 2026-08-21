@@ -1,8 +1,10 @@
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import Engine, create_engine, text
 from testcontainers.community.postgres import PostgresContainer
+from worker.outbox import PostgresOutboxRepository
 
 from app.domain.errors import (
     ContractValidationError,
@@ -15,12 +17,14 @@ from app.domain.models import (
     CafeTypePreference,
     FounderState,
     OperationMode,
+    Project,
 )
 from app.main import create_app
 from app.migrations import apply_migrations
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
-from app.workflows.models import WorkflowCode, WorkflowStatus
+from app.workflows.execution_repository import PostgresStageExecutionRepository
+from app.workflows.models import CheckpointOutcome, WorkflowCode, WorkflowStatus
 from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.service import WorkflowService
 
@@ -89,6 +93,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
         assert list(versions) == [
             "0001_project_state.sql",
             "0002_workflow_outbox.sql",
+            "0003_worker_lease_fence.sql",
         ]
 
 
@@ -529,3 +534,196 @@ def test_http_202_workflow_survives_api_instance_shutdown(
         )
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "CANCELLED"
+
+
+def create_ready_stage(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> tuple[Project, str, WorkflowService]:
+    project = onboarded_project(repository)
+    workflows = WorkflowService(
+        PostgresWorkflowRepository(postgres_engine, policy_snapshot_id="policy-v1")
+    )
+    workflows.start(
+        project_id=project.project_id,
+        user_id="user-1",
+        workflow_code=WorkflowCode.FIRST_PROPOSAL,
+        idempotency_key="workflow-1",
+    )
+    with postgres_engine.connect() as connection:
+        stage_id = connection.execute(text("SELECT stage_run_id FROM stage_runs")).scalar_one()
+    return project, stage_id, workflows
+
+
+def test_expired_stage_lease_is_reclaimed_and_old_worker_cannot_checkpoint(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    _project, stage_id, _workflows = create_ready_stage(repository, postgres_engine)
+    clock = [datetime(2026, 8, 21, tzinfo=UTC)]
+    tokens = iter(["old-token", "new-token"])
+    execution = PostgresStageExecutionRepository(
+        postgres_engine,
+        now=lambda: clock[0],
+        new_token=lambda: next(tokens),
+    )
+
+    old = execution.claim(stage_run_id=stage_id, worker_id="worker-1")
+    assert old is not None
+    assert execution.claim(stage_run_id=stage_id, worker_id="worker-2") is None
+    clock[0] += timedelta(seconds=46)
+    new = execution.claim(stage_run_id=stage_id, worker_id="worker-2")
+    assert new is not None
+    assert new.attempt == 2
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=old.lease_token,
+        input_digest=old.input_digest,
+        result={"worker": "old"},
+    ) == CheckpointOutcome.LEASE_REJECTED
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=new.lease_token,
+        input_digest=new.input_digest,
+        result={"worker": "new"},
+    ) == CheckpointOutcome.APPLIED
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=new.lease_token,
+        input_digest=new.input_digest,
+        result={"worker": "new"},
+    ) == CheckpointOutcome.DUPLICATE_DISCARDED
+
+
+def test_cancelled_and_timed_out_results_are_never_checkpointed(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    project, stage_id, workflows = create_ready_stage(repository, postgres_engine)
+    clock = [datetime(2026, 8, 21, tzinfo=UTC)]
+    execution = PostgresStageExecutionRepository(postgres_engine, now=lambda: clock[0])
+    lease = execution.claim(stage_run_id=stage_id, worker_id="worker-1")
+    assert lease is not None
+    workflows.cancel(
+        project_id=project.project_id,
+        workflow_run_id=lease.workflow_run_id,
+        user_id="user-1",
+        idempotency_key="cancel-1",
+    )
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=lease.lease_token,
+        input_digest=lease.input_digest,
+        result={},
+    ) == CheckpointOutcome.CANCELLED_DISCARDED
+
+
+def test_expired_result_is_late_and_heartbeat_extends_current_lease(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    _project, stage_id, _workflows = create_ready_stage(repository, postgres_engine)
+    clock = [datetime(2026, 8, 21, tzinfo=UTC)]
+    execution = PostgresStageExecutionRepository(postgres_engine, now=lambda: clock[0])
+    lease = execution.claim(stage_run_id=stage_id, worker_id="worker-1")
+    assert lease is not None
+    clock[0] += timedelta(seconds=15)
+    assert execution.heartbeat(stage_run_id=stage_id, lease_token=lease.lease_token)
+    clock[0] += timedelta(seconds=46)
+    assert not execution.heartbeat(stage_run_id=stage_id, lease_token=lease.lease_token)
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=lease.lease_token,
+        input_digest=lease.input_digest,
+        result={"must": "not persist"},
+    ) == CheckpointOutcome.LATE_DISCARDED
+    with postgres_engine.connect() as connection:
+        status, result = connection.execute(
+            text("SELECT status, result_json FROM stage_runs WHERE stage_run_id=:id"),
+            {"id": stage_id},
+        ).one()
+    assert (status, result) == ("RUNNING", None)
+
+
+@pytest.mark.parametrize(
+    ("column", "replacement"),
+    [
+        ("workflow_generation", 99),
+        ("state_version", 99),
+        ("founder_snapshot_id", "changed-founder"),
+        ("area_snapshot_id", "changed-area"),
+        ("evidence_snapshot_id", "changed-evidence"),
+        ("policy_snapshot_id", "changed-policy"),
+        ("index_generation_id", "changed-index"),
+        ("seed_registry_id", "changed-seed"),
+    ],
+)
+def test_each_full_head_dimension_blocks_checkpoint(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+    column: str,
+    replacement: object,
+) -> None:
+    _project, stage_id, _workflows = create_ready_stage(repository, postgres_engine)
+    execution = PostgresStageExecutionRepository(postgres_engine)
+    lease = execution.claim(stage_run_id=stage_id, worker_id="worker-1")
+    assert lease is not None
+    allowed_columns = {
+        "workflow_generation", "state_version", "founder_snapshot_id", "area_snapshot_id",
+        "evidence_snapshot_id", "policy_snapshot_id", "index_generation_id", "seed_registry_id",
+    }
+    assert column in allowed_columns
+    with postgres_engine.begin() as connection:
+        connection.execute(
+            text(f"UPDATE project_heads SET {column}=:value"),
+            {"value": replacement},
+        )
+
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=lease.lease_token,
+        input_digest=lease.input_digest,
+        result={"must": "not persist"},
+    ) == CheckpointOutcome.STALE_DISCARDED
+    with postgres_engine.connect() as connection:
+        row = connection.execute(
+            text("SELECT status, result_json FROM stage_runs WHERE stage_run_id=:id"),
+            {"id": stage_id},
+        ).one()
+    assert row == ("RUNNING", None)
+
+
+def test_outbox_claim_recovery_is_at_least_once_and_token_fenced(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    create_ready_stage(repository, postgres_engine)
+    clock = [datetime(2026, 8, 21, tzinfo=UTC)]
+    tokens = iter(["claim-old", "claim-new"])
+    outbox = PostgresOutboxRepository(
+        postgres_engine,
+        now=lambda: clock[0],
+        new_token=lambda: next(tokens),
+    )
+    old = outbox.claim_next(publisher_id="publisher-1")
+    assert old is not None
+    assert outbox.claim_next(publisher_id="publisher-2") is None
+    clock[0] += timedelta(seconds=46)
+    new = outbox.claim_next(publisher_id="publisher-2")
+    assert new is not None
+    assert new.outbox_id == old.outbox_id
+    assert not outbox.mark_published(
+        outbox_id=old.outbox_id,
+        claim_token=old.claim_token,
+        pubsub_message_id="old-message",
+    )
+    assert outbox.mark_published(
+        outbox_id=new.outbox_id,
+        claim_token=new.claim_token,
+        pubsub_message_id="new-message",
+    )
+    with postgres_engine.connect() as connection:
+        status, attempts = connection.execute(
+            text("SELECT status, attempts FROM workflow_outbox")
+        ).one()
+    assert (status, attempts) == ("PUBLISHED", 2)
