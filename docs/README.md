@@ -39,7 +39,7 @@
 | Frontend Cloud Run | 배포됨 | 현재 저장소의 `cloudbuild.yaml`과 `docs/deployment.md` 범위 |
 | 로그인·프로젝트 State | 설계됨 | 아직 구현되지 않음 |
 | 상권·프랜차이즈 데이터 | 설계·실증 중 | 전국 공통 자료와 지역별 자료의 품질이 다름 |
-| API·MCP·Agent·RAG | 로컬 계약 코어 구현 시작·production Agent 차단 | 생성 model id는 `gemini-3.7-flash`로 결정됐고 로컬 Agent·MCP·RAG 코어를 구현 중이다. GCP resource와 서울 preflight는 아직 없다 |
+| API·MCP·Agent·RAG | 로컬 코어 구현됨·production Agent 차단 | FastAPI State core와 로컬 Agent dispatcher·model adapter 경계·MCP 2026-07-28 server·RAG scope·parsing/indexing 코어가 있다. 생성 model id는 `gemini-3.7-flash`이며 GCP resource와 서울 preflight는 아직 없다 |
 | 문서 분석·재계산 | 제품 범위·미구현 | 첫 제안 통합 뒤 이어지는 필수 Slice |
 
 ## 계약 파일
