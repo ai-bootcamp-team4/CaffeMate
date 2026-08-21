@@ -473,6 +473,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0011_document_upload.sql",
             "0012_document_extraction.sql",
             "0013_document_claim_apply.sql",
+            "0014_result_decision_delta.sql",
         ]
 
 

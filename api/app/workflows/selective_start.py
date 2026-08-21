@@ -46,14 +46,31 @@ def start_selective_first_proposal(
     source_rows = connection.execute(
         text(
             """
-            SELECT stage_code, status, input_digest, result_json
-            FROM stage_runs
-            WHERE workflow_run_id=:workflow_run_id
+            SELECT stage.stage_code, stage.status, stage.input_digest, stage.result_json
+            FROM stage_runs stage
+            JOIN workflow_runs workflow
+              ON workflow.workflow_run_id=stage.workflow_run_id
+            WHERE stage.workflow_run_id=:workflow_run_id
+              AND workflow.project_id=:project_id
+              AND workflow.owner_user_id=:user_id
             """
         ),
-        {"workflow_run_id": source_workflow_run_id},
+        {
+            "workflow_run_id": source_workflow_run_id,
+            "project_id": project_id,
+            "user_id": user_id,
+        },
     ).mappings().all()
     source = {row["stage_code"]: row for row in source_rows}
+    source_result_bundle_id = connection.execute(
+        text(
+            "SELECT result_bundle_id FROM result_bundles "
+            "WHERE workflow_run_id=:workflow_run_id AND project_id=:project_id"
+        ),
+        {"workflow_run_id": source_workflow_run_id, "project_id": project_id},
+    ).scalar_one_or_none()
+    if source_result_bundle_id is None:
+        raise FeedbackPreconditionError("Selective rerun requires a committed source result")
     generation = int(project["workflow_generation"]) + 1
     founder_snapshot_id = f"{project_id}:state:{state.state_version}:founder"
     area_snapshot_id = f"{project_id}:state:{state.state_version}:area"
@@ -141,11 +158,13 @@ def start_selective_first_proposal(
                 workflow_generation, state_version, founder_snapshot_id,
                 area_snapshot_id, evidence_snapshot_id, policy_snapshot_id,
                 index_generation_id, seed_registry_id, input_digest, created_at, updated_at
+                , source_workflow_run_id, source_result_bundle_id
             ) VALUES (
                 :workflow_run_id, :project_id, :owner_user_id, 'FIRST_PROPOSAL', 'QUEUED',
                 :workflow_generation, :state_version, :founder_snapshot_id,
                 :area_snapshot_id, :evidence_snapshot_id, :policy_snapshot_id,
                 :index_generation_id, :seed_registry_id, :input_digest, :created_at, :updated_at
+                , :source_workflow_run_id, :source_result_bundle_id
             )
             """
         ),
@@ -155,6 +174,8 @@ def start_selective_first_proposal(
             "owner_user_id": user_id,
             **head.model_dump(mode="python"),
             "input_digest": input_digest,
+            "source_workflow_run_id": source_workflow_run_id,
+            "source_result_bundle_id": source_result_bundle_id,
             "created_at": now,
             "updated_at": now,
         },

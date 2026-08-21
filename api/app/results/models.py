@@ -81,7 +81,28 @@ class ResultBundle(StrictModel):
     created_at: datetime
 
 
+class CandidateDecisionDelta(StrictModel):
+    candidate_key: str
+    display_name: str | None
+    change_type: str
+    previous_rank: int | None
+    current_rank: int | None
+    previous_review_status: str | None
+    current_review_status: str | None
+    initial_cash_base_delta_krw: int | None
+    monthly_fixed_cost_base_delta_krw: int | None
+    break_even_monthly_sales_delta_krw: int | None
+
+
+class ResultDecisionDelta(StrictModel):
+    previous_result_bundle_id: str
+    current_result_bundle_id: str
+    primary_candidate_changed: bool
+    candidate_changes: list[CandidateDecisionDelta]
+
+
 class ResultView(ResultBundle):
     freshness: ResultFreshness
     stale_head_dimensions: list[str]
     current_head: HeadFence
+    decision_delta: ResultDecisionDelta | None = None

@@ -155,3 +155,9 @@ State version을 함께 잠근다. 비어 있지 않은 값만 `CONFIRMED` Claim
 State revision, Claim, conflict와 `CALCULATE_GATE_RANK`부터 시작하는 선택적 재계산 Workflow는
 하나의 PostgreSQL transaction으로 저장된다. 재계산기는 선택된 후보의 문서 Claim을 사용자 확인
 값으로 우선 사용하며, 열린 충돌이 있는 비용 항목은 `UNKNOWN`으로 처리한다.
+
+선택적 재계산 Workflow는 원본 Workflow와 원본 Result를 명시적으로 참조한다. 새 Result가
+커밋되면 API가 개인카페 모델 id 또는 프랜차이즈 브랜드 id를 안정적인 후보 식별값으로 사용해
+이전 결과와 비교한다. `GET /v1/projects/{project_id}/result`의 `decision_delta`에는 후보 추가·삭제,
+순위와 검토 상태, 초기 필요 현금·월 고정비·손익분기 매출의 변화가 포함된다. 비교할 원본 Result가
+없는 최초 결과에는 `decision_delta`가 `null`이다.

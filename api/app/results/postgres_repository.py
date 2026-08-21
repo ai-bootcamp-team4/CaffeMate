@@ -4,6 +4,7 @@ from sqlalchemy.engine import RowMapping
 from app.domain.errors import ResultNotFoundError
 from app.results.models import (
     ResultBundlePayload,
+    ResultDecisionDelta,
     ResultFreshness,
     ResultView,
 )
@@ -25,6 +26,7 @@ class PostgresResultRepository:
                            r.evidence_snapshot_id, r.policy_snapshot_id,
                            r.index_generation_id, r.seed_registry_id,
                            r.bundle_json, r.created_at,
+                           delta.delta_json,
                            h.workflow_generation AS current_workflow_generation,
                            h.state_version AS current_state_version,
                            h.founder_snapshot_id AS current_founder_snapshot_id,
@@ -38,6 +40,8 @@ class PostgresResultRepository:
                       ON r.project_id = p.project_id
                      AND r.result_bundle_id = p.current_result_bundle_id
                     JOIN project_heads h ON h.project_id = p.project_id
+                    LEFT JOIN result_decision_deltas delta
+                      ON delta.result_bundle_id=r.result_bundle_id
                     WHERE p.project_id = :project_id
                       AND p.owner_user_id = :user_id
                     """
@@ -84,6 +88,11 @@ class PostgresResultRepository:
             ),
             stale_head_dimensions=stale_dimensions,
             current_head=current_head,
+            decision_delta=(
+                ResultDecisionDelta.model_validate(row["delta_json"])
+                if row["delta_json"] is not None
+                else None
+            ),
         )
 
     @staticmethod
