@@ -658,6 +658,18 @@ def test_workflow_start_atomically_writes_run_stage_event_and_outbox(
     assert outbox["payload_json"]["workflow_run_id"] == run.workflow_run_id
     assert digest_lengths == [32, 32, 32]
 
+    progress = workflows.get_progress(
+        project_id=project.project_id,
+        workflow_run_id=run.workflow_run_id,
+        user_id="user-1",
+    )
+    assert progress.total_stage_count == 13
+    assert progress.completed_stage_count == 0
+    assert progress.current_stage_codes == ["AREA_RESOLUTION"]
+    assert progress.human_review_requests == []
+    assert progress.terminal_reason_codes == []
+    assert progress.poll_after_ms == 1500
+
 
 def test_concurrent_workflow_redelivery_returns_one_run(
     repository: PostgresProjectRepository,
@@ -818,6 +830,14 @@ def test_http_202_workflow_survives_api_instance_shutdown(
         )
         assert response.status_code == 202
         workflow_run_id = response.json()["workflow_run_id"]
+        progress = client.get(
+            f"/v1/projects/{project['project_id']}/workflows/{workflow_run_id}",
+            headers=headers,
+        )
+        assert progress.status_code == 200
+        assert progress.json()["current_stage_codes"] == ["AREA_RESOLUTION"]
+        assert progress.json()["total_stage_count"] == 13
+        assert progress.json()["poll_after_ms"] == 1500
 
     loaded = WorkflowService(
         PostgresWorkflowRepository(
@@ -1075,7 +1095,7 @@ def test_noncontinuing_stage_does_not_publish_or_persist_a_result(
     current_stage_status: str,
     other_stage_status: str,
 ) -> None:
-    project, stage_id, input_digest, _workflows = create_ready_stage(repository, postgres_engine)
+    project, stage_id, input_digest, workflows = create_ready_stage(repository, postgres_engine)
     execution = PostgresStageExecutionRepository(postgres_engine)
     lease = execution.claim(
         stage_run_id=stage_id,
@@ -1122,6 +1142,24 @@ def test_noncontinuing_stage_does_not_publish_or_persist_a_result(
     assert other_statuses == {other_stage_status}
     assert outbox_count == 1
     assert result_count == 0
+    progress = workflows.get_progress(
+        project_id=project.project_id,
+        workflow_run_id=lease.workflow_run_id,
+        user_id="user-1",
+    )
+    assert progress.poll_after_ms is None
+    if disposition == "WAITING_FOR_HUMAN":
+        assert [request.model_dump(mode="json") for request in progress.human_review_requests] == [
+            {
+                "stage_run_id": stage_id,
+                "stage_code": "AREA_RESOLUTION",
+                "reason_codes": ["AREA_SELECTION_REQUIRED"],
+            }
+        ]
+        assert progress.current_stage_codes == ["AREA_RESOLUTION"]
+    else:
+        assert progress.human_review_requests == []
+        assert progress.terminal_reason_codes == ["AREA_SELECTION_REQUIRED"]
 
 
 def test_stage_context_loads_fenced_state_and_direct_dependency_results(

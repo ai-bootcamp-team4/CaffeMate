@@ -61,3 +61,18 @@ Control API가 관리형 Agent Runtime의 `EVIDENCE_PLAN` 단계를 실행하려
 - `MCP_BASE_URL`
 - `MCP_AUDIENCE`
 - `MCP_SCOPE_HMAC_SECRET`: Secret Manager에서 주입하는 32바이트 이상의 비밀값
+
+## Workflow 진행 조회
+
+프론트엔드는 `GET /v1/projects/{project_id}/workflows/{workflow_run_id}`를 polling한다.
+응답은 기존 Workflow 식별값과 full head에 다음 정보를 함께 반환한다.
+
+- `stages`: 각 Stage의 상태, 시도 횟수, reason code와 비식별 failure code
+- `completed_stage_count`, `total_stage_count`: 화면 진행률의 결정론적 입력
+- `current_stage_codes`: 현재 `READY`, `RUNNING`, `WAITING_FOR_HUMAN`인 Stage
+- `human_review_requests`: 사용자 확인이 필요한 Stage와 reason code
+- `terminal_reason_codes`: 실패·시간 초과·기권을 설명하는 기계 판독 코드
+- `poll_after_ms`: `QUEUED` 또는 `RUNNING`일 때 다음 조회 권장 간격이며, 그 외에는 `null`
+
+프론트엔드는 Stage 이름이나 reason code로 권위 판단을 다시 계산하지 않는다. 표시 문구만
+매핑하며, 현재 결과는 별도의 `GET /v1/projects/{project_id}/result`에서 조회한다.

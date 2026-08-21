@@ -75,6 +75,33 @@ class WorkflowRun(StrictModel):
     cancelled_at: datetime | None = None
 
 
+class WorkflowStageProgress(StrictModel):
+    stage_run_id: str
+    stage_code: str
+    status: StageStatus
+    attempt: int = Field(ge=0)
+    reason_codes: list[str] = Field(default_factory=list)
+    failure_code: str | None = None
+    updated_at: datetime
+    completed_at: datetime | None = None
+
+
+class HumanReviewRequest(StrictModel):
+    stage_run_id: str
+    stage_code: str
+    reason_codes: list[str] = Field(min_length=1)
+
+
+class WorkflowProgress(WorkflowRun):
+    stages: list[WorkflowStageProgress]
+    completed_stage_count: int = Field(ge=0)
+    total_stage_count: int = Field(ge=1)
+    current_stage_codes: list[str]
+    human_review_requests: list[HumanReviewRequest]
+    terminal_reason_codes: list[str]
+    poll_after_ms: int | None = Field(default=None, ge=250, le=30000)
+
+
 class WorkflowEvent(StrictModel):
     sequence_id: int = Field(ge=1)
     workflow_run_id: str
