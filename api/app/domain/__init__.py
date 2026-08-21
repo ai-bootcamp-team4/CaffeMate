@@ -1,0 +1,1 @@
+"""Deterministic CaffeMate domain model."""
