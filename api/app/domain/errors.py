@@ -30,3 +30,11 @@ class UnauthenticatedError(DomainError):
 
 class PersistenceUnavailableError(DomainError):
     code = "PERSISTENCE_UNAVAILABLE"
+
+
+class WorkflowNotFoundError(DomainError):
+    code = "WORKFLOW_NOT_FOUND"
+
+
+class WorkflowPreconditionError(DomainError):
+    code = "WORKFLOW_PRECONDITION_FAILED"
