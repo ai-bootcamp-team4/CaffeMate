@@ -136,6 +136,7 @@ def transport_for(
 def client(
     transport: httpx2.AsyncBaseTransport,
     identity: FakeIdentityProvider | None = None,
+    **kwargs: Any,
 ) -> tuple[McpHttpClient, FakeIdentityProvider]:
     identity = identity or FakeIdentityProvider()
     signer = ScopeTokenSigner(
@@ -150,6 +151,7 @@ def client(
             identity_provider=identity,
             scope_signer=signer,
             transport=transport,
+            **kwargs,
         ),
         identity,
     )
@@ -205,6 +207,28 @@ def test_accepts_request_scoped_sse_and_preserves_partial_status() -> None:
 
     assert outcome.status == "PARTIAL"
     assert outcome.is_complete is False
+
+
+def test_generates_traceparent_when_caller_does_not_supply_one() -> None:
+    observed: list[str] = []
+
+    def inspect_request(request: httpx2.Request, _body: dict[str, Any]) -> None:
+        observed.append(request.headers["traceparent"])
+
+    mcp_client, _ = client(transport_for(inspect_request=inspect_request))
+    outcome = asyncio.run(
+        mcp_client.call_tool(
+            venture_project_id="project-1",
+            workflow_run_id="workflow-1",
+            head=head(),
+            tool_name="resolve_area",
+            arguments={"query": "수원 아주대", "country_code": "KR", "limit": 3},
+        )
+    )
+
+    assert outcome.traceparent is not None
+    assert outcome.traceparent.startswith("00-")
+    assert all(value == outcome.traceparent for value in observed)
 
 
 def test_invalid_input_is_rejected_before_identity_or_http() -> None:
@@ -264,3 +288,147 @@ def test_protocol_error_is_reported_as_safe_transport_failure() -> None:
 
     assert captured.value.mcp_code == "MCP_TRANSPORT_ERROR"
     assert "secret provider detail" not in str(captured.value)
+
+
+def test_retries_503_with_same_logical_request_id_then_succeeds() -> None:
+    tool_calls = 0
+    tool_request_ids: list[str] = []
+    sleeps: list[float] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal tool_calls
+        body = json.loads(request.content)
+        if body["method"] == "tools/call":
+            tool_calls += 1
+            tool_request_ids.append(str(body["id"]))
+            if tool_calls == 1:
+                return httpx2.Response(503)
+            response_body = rpc_response(body)
+        else:
+            response_body = list_tools_response(body)
+        return httpx2.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json=response_body,
+        )
+
+    async def record_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    mcp_client, _ = client(
+        httpx2.MockTransport(handler),
+        sleep=record_sleep,
+    )
+    outcome = call(mcp_client)
+
+    assert outcome.status == "OK"
+    assert tool_calls == 2
+    assert tool_request_ids[0] == tool_request_ids[1] == outcome.request_id
+    assert sleeps == [0.25]
+
+
+def test_429_uses_bounded_retry_after() -> None:
+    tool_calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal tool_calls
+        body = json.loads(request.content)
+        if body["method"] == "tools/call":
+            tool_calls += 1
+            if tool_calls == 1:
+                return httpx2.Response(429, headers={"Retry-After": "1.5"})
+            response_body = rpc_response(body)
+        else:
+            response_body = list_tools_response(body)
+        return httpx2.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json=response_body,
+        )
+
+    async def record_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    mcp_client, _ = client(httpx2.MockTransport(handler), sleep=record_sleep)
+    call(mcp_client)
+    assert sleeps == [1.5]
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_code"),
+    [
+        (400, "MCP_REQUEST_INVALID"),
+        (401, "MCP_UNAUTHENTICATED"),
+        (403, "MCP_FORBIDDEN"),
+    ],
+)
+def test_terminal_http_errors_are_not_retried(
+    status_code: int,
+    expected_code: str,
+) -> None:
+    calls = 0
+
+    def handler(_request: httpx2.Request) -> httpx2.Response:
+        nonlocal calls
+        calls += 1
+        return httpx2.Response(status_code)
+
+    mcp_client, _ = client(httpx2.MockTransport(handler))
+    with pytest.raises(McpClientError) as captured:
+        call(mcp_client)
+    assert captured.value.mcp_code == expected_code
+    assert calls == 1
+
+
+def test_network_error_is_retried_three_times_then_fails_safely() -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx2.ConnectError("private endpoint unavailable", request=request)
+
+    async def record_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    mcp_client, _ = client(httpx2.MockTransport(handler), sleep=record_sleep)
+    with pytest.raises(McpClientError) as captured:
+        call(mcp_client)
+    assert captured.value.mcp_code == "MCP_NETWORK_ERROR"
+    assert calls == 3
+    assert sleeps == [0.25, 0.75]
+    assert "private endpoint unavailable" not in str(captured.value)
+
+
+def test_total_timeout_budget_stops_before_retry() -> None:
+    clock = [0.0]
+    calls = 0
+
+    def handler(_request: httpx2.Request) -> httpx2.Response:
+        nonlocal calls
+        calls += 1
+        return httpx2.Response(503)
+
+    async def advance_clock(seconds: float) -> None:
+        clock[0] += seconds
+
+    mcp_client, _ = client(
+        httpx2.MockTransport(handler),
+        monotonic=lambda: clock[0],
+        sleep=advance_clock,
+    )
+    with pytest.raises(McpClientError) as captured:
+        asyncio.run(
+            mcp_client.call_tool(
+                venture_project_id="project-1",
+                workflow_run_id="workflow-1",
+                head=head(),
+                tool_name="resolve_area",
+                arguments={"query": "수원 아주대", "country_code": "KR", "limit": 3},
+                timeout_seconds=0.2,
+            )
+        )
+    assert captured.value.mcp_code == "MCP_TIMED_OUT"
+    assert calls == 1
