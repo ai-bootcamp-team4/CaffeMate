@@ -61,6 +61,7 @@ function attachEvidenceAssessAction(task: AgentTask, evidence: ReturnType<typeof
   payload.executed_actions = [{
     action_id: 'action-1',
     claim_id: 'claim-1',
+    polarity: 'SUPPORT',
     tool_name: 'get_area_profile',
     request_id: 'request-1',
     structured_result: {

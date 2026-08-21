@@ -34,6 +34,8 @@ from app.domain.errors import (
     WorkflowPreconditionError,
 )
 from app.domain.models import FounderState, Project
+from app.mcp.client import GoogleIdentityTokenProvider, McpHttpClient
+from app.mcp.scope import ScopeTokenSigner
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.projects.unavailable_repository import UnavailableProjectRepository
@@ -42,20 +44,27 @@ from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
 from app.results.unavailable_repository import UnavailableResultRepository
 from app.settings import RuntimeSettings
+from app.workflows.area_resolution import AreaMcpClient, AreaResolutionStageHandler
 from app.workflows.claim_plan import ClaimPlanStageHandler
 from app.workflows.evidence_plan import AgentRuntime, EvidencePlanStageHandler
+from app.workflows.evidence_retrieval import (
+    EvidenceMcpClient,
+    EvidenceRetrievalStageHandler,
+)
 from app.workflows.execution_repository import PostgresStageExecutionRepository
 from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import StageLease, WorkflowCode, WorkflowEvent, WorkflowRun
 from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.service import WorkflowService
 from app.workflows.stage_context import PostgresStageContextRepository
-from app.workflows.stage_router import FirstProposalStageRouter
+from app.workflows.stage_router import (
+    FirstProposalStageHandler,
+    FirstProposalStageRouter,
+)
 from app.workflows.stage_service import (
     StageExecution,
     StageExecutionService,
     UnavailableStageExecutionService,
-    UnavailableStageExecutor,
 )
 from app.workflows.unavailable_repository import UnavailableWorkflowRepository
 
@@ -88,6 +97,7 @@ def create_app(
     stage_execution_service: StageExecution | None = None,
     internal_identity_verifier: IdentityVerifier | None = None,
     agent_runtime: AgentRuntime | None = None,
+    mcp_client: AreaMcpClient | EvidenceMcpClient | None = None,
 ) -> FastAPI:
     database_handle: DatabaseHandle | None = None
     settings = RuntimeSettings.from_environment()
@@ -140,25 +150,47 @@ def create_app(
             cleanup_sink=PostgresAgentCleanupSink(database_handle.engine),
         )
 
+    configured_mcp_client = mcp_client
+    if configured_mcp_client is None and settings.has_mcp_configuration:
+        configured_mcp_client = McpHttpClient(
+            base_url=cast(str, settings.mcp_base_url),
+            audience=cast(str, settings.mcp_audience),
+            identity_provider=GoogleIdentityTokenProvider(),
+            scope_signer=ScopeTokenSigner(
+                secret=cast(str, settings.mcp_scope_hmac_secret),
+                issuer="caffemate-control-api",
+                audience="caffemate-mcp",
+            ),
+        )
+
+    stage_handlers: dict[FirstProposalStage, FirstProposalStageHandler] = {
+        FirstProposalStage.CLAIM_PLAN: ClaimPlanStageHandler(),
+    }
+    if configured_mcp_client is not None:
+        stage_handlers.update(
+            {
+                FirstProposalStage.AREA_RESOLUTION: AreaResolutionStageHandler(
+                    configured_mcp_client
+                ),
+                FirstProposalStage.EVIDENCE_RETRIEVAL: EvidenceRetrievalStageHandler(
+                    configured_mcp_client
+                ),
+            }
+        )
+    if configured_agent_runtime is not None:
+        stage_handlers[FirstProposalStage.EVIDENCE_PLAN] = EvidencePlanStageHandler(
+            configured_agent_runtime
+        )
+
     if stage_execution_service is not None:
         internal_stages = stage_execution_service
-    elif database_handle is not None and configured_agent_runtime is not None:
+    elif database_handle is not None:
         internal_stages = StageExecutionService(
             PostgresStageExecutionRepository(database_handle.engine),
             FirstProposalStageRouter(
                 PostgresStageContextRepository(database_handle.engine),
-                {
-                    FirstProposalStage.CLAIM_PLAN: ClaimPlanStageHandler(),
-                    FirstProposalStage.EVIDENCE_PLAN: EvidencePlanStageHandler(
-                        configured_agent_runtime
-                    )
-                },
+                stage_handlers,
             ),
-        )
-    elif database_handle is not None:
-        internal_stages = StageExecutionService(
-            PostgresStageExecutionRepository(database_handle.engine),
-            UnavailableStageExecutor(),
         )
     else:
         internal_stages = UnavailableStageExecutionService()

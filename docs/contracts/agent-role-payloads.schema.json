@@ -196,10 +196,11 @@
     "executedAction": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["action_id", "claim_id", "tool_name", "request_id", "structured_result"],
+      "required": ["action_id", "claim_id", "polarity", "tool_name", "request_id", "structured_result"],
       "properties": {
         "action_id": { "type": "string", "minLength": 1 },
         "claim_id": { "type": "string", "minLength": 1 },
+        "polarity": { "enum": ["SUPPORT", "COUNTER"] },
         "tool_name": {
           "enum": [
             "resolve_area",

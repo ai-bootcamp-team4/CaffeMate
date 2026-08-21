@@ -54,3 +54,10 @@ Control API가 관리형 Agent Runtime의 `EVIDENCE_PLAN` 단계를 실행하려
 - `AGENT_RUNTIME_PROJECT_ID`
 - `AGENT_RUNTIME_RESOURCE_ID`
 - `AGENT_RUNTIME_USER_HMAC_SECRET`: Secret Manager에서 주입하는 32바이트 이상의 비밀값
+
+`AREA_RESOLUTION`과 `EVIDENCE_RETRIEVAL`에서 private MCP를 호출하려면 다음 설정이 모두
+필요하다. scope 비밀값은 API와 MCP에만 주입하며 Worker나 Agent Runtime에는 주입하지 않는다.
+
+- `MCP_BASE_URL`
+- `MCP_AUDIENCE`
+- `MCP_SCOPE_HMAC_SECRET`: Secret Manager에서 주입하는 32바이트 이상의 비밀값

@@ -495,6 +495,11 @@ Control API Claim Plan
 → reducer CAS
 ```
 
+동일한 tool name·version·typed arguments 조합은 한 번만 물리 호출한다. 동일 호출을 공유한
+support·counter action은 각 `action_id`와 `polarity`를 유지하되 같은 `request_id`를 참조한다.
+개별 호출 실패는 빈 정상 결과로 바꾸지 않고 `failed_actions`에 남겨 `EVIDENCE_ASSESS`가
+자료 부족과 counter search 실패를 구분할 수 있게 한다.
+
 ### 9.2 RESULT_FEEDBACK
 
 ```text
