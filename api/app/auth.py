@@ -3,6 +3,9 @@ from typing import Protocol, cast
 
 from firebase_admin import App, auth, get_app, initialize_app
 from firebase_admin.exceptions import FirebaseError
+from google.auth.exceptions import GoogleAuthError
+from google.auth.transport.requests import Request
+from google.oauth2 import id_token
 
 from app.domain.errors import AuthenticationUnavailableError, UnauthenticatedError
 
@@ -65,4 +68,48 @@ class FirebaseIdentityVerifier:
         return cast(
             Mapping[str, object],
             auth.verify_id_token(bearer_token, app=self._app, check_revoked=True),
+        )
+
+
+class GoogleServiceIdentityVerifier:
+    """Verify a Cloud Run caller ID token and allow exactly one service account."""
+
+    def __init__(
+        self,
+        *,
+        audience: str,
+        allowed_service_account_email: str,
+        decode_token: Callable[[str, str], Mapping[str, object]] | None = None,
+    ) -> None:
+        if not audience or not allowed_service_account_email:
+            raise ValueError("Internal audience and worker service account email are required")
+        self._audience = audience
+        self._allowed_email = allowed_service_account_email
+        self._decode_token = decode_token or self._decode_with_google_auth
+
+    def verify(self, bearer_token: str) -> str:
+        if not bearer_token:
+            raise UnauthenticatedError("Service identity token is empty")
+        try:
+            claims = self._decode_token(bearer_token, self._audience)
+        except ValueError:
+            raise UnauthenticatedError("Service identity token is invalid") from None
+        except GoogleAuthError:
+            raise AuthenticationUnavailableError("Service identity verification failed") from None
+
+        email = claims.get("email")
+        verified = claims.get("email_verified")
+        if email != self._allowed_email or verified is not True:
+            raise UnauthenticatedError("Caller service identity is not allowed")
+        return self._allowed_email
+
+    @staticmethod
+    def _decode_with_google_auth(token: str, audience: str) -> Mapping[str, object]:
+        return cast(
+            Mapping[str, object],
+            id_token.verify_oauth2_token(  # type: ignore[no-untyped-call]
+                token,
+                Request(),
+                audience=audience,
+            ),
         )

@@ -38,3 +38,11 @@ class WorkflowNotFoundError(DomainError):
 
 class WorkflowPreconditionError(DomainError):
     code = "WORKFLOW_PRECONDITION_FAILED"
+
+
+class StageLeaseRejectedError(DomainError):
+    code = "STAGE_LEASE_REJECTED"
+
+
+class ExternalExecutionUnavailableError(DomainError):
+    code = "EXTERNAL_EXECUTION_UNAVAILABLE"

@@ -12,6 +12,8 @@ class RuntimeSettings:
     database_name: str | None
     cloud_sql_ip_type: str
     policy_snapshot_id: str | None
+    control_api_audience: str | None
+    worker_service_account_email: str | None
 
     @classmethod
     def from_environment(cls) -> "RuntimeSettings":
@@ -25,6 +27,8 @@ class RuntimeSettings:
             database_name=os.getenv("DB_NAME"),
             cloud_sql_ip_type=os.getenv("CLOUD_SQL_IP_TYPE", "PRIVATE"),
             policy_snapshot_id=os.getenv("CAFFEMATE_POLICY_SNAPSHOT_ID"),
+            control_api_audience=os.getenv("CONTROL_API_AUDIENCE"),
+            worker_service_account_email=os.getenv("WORKER_SERVICE_ACCOUNT_EMAIL"),
         )
 
     @property

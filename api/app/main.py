@@ -6,15 +6,22 @@ from fastapi import Depends, FastAPI, Header, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
-from app.auth import FirebaseIdentityVerifier, IdentityVerifier, UnconfiguredIdentityVerifier
+from app.auth import (
+    FirebaseIdentityVerifier,
+    GoogleServiceIdentityVerifier,
+    IdentityVerifier,
+    UnconfiguredIdentityVerifier,
+)
 from app.database import DatabaseHandle, create_database_handle
 from app.domain.errors import (
     AuthenticationUnavailableError,
     ContractValidationError,
     DomainError,
+    ExternalExecutionUnavailableError,
     IdempotencyKeyReusedError,
     PersistenceUnavailableError,
     ProjectNotFoundError,
+    StageLeaseRejectedError,
     StateVersionConflictError,
     UnauthenticatedError,
     WorkflowNotFoundError,
@@ -25,9 +32,16 @@ from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.projects.unavailable_repository import UnavailableProjectRepository
 from app.settings import RuntimeSettings
-from app.workflows.models import WorkflowCode, WorkflowEvent, WorkflowRun
+from app.workflows.execution_repository import PostgresStageExecutionRepository
+from app.workflows.models import StageLease, WorkflowCode, WorkflowEvent, WorkflowRun
 from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.service import WorkflowService
+from app.workflows.stage_service import (
+    StageExecution,
+    StageExecutionService,
+    UnavailableStageExecutionService,
+    UnavailableStageExecutor,
+)
 from app.workflows.unavailable_repository import UnavailableWorkflowRepository
 
 
@@ -40,11 +54,23 @@ class ConfirmOnboardingRequest(BaseModel):
     founder: FounderState
 
 
+class StageExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease: StageLease
+
+
+class StageExecuteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    result: dict[str, object]
+
+
 def create_app(
     *,
     project_service: ProjectService | None = None,
     workflow_service: WorkflowService | None = None,
     identity_verifier: IdentityVerifier | None = None,
+    stage_execution_service: StageExecution | None = None,
+    internal_identity_verifier: IdentityVerifier | None = None,
 ) -> FastAPI:
     database_handle: DatabaseHandle | None = None
     settings = RuntimeSettings.from_environment()
@@ -73,12 +99,32 @@ def create_app(
     else:
         workflows = workflow_service
 
+    if stage_execution_service is not None:
+        internal_stages = stage_execution_service
+    elif database_handle is not None:
+        internal_stages = StageExecutionService(
+            PostgresStageExecutionRepository(database_handle.engine),
+            UnavailableStageExecutor(),
+        )
+    else:
+        internal_stages = UnavailableStageExecutionService()
+
     if identity_verifier is not None:
         verifier = identity_verifier
     elif settings.firebase_project_id:
         verifier = FirebaseIdentityVerifier(project_id=settings.firebase_project_id)
     else:
         verifier = UnconfiguredIdentityVerifier()
+
+    if internal_identity_verifier is not None:
+        worker_verifier = internal_identity_verifier
+    elif settings.control_api_audience and settings.worker_service_account_email:
+        worker_verifier = GoogleServiceIdentityVerifier(
+            audience=settings.control_api_audience,
+            allowed_service_account_email=settings.worker_service_account_email,
+        )
+    else:
+        worker_verifier = UnconfiguredIdentityVerifier()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -110,12 +156,38 @@ def create_app(
             UnauthenticatedError: status.HTTP_401_UNAUTHORIZED,
             WorkflowNotFoundError: status.HTTP_404_NOT_FOUND,
             WorkflowPreconditionError: status.HTTP_409_CONFLICT,
+            StageLeaseRejectedError: status.HTTP_409_CONFLICT,
+            ExternalExecutionUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
         }.get(type(error), status.HTTP_400_BAD_REQUEST)
         return JSONResponse(status_code=status_code, content={"code": error.code})
 
     @app.get("/healthz", tags=["operations"])
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.post(
+        "/internal/v1/workflows/{workflow_run_id}/stages/{stage_run_id}:execute",
+        response_model=StageExecuteResponse,
+        tags=["internal"],
+    )
+    def execute_stage(
+        workflow_run_id: str,
+        stage_run_id: str,
+        request: StageExecuteRequest,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> StageExecuteResponse:
+        if authorization is None:
+            raise UnauthenticatedError("Worker service identity token is required")
+        scheme, separator, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not separator or not token.strip():
+            raise UnauthenticatedError("Worker service identity token is required")
+        worker_verifier.verify(token.strip())
+        result = internal_stages.execute(
+            workflow_run_id=workflow_run_id,
+            stage_run_id=stage_run_id,
+            lease=request.lease,
+        )
+        return StageExecuteResponse(result=result)
 
     @app.post("/v1/projects", response_model=Project, status_code=status.HTTP_201_CREATED)
     def create_project(

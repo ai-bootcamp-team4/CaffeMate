@@ -603,6 +603,26 @@ def test_expired_stage_lease_is_reclaimed_and_old_worker_cannot_checkpoint(
     ) == CheckpointOutcome.DUPLICATE_DISCARDED
 
 
+def test_internal_stage_authorization_requires_exact_live_lease(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    _project, stage_id, input_digest, _workflows = create_ready_stage(repository, postgres_engine)
+    clock = [datetime(2026, 8, 21, tzinfo=UTC)]
+    execution = PostgresStageExecutionRepository(postgres_engine, now=lambda: clock[0])
+    lease = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-1",
+        expected_input_digest=input_digest,
+    )
+    assert lease is not None
+
+    assert execution.authorize(lease)
+    assert not execution.authorize(lease.model_copy(update={"lease_token": "forged-token"}))
+    clock[0] += timedelta(seconds=46)
+    assert not execution.authorize(lease)
+
+
 def test_cancelled_and_timed_out_results_are_never_checkpointed(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
