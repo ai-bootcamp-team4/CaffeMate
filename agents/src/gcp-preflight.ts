@@ -1,8 +1,11 @@
 import {
   buildOfficialMetadataFilter,
   buildVertexRagRequest,
+  buildVertexRankingRequest,
   parseVertexRagContexts,
+  parseVertexRankingResponse,
   vertexRagEndpoint,
+  vertexRankingEndpoint,
 } from '../../rag/src/vertex-rag-backend'
 import { GCP_LOCATIONS, TASK_REGISTRY } from './registry'
 import { AGENT_RUNTIME_CLASS_METHODS } from './runtime-contract'
@@ -13,7 +16,6 @@ import {
 } from './vertex-generation-contract'
 
 const RUNTIME_DISPLAY_NAME = 'caffemate-agents'
-const INVALID_RANKER_CONTROL_ID = 'caffemate-invalid-ranker-negative-control'
 const GENERATION_PREFLIGHT_MAX_OUTPUT_TOKENS = Math.max(
   ...Object.values(TASK_REGISTRY).map((registration) => registration.maxOutputTokens),
 )
@@ -535,42 +537,67 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
   } else if (activeRagFileCount === 0) {
     checks.push(fail('reranker', 'RERANKER_BLOCKED_BY_EMPTY_CORPUS'))
   } else {
-    const rerankerRequest = (rankerId: string) => buildVertexRagRequest({
-      ragCorpus: ragCorpusResource,
-      query: '커피전문점 영업신고',
-      topK: 2,
-      rankerId,
-      ...(metadataFilter ? { metadataFilter } : {}),
-    })
-    const rerankerResponse = await request(fetchImpl, token, retrievalEndpoint, {
+    const rerankRetrievalResponse = await request(fetchImpl, token, retrievalEndpoint, {
       method: 'POST',
-      body: JSON.stringify(rerankerRequest(options.ragPin.rerankerId)),
+      body: JSON.stringify(buildVertexRagRequest({
+        ragCorpus: ragCorpusResource,
+        query: '커피전문점 영업신고',
+        topK: 2,
+        ...(metadataFilter ? { metadataFilter } : {}),
+      })),
     })
-    if (!rerankerResponse.ok) {
-      checks.push(fail('reranker', 'RERANKER_PREFLIGHT_FAILED', `HTTP ${rerankerResponse.status}`))
+    if (!rerankRetrievalResponse.ok) {
+      checks.push(fail('reranker', 'RERANKER_RETRIEVAL_FAILED', `HTTP ${rerankRetrievalResponse.status}`))
     } else {
-      const parsed = parsePreflightContexts(await rerankerResponse.json(), preflightSource, 2)
-      if (!parsed.ok) {
-        checks.push(fail('reranker', 'RERANKER_RESPONSE_INVALID', parsed.detail))
+      let contexts: ReturnType<typeof parseVertexRagContexts>
+      try {
+        contexts = parseVertexRagContexts(await rerankRetrievalResponse.json())
+      } catch (error) {
+        checks.push(fail(
+          'reranker',
+          'RERANKER_RETRIEVAL_RESPONSE_INVALID',
+          error instanceof Error ? error.message : String(error),
+        ))
+        contexts = []
+      }
+      if (contexts.length === 0) {
+        if (!checks.some((check) => check.name === 'reranker')) {
+          checks.push(fail('reranker', 'RERANKER_RETRIEVAL_RESPONSE_INVALID', 'no contexts returned'))
+        }
+      } else if (contexts.length > 2 || contexts.some((context) => !contextMatchesSourcePin(context, preflightSource))) {
+        checks.push(fail(
+          'reranker',
+          'RERANKER_RETRIEVAL_RESPONSE_INVALID',
+          contexts.length > 2 ? `returned ${contexts.length} contexts for topK 2` : 'context escaped the pinned source URI or RagFile',
+        ))
       } else {
-        const invalidControl = await request(fetchImpl, token, retrievalEndpoint, {
-          method: 'POST',
-          body: JSON.stringify(rerankerRequest(INVALID_RANKER_CONTROL_ID)),
-        })
-        if (invalidControl.ok) {
-          checks.push(fail(
-            'reranker',
-            'RERANKER_INVALID_MODEL_ACCEPTED',
-            'invalid negative-control ranker returned HTTP 2xx',
-          ))
-        } else if (invalidControl.status !== 400) {
-          checks.push(fail(
-            'reranker',
-            'RERANKER_CONTROL_INCONCLUSIVE',
-            `invalid negative-control ranker returned HTTP ${invalidControl.status}`,
-          ))
+        const rankingResponse = await request(
+          fetchImpl,
+          token,
+          vertexRankingEndpoint(options.projectId, options.ragRegion),
+          {
+            method: 'POST',
+            headers: { 'X-Goog-User-Project': options.projectId },
+            body: JSON.stringify(buildVertexRankingRequest({
+              modelId: options.ragPin.rerankerId,
+              query: '커피전문점 영업신고',
+              contexts,
+            })),
+          },
+        )
+        if (!rankingResponse.ok) {
+          checks.push(fail('reranker', 'RERANKER_PREFLIGHT_FAILED', `HTTP ${rankingResponse.status}`))
         } else {
-          checks.push(pass('reranker', 'RERANKER_PREFLIGHT_OK', options.ragPin.rerankerId))
+          try {
+            parseVertexRankingResponse(await rankingResponse.json(), contexts)
+            checks.push(pass('reranker', 'RERANKER_PREFLIGHT_OK', options.ragPin.rerankerId))
+          } catch (error) {
+            checks.push(fail(
+              'reranker',
+              'RERANKER_RESPONSE_INVALID',
+              error instanceof Error ? error.message : String(error),
+            ))
+          }
         }
       }
     }

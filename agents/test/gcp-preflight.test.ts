@@ -11,7 +11,6 @@ const RAG_CORPUS_RESOURCE = `projects/${PROJECT_ID}/locations/${RAG_REGION}/ragC
 const RAG_FILE_RESOURCE = `${RAG_CORPUS_RESOURCE}/ragFiles/5769839172015160639`
 const RAG_SOURCE_URI = 'gs://proj-aj20-211200020328-caffemate-grounding/official/easylaw/coffee-business-registration/2026-08-22/source.html'
 const RAG_SOURCE_GENERATION = '1787329995006379'
-const INVALID_RANKER_ID = 'caffemate-invalid-ranker-negative-control'
 const SECOND_RAG_FILE_RESOURCE = `${RAG_CORPUS_RESOURCE}/ragFiles/5769839172015160640`
 const SECOND_RAG_SOURCE_URI = 'gs://proj-aj20-211200020328-caffemate-grounding/official/easylaw/coffee-business-registration/2026-08-22/source-2.html'
 const SECOND_RAG_SOURCE_GENERATION = '1787329995006380'
@@ -59,13 +58,9 @@ function successfulFetch() {
     }
     if (url.endsWith(':retrieveContexts')) {
       const body = JSON.parse(String(init?.body)) as {
-        query?: { ragRetrievalConfig?: { ranking?: { rankService?: { modelName?: string } } } }
+        query?: { ragRetrievalConfig?: { ranking?: unknown } }
       }
-      const rankerModel = body.query?.ragRetrievalConfig?.ranking?.rankService?.modelName
-      if (rankerModel === INVALID_RANKER_ID) {
-        return Response.json({ error: { message: 'invalid ranker' } }, { status: 400 })
-      }
-      if (rankerModel) expect(rankerModel).toBe('semantic-ranker-default-004')
+      expect(body.query?.ragRetrievalConfig?.ranking).toBeUndefined()
       return Response.json({
         contexts: {
           contexts: [{
@@ -76,6 +71,27 @@ function successfulFetch() {
             score: 0.1,
           }],
         },
+      })
+    }
+    if (url.endsWith('/rankingConfigs/default_ranking_config:rank')) {
+      expect(url).toBe(
+        `https://discoveryengine.googleapis.com/v1/projects/${PROJECT_ID}/locations/${RAG_REGION}/rankingConfigs/default_ranking_config:rank`,
+      )
+      expect(new Headers(init?.headers).get('X-Goog-User-Project')).toBe(PROJECT_ID)
+      const body = JSON.parse(String(init?.body)) as {
+        model?: string
+        query?: string
+        records?: Array<{ id?: string; title?: string; content?: string }>
+        topN?: number
+      }
+      expect(body).toEqual({
+        model: 'semantic-ranker-default-004',
+        query: '커피전문점 영업신고',
+        records: [{ id: 'context-0', title: 'source.html', content: '영업신고' }],
+        topN: 1,
+      })
+      return Response.json({
+        records: [{ id: 'context-0', title: 'source.html', content: '영업신고', score: 0.91 }],
       })
     }
     if (url.includes(`${MODEL_ID}:generateContent`)) {
@@ -193,6 +209,9 @@ describe('GCP deployment preflight', () => {
     expect(urls.filter((url) => url.includes('/ragCorpora/') || url.endsWith(':retrieveContexts')).every((url) => url.includes(RAG_REGION))).toBe(true)
     expect(urls.some((url) => url.includes('/ragCorpora?'))).toBe(false)
     expect(urls.filter((url) => url.endsWith(':retrieveContexts')).every((url) => url.includes('/v1beta1/'))).toBe(true)
+    expect(urls).toContain(
+      `https://discoveryengine.googleapis.com/v1/projects/${PROJECT_ID}/locations/${RAG_REGION}/rankingConfigs/default_ranking_config:rank`,
+    )
   })
 
   it('exercises the production metadata filter on strict v1beta1 retrieval', async () => {
@@ -240,15 +259,12 @@ describe('GCP deployment preflight', () => {
     }))
   })
 
-  it('fails reranker verification when an intentionally invalid ranker is also accepted', async () => {
+  it('fails reranker verification when the explicit Seoul Ranking API is unavailable', async () => {
     const fetchImpl = successfulFetch()
     const base = fetchImpl.getMockImplementation()
     fetchImpl.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
-      if (String(input).endsWith(':retrieveContexts')) {
-        const body = JSON.parse(String(init?.body)) as { query?: { ragRetrievalConfig?: { ranking?: { rankService?: { modelName?: string } } } } }
-        if (body.query?.ragRetrievalConfig?.ranking?.rankService?.modelName === INVALID_RANKER_ID) {
-          return Response.json({ contexts: { contexts: [{ sourceUri: RAG_SOURCE_URI, sourceDisplayName: 'source.html', text: '영업신고', chunk: { fileId: '5769839172015160639', chunkId: 'chunk-1' }, score: 0.1 }] } })
-        }
+      if (String(input).endsWith('/rankingConfigs/default_ranking_config:rank')) {
+        return Response.json({ error: { message: 'ranking unavailable' } }, { status: 503 })
       }
       if (!base) throw new Error('missing base fetch implementation')
       return base(input, init)
@@ -259,7 +275,30 @@ describe('GCP deployment preflight', () => {
     expect(result.checks).toContainEqual(expect.objectContaining({
       name: 'reranker',
       ok: false,
-      code: 'RERANKER_INVALID_MODEL_ACCEPTED',
+      code: 'RERANKER_PREFLIGHT_FAILED',
+      detail: 'HTTP 503',
+    }))
+  })
+
+  it('fails reranker verification when the Ranking API response cannot be bound to retrieved contexts', async () => {
+    const fetchImpl = successfulFetch()
+    const base = fetchImpl.getMockImplementation()
+    fetchImpl.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).endsWith('/rankingConfigs/default_ranking_config:rank')) {
+        return Response.json({
+          records: [{ id: 'wrong-id', title: 'source.html', content: '영업신고', score: 0.91 }],
+        })
+      }
+      if (!base) throw new Error('missing base fetch implementation')
+      return base(input, init)
+    })
+
+    const result = await runGcpPreflight(options(fetchImpl))
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'reranker',
+      ok: false,
+      code: 'RERANKER_RESPONSE_INVALID',
     }))
   })
 
@@ -515,18 +554,12 @@ describe('GCP deployment preflight', () => {
     }))
   })
 
-  it('fails closed when the pinned reranker cannot run through the Seoul RAG endpoint', async () => {
+  it('fails closed when the pinned reranker cannot run through the Seoul Ranking API', async () => {
     const fetchImpl = successfulFetch()
     const baseImplementation = fetchImpl.getMockImplementation()
     fetchImpl.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input)
-      if (url.endsWith(':retrieveContexts')) {
-        const body = JSON.parse(String(init?.body)) as {
-          query?: { ragRetrievalConfig?: { ranking?: unknown } }
-        }
-        if (body.query?.ragRetrievalConfig?.ranking) {
-          return Response.json({ error: { message: 'ranker unavailable' } }, { status: 503 })
-        }
+      if (String(input).endsWith('/rankingConfigs/default_ranking_config:rank')) {
+        return Response.json({ error: { message: 'ranker unavailable' } }, { status: 503 })
       }
       if (!baseImplementation) throw new Error('missing base fetch implementation')
       return baseImplementation(input, init)
@@ -541,7 +574,9 @@ describe('GCP deployment preflight', () => {
       code: 'RERANKER_PREFLIGHT_FAILED',
       detail: 'HTTP 503',
     }))
-    expect(fetchImpl.mock.calls.some(([input]) => String(input).includes('discoveryengine.googleapis.com'))).toBe(false)
+    expect(fetchImpl.mock.calls.some(([input]) => String(input).includes(
+      `/locations/${RAG_REGION}/rankingConfigs/default_ranking_config:rank`,
+    ))).toBe(true)
   })
 
   it('keeps the Agent path blocked and makes no generation request before a model is approved', async () => {

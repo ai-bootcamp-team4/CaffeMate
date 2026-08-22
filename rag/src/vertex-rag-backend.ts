@@ -90,7 +90,6 @@ export interface VertexRagRequestSpec {
   ragFileIds?: readonly string[]
   query: string
   topK: number
-  rankerId?: string
   metadataFilter?: string
 }
 
@@ -107,7 +106,6 @@ export function buildVertexRagRequest(spec: VertexRagRequestSpec): Record<string
       text: spec.query,
       ragRetrievalConfig: {
         topK: spec.topK,
-        ...(spec.rankerId ? { ranking: { rankService: { modelName: spec.rankerId } } } : {}),
         ...(spec.metadataFilter ? { filter: { metadataFilter: spec.metadataFilter } } : {}),
       },
     },
@@ -126,6 +124,67 @@ export function buildOfficialMetadataFilter(sourceFamilies: readonly string[], a
 
 export function parseVertexRagContexts(payload: unknown): VertexRagContext[] {
   return rawVertexRagContexts(payload).map(normalizeVertexRagContext)
+}
+
+export interface VertexRankingRequestSpec {
+  modelId: string
+  query: string
+  contexts: readonly VertexRagContext[]
+}
+
+export function vertexRankingEndpoint(projectId: string, region: string): string {
+  return `https://discoveryengine.googleapis.com/v1/projects/${projectId}/locations/${region}/rankingConfigs/default_ranking_config:rank`
+}
+
+export function buildVertexRankingRequest(spec: VertexRankingRequestSpec): Record<string, unknown> {
+  return {
+    model: spec.modelId,
+    query: spec.query,
+    records: spec.contexts.map((context, index) => ({
+      id: `context-${index}`,
+      title: context.sourceDisplayName,
+      content: context.text,
+    })),
+    topN: spec.contexts.length,
+  }
+}
+
+export function parseVertexRankingResponse(
+  payload: unknown,
+  contexts: readonly VertexRagContext[],
+): VertexRagContext[] {
+  const root = record(payload)
+  const rows = root?.records
+  if (!Array.isArray(rows) || rows.length !== contexts.length) {
+    throw new VertexRagError(
+      'RAG_RERANK_PROTOCOL_ERROR',
+      `Ranking API must return exactly ${contexts.length} records`,
+    )
+  }
+
+  const expectedIds = new Set(contexts.map((_context, index) => `context-${index}`))
+  const observedIds = new Set<string>()
+  return rows.map((raw) => {
+    const row = record(raw)
+    if (!row) {
+      throw new VertexRagError('RAG_RERANK_PROTOCOL_ERROR', 'Ranking API record must be an object')
+    }
+    const id = row.id
+    const score = row.score
+    if (typeof id !== 'string' || !expectedIds.has(id) || observedIds.has(id)) {
+      throw new VertexRagError('RAG_RERANK_PROTOCOL_ERROR', 'Ranking API returned an unknown or duplicate record id')
+    }
+    const index = Number(id.slice('context-'.length))
+    const source = contexts[index]
+    if (!source || typeof score !== 'number' || !Number.isFinite(score)) {
+      throw new VertexRagError('RAG_RERANK_PROTOCOL_ERROR', 'Ranking API record score must be finite')
+    }
+    if (row.title !== source.sourceDisplayName || row.content !== source.text) {
+      throw new VertexRagError('RAG_RERANK_PROTOCOL_ERROR', 'Ranking API record content differs from the requested context')
+    }
+    observedIds.add(id)
+    return { ...source, score }
+  })
 }
 
 function createRetrievalSignal(timeoutMs: number, callerSignal?: AbortSignal): {
@@ -221,7 +280,6 @@ export function createVertexRagBackend(options: VertexRagBackendOptions): RagBac
           ragFileIds: request.ragFileIds,
           query: request.query,
           topK: request.limit,
-          rankerId: RAG_RANKER.id,
           ...(metadataFilter ? { metadataFilter } : {}),
         })),
         signal: retrievalSignal.signal,
@@ -250,7 +308,46 @@ export function createVertexRagBackend(options: VertexRagBackendOptions): RagBac
           `Vertex returned ${contexts.length} contexts for requested limit ${request.limit}`,
         )
       }
-      return contexts.map((raw) => {
+
+      let rankedContexts = contexts
+      if (contexts.length > 0) {
+        const rankingResponse = await fetchImpl(vertexRankingEndpoint(options.projectId, options.region), {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'X-Goog-User-Project': options.projectId,
+          },
+          body: JSON.stringify(buildVertexRankingRequest({
+            modelId: RAG_RANKER.id,
+            query: request.query,
+            contexts,
+          })),
+          signal: retrievalSignal.signal,
+        })
+        if (!rankingResponse.ok) {
+          throw new VertexRagError(
+            'RAG_RERANK_HTTP_ERROR',
+            `Ranking API returned HTTP ${rankingResponse.status}`,
+            rankingResponse.status,
+          )
+        }
+        let rankingPayload: unknown
+        try {
+          rankingPayload = await rankingResponse.json()
+        } catch (error) {
+          if (retrievalSignal.timedOut()) {
+            throw new VertexRagError('RAG_TIMEOUT', `RAG retrieval exceeded ${timeoutMs}ms deadline`)
+          }
+          if (request.signal?.aborted) {
+            throw new VertexRagError('RAG_CANCELLED', 'retrieveContexts was cancelled by the caller')
+          }
+          throw new VertexRagError('RAG_RERANK_PROTOCOL_ERROR', `Ranking API returned invalid JSON: ${String(error)}`)
+        }
+        rankedContexts = parseVertexRankingResponse(rankingPayload, contexts)
+      }
+
+      return rankedContexts.map((raw) => {
         const context = raw
         const mapped = options.mapContext(context, request)
         if (!mapped) {

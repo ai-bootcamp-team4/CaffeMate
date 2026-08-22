@@ -24,7 +24,7 @@ Proposal Agent를 포함한 5-Agent 구조와 결정론적 Core를 유지하면�
 | Embedding | RAG corpus 생성 시 pin하며 서울 import·retrieval read-back 전 사용 금지 |
 | Exact retrieval | Cloud SQL typed lookup; id·날짜·금액·단위 전용 |
 | Semantic retrieval | RAG Engine `retrieveContexts`, corpus·file·metadata scope 필수 |
-| Reranker | 서울 RAG Engine `rank_service`, `semantic-ranker-default-004` 고정; 2026-08-22 실제 rerank read-back 완료 |
+| Reranker | 서울 Vertex AI Ranking API, `semantic-ranker-default-004` 고정; 2026-08-22 `asia-northeast3` 실제 rank read-back 완료 |
 | 문서 parser | RAG Engine과 연동한 Document AI Layout Parser |
 | Orchestration | Control API가 고정 DAG 실행; Agent 간 직접 호출 금지 |
 | State write | Reducer만 허용 |
@@ -102,7 +102,7 @@ atomic Claim decomposition
 → semantic retrieval top K
 → exact typed lookup 병렬 실행
 → result fusion
-→ RAG Engine `rank_service` (`semantic-ranker-default-004`) rerank
+→ 서울 Vertex AI Ranking API (`semantic-ranker-default-004`) rerank
 → original anchor recovery
 → entailment·unit·scope·freshness validation
 → counterevidence query
@@ -117,7 +117,7 @@ atomic Claim decomposition
 - material Claim마다 예외·불가·변경·해지·유효기간과 이전 revision을 찾는 독립 counter query를 실행한다. 실패는 `COUNTER_SEARCH_FAILED`이며 반대 근거 없음으로 처리하지 않는다.
 - retrieval hit는 Evidence가 아니다. 원문 anchor·scope·freshness 검증을 통과한 결과만 `EvidenceRecord`가 된다.
 
-공식 API는 `top_k`, metadata filter, similarity threshold와 rank service를 제공한다. [RAG Engine API](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/models/rag-api), [metadata search](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/rag-engine/use-metadata-search), [reranking](https://cloud.google.com/vertex-ai/generative-ai/docs/retrieval-and-ranking)
+RAG Engine은 `top_k`, metadata filter와 similarity threshold를 제공하고, 최종 rerank는 명시적인 Vertex AI Ranking API 호출로 수행한다. [RAG Engine API](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/models/rag-api), [metadata search](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/rag-engine/use-metadata-search), [reranking](https://cloud.google.com/vertex-ai/generative-ai/docs/retrieval-and-ranking)
 
 ### Release와 실패
 
@@ -136,7 +136,7 @@ BUILDING → EVALUATING → SHADOW → ACTIVE
 2. GCS revision import와 import result sink 확인
 3. project scope를 적용한 `retrieveContexts`
 4. metadata filter
-5. 서울 `retrieveContexts`의 `rank_service=semantic-ranker-default-004` rerank
+5. 서울 `retrieveContexts` 결과를 서울 Vertex AI Ranking API의 `semantic-ranker-default-004`로 rerank
 6. cross-project retrieval 0건
 
 실패하면 `RAG_UNAVAILABLE` 또는 `BLOCKED_BY_REGION`으로 중단한다. Cloud SQL `pgvector`, `global` endpoint 또는 다른 리전으로 조용히 fallback하지 않는다. 서울 지원 상태는 [RAG Engine 지원 리전](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/rag-engine/rag-overview)에서 배포 시점마다 다시 확인한다.
@@ -586,7 +586,7 @@ Proposal Agent와 별도의 Typed Candidate Auditor를 유지한다. `candidate-
 가정과 확정사항:
 
 - Agent는 `asia-northeast3` managed Agent Runtime에서 실행한다.
-- 생성 endpoint는 `global`의 `gemini-3.7-flash`로 고정하고, embedding과 RAG Engine `rank_service` reranker는 `asia-northeast3`로 고정한다. reranker model id는 `semantic-ranker-default-004`이며 어느 경로도 다른 위치로 fallback하지 않는다.
+- 생성 endpoint는 `global`의 `gemini-3.7-flash`로 고정하고, embedding과 Vertex AI Ranking API reranker는 `asia-northeast3`로 고정한다. reranker model id는 `semantic-ranker-default-004`이며 어느 경로도 다른 위치로 fallback하지 않는다.
 - Control API가 Agent Runtime을 직접 호출하며 별도 Cloud Run Agent Gateway와 managed Agent Gateway를 사용하지 않는다.
 - RAG Engine은 서울에서 Preview이지만 Advanced RAG의 운영 필수 검색 계층으로 사용한다. 이 위험은 승인됐으며 실제 corpus 생성·import·retrieval·rerank preflight를 통과해야 한다.
 - Reranker 관련성 점수는 Evidence 신뢰도나 후보 순위가 아니다.
