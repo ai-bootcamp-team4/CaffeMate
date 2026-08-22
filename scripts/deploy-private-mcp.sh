@@ -28,6 +28,8 @@ api_sa="caffemate-api-runtime@${project_id}.iam.gserviceaccount.com"
 
 gcloud projects add-iam-policy-binding "$project_id" \
   --member="serviceAccount:${runtime_sa}" --role='roles/aiplatform.user' --quiet >/dev/null
+gcloud projects add-iam-policy-binding "$project_id" \
+  --member="serviceAccount:${runtime_sa}" --role='roles/discoveryengine.viewer' --quiet >/dev/null
 
 if ! gcloud artifacts docker images describe "$tagged_image" --project="$project_id" >/dev/null 2>&1; then
   gcloud builds submit . --project="$project_id" --region="$region" \

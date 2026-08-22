@@ -40,6 +40,8 @@ assert f"serviceAccount:{api_sa}" in members
 assert all(m == f"serviceAccount:{api_sa}" for m in members)
 vertex_members = {m for b in project_policy.get("bindings", []) if b["role"] == "roles/aiplatform.user" for m in b.get("members", [])}
 assert f"serviceAccount:{mcp_sa}" in vertex_members
+ranking_members = {m for b in project_policy.get("bindings", []) if b["role"] == "roles/discoveryengine.viewer" for m in b.get("members", [])}
+assert f"serviceAccount:{mcp_sa}" in ranking_members
 print("MCP_DEPLOYMENT_CONTRACT_OK")
 PY
 
