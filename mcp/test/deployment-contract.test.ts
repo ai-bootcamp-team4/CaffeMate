@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const deploy = readFileSync(join(process.cwd(), 'scripts/deploy-private-mcp.sh'), 'utf8')
+const buildPreflight = readFileSync(join(process.cwd(), 'scripts/build-agent-gcp-preflight.sh'), 'utf8')
 const verify = readFileSync(join(process.cwd(), 'scripts/verify-private-mcp.sh'), 'utf8')
 const dockerfile = readFileSync(join(process.cwd(), 'deploy/mcp.Dockerfile'), 'utf8')
 const cloudbuild = readFileSync(join(process.cwd(), 'cloudbuild.mcp-image.yaml'), 'utf8')
@@ -19,7 +20,9 @@ describe('private MCP deployment IAM contract', () => {
     expect(verify).toContain('caffemateMcpRetriever')
     expect(verify).toContain('aiplatform.ragCorpora.get')
     expect(verify).toContain('aiplatform.ragFiles.get')
-    expect(deploy).toContain('_SOURCE_REVISION=${source_revision}')
+    expect(deploy).toContain('build-agent-gcp-preflight.sh')
+    expect(buildPreflight).toContain('_SOURCE_REVISION=${source_revision}')
+    expect(buildPreflight).toContain('gcloud builds submit --no-source')
     expect(verify).toContain('verified_build_id_for_image')
     expect(verify).toContain('MCP runtime identity has no prohibited effective mutation permission')
   })

@@ -95,6 +95,19 @@ identity로 provenance가 갈라지지 않게 하기 위함이다. SHA tag는 �
 태그를 차지한 뒤 재빌드로 덮어쓰는 복구 방식을 허용하지 않는다. verifier는 image digest뿐 아니라
 build identity, exact Git checkout step과 source revision을 모두 대조한다.
 
+Agent GCP preflight 이미지는 로컬 소스를 업로드하는 일반 `gcloud builds submit`으로 만들지 않는다.
+아래 build-only 스크립트만 사용한다. 이 스크립트는 깨끗한 `origin/main` SHA를 확인한 뒤
+`--no-source`로 Cloud Build를 호출하므로, Cloud Build가 GitHub의 검토된 SHA를 직접 checkout한다.
+같은 SHA tag가 일부만 존재하거나 trusted provenance 없이 이미 존재하면 덮어쓰지 않고 새 source
+revision을 요구한다. 이 단계는 MCP 서비스를 배포하지 않는다.
+
+```bash
+revision=$(git rev-parse HEAD)
+CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
+CAFFEMATE_SOURCE_REVISION="$revision" \
+  ./scripts/build-agent-gcp-preflight.sh
+```
+
 ```bash
 revision=$(git rev-parse HEAD)
 CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \

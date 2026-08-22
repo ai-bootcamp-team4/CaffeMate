@@ -60,27 +60,10 @@ gcloud projects add-iam-policy-binding "$project_id" \
 remove_project_role_binding "serviceAccount:${runtime_sa}" 'roles/aiplatform.user'
 remove_project_role_binding "serviceAccount:${runtime_sa}" 'roles/discoveryengine.viewer'
 
-build_id=''
-preflight_build_id=''
-if gcloud artifacts docker images describe "$tagged_image" --project="$project_id" >/dev/null 2>&1 \
-  && gcloud artifacts docker images describe "$preflight_tagged_image" --project="$project_id" >/dev/null 2>&1; then
-  image=$(gcloud artifacts docker images describe "$tagged_image" \
-    --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
-  preflight_image=$(gcloud artifacts docker images describe "$preflight_tagged_image" \
-    --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
-  digest=${image##*@}
-  preflight_digest=${preflight_image##*@}
-  build_id=$(verified_build_id_for_image \
-    "$tagged_image" "$digest" "$source_revision" "$build_sa" 2>/dev/null || true)
-  preflight_build_id=$(verified_build_id_for_image \
-    "$preflight_tagged_image" "$preflight_digest" "$source_revision" "$build_sa" 2>/dev/null || true)
-fi
-if [ -z "$build_id" ] || [ -z "$preflight_build_id" ] || [ "$build_id" != "$preflight_build_id" ]; then
-  gcloud builds submit --no-source --project="$project_id" --region="$region" \
-    --config=cloudbuild.mcp-image.yaml \
-    --substitutions="_IMAGE_TAG=${source_revision},_SOURCE_REVISION=${source_revision}" \
-    --service-account="$build_sa" --quiet
-fi
+CAFFEMATE_GCP_PROJECT_ID="$project_id" \
+CAFFEMATE_GCP_REGION="$region" \
+CAFFEMATE_SOURCE_REVISION="$source_revision" \
+  "$(dirname "$0")/build-agent-gcp-preflight.sh"
 image=$(gcloud artifacts docker images describe "$tagged_image" --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
 preflight_image=$(gcloud artifacts docker images describe "$preflight_tagged_image" --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
 case "$image" in "${region}-docker.pkg.dev/${project_id}/caffemate-backend/mcp@sha256:"*) ;; *) printf '%s\n' 'MCP image digest is unavailable' >&2; exit 1;; esac
