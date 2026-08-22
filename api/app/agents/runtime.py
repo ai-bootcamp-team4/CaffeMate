@@ -64,6 +64,52 @@ class AgentRuntimeError(ExternalExecutionUnavailableError):
         self.runtime_code = runtime_code
 
 
+def verify_agent_runtime_iam(
+    *,
+    gcp_project_id: str,
+    resource_id: str,
+    access_tokens: AccessTokenProvider,
+    location: str = "asia-northeast3",
+    transport: httpx.BaseTransport | None = None,
+) -> dict[str, Any]:
+    if location != "asia-northeast3":
+        raise ValueError("Agent Runtime location must be asia-northeast3")
+    if not gcp_project_id or not resource_id:
+        raise ValueError("Agent Runtime project and resource id are required")
+    resource = (
+        f"projects/{gcp_project_id}/locations/{location}/reasoningEngines/{resource_id}"
+    )
+    required = "aiplatform.reasoningEngines.query"
+    prohibited = {
+        "aiplatform.reasoningEngines.update",
+        "aiplatform.reasoningEngines.delete",
+    }
+    try:
+        with httpx.Client(timeout=30.0, transport=transport) as client:
+            response = client.post(
+                f"https://{location}-aiplatform.googleapis.com/v1/"
+                f"{resource}:testIamPermissions",
+                headers={"Authorization": f"Bearer {access_tokens.token()}"},
+                json={"permissions": [required, *sorted(prohibited)]},
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError) as error:
+        raise AgentRuntimeError("RUNTIME_IAM_VERIFICATION_FAILED") from error
+    granted = payload.get("permissions") if isinstance(payload, dict) else None
+    if not isinstance(granted, list) or not all(
+        isinstance(permission, str) for permission in granted
+    ):
+        raise AgentRuntimeError("RUNTIME_IAM_VERIFICATION_INVALID")
+    granted_set = set(granted)
+    if required not in granted_set:
+        raise AgentRuntimeError("RUNTIME_QUERY_PERMISSION_MISSING")
+    unexpected = sorted(granted_set & prohibited)
+    if unexpected:
+        raise AgentRuntimeError("RUNTIME_MUTATION_PERMISSION_PRESENT")
+    return {"resource": resource, "granted_permissions": sorted(granted_set)}
+
+
 class _RetryableTransportError(Exception):
     def __init__(self, runtime_code: str, *, retry_after_seconds: float | None = None) -> None:
         super().__init__(runtime_code)

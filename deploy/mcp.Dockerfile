@@ -9,6 +9,7 @@ COPY --chown=node:node agents/fixtures ./agents/fixtures
 COPY --chown=node:node agents/src ./agents/src
 COPY --chown=node:node rag/src ./rag/src
 COPY --chown=node:node mcp/src ./mcp/src
+COPY --chown=node:node deploy/runtime-iam-smoke.mjs ./deploy/runtime-iam-smoke.mjs
 USER node
 EXPOSE 8080
 CMD ["node", "--import", "tsx", "mcp/src/runtime.ts"]
