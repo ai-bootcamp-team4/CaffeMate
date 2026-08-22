@@ -7,6 +7,8 @@ substitutions:
   _SOURCE_REVISION: unset
   _REPOSITORY_URL: https://github.com/ai-bootcamp-team4/CaffeMate.git
 
+serviceAccount: projects/${PROJECT_ID}/serviceAccounts/caffemate-backend-build@${PROJECT_ID}.iam.gserviceaccount.com
+
 steps:
   - id: checkout-reviewed-source
     name: gcr.io/cloud-builders/git

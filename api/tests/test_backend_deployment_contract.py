@@ -299,6 +299,11 @@ def test_mcp_build_provenance_uses_only_reviewed_checkout() -> None:
     assert "--target, runtime" in cloudbuild
     assert "--target, release-preflight" in cloudbuild
     assert "agent-release-preflight" in cloudbuild
+    assert (
+        "serviceAccount: projects/${PROJECT_ID}/serviceAccounts/"
+        "caffemate-backend-build@${PROJECT_ID}.iam.gserviceaccount.com"
+        in cloudbuild
+    )
     assert "/workspace/source/deploy/mcp.Dockerfile" in cloudbuild
     assert cloudbuild.count("/workspace/source") >= 2
     assert "def mcp_build_shape_is_exact" in provenance
