@@ -154,13 +154,25 @@ gcloud pubsub topics add-iam-policy-binding "$topic_id" \
 
 common_database_env="INSTANCE_CONNECTION_NAME=${instance_connection_name},DB_USER=caffemate_app,DB_NAME=caffemate,CLOUD_SQL_IP_TYPE=PUBLIC"
 
+# A Cloud Run service URL is stable after creation and is the exact audience used by
+# the Worker ID token. Reuse it on normal deployments. A brand-new service needs one
+# follow-up update after Cloud Run assigns its canonical URL.
+existing_api_url=$(gcloud run services describe caffemate-api \
+  --project="$project_id" \
+  --region="$region" \
+  --format='value(status.url)' 2>/dev/null || true)
+api_audience_env=''
+if [ -n "$existing_api_url" ]; then
+  api_audience_env=",CONTROL_API_AUDIENCE=${existing_api_url}"
+fi
+
 gcloud run deploy caffemate-api \
   --project="$project_id" \
   --region="$region" \
   --image="$image" \
   --service-account="$api_sa" \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url}" \
+  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url}${api_audience_env}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest,AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
   --port=8080 \
   --ingress=all \
@@ -178,6 +190,14 @@ api_url=$(gcloud run services describe caffemate-api \
   --project="$project_id" \
   --region="$region" \
   --format='value(status.url)')
+
+if [ -z "$existing_api_url" ]; then
+  gcloud run services update caffemate-api \
+    --project="$project_id" \
+    --region="$region" \
+    --update-env-vars="CONTROL_API_AUDIENCE=${api_url}" \
+    --quiet >/dev/null
+fi
 
 gcloud run services add-iam-policy-binding caffemate-api \
   --project="$project_id" \

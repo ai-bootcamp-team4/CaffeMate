@@ -150,6 +150,10 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "--push-auth-service-account" in deploy
     assert "--oidc-service-account-email" in deploy
     assert "WORKER_ID=caffemate-worker" in deploy
+    assert 'existing_api_url=$(gcloud run services describe caffemate-api' in deploy
+    assert 'CONTROL_API_AUDIENCE=${existing_api_url}' in deploy
+    assert '--update-env-vars="CONTROL_API_AUDIENCE=${api_url}"' in deploy
+    assert "Control API internal identity audience matches canonical service URL" in verifier
     assert "roles/iam.serviceAccountTokenCreator" in deploy
     assert "CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID" in deploy
     assert "AGENT_RUNTIME_PROJECT_ID=${project_id}" in deploy

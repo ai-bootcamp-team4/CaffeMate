@@ -43,6 +43,13 @@ configured_agent_project=$(printf '%s' "$api_service_json" | python3 -c \
   'import json,sys; print(next(row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "AGENT_RUNTIME_PROJECT_ID"))')
 configured_agent_resource=$(printf '%s' "$api_service_json" | python3 -c \
   'import json,sys; print(next(row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "AGENT_RUNTIME_RESOURCE_ID"))')
+configured_api_audience=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; print(next((row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "CONTROL_API_AUDIENCE"), ""))')
+[ "$configured_api_audience" = "$api_url" ] || {
+  printf '%s\n' 'FAIL Control API internal identity audience differs from canonical service URL' >&2
+  exit 1
+}
+printf '%s\n' 'PASS Control API internal identity audience matches canonical service URL'
 [ "$configured_agent_project" = "$project_id" ] || {
   printf '%s\n' 'FAIL Control API Agent Runtime project differs from deployment project' >&2
   exit 1
