@@ -20,6 +20,9 @@ const RUNTIME_CANONICAL_RESOURCE = `projects/${RUNTIME_PROJECT_NUMBER}/locations
 const RUNTIME_IMAGE = `${RUNTIME_REGION}-docker.pkg.dev/${PROJECT_ID}/caffemate-agents/caffemate-agent-runtime@sha256:${'a'.repeat(64)}`
 const PROMPT_BUNDLE_DIGEST = `sha256:${'b'.repeat(64)}`
 const AGENT_CONTRACT_BUNDLE_DIGEST = `sha256:${'c'.repeat(64)}`
+const MCP_SERVICE = 'caffemate-mcp'
+const MCP_SOURCE_REVISION = 'd'.repeat(40)
+const MCP_IMAGE = `${RAG_REGION}-docker.pkg.dev/${PROJECT_ID}/caffemate-backend/mcp@sha256:${'e'.repeat(64)}`
 
 function successfulFetch() {
   return vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -94,6 +97,16 @@ function successfulFetch() {
         records: [{ id: 'context-0', title: 'source.html', content: '영업신고', score: 0.91 }],
       })
     }
+    if (url === `https://run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${RAG_REGION}/services/${MCP_SERVICE}`) {
+      return Response.json({
+        name: `projects/${PROJECT_ID}/locations/${RAG_REGION}/services/${MCP_SERVICE}`,
+        template: {
+          labels: { 'source-revision': MCP_SOURCE_REVISION },
+          containers: [{ image: MCP_IMAGE }],
+        },
+        uri: 'https://caffemate-mcp.example.run.app',
+      })
+    }
     if (url.includes(`${MODEL_ID}:generateContent`)) {
       return Response.json({
         candidates: [{
@@ -150,6 +163,12 @@ function options(fetchImpl = successfulFetch()) {
       promptBundleDigest: PROMPT_BUNDLE_DIGEST,
       agentContractBundleDigest: AGENT_CONTRACT_BUNDLE_DIGEST,
     },
+    mcpPin: {
+      serviceName: MCP_SERVICE,
+      region: RAG_REGION,
+      sourceRevision: MCP_SOURCE_REVISION,
+      imageUri: MCP_IMAGE,
+    },
     ragPin: {
       corpusResourceName: RAG_CORPUS_RESOURCE,
       ragFileResourceNames: [RAG_FILE_RESOURCE],
@@ -185,6 +204,12 @@ describe('GCP deployment preflight', () => {
     expect(result.rerankerId).toBe('semantic-ranker-default-004')
     expect(result.generationModelId).toBe(MODEL_ID)
     expect(result.runtimeResource).toContain('/reasoningEngines/777')
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'mcp-runtime',
+      ok: true,
+      code: 'MCP_RUNTIME_OK',
+      detail: MCP_IMAGE,
+    }))
     expect(result.checks).toContainEqual(expect.objectContaining({
       name: 'rag-files',
       ok: true,
@@ -376,6 +401,33 @@ describe('GCP deployment preflight', () => {
     expect(result.ok).toBe(true)
     expect(result.ragFileResources).toEqual([RAG_FILE_RESOURCE, SECOND_RAG_FILE_RESOURCE])
     expect(fetchImpl.mock.calls.filter(([input]) => String(input).includes('/ragFiles?'))).toHaveLength(2)
+  })
+
+  it('fails closed when the deployed private MCP artifact differs from the release pin', async () => {
+    const fetchImpl = successfulFetch()
+    const base = fetchImpl.getMockImplementation()
+    fetchImpl.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).includes('run.googleapis.com/v2/') && String(input).endsWith(`/services/${MCP_SERVICE}`)) {
+        return Response.json({
+          name: `projects/${PROJECT_ID}/locations/${RAG_REGION}/services/${MCP_SERVICE}`,
+          template: {
+            labels: { 'source-revision': 'f'.repeat(40) },
+            containers: [{ image: MCP_IMAGE }],
+          },
+        })
+      }
+      if (!base) throw new Error('missing base fetch implementation')
+      return base(input, init)
+    })
+
+    const result = await runGcpPreflight(options(fetchImpl))
+
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'mcp-runtime',
+      ok: false,
+      code: 'MCP_RUNTIME_SOURCE_REVISION_MISMATCH',
+    }))
   })
 
   it('exercises the production HIGH structured-output generation contract', async () => {

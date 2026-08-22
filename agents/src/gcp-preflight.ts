@@ -8,14 +8,21 @@ import {
   vertexRankingEndpoint,
 } from '../../rag/src/vertex-rag-backend'
 import { GCP_LOCATIONS, TASK_REGISTRY } from './registry'
-import { AGENT_RUNTIME_CLASS_METHODS } from './runtime-contract'
+import {
+  type GcpMcpRuntimePin,
+  type GcpRuntimePin,
+  validateMcpRuntimePin,
+  validateRuntimePin,
+  verifyAgentRuntime,
+  verifyMcpRuntime,
+} from './gcp-runtime-preflight'
+import { validGcsSourcePin, verifyPinnedSourceObjects } from './gcp-source-object-preflight'
 import {
   buildVertexGenerationRequest,
   parseVertexGenerationResponse,
   vertexGenerationEndpoint,
 } from './vertex-generation-contract'
 
-const RUNTIME_DISPLAY_NAME = 'caffemate-agents'
 const GENERATION_PREFLIGHT_MAX_OUTPUT_TOKENS = Math.max(
   ...Object.values(TASK_REGISTRY).map((registration) => registration.maxOutputTokens),
 )
@@ -46,6 +53,7 @@ export interface GcpPreflightCheck {
     | 'reranker'
     | 'generation-model'
     | 'agent-runtime'
+    | 'mcp-runtime'
   ok: boolean
   code: string
   detail?: string
@@ -68,12 +76,7 @@ export interface GcpPreflightResult {
   checks: GcpPreflightCheck[]
 }
 
-export interface GcpRuntimePin {
-  resourceName: string
-  imageUri: string
-  promptBundleDigest: string
-  agentContractBundleDigest: string
-}
+export type { GcpRuntimePin, GcpMcpRuntimePin } from './gcp-runtime-preflight'
 
 export interface GcpRagSourcePin {
   sourceFamily: string
@@ -99,6 +102,7 @@ export interface GcpPreflightOptions {
   embeddingRegion: typeof GCP_LOCATIONS.embedding
   approvedModelId?: string
   runtimePin: GcpRuntimePin
+  mcpPin: GcpMcpRuntimePin
   ragPin: GcpRagPin
   accessToken: () => Promise<string>
   fetchImpl?: typeof fetch
@@ -124,41 +128,10 @@ type RagFileListResult =
   | { ok: true; files: RagFileRow[] }
   | { ok: false; code: 'RAG_FILE_LIST_FAILED' | 'RAG_FILE_LIST_RESPONSE_INVALID'; detail: string }
 
-interface ReasoningEngineRow {
-  name?: string
-  displayName?: string
-  spec?: {
-    classMethods?: Array<{
-      name?: string
-      api_mode?: string
-    }>
-    containerSpec?: {
-      imageUri?: string
-    }
-  }
-}
-
-interface ReasoningEngineIdentity {
-  project: string
-  location: string
-  resourceId: string
-}
-
 interface RagCorpusIdentity {
   project: string
   location: string
   corpusId: string
-}
-
-interface GcsObjectIdentity {
-  bucket: string
-  objectName: string
-}
-
-interface GcsObjectMetadata {
-  bucket?: string
-  name?: string
-  generation?: string
 }
 
 function ragCorpusIdentity(resourceName: string): RagCorpusIdentity | null {
@@ -175,14 +148,6 @@ function ragFileId(resourceName: string, corpusResourceName: string): string | n
   return fileId && !fileId.includes('/') ? fileId : null
 }
 
-function gcsObjectIdentity(sourceUri: string): GcsObjectIdentity | null {
-  const match = /^gs:\/\/([^/]+)\/(.+)$/.exec(sourceUri)
-  if (!match) return null
-  const [, bucket, objectName] = match
-  if (!bucket || !objectName) return null
-  return { bucket, objectName }
-}
-
 function ragFileChunkId(context: { chunk?: unknown }): string | null {
   if (!context.chunk || typeof context.chunk !== 'object' || Array.isArray(context.chunk)) return null
   const value = context.chunk as Record<string, unknown>
@@ -197,49 +162,12 @@ function contextMatchesSourcePin(
     && ragFileChunkId(context) === source.ragFileResourceName.split('/').at(-1)
 }
 
-function reasoningEngineIdentity(resourceName: string): ReasoningEngineIdentity | null {
-  const match = /^projects\/([^/]+)\/locations\/([^/]+)\/reasoningEngines\/([^/]+)$/.exec(resourceName)
-  if (!match) return null
-  const [, project, location, resourceId] = match
-  if (!project || !location || !resourceId) return null
-  return { project, location, resourceId }
-}
-
-function runtimeMatchesPinnedIdentity(
-  actualResource: string,
-  expectedResource: string,
-  options: GcpPreflightOptions,
-): boolean {
-  const actual = reasoningEngineIdentity(actualResource)
-  const expected = reasoningEngineIdentity(expectedResource)
-  if (!actual || !expected) return false
-  if (expected.project !== options.projectId || expected.location !== options.runtimeRegion) return false
-  return actual.location === expected.location && actual.resourceId === expected.resourceId
-}
-
 function pass(name: GcpPreflightCheck['name'], code: string, detail?: string): GcpPreflightCheck {
   return { name, ok: true, code, ...(detail ? { detail } : {}) }
 }
 
 function fail(name: GcpPreflightCheck['name'], code: string, detail?: string): GcpPreflightCheck {
   return { name, ok: false, code, ...(detail ? { detail } : {}) }
-}
-
-function runtimeClassMethodMismatch(runtime: ReasoningEngineRow): string | null {
-  const actual = new Set(
-    (runtime.spec?.classMethods ?? [])
-      .filter((method) => typeof method.name === 'string' && typeof method.api_mode === 'string')
-      .map((method) => `${method.name}:${method.api_mode}`),
-  )
-  const expected = AGENT_RUNTIME_CLASS_METHODS.map((method) => `${method.name}:${method.api_mode}`)
-  const expectedSet = new Set<string>(expected)
-  for (const method of expected) {
-    if (!actual.has(method)) return method
-  }
-  if (actual.size !== expected.length) {
-    return [...actual].find((method) => !expectedSet.has(method)) ?? 'unexpected class method'
-  }
-  return null
 }
 
 function assertLocations(options: GcpPreflightOptions): void {
@@ -269,11 +197,9 @@ function assertLocations(options: GcpPreflightOptions): void {
   }
   if (options.ragPin.sourceRevisions.length === 0
     || options.ragPin.sourceRevisions.some((source) => {
-      const object = gcsObjectIdentity(source.sourceUri)
       return !source.sourceFamily
         || !/^\d{4}-\d{2}-\d{2}$/.test(source.sourceDate)
-        || !object
-        || !/^[1-9][0-9]*$/.test(source.gcsObjectGeneration)
+        || !validGcsSourcePin(source)
         || ragFileId(source.ragFileResourceName, options.ragPin.corpusResourceName) === null
     })) {
     throw new GcpPreflightError('GCP_RAG_SOURCE_PIN_INVALID', 'release RAG source revisions must pin family/date/GCS generation/RagFile')
@@ -284,11 +210,16 @@ function assertLocations(options: GcpPreflightOptions): void {
     throw new GcpPreflightError('GCP_RAG_SOURCE_PIN_INVALID', 'source revision RagFiles must equal the pinned active file set')
   }
 
-  const runtime = reasoningEngineIdentity(options.runtimePin.resourceName)
-  if (!runtime || runtime.project !== options.projectId || runtime.location !== options.runtimeRegion) {
+  if (!validateRuntimePin(options.projectId, options.runtimeRegion, options.runtimePin)) {
     throw new GcpPreflightError(
       'GCP_RUNTIME_PIN_INVALID',
       'release Runtime must belong to the requested project and Runtime region',
+    )
+  }
+  if (!validateMcpRuntimePin(options.projectId, options.ragRegion, options.mcpPin)) {
+    throw new GcpPreflightError(
+      'GCP_MCP_RUNTIME_PIN_INVALID',
+      'release MCP runtime must pin the Seoul caffemate-mcp service, source revision and immutable image',
     )
   }
 }
@@ -344,34 +275,6 @@ async function listAllRagFiles(
   }
 }
 
-async function verifyPinnedSourceObjects(
-  fetchImpl: typeof fetch,
-  token: string,
-  sources: readonly GcpRagSourcePin[],
-): Promise<GcpPreflightCheck> {
-  for (const source of sources) {
-    const identity = gcsObjectIdentity(source.sourceUri)
-    if (!identity) return fail('rag-source-objects', 'RAG_SOURCE_URI_INVALID', source.sourceUri)
-    const url = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(identity.bucket)}/o/${encodeURIComponent(identity.objectName)}`
-    const response = await request(fetchImpl, token, url)
-    if (!response.ok) {
-      return fail('rag-source-objects', 'RAG_SOURCE_OBJECT_GET_FAILED', `HTTP ${response.status} ${source.sourceUri}`)
-    }
-    const metadata = await response.json() as GcsObjectMetadata
-    if (metadata.bucket !== identity.bucket || metadata.name !== identity.objectName) {
-      return fail('rag-source-objects', 'RAG_SOURCE_OBJECT_MISMATCH', source.sourceUri)
-    }
-    if (metadata.generation !== source.gcsObjectGeneration) {
-      return fail(
-        'rag-source-objects',
-        'RAG_SOURCE_GENERATION_MISMATCH',
-        `${source.sourceUri} expected ${source.gcsObjectGeneration} found ${metadata.generation ?? 'MISSING'}`,
-      )
-    }
-  }
-  return pass('rag-source-objects', 'RAG_SOURCE_OBJECTS_OK', String(sources.length))
-}
-
 function parsePreflightContexts(
   payload: unknown,
   source: GcpRagSourcePin,
@@ -402,7 +305,6 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
 
   const ragBase = regionalBase(options.projectId, options.ragRegion)
   const embeddingBase = regionalBase(options.projectId, options.embeddingRegion)
-  const runtimeBase = regionalBase(options.projectId, options.runtimeRegion)
   let ragCorpusResource: string | undefined
   let ragFileResources: string[] | undefined
   let activeRagFileCount = 0
@@ -481,7 +383,7 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
   if (!ragFileResources) {
     checks.push(fail('rag-source-objects', 'RAG_SOURCE_OBJECTS_BLOCKED_BY_FILES'))
   } else {
-    checks.push(await verifyPinnedSourceObjects(fetchImpl, token, options.ragPin.sourceRevisions))
+    checks.push(await verifyPinnedSourceObjects({ fetchImpl, token, sources: options.ragPin.sourceRevisions }))
   }
 
   const embeddingEndpoint = `${embeddingBase}/publishers/google/models/${options.ragPin.embeddingModelId}:predict`
@@ -635,66 +537,23 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
     }
   }
 
-  let runtimeResource: string | undefined
-  let runtimeImageUri: string | undefined
-  const pinnedRuntime = reasoningEngineIdentity(options.runtimePin.resourceName)
-  if (!pinnedRuntime) throw new GcpPreflightError('GCP_RUNTIME_PIN_INVALID', options.runtimePin.resourceName)
-  const runtimeGetResponse = await request(
-    fetchImpl,
+  checks.push(await verifyMcpRuntime({
+    projectId: options.projectId,
+    pin: options.mcpPin,
     token,
-    `${runtimeBase}/reasoningEngines/${encodeURIComponent(pinnedRuntime.resourceId)}`,
-  )
-  if (!runtimeGetResponse.ok) {
-    checks.push(fail('agent-runtime', 'AGENT_RUNTIME_GET_FAILED', `HTTP ${runtimeGetResponse.status}`))
-  } else {
-    const runtime = await runtimeGetResponse.json() as ReasoningEngineRow
-    runtimeResource = runtime.name
-    runtimeImageUri = runtime.spec?.containerSpec?.imageUri
-    const mismatch = runtimeClassMethodMismatch(runtime)
-    if (!runtime.name
-      || !runtimeMatchesPinnedIdentity(runtime.name, options.runtimePin.resourceName, options)) {
-      checks.push(fail('agent-runtime', 'AGENT_RUNTIME_RESOURCE_MISMATCH', runtime.name ?? 'MISSING'))
-    } else if (runtime.displayName !== RUNTIME_DISPLAY_NAME) {
-      checks.push(fail('agent-runtime', 'AGENT_RUNTIME_DISPLAY_NAME_MISMATCH', runtime.displayName ?? 'MISSING'))
-    } else if (mismatch) {
-      checks.push(fail('agent-runtime', 'AGENT_RUNTIME_CLASS_METHOD_MISMATCH', mismatch))
-    } else if (runtimeImageUri !== options.runtimePin.imageUri) {
-      checks.push(fail('agent-runtime', 'AGENT_RUNTIME_IMAGE_MISMATCH', runtimeImageUri ?? 'MISSING'))
-    } else {
-      const releaseIdentityResponse = await request(
-        fetchImpl,
-        token,
-        `${runtimeBase}/reasoningEngines/${encodeURIComponent(pinnedRuntime.resourceId)}:query`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ class_method: 'async_get_release_identity', input: {} }),
-        },
-      )
-      if (!releaseIdentityResponse.ok) {
-        checks.push(fail('agent-runtime', 'AGENT_RUNTIME_RELEASE_IDENTITY_FAILED', `HTTP ${releaseIdentityResponse.status}`))
-      } else {
-        const releaseIdentityPayload = await releaseIdentityResponse.json() as {
-          output?: {
-            schema_version?: string
-            prompt_bundle_digest?: string
-            agent_contract_bundle_digest?: string
-          }
-        }
-        const identity = releaseIdentityPayload.output
-        if (identity?.schema_version !== '1.0.0'
-          || identity.prompt_bundle_digest !== options.runtimePin.promptBundleDigest
-          || identity.agent_contract_bundle_digest !== options.runtimePin.agentContractBundleDigest) {
-          checks.push(fail(
-            'agent-runtime',
-            'AGENT_RUNTIME_RELEASE_IDENTITY_MISMATCH',
-            `${identity?.prompt_bundle_digest ?? 'MISSING'} ${identity?.agent_contract_bundle_digest ?? 'MISSING'}`,
-          ))
-        } else {
-          checks.push(pass('agent-runtime', 'AGENT_RUNTIME_OK', runtimeResource))
-        }
-      }
-    }
-  }
+    fetchImpl,
+  }))
+
+  const runtimeVerification = await verifyAgentRuntime({
+    projectId: options.projectId,
+    region: options.runtimeRegion,
+    pin: options.runtimePin,
+    token,
+    fetchImpl,
+  })
+  checks.push(runtimeVerification.check)
+  const { runtimeResource, runtimeImageUri } = runtimeVerification
+
 
   return {
     ok: checks.every((check) => check.ok),

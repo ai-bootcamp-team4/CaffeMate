@@ -85,6 +85,7 @@ flowchart LR
 - release manifest는 운영 검색에 사용할 `ACTIVE IndexGeneration`의 exact RAG corpus resource, ACTIVE RAG file set, parser·index schema revision, embedding model, reranker, source revision set과 sealed evaluation digest를 함께 pin한다. 배포 preflight는 display name으로 corpus를 재탐색하지 않고 이 exact resource와 file set을 read-back한다.
 - RAG gold set과 수치 Gate가 고정되기 전 `sealed_evaluation_digest`는 `docs/evaluation/high-value-cases.yaml`의 provisional sealed evaluation input identity를 pin한다. 이 digest 자체를 성능 통과 증거로 해석하지 않으며, 현재 release 승격에는 exact corpus/file read-back과 실제 retrieval·rerank preflight 성공이 별도로 필요하다.
 - prompt와 Agent payload contract의 content digest는 소스에서 계산할 뿐 아니라 배포된 Runtime의 preflight 전용 `async_get_release_identity`를 호출해 artifact 내부 값도 read-back한다. manifest·source·Runtime 중 하나라도 다르면 release 승격을 막는다.
+- private MCP도 release manifest에 Cloud Run service name·region·40자 source revision·immutable image digest를 함께 pin하고, Agent GCP preflight가 Cloud Run v2 service를 직접 GET해 template label과 단일 container image를 authoritative read-back한다. protocol/tool manifest가 같아도 runtime artifact가 다르면 release 승격을 막는다.
 
 ### 4.2 GCP endpoint와 관리형 session
 
@@ -587,7 +588,7 @@ validated parser blocks
 - 설명·오탈자처럼 wire 동작이 같은 변경: patch version
 - producer는 최소 한 minor 호환 기간 동안 직전 major를 읽을 수 있어야 한다. 보안상 제거가 필요한 계약은 예외로 즉시 차단한다.
 - 요청과 결과는 반드시 동일 major version을 사용한다.
-- prompt, model, payload Schema, tool Schema, runtime revision과 ACTIVE IndexGeneration은 release manifest에서 함께 pin한다.
+- prompt, model, payload Schema, tool Schema, Agent Runtime revision, private MCP runtime artifact와 ACTIVE IndexGeneration은 release manifest에서 함께 pin한다.
 - prompt와 Agent payload contract는 symbolic version/id뿐 아니라 canonical content digest도 pin한다. 같은 id 아래 내용이 바뀌어도 release source seal이 실패해야 한다.
 - manifest 자체에 수동 `VERIFIED` 상태를 기록하지 않는다. release 승격 가능 여부는 immutable pin과 현재 source seal, 실제 GCP preflight read-back 결과로 계산한다.
 

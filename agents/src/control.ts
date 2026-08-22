@@ -59,6 +59,12 @@ export async function runDefaultGcpPreflight(
       promptBundleDigest: releaseManifest.prompt_bundle_digest,
       agentContractBundleDigest: releaseManifest.agent_contract_bundle_digest,
     },
+    mcpPin: {
+      serviceName: releaseManifest.mcp.runtime.service_name,
+      region: releaseManifest.mcp.runtime.region,
+      sourceRevision: releaseManifest.mcp.runtime.source_revision,
+      imageUri: releaseManifest.mcp.runtime.image_uri,
+    },
     ragPin: {
       corpusResourceName: releaseManifest.index_generation.corpus_resource_name,
       ragFileResourceNames: releaseManifest.index_generation.source_revisions.map((source) => source.rag_file_resource_name),
