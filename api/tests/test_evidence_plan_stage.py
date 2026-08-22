@@ -116,11 +116,20 @@ def test_complete_plan_is_generated_without_agent_runtime() -> None:
     assert plan["status"] == "COMPLETE"
     assert len(plan["claims"]) == 9
     assert len(plan["claim_plans"]) == 9
-    assert len(actions(result)) == 18
+    assert len(actions(result)) == 6
+    assert plan["missing_claim_ids"] == [
+        "claim:AREA_PROFILE",
+        "claim:AREA_CAFE_COMPETITION",
+        "claim:AREA_BUSINESS_CHURN",
+        "claim:AREA_DEMAND_SIGNALS",
+        "claim:FRANCHISE_UNIVERSE_ELIGIBILITY",
+        "claim:FRANCHISE_DISCLOSURE_AVAILABILITY",
+    ]
+    assert plan["reason_codes"] == ["MCP_CAPABILITY_UNAVAILABLE"]
     assert plan["planner_trace"]["planner_version"] == PLANNER_VERSION
     assert plan["planner_trace"]["plan_digest"].startswith("sha256:")
     assert {action["action_id"] for action in actions(result)} == {
-        f"action-{index:02d}" for index in range(1, 19)
+        f"action-{index:02d}" for index in range(1, 7)
     }
 
 
@@ -163,18 +172,18 @@ def test_rules_use_typed_tools_for_each_claim() -> None:
     }
 
     assert tools_by_claim == {
-        "claim:AREA_PROFILE": {"get_area_profile"},
-        "claim:AREA_CAFE_COMPETITION": {"search_cafe_observations"},
-        "claim:AREA_BUSINESS_CHURN": {"search_business_events"},
-        "claim:AREA_DEMAND_SIGNALS": {"search_cafe_observations"},
+        "claim:AREA_PROFILE": set(),
+        "claim:AREA_CAFE_COMPETITION": set(),
+        "claim:AREA_BUSINESS_CHURN": set(),
+        "claim:AREA_DEMAND_SIGNALS": set(),
         "claim:INDEPENDENT_STARTUP_COST_BENCHMARK": {
             "retrieve_official_documents"
         },
         "claim:INDEPENDENT_OPERATING_COST_BENCHMARK": {
             "retrieve_official_documents"
         },
-        "claim:FRANCHISE_UNIVERSE_ELIGIBILITY": {"list_franchise_universe"},
-        "claim:FRANCHISE_DISCLOSURE_AVAILABILITY": {"list_franchise_universe"},
+        "claim:FRANCHISE_UNIVERSE_ELIGIBILITY": set(),
+        "claim:FRANCHISE_DISCLOSURE_AVAILABILITY": set(),
         "claim:CAFE_OPENING_REQUIRED_PROCEDURES": {
             "retrieve_official_documents"
         },
@@ -184,9 +193,9 @@ def test_rules_use_typed_tools_for_each_claim() -> None:
 @pytest.mark.parametrize(
     ("preference", "claim_count", "action_count"),
     [
-        (CafeTypePreference.OPEN_TO_BOTH, 9, 18),
-        (CafeTypePreference.INDEPENDENT_ONLY, 7, 14),
-        (CafeTypePreference.FRANCHISE_ONLY, 7, 14),
+        (CafeTypePreference.OPEN_TO_BOTH, 9, 6),
+        (CafeTypePreference.INDEPENDENT_ONLY, 7, 6),
+        (CafeTypePreference.FRANCHISE_ONLY, 7, 2),
     ],
 )
 def test_branch_preferences_keep_plan_within_bounded_action_budget(
@@ -212,15 +221,16 @@ def test_unknown_claim_type_is_a_nonretryable_contract_failure() -> None:
         EvidencePlanStageHandler().execute(context)
 
 
-def test_rule_cannot_use_a_tool_removed_from_the_claim_plan_allowlist() -> None:
+def test_rule_without_a_production_connector_becomes_explicit_missing_evidence() -> None:
     context = stage_context(CafeTypePreference.INDEPENDENT_ONLY)
-    constraints = context.dependency_results["CLAIM_PLAN"]["claim_plan"][
-        "planning_constraints"
-    ]
-    constraints["allowed_tools"].remove("get_area_profile")
+    result = EvidencePlanStageHandler().execute(context)
+    plan = result["evidence_plan"]
+    assert isinstance(plan, dict)
 
-    with pytest.raises(ContractValidationError, match="tool is not allowed"):
-        EvidencePlanStageHandler().execute(context)
+    assert "claim:AREA_PROFILE" in plan["missing_claim_ids"]
+    assert not any(
+        action["tool_name"] == "get_area_profile" for action in actions(result)
+    )
 
 
 def test_invalid_area_identity_is_rejected_before_mcp_execution() -> None:
