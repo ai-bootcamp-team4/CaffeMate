@@ -7,8 +7,14 @@ from uuid import uuid4
 from sqlalchemy import Engine, text
 
 from app.domain.models import (
+    AreaMappingStatus,
+    AreaResolutionStatus,
+    AreaScopeType,
+    AreaState,
     BorrowingIntent,
     CafeTypePreference,
+    CandidateSetCompleteness,
+    CoverageProfile,
     FounderState,
     OperationMode,
     Project,
@@ -28,6 +34,7 @@ class ProjectOperations(Protocol):
         user_id: str,
         idempotency_key: str,
         founder: FounderState,
+        area: AreaState | None = None,
     ) -> Project: ...
 
 
@@ -225,6 +232,21 @@ class FirstProposalCanary:
                     cafe_type_preference=CafeTypePreference.OPEN_TO_BOTH,
                     operation_mode=OperationMode.DIRECT_FULL_TIME,
                     preferences=["대학가 생활권", "개인카페와 프랜차이즈 비교"],
+                ),
+                area=AreaState(
+                    resolution_status=AreaResolutionStatus.RESOLVED,
+                    area_id="legal-dong:4111710200",
+                    scope_type=AreaScopeType.LEGAL_DONG,
+                    administrative_code="4111710200",
+                    legal_dong_code="4111710200",
+                    administrative_dong_codes=[],
+                    mapping_status=AreaMappingStatus.UNVERIFIED,
+                    candidate_set_completeness=CandidateSetCompleteness.UNVERIFIED,
+                    source_revision="MOIS_LEGAL_DONG_20260301",
+                    display_name="경기도 수원시 영통구 원천동",
+                    boundary_version=None,
+                    coverage_profile=CoverageProfile.N0_NATIONWIDE_FACTS,
+                    unavailable_fields=["administrative_dong_mapping"],
                 ),
             )
             workflow = self._workflows.start(

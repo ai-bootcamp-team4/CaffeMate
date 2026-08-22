@@ -28,6 +28,7 @@ HEAD = HeadFence(
 class FakeProjects:
     def __init__(self) -> None:
         self.founder = None
+        self.area = None
 
     def create_project(self, *, user_id: str, idempotency_key: str) -> Project:
         assert idempotency_key.endswith(":create")
@@ -40,6 +41,7 @@ class FakeProjects:
 
     def confirm_onboarding(self, **kwargs: object) -> Project:
         self.founder = kwargs["founder"]
+        self.area = kwargs["area"]
         return Project(
             project_id=str(kwargs["project_id"]),
             user_id=str(kwargs["user_id"]),
@@ -181,6 +183,9 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
     }
     assert projects.founder is not None
     assert projects.founder.target_area_input == "경기도 수원시 영통구 원천동"
+    assert projects.area is not None
+    assert projects.area.administrative_code == "4111710200"
+    assert projects.area.source_revision == "MOIS_LEGAL_DONG_20260301"
     assert cleaner.calls == [("canary-project", "first-proposal-canary-probe")]
     assert not workflows.cancelled
 

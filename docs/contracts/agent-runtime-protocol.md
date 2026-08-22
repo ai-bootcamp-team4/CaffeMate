@@ -533,7 +533,7 @@ Control API Claim Plan
 → MCP tools/call in parallel
 → validate structuredContent
 → EVIDENCE_ASSESS AgentTask
-→ on Runtime unavailable: deterministic abstention, all claims remain missing
+→ validate the actual Agent final event or fail the Stage with the original Runtime code
 → freeze EvidenceSnapshot
 → PROPOSE_INDEPENDENT and/or PROPOSE_FRANCHISE AgentTask
 → proposal support validation
@@ -561,11 +561,18 @@ API는 동일 Claim·tool·request의 중복 논리 action 중 한 개만 Agent 
 완전한 `executed_actions`는 별도로 보존하고 정상 Agent 결과가 boundary validator를 통과한 뒤
 Evidence Freeze에 전달한다.
 
-이 단계는 `low` 사고 수준, 최대 4,096 출력 토큰, 60초 deadline으로 고정한다. output schema의
+이 단계는 `low` 사고 수준, 최대 2,048 출력 토큰, 60초 deadline으로 고정한다. output schema의
 `assessments`와 `evidence_refs` 최대 개수는 입력의 unique Evidence 수로, missing과 conflict 최대
 개수는 Claim 수로 제한한다. timeout·transport·`MAX_TOKENS` 실패는 가짜 Agent 결과로 바꾸지 않고
 원래 Runtime code를 가진 명시적 Stage 실패로 남긴다. 이미 완료된 MCP 조회를 Agent 실패 때문에
 다시 실행하거나 다른 모델·endpoint·리전으로 전환하지 않는다.
+
+`resolve_area`는 행정안전부의 기준일이 붙은 법정동 코드 전체 자료를 MCP 이미지에 포함하여
+동네 이름을 먼저 결정론적으로 검색한다. 이 경로는 외부 주소 검색 API를 호출하지 않으며 법정동
+코드와 자료 기준일을 source trace로 반환한다. 전체 자료에 없는 상세 주소·건물 질의만 도로명주소
+API를 보조 경로로 사용한다. 보조 경로의 일시 장애는 `PARTIAL`과 `administrative_area` 누락으로
+반환하며 MCP 계약 오류로 바꾸지 않는다. 사용자가 선택한 서명 후보는 권위 State에 저장하고,
+`AREA_RESOLUTION`은 이후 분석에서 외부 주소 검색을 반복하지 않는다.
 
 Runtime의 안전한 generation telemetry에는 task type, 요청 byte, 사고 수준, 출력 토큰 상한, 지연,
 HTTP status, finish reason, repair attempt, preflight 여부와 provider token count만 포함한다. 사용자 입력, Evidence

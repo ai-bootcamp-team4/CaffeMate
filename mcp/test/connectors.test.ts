@@ -1,10 +1,45 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createConnectorRegistry, JUSO_SOURCE_ID } from '../src/connectors'
+import { createConnectorRegistry, JUSO_SOURCE_ID, LEGAL_DONG_SOURCE_ID } from '../src/connectors'
 
 const scope = { ventureProjectId: 'project-1', workflowRunId: 'workflow-1', requestId: 'request-1' }
 const now = new Date('2026-08-22T01:00:00Z')
 
 describe('official address connectors', () => {
+  it.each([
+    ['성수', ['1120011400', '1120011500'], ['서울특별시 성동구 성수동1가', '서울특별시 성동구 성수동2가']],
+    ['망원동', ['1144012300'], ['서울특별시 마포구 망원동']],
+    ['경기도 수원시 영통구 원천동', ['4111710200'], ['경기도 수원시 영통구 원천동']],
+    ['조원동', ['4111113600'], ['경기도 수원시 장안구 조원동']],
+    ['연무동', ['4111113700'], ['경기도 수원시 장안구 연무동']],
+  ])('resolves %s from the versioned official directory without a network call', async (
+    query,
+    expectedCodes,
+    expectedNames,
+  ) => {
+    const fetcher = vi.fn()
+    const connector = createConnectorRegistry({
+      jusoApiKey: 'configured',
+      fetch: fetcher as typeof fetch,
+      now: () => now,
+    }).resolve_area!
+
+    const result = await connector({ query, country_code: 'KR', limit: 10 }, scope) as {
+      status: string
+      data: Array<{ administrative_code: string; display_name: string; boundary_version: string }>
+      source_trace: Array<{ source_id: string; data_date: string }>
+    }
+
+    expect(result.status).toBe('OK')
+    expect(result.data.slice(0, expectedCodes.length).map((candidate) => candidate.administrative_code)).toEqual(expectedCodes)
+    expect(result.data.slice(0, expectedNames.length).map((candidate) => candidate.display_name)).toEqual(expectedNames)
+    expect(result.data.every((candidate) => candidate.boundary_version === 'MOIS_LEGAL_DONG_20260301')).toBe(true)
+    expect(result.source_trace).toEqual([expect.objectContaining({
+      source_id: LEGAL_DONG_SOURCE_ID,
+      data_date: '2026-03-01',
+    })])
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
   it('abstains explicitly when the official API credential is absent', async () => {
     const connector = createConnectorRegistry({ now: () => now }).resolve_area!
     const result = await connector({ query: '수원 아주대', country_code: 'KR', limit: 5 }, scope) as Record<string, unknown>
@@ -21,7 +56,7 @@ describe('official address connectors', () => {
         ] },
       }), { status: 200 })
     })
-    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now }).resolve_area!
+    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now, useLegalDongDirectory: false }).resolve_area!
     const result = await connector({ query: '수원 원천동', country_code: 'KR', limit: 5 }, scope) as Record<string, unknown>
     expect(result).toMatchObject({ status: 'OK', project_id: 'project-1' })
     expect(result.data).toEqual([{
@@ -57,7 +92,7 @@ describe('official address connectors', () => {
           : []
       return new Response(JSON.stringify({ results: { common: { errorCode: '0' }, juso } }), { status: 200 })
     })
-    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now }).resolve_area!
+    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now, useLegalDongDirectory: false }).resolve_area!
 
     const result = await connector({ query, country_code: 'KR', limit: 5 }, scope) as Record<string, unknown>
 
@@ -77,7 +112,7 @@ describe('official address connectors', () => {
         { admCd: '1168010700', siNm: '서울특별시', sggNm: '강남구', emdNm: '신사동', roadAddr: '서울특별시 강남구 수원영통로 1' },
       ] },
     }), { status: 200 }))
-    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now }).resolve_area!
+    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now, useLegalDongDirectory: false }).resolve_area!
 
     const result = await connector({ query: '수원 영통구', country_code: 'KR', limit: 5 }, scope) as Record<string, unknown>
 
@@ -102,7 +137,7 @@ describe('official address connectors', () => {
             : []
       return new Response(JSON.stringify({ results: { common: { errorCode: '0' }, juso } }), { status: 200 })
     })
-    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now }).resolve_area!
+    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now, useLegalDongDirectory: false }).resolve_area!
 
     const result = await connector({ query: '성수', country_code: 'KR', limit: 10 }, scope) as { data: Array<{ display_name: string }> }
 
@@ -121,11 +156,33 @@ describe('official address connectors', () => {
           { admCd: '1144012300', siNm: '서울특별시', sggNm: '마포구', emdNm: '망원동' },
         ] },
       }), { status: 200 }))
-    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now }).resolve_area!
+    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now, useLegalDongDirectory: false }).resolve_area!
 
     const result = await connector({ query: '망원동', country_code: 'KR', limit: 5 }, scope) as Record<string, unknown>
 
     expect(result).toMatchObject({ status: 'OK' })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns explicit partial evidence instead of a domain error when the live fallback is unavailable', async () => {
+    const fetcher = vi.fn(async () => {
+      throw new Error('upstream unavailable')
+    })
+    const connector = createConnectorRegistry({
+      jusoApiKey: 'configured',
+      fetch: fetcher as typeof fetch,
+      now: () => now,
+      useLegalDongDirectory: false,
+    }).resolve_area!
+
+    const result = await connector({ query: '검색 불가 지명', country_code: 'KR', limit: 5 }, scope)
+
+    expect(result).toMatchObject({
+      status: 'PARTIAL',
+      data: [],
+      missing_fields: ['administrative_area'],
+      error_codes: ['SOURCE_UNAVAILABLE'],
+    })
     expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
