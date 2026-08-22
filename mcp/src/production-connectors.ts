@@ -1,4 +1,4 @@
-import { GCP_LOCATIONS } from '../../agents/src/registry'
+import { RAG_REGION } from '../../rag/src/config'
 import { RetrievalCoordinator } from '../../rag/src/retrieval'
 import { createVertexRagBackend } from '../../rag/src/vertex-rag-backend'
 import { createConnectorRegistry } from './connectors'
@@ -16,7 +16,7 @@ export interface ProductionMcpConnectorOptions {
 }
 
 function validateOfficialCorpusResource(projectId: string, resource: string): void {
-  const prefix = `projects/${projectId}/locations/${GCP_LOCATIONS.rag}/ragCorpora/`
+  const prefix = `projects/${projectId}/locations/${RAG_REGION}/ragCorpora/`
   const corpusId = resource.startsWith(prefix) ? resource.slice(prefix.length) : ''
   if (!projectId || !corpusId || corpusId.includes('/')) {
     throw new Error('MCP_RAG_CORPUS_CONFIGURATION_INVALID')
@@ -34,7 +34,7 @@ export function createProductionMcpConnectors(options: ProductionMcpConnectorOpt
   })
   const officialBackend = createVertexRagBackend({
     projectId: options.projectId,
-    region: GCP_LOCATIONS.rag,
+    region: RAG_REGION,
     accessToken: options.accessToken,
     mapContext: mapOfficialRagContext,
     fetchImpl,

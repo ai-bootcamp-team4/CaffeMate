@@ -1,0 +1,14 @@
+{
+  "name": "caffemate-mcp-runtime",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "google-auth-library": "11.0.2",
+    "tsx": "4.23.12"
+  }
+}
