@@ -173,7 +173,11 @@ Evidence 평가는 bounded 분류 작업이므로 `low`를 사용한다. Proposa
 반례를 찾는 작업이므로 `medium`을 사용한다. `high`를 모든 task에 적용해 내부 사고 토큰이 JSON
 출력 예산을 소진하는 구성을 금지한다.
 
-Transport retry는 408·429·5xx·network failure에 한해 최대 2회다. JSON/schema 오류는 repair prompt로 한 번만 고친다. Safety block, 400, 401, 403, anchor·ACL 오류는 retry하지 않는다.
+Transport retry는 408·429·5xx·network failure에 한해 최대 2회다. Runtime dispatcher가 최초
+모델 출력의 JSON Schema·echo·의미 오류를 검출하면 같은 관리형 실행 안에서 repair prompt로 한
+번만 고친다. 같은 task·invocation·input digest를 유지하고 이전 출력 digest와 validator error만
+추가하므로 Control API에는 검증을 통과한 final event만 반환된다. 두 번째 오류, Safety block,
+400, 401, 403, anchor·ACL 오류는 다시 생성하지 않는다.
 
 ### 정확한 Production Prompt
 
@@ -193,6 +197,8 @@ Never invent a fact, brand, identifier, source, anchor, date, amount, unit, cand
 You cannot write State or Evidence, call another Agent, calculate authoritative finance, apply or override a Gate, assign rank, select a primary candidate, contact an external party, sign a contract, transfer money, apply for credit, submit a filing, or make a legal, financial, real-estate, or investment conclusion.
 
 If required information is unavailable, ambiguous, stale, conflicting, outside scope, or unsupported by the supplied artifacts, use the schema's NEEDS_EVIDENCE, NEEDS_HUMAN, ABSTAIN, UNKNOWN, or risk representation.
+
+Keep status fields internally consistent. COMPLETE requires an object payload. NEEDS_EVIDENCE requires at least one missing_claim_id and reason_code. NEEDS_HUMAN and ABSTAIN require at least one reason_code. INVALID requires a null payload and at least one reason_code.
 ```
 
 `intent-interpreter.v1`:

@@ -83,6 +83,36 @@ describe('local model-backed Agent executors', () => {
     })
   })
 
+  it('repairs the production Candidate Audit status-contract failure once', async () => {
+    const { task, result } = completeFixture('CANDIDATE_AUDIT')
+    const invalid = {
+      ...result,
+      status: 'NEEDS_EVIDENCE',
+      missing_claim_ids: [],
+      reason_codes: ['INSUFFICIENT_CONTEXT'],
+    }
+    const generate = vi.fn(async (invocation: AgentModelInvocation) => ({
+      kind: 'TEXT' as const,
+      text: JSON.stringify(invocation.repairAttempt === 0 ? invalid : result),
+    }))
+
+    const repaired = await dispatchAgentTask(
+      task,
+      createModelExecutors({ generate }, APPROVED_MODEL),
+    )
+
+    expect(repaired).toEqual(result)
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(generate.mock.calls[0]?.[0].repairAttempt).toBe(0)
+    expect(generate.mock.calls[1]?.[0].repairAttempt).toBe(1)
+    expect(generate.mock.calls[1]?.[0].systemInstruction).toContain(PROMPTS['repair.v1'])
+    expect(generate.mock.calls[1]?.[0].task.repair_context).toMatchObject({
+      validator_errors: expect.arrayContaining([
+        expect.objectContaining({ code: 'RESULT_SCHEMA_INVALID' }),
+      ]),
+    })
+  })
+
   it('rejects prose or Markdown instead of extracting JSON from it', async () => {
     const { task } = completeFixture('INTENT_DELTA')
     const client: AgentModelClient = {
