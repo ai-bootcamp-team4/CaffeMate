@@ -205,9 +205,9 @@ trace_context: optional W3C trace context
 | `task_type` | `agent_name` | 입력 payload | 출력 payload | 최대 실행시간 |
 | --- | --- | --- | --- | ---: |
 | `INTENT_DELTA` | `INTENT_INTERPRETER` | current State projection, latest input, field ontology | delta proposal | 30초 |
-| `EVIDENCE_ASSESS` | `EVIDENCE_RESEARCHER` | Claims, validated MCP·RAG results | Evidence assessments·conflicts | 30초 |
-| `PROPOSE_INDEPENDENT` | `PROPOSAL_AGENT` | Founder·Area snapshot, registered model seeds, Evidence | independent candidate proposals | 30초 |
-| `PROPOSE_FRANCHISE` | `PROPOSAL_AGENT` | Founder·Area snapshot, verified franchise universe, Evidence | franchise candidate proposals | 30초 |
+| `EVIDENCE_ASSESS` | `EVIDENCE_RESEARCHER` | Claims, bounded validated MCP·RAG candidates | Evidence assessments·conflicts | 60초 |
+| `PROPOSE_INDEPENDENT` | `PROPOSAL_AGENT` | Founder·Area snapshot, registered model seeds, Evidence | independent candidate proposals | 60초 |
+| `PROPOSE_FRANCHISE` | `PROPOSAL_AGENT` | Founder·Area snapshot, verified franchise universe, Evidence | franchise candidate proposals | 60초 |
 | `DOCUMENT_EXTRACT` | `DOCUMENT_ANALYST` | extraction contract, parser blocks, anchors | proposed Claims·risk flags | batch당 60초 |
 | `CANDIDATE_AUDIT` | `TYPED_CANDIDATE_AUDITOR` | frozen candidate·Evidence·calculation·Gate | audit findings | 60초 |
 
@@ -533,6 +533,7 @@ Control API Claim Plan
 → MCP tools/call in parallel
 → validate structuredContent
 → EVIDENCE_ASSESS AgentTask
+→ on Runtime unavailable: deterministic abstention, all claims remain missing
 → freeze EvidenceSnapshot
 → PROPOSE_INDEPENDENT and/or PROPOSE_FRANCHISE AgentTask
 → proposal support validation
@@ -553,6 +554,22 @@ action 하나를 만든다. `OPEN_TO_BOTH`의 최대 9개 Claim은 18개 논리 
 물리 조회 결과를 공유한다. 공식 문서 RAG는 서로 다른 support·counter query template을 사용한다.
 등록되지 않은 Claim, action id pool 부족, 허용되지 않은 tool과 MCP input Schema 불일치는 외부
 호출 전에 non-retryable 계약 오류로 끝난다.
+
+`EVIDENCE_ASSESS`는 근거 간 의미 관계와 충돌을 판단해야 하므로 Agent 역할을 유지한다. Control
+API는 동일 Claim·tool·request의 중복 논리 action 중 한 개만 Agent 입력에 넣고, action별 rerank
+상위 세 Evidence record와 대응 source trace만 전달하며 provider-specific `data` 행은 제거한다.
+완전한 `executed_actions`는 별도로 보존하고 정상 Agent 결과가 boundary validator를 통과한 뒤
+Evidence Freeze에 전달한다.
+
+이 단계는 `low` 사고 수준, 최대 4,096 출력 토큰, 60초 deadline으로 고정한다. output schema의
+`assessments`와 `evidence_refs` 최대 개수는 입력의 unique Evidence 수로, missing과 conflict 최대
+개수는 Claim 수로 제한한다. timeout·transport·`MAX_TOKENS` 실패는 가짜 Agent 결과로 바꾸지 않고
+원래 Runtime code를 가진 명시적 Stage 실패로 남긴다. 이미 완료된 MCP 조회를 Agent 실패 때문에
+다시 실행하거나 다른 모델·endpoint·리전으로 전환하지 않는다.
+
+Runtime의 안전한 generation telemetry에는 task type, 요청 byte, 사고 수준, 출력 토큰 상한, 지연,
+HTTP status, finish reason과 provider token count만 포함한다. 사용자 입력, Evidence 내용, task·project·
+workflow·session 식별자와 credential은 기록하지 않는다.
 
 ### 9.2 RESULT_FEEDBACK
 

@@ -306,6 +306,42 @@ function applyEvidencePlanToolActionSchema(projected: JsonObject, task: AgentTas
   }
 }
 
+export function evidenceAssessOutputBounds(task: AgentTask): {
+  claimCount: number
+  candidateCount: number
+} {
+  if (task.task_type !== 'EVIDENCE_ASSESS') return { claimCount: 0, candidateCount: 0 }
+  const payload = asObject(task.payload)
+  const claims = Array.isArray(payload?.claims) ? payload.claims : []
+  const actions = Array.isArray(payload?.executed_actions) ? payload.executed_actions : []
+  const candidateIds = new Set<string>()
+  for (const rawAction of actions) {
+    const action = asObject(rawAction)
+    const result = action ? asObject(action.structured_result) : null
+    const records = Array.isArray(result?.evidence_records) ? result.evidence_records : []
+    for (const rawRecord of records) {
+      const record = asObject(rawRecord)
+      if (typeof record?.evidence_id === 'string') candidateIds.add(record.evidence_id)
+    }
+  }
+  return { claimCount: claims.length, candidateCount: candidateIds.size }
+}
+
+function applyEvidenceAssessBounds(projected: JsonObject, task: AgentTask): void {
+  const properties = asObject(projected.properties)
+  if (!properties) throw new Error('VERTEX_EVIDENCE_ASSESS_SCHEMA_UNRESOLVED')
+  const { claimCount, candidateCount } = evidenceAssessOutputBounds(task)
+  const assessments = asObject(properties.assessments)
+  const missingClaims = asObject(properties.missing_claims)
+  const conflicts = asObject(properties.conflict_proposals)
+  if (!assessments || !missingClaims || !conflicts) {
+    throw new Error('VERTEX_EVIDENCE_ASSESS_BOUNDS_UNRESOLVED')
+  }
+  assessments.maxItems = candidateCount
+  missingClaims.maxItems = claimCount
+  conflicts.maxItems = claimCount
+}
+
 export function buildVertexRolePayloadSchema(task: AgentTask): JsonObject {
   const taskType = task.task_type
   const defName = ROLE_PAYLOAD_DEF[taskType]
@@ -314,5 +350,6 @@ export function buildVertexRolePayloadSchema(task: AgentTask): JsonObject {
   if (!schema) throw new Error(`VERTEX_ROLE_SCHEMA_UNRESOLVED: ${taskType}`)
   const projected = projectSchema(schema, ROLE_SCHEMA_FILE, 0, new Set())
   if (taskType === 'EVIDENCE_PLAN') applyEvidencePlanToolActionSchema(projected, task)
+  if (taskType === 'EVIDENCE_ASSESS') applyEvidenceAssessBounds(projected, task)
   return projected
 }

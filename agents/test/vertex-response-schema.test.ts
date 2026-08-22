@@ -15,12 +15,30 @@ interface ProjectedSchema {
   properties?: Record<string, ProjectedSchema>
   items?: ProjectedSchema
   anyOf?: ProjectedSchema[]
+  maxItems?: number
 }
 
 function evidencePlanTask(): AgentTask {
   const item = fixtureMatrix.cases.find((entry) => entry.task.task_type === 'EVIDENCE_PLAN' && entry.result.status === 'COMPLETE')
   if (!item) throw new Error('missing EVIDENCE_PLAN fixture')
   return structuredClone(item.task) as unknown as AgentTask
+}
+
+function evidenceAssessTask(): AgentTask {
+  const item = fixtureMatrix.cases.find((entry) => entry.task.task_type === 'EVIDENCE_ASSESS' && entry.result.status === 'COMPLETE')
+  if (!item) throw new Error('missing EVIDENCE_ASSESS fixture')
+  const task = structuredClone(item.task) as unknown as AgentTask
+  const payload = task.payload as Record<string, unknown>
+  payload.executed_actions = [{
+    structured_result: {
+      evidence_records: [
+        { evidence_id: 'evidence-1' },
+        { evidence_id: 'evidence-2' },
+        { evidence_id: 'evidence-2' },
+      ],
+    },
+  }]
+  return task
 }
 
 describe('Vertex role response schema projection', () => {
@@ -127,5 +145,17 @@ describe('Vertex role response schema projection', () => {
     expect(plan.counter_actions[1]?.typed_arguments).toEqual({
       arbitrary: 'leave-unchanged-for-strict-rejection',
     })
+  })
+
+  it('bounds evidence assessment output by the supplied claims and unique candidates', () => {
+    const task = evidenceAssessTask()
+    const roleSchema = buildVertexRolePayloadSchema(task) as ProjectedSchema
+    const responseSchema = buildAgentTaskResultResponseJsonSchema(task) as ProjectedSchema
+
+    expect(roleSchema.properties?.assessments.maxItems).toBe(2)
+    expect(roleSchema.properties?.missing_claims.maxItems).toBe(1)
+    expect(roleSchema.properties?.conflict_proposals.maxItems).toBe(1)
+    expect(responseSchema.properties?.evidence_refs.maxItems).toBe(2)
+    expect(responseSchema.properties?.missing_claim_ids.maxItems).toBe(1)
   })
 })

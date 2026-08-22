@@ -3,6 +3,7 @@ import { createApplicationDefaultGoogleCloudContext, type GoogleCloudContext } f
 import { AGENT_MODEL } from './registry'
 import {
   buildVertexRolePayloadSchema,
+  evidenceAssessOutputBounds,
   normalizeVertexEvidencePlanResult,
 } from './vertex-response-schema'
 import type { AgentModelClient, AgentModelInvocation, AgentModelResponse } from './model-executor'
@@ -21,6 +22,58 @@ export interface VertexAgentModelClientOptions {
   region: typeof AGENT_MODEL.region
   accessToken: () => Promise<string>
   fetchImpl?: typeof fetch
+}
+
+interface SafeGenerationTelemetry {
+  event: 'VERTEX_AGENT_GENERATION'
+  task_type: AgentTask['task_type']
+  elapsed_ms: number
+  request_bytes: number
+  thinking_level: AgentModelInvocation['thinkingLevel']
+  max_output_tokens: number
+  http_status: number
+  finish_reason: string | null
+  prompt_token_count: number | null
+  candidate_token_count: number | null
+  thoughts_token_count: number | null
+  total_token_count: number | null
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function numericMetric(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+export function safeGenerationTelemetry(input: {
+  invocation: AgentModelInvocation
+  elapsedMs: number
+  requestBytes: number
+  httpStatus: number
+  providerPayload?: unknown
+}): SafeGenerationTelemetry {
+  const payload = record(input.providerPayload)
+  const candidates = Array.isArray(payload?.candidates) ? payload.candidates : []
+  const candidate = record(candidates[0])
+  const usage = record(payload?.usageMetadata)
+  return {
+    event: 'VERTEX_AGENT_GENERATION',
+    task_type: input.invocation.taskType,
+    elapsed_ms: Math.max(0, Math.round(input.elapsedMs)),
+    request_bytes: input.requestBytes,
+    thinking_level: input.invocation.thinkingLevel,
+    max_output_tokens: input.invocation.maxOutputTokens,
+    http_status: input.httpStatus,
+    finish_reason: typeof candidate?.finishReason === 'string' ? candidate.finishReason : null,
+    prompt_token_count: numericMetric(usage?.promptTokenCount),
+    candidate_token_count: numericMetric(usage?.candidatesTokenCount),
+    thoughts_token_count: numericMetric(usage?.thoughtsTokenCount),
+    total_token_count: numericMetric(usage?.totalTokenCount),
+  }
 }
 
 function boundedProviderMessage(value: unknown): string {
@@ -54,6 +107,13 @@ function nullableStringSchema(): Record<string, unknown> {
  * contract; Ajv validation after generation remains the final contract gate.
  */
 export function buildAgentTaskResultResponseJsonSchema(task: AgentTask): Record<string, unknown> {
+  const evidenceBounds = evidenceAssessOutputBounds(task)
+  const evidenceRefs = task.task_type === 'EVIDENCE_ASSESS'
+    ? { type: 'array', items: { type: 'string' }, maxItems: evidenceBounds.candidateCount }
+    : { type: 'array', items: { type: 'string' } }
+  const missingClaimIds = task.task_type === 'EVIDENCE_ASSESS'
+    ? { type: 'array', items: { type: 'string' }, maxItems: evidenceBounds.claimCount }
+    : { type: 'array', items: { type: 'string' } }
   return {
     type: 'object',
     additionalProperties: false,
@@ -140,8 +200,8 @@ export function buildAgentTaskResultResponseJsonSchema(task: AgentTask): Record<
           { type: 'null' },
         ],
       },
-      evidence_refs: { type: 'array', items: { type: 'string' } },
-      missing_claim_ids: { type: 'array', items: { type: 'string' } },
+      evidence_refs: evidenceRefs,
+      missing_claim_ids: missingClaimIds,
       reason_codes: { type: 'array', items: { type: 'string' } },
       warnings: { type: 'array', items: { type: 'string' } },
     },
@@ -172,21 +232,30 @@ export class VertexAgentModelClient implements AgentModelClient {
     if (!token) throw new VertexAgentModelError('VERTEX_AUTH_TOKEN_MISSING', 'ADC did not return an access token')
 
     const endpoint = vertexGenerationEndpoint(this.options.projectId, this.options.region, invocation.model)
+    const requestBody = JSON.stringify(buildVertexGenerationRequest({
+      systemInstruction: invocation.systemInstruction,
+      userText: canonicalizeJson(invocation.task),
+      responseJsonSchema: buildAgentTaskResultResponseJsonSchema(invocation.task),
+      thinkingLevel: invocation.thinkingLevel,
+      maxOutputTokens: invocation.maxOutputTokens,
+    }))
+    const startedAt = Date.now()
     const response = await this.fetchImpl(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(buildVertexGenerationRequest({
-        systemInstruction: invocation.systemInstruction,
-        userText: canonicalizeJson(invocation.task),
-        responseJsonSchema: buildAgentTaskResultResponseJsonSchema(invocation.task),
-        maxOutputTokens: invocation.maxOutputTokens,
-      })),
+      body: requestBody,
     })
 
     if (!response.ok) {
+      console.info(JSON.stringify(safeGenerationTelemetry({
+        invocation,
+        elapsedMs: Date.now() - startedAt,
+        requestBytes: new TextEncoder().encode(requestBody).byteLength,
+        httpStatus: response.status,
+      })))
       const provider = await providerErrorSummary(response)
       throw new VertexAgentModelError(
         'VERTEX_MODEL_HTTP_ERROR',
@@ -197,7 +266,15 @@ export class VertexAgentModelClient implements AgentModelClient {
       )
     }
 
-    const generated = parseVertexGenerationResponse(await response.json())
+    const providerPayload = await response.json()
+    console.info(JSON.stringify(safeGenerationTelemetry({
+      invocation,
+      elapsedMs: Date.now() - startedAt,
+      requestBytes: new TextEncoder().encode(requestBody).byteLength,
+      httpStatus: response.status,
+      providerPayload,
+    })))
+    const generated = parseVertexGenerationResponse(providerPayload)
     if (generated.kind !== 'TEXT' || invocation.task.task_type !== 'EVIDENCE_PLAN') return generated
     try {
       const parsed = JSON.parse(generated.text) as unknown

@@ -14,9 +14,9 @@ const expected = {
 const expectedDeadlines = {
   INTENT_DELTA: 30,
   EVIDENCE_PLAN: 60,
-  EVIDENCE_ASSESS: 30,
-  PROPOSE_INDEPENDENT: 30,
-  PROPOSE_FRANCHISE: 30,
+  EVIDENCE_ASSESS: 60,
+  PROPOSE_INDEPENDENT: 60,
+  PROPOSE_FRANCHISE: 60,
   DOCUMENT_EXTRACT: 60,
   CANDIDATE_AUDIT: 60,
 } as const
@@ -31,8 +31,16 @@ describe('task registry', () => {
     }
   })
 
-  it('reserves enough output budget for high-thinking evidence plans', () => {
-    expect(TASK_REGISTRY.EVIDENCE_PLAN.maxOutputTokens).toBe(16384)
+  it('pins a role-specific cognitive and output budget for every task', () => {
+    expect(TASK_REGISTRY.INTENT_DELTA.thinkingLevel).toBe('low')
+    expect(TASK_REGISTRY.EVIDENCE_PLAN.thinkingLevel).toBe('low')
+    expect(TASK_REGISTRY.EVIDENCE_ASSESS).toMatchObject({
+      thinkingLevel: 'low',
+      maxOutputTokens: 4096,
+      deadlineSeconds: 60,
+    })
+    expect(TASK_REGISTRY.PROPOSE_INDEPENDENT.thinkingLevel).toBe('medium')
+    expect(TASK_REGISTRY.CANDIDATE_AUDIT.thinkingLevel).toBe('medium')
   })
 
   it('pins the approved global generation model while keeping runtime and RAG in Seoul', () => {

@@ -157,7 +157,7 @@ def test_proposal_task_is_pinned_schema_valid_and_has_no_tools(
     task = getattr(factory, builder_name)(context)
 
     assert task["task_type"] == task_type
-    assert task["deadline_at"] == "2026-08-21T10:00:30Z"
+    assert task["deadline_at"] == "2026-08-21T10:01:00Z"
     assert task["runtime_tool_policy"] == "NO_DIRECT_TOOL_CALLS"
     assert task["available_tool_catalog"] == []
     assert task["tool_manifest_digest"] is None

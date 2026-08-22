@@ -7,6 +7,7 @@ import pytest
 from app.agents.task_factory import AgentTaskFactory
 from app.domain.errors import ContractValidationError
 from app.workflows.evidence_assess import EvidenceAssessStageHandler
+from tests.test_agent_boundary import evidence_record
 from tests.test_evidence_retrieval_stage import action, context
 
 
@@ -144,3 +145,47 @@ def test_human_required_status_pauses_workflow() -> None:
 def test_cross_project_echo_is_rejected_before_freeze() -> None:
     with pytest.raises(ContractValidationError, match="TASK_ECHO_MISMATCH"):
         handler(FakeRuntime(wrong_project=True)).execute(assess_context())
+
+
+def test_agent_receives_bounded_projection_while_freeze_keeps_full_retrieval() -> None:
+    value = assess_context()
+    retrieval = value.dependency_results["EVIDENCE_RETRIEVAL"]["evidence_retrieval"]
+    records = [evidence_record(f"evidence-{index}") for index in range(1, 5)]
+    structured_result = {
+        "schema_version": "1.0.0",
+        "request_id": "request-shared",
+        "tool_name": "get_area_profile",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": records,
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": [],
+    }
+    retrieval["executed_actions"] = [
+        {
+            "action_id": f"action-{polarity.lower()}",
+            "claim_id": "claim:AREA_PROFILE",
+            "polarity": polarity,
+            "tool_name": "get_area_profile",
+            "request_id": "request-shared",
+            "structured_result": deepcopy(structured_result),
+        }
+        for polarity in ("SUPPORT", "COUNTER")
+    ]
+    runtime = FakeRuntime()
+
+    output = handler(runtime).execute(value)["evidence_assessment"]
+
+    assert len(runtime.tasks[0]["payload"]["executed_actions"]) == 1
+    assert len(
+        runtime.tasks[0]["payload"]["executed_actions"][0]["structured_result"][
+            "evidence_records"
+        ]
+    ) == 3
+    assert len(output["executed_actions"]) == 2
+    assert len(output["executed_actions"][0]["structured_result"]["evidence_records"]) == 4

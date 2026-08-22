@@ -454,7 +454,7 @@ describe('GCP deployment preflight', () => {
         },
         seed: 17,
         thinkingConfig: { thinkingLevel: 'HIGH' },
-        maxOutputTokens: 16384,
+        maxOutputTokens: 8192,
       },
     })
   })

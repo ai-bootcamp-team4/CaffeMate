@@ -1,11 +1,11 @@
 import { buildSystemInstruction, PROMPTS, type RolePromptVersion } from './prompts'
-import { AGENT_MODEL, TASK_REGISTRY } from './registry'
+import { AGENT_MODEL, TASK_REGISTRY, type AgentThinkingLevel } from './registry'
 import type { AgentExecutor, AgentExecutorMap, AgentName, AgentTask, AgentTaskResult } from './types'
 
 export interface AgentModelInvocation {
   model: string
   region: typeof AGENT_MODEL.region
-  thinkingLevel: typeof AGENT_MODEL.thinkingLevel
+  thinkingLevel: AgentThinkingLevel
   maxOutputTokens: number
   agentName: AgentName
   taskType: AgentTask['task_type']
@@ -59,7 +59,7 @@ export function buildModelInvocation(
   return {
     model: approvedModel.id,
     region: approvedModel.region,
-    thinkingLevel: approvedModel.thinkingLevel,
+    thinkingLevel: registration.thinkingLevel,
     maxOutputTokens: registration.maxOutputTokens,
     agentName: registration.agentName,
     taskType: task.task_type,

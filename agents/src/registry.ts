@@ -16,12 +16,15 @@ export const AGENT_MODEL = Object.freeze({
   thinkingLevel: 'high',
 } as const)
 
+export type AgentThinkingLevel = 'low' | 'medium' | 'high'
+
 export interface TaskRegistration {
   agentName: AgentName
   promptVersion: string
   inputSchemaId: string
   outputSchemaId: string
   deadlineSeconds: number
+  thinkingLevel: AgentThinkingLevel
   maxOutputTokens: number
 }
 
@@ -32,6 +35,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     inputSchemaId: 'caffemate.agent.intent-input.v1',
     outputSchemaId: 'caffemate.agent.intent-result.v1',
     deadlineSeconds: 30,
+    thinkingLevel: 'low',
     maxOutputTokens: 4096,
   },
   EVIDENCE_PLAN: {
@@ -40,22 +44,25 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     inputSchemaId: 'caffemate.agent.evidence-plan-input.v1',
     outputSchemaId: 'caffemate.agent.evidence-plan-result.v1',
     deadlineSeconds: 60,
-    maxOutputTokens: 16384,
+    thinkingLevel: 'low',
+    maxOutputTokens: 8192,
   },
   EVIDENCE_ASSESS: {
     agentName: 'EVIDENCE_RESEARCHER',
-    promptVersion: 'evidence-researcher.v1',
+    promptVersion: 'evidence-assessor.v2',
     inputSchemaId: 'caffemate.agent.evidence-assess-input.v1',
     outputSchemaId: 'caffemate.agent.evidence-assess-result.v1',
-    deadlineSeconds: 30,
-    maxOutputTokens: 8192,
+    deadlineSeconds: 60,
+    thinkingLevel: 'low',
+    maxOutputTokens: 4096,
   },
   PROPOSE_INDEPENDENT: {
     agentName: 'PROPOSAL_AGENT',
     promptVersion: 'proposal-agent.v1',
     inputSchemaId: 'caffemate.agent.independent-proposal-input.v1',
     outputSchemaId: 'caffemate.agent.independent-proposal-result.v1',
-    deadlineSeconds: 30,
+    deadlineSeconds: 60,
+    thinkingLevel: 'medium',
     maxOutputTokens: 8192,
   },
   PROPOSE_FRANCHISE: {
@@ -63,7 +70,8 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     promptVersion: 'proposal-agent.v1',
     inputSchemaId: 'caffemate.agent.franchise-proposal-input.v1',
     outputSchemaId: 'caffemate.agent.franchise-proposal-result.v1',
-    deadlineSeconds: 30,
+    deadlineSeconds: 60,
+    thinkingLevel: 'medium',
     maxOutputTokens: 8192,
   },
   DOCUMENT_EXTRACT: {
@@ -72,6 +80,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     inputSchemaId: 'caffemate.agent.document-extract-input.v1',
     outputSchemaId: 'caffemate.agent.document-extract-result.v1',
     deadlineSeconds: 60,
+    thinkingLevel: 'medium',
     maxOutputTokens: 8192,
   },
   CANDIDATE_AUDIT: {
@@ -80,6 +89,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     inputSchemaId: 'caffemate.agent.candidate-audit-input.v1',
     outputSchemaId: 'caffemate.agent.candidate-audit-result.v1',
     deadlineSeconds: 60,
+    thinkingLevel: 'medium',
     maxOutputTokens: 6144,
   },
 })

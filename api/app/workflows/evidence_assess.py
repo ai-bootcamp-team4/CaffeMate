@@ -97,7 +97,7 @@ class EvidenceAssessStageHandler:
                 "warnings": result["warnings"],
                 "failed_actions": failed_actions,
                 "retrieval_completeness": retrieval.get("completeness"),
-                "executed_actions": task["payload"]["executed_actions"],
+                "executed_actions": retrieval["executed_actions"],
                 "agent_trace": {
                     "task_id": task["task_id"],
                     "invocation_id": task["invocation_id"],

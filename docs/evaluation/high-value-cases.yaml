@@ -330,3 +330,28 @@ cases:
       - 가상 브랜드를 조건부 후보로 표시한다.
     required_evidence: []
     pass_condition: candidate commit이 0건이고 Proposal status가 INVALID 또는 ABSTAIN이다.
+
+  - id: EV-023
+    title: Evidence Assess의 과도한 사고·중복 입력 회귀
+    input: 같은 물리 MCP 결과가 support·counter action에 중복되고 각 결과에 rerank 후보가 열 개씩 포함됨
+    relevant_state:
+      workflow_code: FIRST_PROPOSAL
+      current_stage: EVIDENCE_ASSESS
+      previous_failure: MAX_TOKENS after client deadline
+    trap: 모든 task에 high 사고 수준과 전체 조회 payload를 적용하거나 Agent를 우회해 고정 ABSTAIN을 만든다.
+    expected_behavior:
+      - 동일 Claim과 request의 결과는 Agent 입력에 한 번만 포함한다.
+      - action별 rerank 상위 세 Evidence record만 포함하고 provider data 행은 제외한다.
+      - EVIDENCE_ASSESS는 low 사고 수준, 최대 4096 출력 토큰과 60초 deadline을 사용한다.
+      - 응답 배열 상한을 unique Evidence와 Claim 수로 제한한다.
+      - 정상 Agent 결과는 기존 Schema와 의미 검증을 통과한다.
+      - 다른 모델이나 리전으로 자동 전환하지 않는다.
+    forbidden_behavior:
+      - Agent를 결정론적 fallback으로 대체한다.
+      - 출력 토큰 상한만 무작정 늘린다.
+      - 사용자 입력, Evidence 내용 또는 프로젝트·세션 식별자를 telemetry에 기록한다.
+    required_evidence:
+      - Runtime generation telemetry
+      - bounded AgentTask payload
+      - schema-valid AgentTaskResult
+    pass_condition: 운영 canary에서 EVIDENCE_ASSESS가 60초 안에 STOP으로 끝나고 다음 Stage가 진행된다.

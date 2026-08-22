@@ -1,6 +1,7 @@
 import hashlib
 import json
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,8 @@ FEEDBACK_ALLOWED_FIELD_PATHS = (
     "/founder/preferences",
     "/founder/target_area_input",
 )
+
+MAX_EVIDENCE_ASSESS_CANDIDATES_PER_ACTION = 3
 
 
 def compute_agent_input_digest(task: dict[str, Any]) -> str:
@@ -245,6 +248,7 @@ class AgentTaskFactory:
             raise ContractValidationError("EVIDENCE_ASSESS requires Claims")
         if not isinstance(executed_actions, list):
             raise ContractValidationError("EVIDENCE_ASSESS executed actions are invalid")
+        projected_actions = self._project_evidence_assess_actions(executed_actions)
         registry = self._release["tasks"]["EVIDENCE_ASSESS"]
         deadline = self._deadline_for("EVIDENCE_ASSESS")
         task: dict[str, Any] = {
@@ -270,12 +274,67 @@ class AgentTaskFactory:
             "available_tool_catalog": [],
             "payload": {
                 "claims": claims,
-                "executed_actions": executed_actions,
+                "executed_actions": projected_actions,
             },
         }
         task["input_digest"] = compute_agent_input_digest(task)
         self._contracts.validate_agent_task(task)
         return task
+
+    @staticmethod
+    def _project_evidence_assess_actions(
+        executed_actions: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Build the smallest schema-valid semantic assessment projection.
+
+        Retrieval keeps every logical action and the complete MCP result. The Agent
+        receives one copy of an identical physical result per Claim, only the
+        highest-ranked Evidence candidates, and no provider-specific data rows.
+        Evidence Freeze later consumes the original retrieval result, not this
+        bounded projection.
+        """
+        projected: list[dict[str, Any]] = []
+        seen_results: set[tuple[str, str, str]] = set()
+        for action in executed_actions:
+            if not isinstance(action, dict):
+                raise ContractValidationError(
+                    "EVIDENCE_ASSESS executed action is invalid"
+                )
+            identity = (
+                str(action.get("claim_id", "")),
+                str(action.get("tool_name", "")),
+                str(action.get("request_id", "")),
+            )
+            if identity in seen_results:
+                continue
+            seen_results.add(identity)
+
+            bounded = deepcopy(action)
+            structured_result = bounded.get("structured_result")
+            if not isinstance(structured_result, dict):
+                raise ContractValidationError(
+                    "EVIDENCE_ASSESS structured result is invalid"
+                )
+            records = structured_result.get("evidence_records")
+            source_trace = structured_result.get("source_trace")
+            data = structured_result.get("data")
+            if not isinstance(records, list) or not isinstance(source_trace, list):
+                raise ContractValidationError(
+                    "EVIDENCE_ASSESS Evidence projection is invalid"
+                )
+            if not isinstance(data, list):
+                raise ContractValidationError(
+                    "EVIDENCE_ASSESS tool data projection is invalid"
+                )
+            structured_result["evidence_records"] = records[
+                :MAX_EVIDENCE_ASSESS_CANDIDATES_PER_ACTION
+            ]
+            structured_result["source_trace"] = source_trace[
+                :MAX_EVIDENCE_ASSESS_CANDIDATES_PER_ACTION
+            ]
+            structured_result["data"] = []
+            projected.append(bounded)
+        return projected
 
     def build_independent_proposal(self, context: StageContext) -> dict[str, Any]:
         return self._build_proposal(

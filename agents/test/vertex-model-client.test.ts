@@ -34,7 +34,7 @@ describe('Vertex Agent model client', () => {
           responseMimeType: 'application/json',
           maxOutputTokens: 4096,
           seed: 17,
-          thinkingConfig: { thinkingLevel: 'HIGH' },
+          thinkingConfig: { thinkingLevel: 'LOW' },
           responseJsonSchema: {
             type: 'object',
             additionalProperties: false,
@@ -178,6 +178,52 @@ describe('Vertex Agent model client', () => {
     }))).rejects.toMatchObject({
       code: 'VERTEX_MODEL_RESPONSE_INCOMPLETE',
     })
+  })
+
+  it('records bounded generation telemetry without task content or identifiers', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    const client = new VertexAgentModelClient({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl: async () => Response.json({
+        candidates: [{
+          content: { role: 'model', parts: [{ text: '{"status":"ABSTAIN"}' }] },
+          finishReason: 'STOP',
+        }],
+        usageMetadata: {
+          promptTokenCount: 120,
+          candidatesTokenCount: 40,
+          thoughtsTokenCount: 15,
+          totalTokenCount: 175,
+        },
+      }),
+    })
+
+    await client.generate(buildModelInvocation(task(), {
+      id: MODEL_ID,
+      region: REGION,
+      thinkingLevel: 'high',
+    }))
+
+    const telemetry = JSON.parse(String(info.mock.calls.at(-1)?.[0])) as Record<string, unknown>
+    expect(telemetry).toMatchObject({
+      event: 'VERTEX_AGENT_GENERATION',
+      task_type: 'INTENT_DELTA',
+      thinking_level: 'low',
+      max_output_tokens: 4096,
+      http_status: 200,
+      finish_reason: 'STOP',
+      prompt_token_count: 120,
+      candidate_token_count: 40,
+      thoughts_token_count: 15,
+      total_token_count: 175,
+    })
+    expect(telemetry.elapsed_ms).toEqual(expect.any(Number))
+    expect(telemetry.request_bytes).toEqual(expect.any(Number))
+    expect(JSON.stringify(telemetry)).not.toContain('task-1-complete')
+    expect(JSON.stringify(telemetry)).not.toContain('inv-1-complete')
+    info.mockRestore()
   })
 
   it('fails closed when the single response part mixes text with a non-text payload', async () => {

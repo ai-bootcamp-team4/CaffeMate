@@ -59,6 +59,11 @@ Agent Runtime 단계를 실행하려면 다음 설정이 모두 필요하다. �
 executor는 fail-closed 상태를 유지한다. `EVIDENCE_PLAN`은 Control API의 결정론적 코드로
 실행되므로 Agent Runtime 설정이나 모델 호출을 요구하지 않는다.
 
+`EVIDENCE_ASSESS`는 의미 판정을 담당하는 필수 Agent 단계다. Control API는 동일 물리 조회 결과를
+중복 전달하지 않고 action별 상위 세 Evidence record만 투영한다. Runtime timeout, transport 또는
+`MAX_TOKENS` 실패를 가짜 `ABSTAIN` 성공으로 바꾸지 않으며, 원래 code를 가진 Stage 실패로 남기고
+조회 결과를 Evidence로 승격하지 않는다. 다른 모델·리전으로도 전환하지 않는다.
+
 - `AGENT_RUNTIME_PROJECT_ID`
 - `AGENT_RUNTIME_RESOURCE_ID`
 - `AGENT_RUNTIME_USER_HMAC_SECRET`: Secret Manager에서 주입하는 32바이트 이상의 비밀값
