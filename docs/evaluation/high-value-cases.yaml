@@ -437,6 +437,8 @@ cases:
     trap: 공용 typed value 전체와 무제한 배열을 생성 Schema에 노출해 4096 토큰을 소진하고 같은 결함을 세 번 재시도한다.
     expected_behavior:
       - provider Schema의 field path와 operation id가 task pool로 제한된다.
+      - operation kind와 typed value shape는 중첩 분기가 아니라 직접 property schema로 제한된다.
+      - source span은 최신 입력의 Unicode 길이를 벗어나지 않는다.
       - operation 수는 허용 필드 수 이하이고 질문·위험·이유·경고 배열에 작은 상한이 있다.
       - 현재 값과 같은 명확한 입력은 간결한 NOOP로 STOP 종료한다.
       - MAX_TOKENS 부분 출력은 수용하거나 repair하지 않고 terminal model-output failure로 종료한다.

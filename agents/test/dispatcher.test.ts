@@ -121,7 +121,7 @@ describe('deterministic dispatcher', () => {
     expect(repairTask.repair_context).toMatchObject({
       previous_response_digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
       validator_errors: expect.arrayContaining([
-        expect.objectContaining({ code: 'RESULT_SCHEMA_INVALID' }),
+        expect.objectContaining({ code: 'RESULT_SCHEMA_REQUIRED' }),
       ]),
     })
   })
@@ -147,7 +147,7 @@ describe('deterministic dispatcher', () => {
           preflight: true,
           repair_attempt: 0,
           outcome: 'REPAIR_REQUIRED',
-          validator_codes: expect.arrayContaining(['RESULT_SCHEMA_INVALID']),
+          validator_codes: expect.arrayContaining(['RESULT_SCHEMA_REQUIRED']),
         }),
         expect.objectContaining({
           event: 'AGENT_RESULT_VALIDATION',

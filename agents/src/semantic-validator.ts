@@ -187,6 +187,7 @@ function unicodeLength(value: string): number {
 function validateIntentOperation(
   operation: JsonObject,
   founder: JsonObject,
+  latestUserInput: string,
   issues: SemanticIssue[],
   index: number,
 ): void {
@@ -198,6 +199,19 @@ function validateIntentOperation(
   const expected = object(operation.expected_old_value)
   const typed = object(operation.typed_value)
   const path = `/payload/operations/${index}`
+  const sourceSpan = object(operation.source_span)
+  const spanStart = sourceSpan.start
+  const spanEnd = sourceSpan.end
+  if (!Number.isInteger(spanStart) || !Number.isInteger(spanEnd)
+    || Number(spanStart) < 0 || Number(spanEnd) <= Number(spanStart)
+    || Number(spanEnd) > unicodeLength(latestUserInput)) {
+    add(
+      issues,
+      'INTENT_SOURCE_SPAN_INVALID',
+      `${path}/source_span`,
+      'source span must be a non-empty half-open Unicode code-point range within latest user input',
+    )
+  }
 
   if (INTENT_COLLECTION_FIELDS.has(fieldPath)) {
     const values = strings(current)
@@ -261,6 +275,9 @@ function validateIntent(taskPayload: JsonObject, resultPayload: JsonObject, issu
   const opPool = new Set(strings(taskPayload.operation_id_pool))
   const fieldPool = new Set(strings(taskPayload.allowed_field_paths))
   const founder = object(object(taskPayload.current_state_projection).founder)
+  const latestUserInput = typeof taskPayload.latest_user_input === 'string'
+    ? taskPayload.latest_user_input
+    : ''
   const producedFields: string[] = []
   for (const [index, rawOperation] of array(resultPayload.operations).entries()) {
     const operation = object(rawOperation)
@@ -269,7 +286,7 @@ function validateIntent(taskPayload: JsonObject, resultPayload: JsonObject, issu
       add(issues, 'FIELD_PATH_NOT_ALLOWED', `/payload/operations/${index}/field_path`, 'field path is outside the controller-provided ontology')
     } else {
       producedFields.push(operation.field_path)
-      validateIntentOperation(operation, founder, issues, index)
+      validateIntentOperation(operation, founder, latestUserInput, issues, index)
     }
   }
   if (producedFields.length !== new Set(producedFields).size) {

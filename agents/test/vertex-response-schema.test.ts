@@ -18,6 +18,12 @@ interface ProjectedSchema {
   oneOf?: ProjectedSchema[]
   maxItems?: number
   minimum?: number
+  maximum?: number
+}
+
+function variants(schema: ProjectedSchema | undefined): ProjectedSchema[] {
+  if (!schema) return []
+  return schema.anyOf ?? [schema]
 }
 
 function intentTask(): AgentTask {
@@ -63,22 +69,25 @@ describe('Vertex role response schema projection', () => {
 
     expect(roleSchema.properties?.operations.maxItems).toBe(2)
     expect(operation.properties.op_id.enum).toEqual(['op-1', 'op-2', 'op-3'])
-    expect(operation.properties.field_path).toEqual({})
-    expect(operation.anyOf).toHaveLength(2)
-    const borrowing = operation.anyOf?.find((branch) => (
-      branch.properties?.field_path.enum?.[0] === '/founder/borrowing_intent'
-    ))
-    const ownFunds = operation.anyOf?.find((branch) => (
-      branch.properties?.field_path.enum?.[0] === '/founder/own_funds_krw'
-    ))
-    expect(borrowing?.properties?.kind.enum).toEqual(['SET'])
-    expect(borrowing?.properties?.expected_old_value.properties?.value.enum).toEqual(['NO'])
-    expect(borrowing?.properties?.typed_value.properties?.value.enum).toEqual(['YES', 'NO', 'UNDECIDED'])
-    expect(ownFunds?.properties?.kind.enum).toEqual(['SET'])
-    expect(ownFunds?.properties?.expected_old_value.properties?.value.enum).toEqual([100_000_000])
-    expect(ownFunds?.properties?.typed_value.properties?.value.type).toBe('integer')
-    expect(ownFunds?.properties?.typed_value.properties?.value.minimum).toBe(0)
+    expect(operation.properties.field_path.enum).toEqual([
+      '/founder/borrowing_intent',
+      '/founder/own_funds_krw',
+    ])
+    expect(operation.properties.kind.enum).toEqual(['SET'])
+    expect(operation.anyOf).toBeUndefined()
+    const expectedValues = variants(operation.properties.expected_old_value)
+    expect(expectedValues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ properties: expect.objectContaining({ value: { enum: ['NO'] } }) }),
+      expect.objectContaining({ properties: expect.objectContaining({ value: { enum: [100_000_000] } }) }),
+    ]))
+    const typedValues = variants(operation.properties.typed_value)
+    expect(typedValues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ properties: expect.objectContaining({ value: { enum: ['YES', 'NO', 'UNDECIDED'] } }) }),
+      expect.objectContaining({ properties: expect.objectContaining({ value: { type: 'integer', minimum: 0 } }) }),
+    ]))
     expect(operation.properties.unit.type).toBe('null')
+    expect(operation.properties.source_span.properties?.start.maximum).toBe(15)
+    expect(operation.properties.source_span.properties?.end.maximum).toBe(16)
     expect(roleSchema.properties?.clarifying_questions.maxItems).toBe(3)
     expect(roleSchema.properties?.affected_workflow_codes.maxItems).toBe(1)
     expect(roleSchema.properties?.affected_workflow_codes.items?.enum).toEqual(['FIRST_PROPOSAL'])
@@ -119,19 +128,18 @@ describe('Vertex role response schema projection', () => {
     const responseSchema = buildAgentTaskResultResponseJsonSchema(task) as ProjectedSchema
     const operation = responseSchema.properties?.payload.anyOf?.[0]
       ?.properties?.operations.items
-    const branches = operation?.anyOf ?? []
-    const branch = (field: string, kind: string) => branches.find((item) => (
-      item.properties?.field_path.enum?.[0] === field
-      && item.properties?.kind.enum?.[0] === kind
-    ))
-
-    expect(branch('/founder/max_loss_krw', 'SET')?.properties?.typed_value.properties?.value.minimum).toBe(0)
-    expect(branch('/founder/max_loss_krw', 'UNSET')?.properties?.typed_value.properties?.value.type).toBe('null')
-    expect(branch('/founder/preferences', 'ADD')?.properties?.expected_old_value.properties?.value.type).toBe('null')
-    expect(branch('/founder/preferences', 'REMOVE')?.properties?.typed_value.properties?.value.enum).toHaveLength(8)
-    expect(branch('/founder/avoidances', 'REMOVE')?.properties?.typed_value.properties?.value.enum).toHaveLength(8)
-    expect(branches.some((item) => item.properties?.kind.enum?.[0] === 'UNSET'
-      && item.properties?.field_path.enum?.[0] !== '/founder/max_loss_krw')).toBe(false)
+    if (!operation?.properties) throw new Error('missing flattened INTENT_DELTA operation schema')
+    expect(operation.anyOf).toBeUndefined()
+    expect(operation.properties.field_path.enum).toEqual(payload.allowed_field_paths)
+    expect(operation.properties.kind.enum).toEqual(['SET', 'UNSET', 'ADD', 'REMOVE'])
+    const expectedValues = variants(operation.properties.expected_old_value)
+    const typedValues = variants(operation.properties.typed_value)
+    expect(expectedValues.some((item) => item.properties?.value.type === 'null')).toBe(true)
+    expect(expectedValues.some((item) => item.properties?.value.enum?.[0] === 25_000_000)).toBe(true)
+    expect(typedValues.some((item) => item.properties?.value.type === 'null')).toBe(true)
+    expect(typedValues.some((item) => item.properties?.value.type === 'integer'
+      && item.properties.value.minimum === 0)).toBe(true)
+    expect(typedValues.filter((item) => item.properties?.value.enum?.length === 8)).toHaveLength(2)
     expect(new TextEncoder().encode(JSON.stringify(responseSchema)).byteLength).toBeLessThan(20_000)
   })
 
@@ -143,8 +151,10 @@ describe('Vertex role response schema projection', () => {
     payload.allowed_field_paths = ['/founder/max_loss_krw']
 
     const schema = buildVertexRolePayloadSchema(task) as ProjectedSchema
-    const branches = schema.properties?.operations.items?.anyOf ?? []
-    expect(branches.some((branch) => branch.properties?.kind.enum?.[0] === 'UNSET')).toBe(false)
+    const operation = schema.properties?.operations.items
+    expect(operation?.anyOf).toBeUndefined()
+    expect(operation?.properties?.kind.enum).toEqual(['SET'])
+    expect(operation?.properties?.typed_value.properties?.value.type).toBe('integer')
   })
 
   it('keeps one compact EVIDENCE_PLAN action shape with allowed tool and argument unions', () => {

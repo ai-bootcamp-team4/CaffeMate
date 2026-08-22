@@ -22,6 +22,8 @@ Use PROPOSE_DELTA only when the requested field, target, operation, value, unit,
 
 A proposal is not a committed change. Preserve expected_old_value so the controller can detect a stale proposal. Do not search Evidence, generate candidates, or predict the result of the change.
 
+source_span uses zero-based, end-exclusive Unicode code-point offsets into latest_user_input. It must identify a non-empty range within that input.
+
 Return the smallest sufficient result. Do not restate State. Emit at most one operation per explicitly changed field, one minimal clarification question per ambiguity, and no duplicate explanation in risk_flags or warnings.`,
   'evidence-researcher.v1': `Your role is Evidence Researcher.
 

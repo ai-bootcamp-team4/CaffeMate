@@ -485,28 +485,66 @@ function intentOperationBranches(task: AgentTask, fieldPaths: readonly string[])
   return branches
 }
 
+function distinctIntentPropertySchemas(branches: readonly JsonObject[], property: string): JsonObject[] {
+  const schemas = new Map<string, JsonObject>()
+  for (const branch of branches) {
+    const properties = asObject(branch.properties)
+    const schema = properties ? asObject(properties[property]) : null
+    if (schema) schemas.set(JSON.stringify(schema), schema)
+  }
+  return [...schemas.values()]
+}
+
+function compactIntentPropertyUnion(schemas: readonly JsonObject[]): JsonObject {
+  if (schemas.length === 0) throw new Error('VERTEX_INTENT_PROPERTY_SCHEMA_UNRESOLVED')
+  return schemas.length === 1 ? schemas[0] as JsonObject : { anyOf: schemas }
+}
+
 function applyIntentBounds(projected: JsonObject, task: AgentTask): void {
+  const taskPayload = asObject(task.payload)
   const properties = asObject(projected.properties)
   const operations = properties ? asObject(properties.operations) : null
   const operation = operations ? asObject(operations.items) : null
   const operationProperties = operation ? asObject(operation.properties) : null
-  if (!properties || !operations || !operation || !operationProperties) {
+  const latestUserInput = taskPayload?.latest_user_input
+  if (!properties || !operations || !operation || !operationProperties
+    || typeof latestUserInput !== 'string' || latestUserInput.length === 0) {
     throw new Error('VERTEX_INTENT_SCHEMA_UNRESOLVED')
   }
 
   const fieldPaths = intentPool(task, 'allowed_field_paths')
   const operationIds = intentPool(task, 'operation_id_pool')
+  const branches = intentOperationBranches(task, fieldPaths)
+  const kinds = distinctIntentPropertySchemas(branches, 'kind')
+    .flatMap((schema) => Array.isArray(schema.enum) ? schema.enum : [])
+    .filter((value): value is string => typeof value === 'string')
   operations.maxItems = Math.min(fieldPaths.length, operationIds.length)
   operationProperties.op_id = { type: 'string', enum: operationIds }
-  // Field-specific branches below are the generation contract. Removing the
-  // projected broad value unions keeps Vertex's schema small and prevents it
-  // from selecting an operation or value kind invalid for the chosen field.
-  operationProperties.field_path = {}
-  operationProperties.kind = {}
-  operationProperties.expected_old_value = {}
-  operationProperties.typed_value = {}
+  // Vertex may treat a nested operation-level anyOf as guidance and generate
+  // values that violate every branch. Put the bounded types directly on each
+  // property so structured generation must at least choose a supplied field,
+  // operation kind and typed-value shape. The semantic validator remains the
+  // authority for the field/kind/value pairing.
+  operationProperties.field_path = { type: 'string', enum: fieldPaths }
+  operationProperties.kind = { type: 'string', enum: [...new Set(kinds)] }
+  operationProperties.expected_old_value = compactIntentPropertyUnion(
+    distinctIntentPropertySchemas(branches, 'expected_old_value'),
+  )
+  operationProperties.typed_value = compactIntentPropertyUnion(
+    distinctIntentPropertySchemas(branches, 'typed_value'),
+  )
   operationProperties.unit = { type: 'null' }
-  operation.anyOf = intentOperationBranches(task, fieldPaths)
+  delete operation.anyOf
+
+  const sourceSpan = asObject(operationProperties.source_span)
+  const sourceSpanProperties = sourceSpan ? asObject(sourceSpan.properties) : null
+  const spanStart = sourceSpanProperties ? asObject(sourceSpanProperties.start) : null
+  const spanEnd = sourceSpanProperties ? asObject(sourceSpanProperties.end) : null
+  if (!spanStart || !spanEnd) throw new Error('VERTEX_INTENT_SOURCE_SPAN_SCHEMA_UNRESOLVED')
+  const inputLength = [...latestUserInput].length
+  spanStart.maximum = inputLength - 1
+  spanEnd.minimum = 1
+  spanEnd.maximum = inputLength
 
   const ambiguityCodes = asObject(operationProperties.ambiguity_codes)
   const clarifyingQuestions = asObject(properties.clarifying_questions)

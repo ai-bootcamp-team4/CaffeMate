@@ -131,7 +131,7 @@ function validateResult(task: AgentTask, result: AgentTaskResult): void {
       'RESULT_SCHEMA_INVALID',
       JSON.stringify(resultValidation.errors),
       resultValidation.errors.slice(0, 50).map((error) => ({
-        code: 'RESULT_SCHEMA_INVALID',
+        code: `RESULT_SCHEMA_${error.keyword.replace(/[^a-z0-9]+/gi, '_').toUpperCase()}`,
         json_pointer: error.path,
         message: error.message.slice(0, 500),
       })),

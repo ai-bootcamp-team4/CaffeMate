@@ -607,9 +607,16 @@ latest user input
 provider response Schema는 전체 공용 값 공간을 그대로 노출하지 않고 현재 task의
 `allowed_field_paths`와 `operation_id_pool`로 제한한다. 피드백 State가 실제로 표현하는
 `NULL`·`STRING`·`INTEGER`만 허용하고, operation·질문·위험·이유·경고 배열에는 입력 기반 상한을
-둔다. 이 제한은 값을 새로 만들거나 결과를 고치는 fallback이 아니라 모델이 선택할 수 있는 공간을
-Control API의 실제 권한과 일치시키는 생성 최적화다. 최종 권위 검증은 기존 전체 JSON Schema,
-semantic validator, `expected_old_value`, full-head fence가 계속 담당한다.
+둔다. Vertex가 중첩 operation-level `anyOf`를 생성 강제로 취급하지 않을 수 있으므로 field path,
+operation kind, expected value와 typed value의 제한을 operation의 직접 property schema에 둔다.
+여러 field의 kind·value 조합 관계는 semantic validator가 다시 검사한다. 이 제한은 값을 새로
+만들거나 결과를 고치는 fallback이 아니라 모델이 선택할 수 있는 공간을 Control API의 실제 권한과
+일치시키는 생성 최적화다. 최종 권위 검증은 기존 전체 JSON Schema, semantic validator,
+`expected_old_value`, full-head fence가 계속 담당한다.
+
+`source_span`은 `latest_user_input`의 Unicode code point 기준 0부터 시작하는 반열린 구간이다.
+provider Schema가 입력 길이로 start·end 상한을 제한하고 semantic validator가 비어 있거나 입력
+밖으로 벗어난 구간을 다시 거절한다.
 
 관리형 Runtime 반복 검증에서 State 변경 성공을 요구하는 문장은 가능성이나 능력이 아니라 변경
 의향을 명시해야 한다. 예를 들어 `대출을 받을 의향이 있습니다.`는 `NO → YES` 검증에 사용하지만,

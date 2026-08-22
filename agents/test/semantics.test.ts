@@ -199,6 +199,18 @@ describe('agent semantic validator', () => {
     )).toBe(false)
   })
 
+  it('rejects an intent source span outside the latest Unicode input', () => {
+    const { task, result } = fixture('INTENT_DELTA')
+    const payload = result.payload as { operations: Array<Record<string, unknown>> }
+    const operation = payload.operations[0]
+    if (!operation) throw new Error('missing INTENT_DELTA operation fixture')
+    operation.source_span = { start: 0, end: 17 }
+
+    expect(validateAgentSemantics(task, result).issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'INTENT_SOURCE_SPAN_INVALID' }),
+    ]))
+  })
+
   it('requires support and counterevidence actions for non-SQL evidence plans', () => {
     const { task, result } = fixture('EVIDENCE_PLAN')
     const payload = result.payload as { claim_plans: Array<{ counter_actions: unknown[] }> }
