@@ -181,5 +181,12 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "Agent Runtime identity has model and service usage permissions" in verifier
     assert "Control API has project service usage permission" in verifier
     assert "created, executed, validated and deleted an Agent Runtime session" in verifier
+    assert "verify-first-proposal" in verifier
+    assert "caffemate-first-proposal-canary" in verifier
+    assert "--task-timeout=25m" in verifier
+    assert "FIRST_PROPOSAL traversed all 13 production stages" in verifier
+    assert 'report["workflow_status"] == "SUCCEEDED"' in verifier
+    assert 'report["stage_count"] == 13' in verifier
+    assert 'report["result_freshness"] == "CURRENT"' in verifier
     assert "Worker has public invoker policy" in verifier
     assert "Scheduler reached internal Worker with HTTP 200" in verifier

@@ -54,6 +54,7 @@ from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
+from app.verification.first_proposal import PostgresFirstProposalCanaryCleaner
 from app.workflows.area_resolution import AreaResolutionStageHandler
 from app.workflows.calculate_gate_rank import CalculateGateRankStageHandler
 from app.workflows.candidate_audit import CandidateAuditStageHandler
@@ -1568,6 +1569,7 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
         "CANDIDATE_AUDIT",
     ]
 
+
     feedback_runtime = FeedbackAgentFixture()
     feedback = FeedbackService(
         PostgresFeedbackRepository(postgres_engine),
@@ -1817,6 +1819,61 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
             idempotency_key="feedback-stale",
             user_input="자금은 3천만 원으로 바꿀래",
         )
+
+
+def test_first_proposal_canary_cleaner_removes_only_generated_project_artifacts(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    canary = onboarded_project(repository, user_id="first-proposal-canary-test")
+    preserved = onboarded_project(repository, user_id="preserved-user")
+    seed_registry = IndependentSeedRegistry.load_default()
+    workflows = WorkflowService(
+        PostgresWorkflowRepository(
+            postgres_engine,
+            policy_snapshot_id="policy-v1",
+            seed_registry_id=seed_registry.registry_id,
+        )
+    )
+    run = workflows.start(
+        project_id=canary.project_id,
+        user_id=canary.user_id,
+        workflow_code=WorkflowCode.FIRST_PROPOSAL,
+        idempotency_key="canary-workflow",
+    )
+
+    PostgresFirstProposalCanaryCleaner(postgres_engine).cleanup(
+        project_id=canary.project_id,
+        user_id=canary.user_id,
+    )
+
+    with postgres_engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM venture_projects WHERE project_id=:project_id"),
+            {"project_id": canary.project_id},
+        ).scalar_one() == 0
+        assert connection.execute(
+            text(
+                "SELECT COUNT(*) FROM workflow_outbox "
+                "WHERE payload_json->>'workflow_run_id'=:run_id"
+            ),
+            {"run_id": run.workflow_run_id},
+        ).scalar_one() == 0
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM idempotency_records WHERE user_id=:user_id"),
+            {"user_id": canary.user_id},
+        ).scalar_one() == 0
+        assert connection.execute(
+            text(
+                "SELECT COUNT(*) FROM workflow_idempotency_records "
+                "WHERE user_id=:user_id"
+            ),
+            {"user_id": canary.user_id},
+        ).scalar_one() == 0
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM venture_projects WHERE project_id=:project_id"),
+            {"project_id": preserved.project_id},
+        ).scalar_one() == 1
 
 
 def create_ready_stage(
