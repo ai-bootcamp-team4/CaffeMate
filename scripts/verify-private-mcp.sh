@@ -89,25 +89,13 @@ assert not any(
 print("MCP_DEPLOYMENT_CONTRACT_OK")
 PY
 
-runtime_resource=$(python3 - <<'PY'
-import json
-print(json.load(open("agents/release-manifest.json"))["runtime"]["resource_name"])
-PY
-)
-access_token=$(gcloud auth print-access-token)
-rag_files=$(curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
-  --header "Authorization: Bearer ${access_token}" \
-  "https://${region}-aiplatform.googleapis.com/v1/${official_rag_corpus_resource}/ragFiles?pageSize=100")
-rag_file_resource=$(printf '%s' "$rag_files" | python3 -c \
-  'import json,sys; rows=json.load(sys.stdin).get("ragFiles", []); assert rows and rows[0].get("name"); print(rows[0]["name"])')
-
 iam_verify_job='caffemate-mcp-iam-verify'
 configure_iam_verify_job() {
   action=$1
   gcloud run jobs "$action" "$iam_verify_job" \
     --project="$project_id" --region="$region" \
     --image="$tagged_digest" --service-account="$mcp_sa" \
-    --set-env-vars="CAFFEMATE_GCP_REGION=${region},AGENT_RUNTIME_RESOURCE=${runtime_resource},RAG_CORPUS_RESOURCE=${official_rag_corpus_resource},RAG_FILE_RESOURCE=${rag_file_resource}" \
+    --set-env-vars="CAFFEMATE_GCP_PROJECT_ID=${project_id}" \
     --command=node --args=deploy/runtime-iam-smoke.mjs \
     --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=2m \
     --cpu=1 --memory=512Mi --quiet >/dev/null

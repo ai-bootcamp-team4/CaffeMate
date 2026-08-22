@@ -298,9 +298,14 @@ def test_effective_iam_verification_runs_as_the_deployed_identities() -> None:
 
     assert '--service-account="$mcp_sa"' in verifier
     assert "deploy/runtime-iam-smoke.mjs" in verifier
-    assert ":testIamPermissions" in smoke
+    assert "CAFFEMATE_GCP_PROJECT_ID=${project_id}" in verifier
+    assert (
+        "cloudresourcemanager.googleapis.com/v1/projects/${projectId}:testIamPermissions"
+        in smoke
+    )
     assert "aiplatform.reasoningEngines.update" in smoke
     assert "aiplatform.ragCorpora.query" in smoke
+    assert "discoveryengine.rankingConfigs.rank" in smoke
     assert "aiplatform.ragCorpora.delete" in smoke
     assert "aiplatform.ragFiles.delete" in smoke
     assert "MCP_EFFECTIVE_IAM_OK" in smoke
