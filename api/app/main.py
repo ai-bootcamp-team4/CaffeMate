@@ -49,6 +49,7 @@ from app.domain.errors import (
     FeedbackPreconditionError,
     FeedbackPreviewNotFoundError,
     FirstProposalConfigurationUnavailableError,
+    FirstProposalPreflightUnavailableError,
     IdempotencyKeyReusedError,
     PersistenceUnavailableError,
     ProjectNotFoundError,
@@ -77,6 +78,7 @@ from app.feedback.service import (
     UnavailableFeedbackService,
 )
 from app.mcp.client import GoogleIdentityTokenProvider, McpHttpClient
+from app.mcp.preflight import McpManifestPreflight
 from app.mcp.scope import ScopeTokenSigner
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
@@ -134,7 +136,7 @@ from app.workflows.stage_service import (
     StageExecutionService,
     UnavailableStageExecutionService,
 )
-from app.workflows.start_guard import FirstProposalStartGuard
+from app.workflows.start_guard import FirstProposalStartGuard, McpManifestStartGate
 from app.workflows.unavailable_repository import UnavailableWorkflowRepository
 
 
@@ -181,6 +183,7 @@ def create_app(
     internal_identity_verifier: IdentityVerifier | None = None,
     agent_runtime: AgentRuntime | None = None,
     mcp_client: AreaMcpClient | EvidenceMcpClient | None = None,
+    mcp_manifest_preflight: McpManifestPreflight | None = None,
 ) -> FastAPI:
     database_handle: DatabaseHandle | None = None
     settings = RuntimeSettings.from_environment()
@@ -224,6 +227,19 @@ def create_app(
     configured_mcp_client = mcp_client
     if configured_mcp_client is None and settings.has_mcp_configuration:
         configured_mcp_client = McpHttpClient(
+            base_url=cast(str, settings.mcp_base_url),
+            audience=cast(str, settings.mcp_audience),
+            identity_provider=GoogleIdentityTokenProvider(),
+            scope_signer=ScopeTokenSigner(
+                secret=cast(str, settings.mcp_scope_hmac_secret),
+                issuer="caffemate-control-api",
+                audience="caffemate-mcp",
+            ),
+        )
+
+    configured_mcp_preflight = mcp_manifest_preflight
+    if configured_mcp_preflight is None and settings.has_mcp_configuration:
+        configured_mcp_preflight = McpManifestPreflight(
             base_url=cast(str, settings.mcp_base_url),
             audience=cast(str, settings.mcp_audience),
             identity_provider=GoogleIdentityTokenProvider(),
@@ -281,7 +297,18 @@ def create_app(
             else UnavailableWorkflowRepository()
         )
         start_guard = (
-            FirstProposalStartGuard(stage_handlers)
+            FirstProposalStartGuard(
+                stage_handlers,
+                manifest_gate=(
+                    McpManifestStartGate(
+                        configured_mcp_preflight,
+                        policy_snapshot_id=settings.policy_snapshot_id,
+                        seed_registry_id=seed_registry.registry_id,
+                    )
+                    if configured_mcp_preflight is not None
+                    else None
+                ),
+            )
             if database_handle is not None and settings.policy_snapshot_id is not None
             else None
         )
@@ -415,10 +442,15 @@ def create_app(
             FirstProposalConfigurationUnavailableError: (
                 status.HTTP_503_SERVICE_UNAVAILABLE
             ),
+            FirstProposalPreflightUnavailableError: (
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
         }.get(type(error), status.HTTP_400_BAD_REQUEST)
         content: dict[str, object] = {"code": error.code}
         if isinstance(error, FirstProposalConfigurationUnavailableError):
             content["missing_stage_codes"] = error.missing_stage_codes
+        if isinstance(error, FirstProposalPreflightUnavailableError):
+            content["reason_codes"] = error.reason_codes
         return JSONResponse(status_code=status_code, content=content)
 
     @app.get("/health", tags=["operations"])

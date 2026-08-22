@@ -479,6 +479,8 @@ tool 이름, input·output Schema와 version은 [MCP Tool Manifest](./mcp-tool-m
 
 배포 preflight는 pagination을 끝까지 소비한 `tools/list`의 name·version·inputSchema·outputSchema를 RFC 8785로 정규화한다. checked-in manifest도 같은 방식으로 정규화하고 [manifest digest](./mcp-tool-manifest.sha256)와 비교한다. 누락·추가 tool, schema 차이 또는 digest 차이가 하나라도 있으면 `MCP_MANIFEST_MISMATCH`로 Workflow 시작을 막는다. `server/discover`는 capability preflight에만 쓰며 business request의 선행 handshake가 아니다.
 
+Control API는 `FIRST_PROPOSAL` Workflow를 저장하기 전에 Python SDK의 `McpManifestPreflight`를 실행한다. 이 검사는 discover revision, pagination 전체, tool version, input·output Schema와 RFC 8785 manifest digest를 모두 확인한다. MCP 미설정, transport 실패 또는 manifest 불일치 시 Workflow row와 outbox를 만들지 않고 `FIRST_PROPOSAL_PREFLIGHT_UNAVAILABLE`과 구체적인 MCP reason code를 반환한다. 배포 검증도 Control API image와 runtime service account로 같은 preflight를 실행해야 한다.
+
 ## 9. 역할별 Workflow handoff
 
 ### 9.1 FIRST_PROPOSAL
