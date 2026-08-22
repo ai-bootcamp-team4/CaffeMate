@@ -94,7 +94,7 @@ describe('agent semantic validator', () => {
     result.payload = {
       decision: 'PROPOSE_DELTA',
       operations: [{
-        op_id: 'invented-op', kind: 'SET', field_path: 'founder.borrowing_intent',
+        op_id: 'invented-op', kind: 'SET', field_path: '/founder/borrowing_intent',
         expected_old_value: { kind: 'STRING', value: 'NO' }, typed_value: { kind: 'STRING', value: 'YES' },
         unit: null, semantic_kind: 'HARD_CONSTRAINT', source_span: { start: 0, end: 4 }, ambiguity_codes: [],
       }],
@@ -104,6 +104,99 @@ describe('agent semantic validator', () => {
     const validation = validateAgentSemantics(task, result)
     expect(validation.ok).toBe(false)
     expect(validation.issues.some((issue) => issue.code === 'OUTPUT_ID_NOT_IN_POOL')).toBe(true)
+  })
+
+  it('rejects more than one intent operation for the same field', () => {
+    const { task, result } = fixture('INTENT_DELTA')
+    const taskPayload = task.payload as { operation_id_pool: string[] }
+    taskPayload.operation_id_pool = ['op-1', 'op-2']
+    const payload = result.payload as { operations: Array<Record<string, unknown>> }
+    const first = {
+      op_id: 'op-1', kind: 'SET', field_path: '/founder/borrowing_intent',
+      expected_old_value: { kind: 'STRING', value: 'NO' }, typed_value: { kind: 'STRING', value: 'YES' },
+      unit: null, semantic_kind: 'HARD_CONSTRAINT', source_span: { start: 0, end: 4 }, ambiguity_codes: [],
+    }
+    payload.operations = [
+      first,
+      { ...structuredClone(first), op_id: 'op-2' },
+    ]
+
+    const validation = validateAgentSemantics(task, result)
+    expect(validation.ok).toBe(false)
+    expect(validation.issues.some((issue) => issue.code === 'DUPLICATE_INTENT_FIELD')).toBe(true)
+  })
+
+  it('rejects unchanged scalar and invalid collection intent operations before Control API', () => {
+    const unchanged = fixture('INTENT_DELTA')
+    const unchangedPayload = unchanged.result.payload as { operations: Array<Record<string, unknown>> }
+    const unchangedOperation = unchangedPayload.operations[0]
+    if (!unchangedOperation) throw new Error('missing INTENT_DELTA operation fixture')
+    unchangedOperation.typed_value = { kind: 'STRING', value: 'NO' }
+    expect(validateAgentSemantics(unchanged.task, unchanged.result).issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'INTENT_SCALAR_VALUE_UNCHANGED' }),
+    ]))
+
+    const collection = fixture('INTENT_DELTA')
+    const taskPayload = collection.task.payload as {
+      allowed_field_paths: string[]
+      current_state_projection: { founder: { preferences: string[] } }
+    }
+    taskPayload.allowed_field_paths = ['/founder/preferences']
+    const collectionPayload = collection.result.payload as { operations: Array<Record<string, unknown>> }
+    collectionPayload.operations = [{
+      op_id: 'op-1', kind: 'ADD', field_path: '/founder/preferences',
+      expected_old_value: { kind: 'NULL', value: null }, typed_value: { kind: 'STRING', value: '조용한 매장' },
+      unit: null, semantic_kind: 'SOFT_PREFERENCE', source_span: { start: 0, end: 4 }, ambiguity_codes: [],
+    }]
+    expect(validateAgentSemantics(collection.task, collection.result).issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'INTENT_COLLECTION_PRECONDITION_INVALID' }),
+    ]))
+
+    collectionPayload.operations[0] = {
+      ...collectionPayload.operations[0],
+      kind: 'REMOVE',
+      expected_old_value: { kind: 'STRING', value: '다른 값' },
+    }
+    expect(validateAgentSemantics(collection.task, collection.result).issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'INTENT_COLLECTION_PRECONDITION_INVALID' }),
+    ]))
+
+    const unset = fixture('INTENT_DELTA')
+    const unsetTaskPayload = unset.task.payload as {
+      allowed_field_paths: string[]
+      current_state_projection: { founder: { max_loss_krw?: number | null } }
+    }
+    unsetTaskPayload.allowed_field_paths = ['/founder/max_loss_krw']
+    unsetTaskPayload.current_state_projection.founder.max_loss_krw = null
+    const unsetPayload = unset.result.payload as { operations: Array<Record<string, unknown>> }
+    unsetPayload.operations = [{
+      op_id: 'op-1', kind: 'UNSET', field_path: '/founder/max_loss_krw',
+      expected_old_value: { kind: 'NULL', value: null }, typed_value: { kind: 'NULL', value: null },
+      unit: null, semantic_kind: 'HARD_CONSTRAINT', source_span: { start: 0, end: 4 }, ambiguity_codes: [],
+    }]
+    expect(validateAgentSemantics(unset.task, unset.result).issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'INTENT_SCALAR_VALUE_UNCHANGED' }),
+    ]))
+  })
+
+  it('counts Unicode code points consistently with Python and JSON Schema', () => {
+    const { task, result } = fixture('INTENT_DELTA')
+    const taskPayload = task.payload as {
+      allowed_field_paths: string[]
+      current_state_projection: { founder: { target_area_input: string } }
+    }
+    taskPayload.allowed_field_paths = ['/founder/target_area_input']
+    const payload = result.payload as { operations: Array<Record<string, unknown>> }
+    payload.operations = [{
+      op_id: 'op-1', kind: 'SET', field_path: '/founder/target_area_input',
+      expected_old_value: { kind: 'STRING', value: taskPayload.current_state_projection.founder.target_area_input },
+      typed_value: { kind: 'STRING', value: '😀'.repeat(256) },
+      unit: null, semantic_kind: 'HARD_CONSTRAINT', source_span: { start: 0, end: 4 }, ambiguity_codes: [],
+    }]
+
+    expect(validateAgentSemantics(task, result).issues.some(
+      (issue) => issue.code === 'INTENT_SCALAR_VALUE_INVALID',
+    )).toBe(false)
   })
 
   it('requires support and counterevidence actions for non-SQL evidence plans', () => {

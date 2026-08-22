@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import fixtureMatrix from '../fixtures/task-matrix.json'
 import { buildModelInvocation } from '../src/model-executor'
-import { VertexAgentModelClient, VertexAgentModelError } from '../src/vertex-model-client'
+import { safeGenerationTelemetry, VertexAgentModelClient, VertexAgentModelError } from '../src/vertex-model-client'
 import type { AgentTask } from '../src/types'
 
 const PROJECT_ID = 'proj-aj20-211200020328'
@@ -210,6 +210,7 @@ describe('Vertex Agent model client', () => {
     expect(telemetry).toMatchObject({
       event: 'VERTEX_AGENT_GENERATION',
       task_type: 'INTENT_DELTA',
+      preflight: false,
       repair_attempt: 0,
       thinking_level: 'low',
       max_output_tokens: 4096,
@@ -225,6 +226,23 @@ describe('Vertex Agent model client', () => {
     expect(JSON.stringify(telemetry)).not.toContain('task-1-complete')
     expect(JSON.stringify(telemetry)).not.toContain('inv-1-complete')
     info.mockRestore()
+  })
+
+  it('marks only release probe tasks as preflight telemetry', () => {
+    const probeTask = task()
+    probeTask.task_id = 'runtime-preflight-probe-1'
+    const invocation = buildModelInvocation(probeTask, {
+      id: MODEL_ID,
+      region: REGION,
+      thinkingLevel: 'high',
+    })
+
+    expect(safeGenerationTelemetry({
+      invocation,
+      elapsedMs: 10,
+      requestBytes: 100,
+      httpStatus: 200,
+    }).preflight).toBe(true)
   })
 
   it('fails closed when the single response part mixes text with a non-text payload', async () => {

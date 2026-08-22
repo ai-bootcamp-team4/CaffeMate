@@ -6,7 +6,7 @@ import { rootAgent } from '../caffemate-agents/agent'
 import { GCP_LOCATIONS } from './registry'
 import { bindRuntimeStreamAbort } from './runtime-abort'
 import { CAFFEMATE_AGENT_APP_NAME } from './runtime-contract'
-import { runtimeErrorRecord } from './runtime-error'
+import { runtimeErrorRecord, runtimeHttpFailure } from './runtime-error'
 import {
   handleRuntimeClassMethod,
   type RuntimeClassMethodRequest,
@@ -171,12 +171,12 @@ export async function startCaffeMateRuntimeServer(): Promise<AdkApiServer> {
       res.end()
     } catch (error) {
       console.error(JSON.stringify(runtimeErrorRecord(error)))
-      const body = { error: error instanceof Error ? error.message : String(error) }
+      const failure = runtimeHttpFailure(error)
       if (res.headersSent) {
         responseCompleted = true
-        res.end(`${JSON.stringify(body)}\n`)
+        res.end(`${JSON.stringify({ error_code: failure.body.error })}\n`)
       } else {
-        res.status(500).json(body)
+        res.status(failure.status).json(failure.body)
       }
     }
   })

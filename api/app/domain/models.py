@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -93,7 +93,7 @@ class FranchiseEligibility(StrEnum):
 
 
 class FounderState(StrictModel):
-    target_area_input: str = Field(min_length=1)
+    target_area_input: str = Field(min_length=1, max_length=256)
     own_funds_krw: int = Field(ge=0)
     borrowing_intent: BorrowingIntent
     cafe_type_preference: CafeTypePreference
@@ -101,8 +101,12 @@ class FounderState(StrictModel):
     current_work_status: str | None = None
     desired_opening_period: str | None = None
     prior_cafe_experience: str | None = None
-    preferences: list[str] = Field(default_factory=list)
-    avoidances: list[str] = Field(default_factory=list)
+    preferences: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
+        default_factory=list, max_length=8
+    )
+    avoidances: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
+        default_factory=list, max_length=8
+    )
     max_loss_krw: int | None = Field(default=None, ge=0)
 
 

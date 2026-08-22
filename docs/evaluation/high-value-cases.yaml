@@ -426,3 +426,28 @@ cases:
       - zero MCP_CONNECTOR_UNAVAILABLE in production canary retrieval
       - missing Claim preservation
     pass_condition: canary가 지원된 RAG 행동만 실행하고 미지원 Claim을 잃지 않은 채 13단계를 완주한다.
+
+  - id: EV-027
+    title: Intent Agent의 제한 없는 출력과 MAX_TOKENS 재시도 회귀
+    input: 현재 State와 같은 대출 거절 의사를 한 문장으로 다시 입력함
+    relevant_state:
+      workflow_code: RESULT_FEEDBACK
+      current_borrowing_intent: "NO"
+      task_type: INTENT_DELTA
+    trap: 공용 typed value 전체와 무제한 배열을 생성 Schema에 노출해 4096 토큰을 소진하고 같은 결함을 세 번 재시도한다.
+    expected_behavior:
+      - provider Schema의 field path와 operation id가 task pool로 제한된다.
+      - operation 수는 허용 필드 수 이하이고 질문·위험·이유·경고 배열에 작은 상한이 있다.
+      - 현재 값과 같은 명확한 입력은 간결한 NOOP로 STOP 종료한다.
+      - MAX_TOKENS 부분 출력은 수용하거나 repair하지 않고 terminal model-output failure로 종료한다.
+      - 5xx transport 장애와 model-output failure를 구분한다.
+    forbidden_behavior:
+      - 출력 토큰 상한만 높여 무제한 생성 공간을 유지한다.
+      - MAX_TOKENS를 transport 오류로 분류해 같은 입력을 반복 생성한다.
+      - Agent를 제거하거나 결정론적 문구로 결과를 대체한다.
+    required_evidence:
+      - managed Runtime generation telemetry
+      - task-bounded response Schema
+      - schema-valid AgentTaskResult
+      - session create and delete trace
+    pass_condition: 동일 managed Runtime fixture 3회가 모두 첫 생성에서 STOP하고 전체 계약을 통과하며 MAX_TOKENS 재시도는 0건이다.

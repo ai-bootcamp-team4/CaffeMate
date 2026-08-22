@@ -166,15 +166,114 @@ function scopesDefinitelyMismatch(left: unknown, right: unknown): boolean {
     && expected.scope_id !== actual.scope_id
 }
 
+const INTENT_COLLECTION_FIELDS = new Set(['/founder/preferences', '/founder/avoidances'])
+const INTENT_ENUM_VALUES: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  '/founder/borrowing_intent': ['YES', 'NO', 'UNDECIDED'],
+  '/founder/cafe_type_preference': ['OPEN_TO_BOTH', 'INDEPENDENT_ONLY', 'FRANCHISE_ONLY'],
+  '/founder/operation_mode': ['DIRECT_FULL_TIME', 'DIRECT_PART_TIME', 'EMPLOYEE_LED', 'UNDECIDED'],
+})
+
+function intentTypedValue(value: unknown): JsonObject {
+  if (value === null) return { kind: 'NULL', value: null }
+  if (typeof value === 'string') return { kind: 'STRING', value }
+  if (typeof value === 'number' && Number.isInteger(value)) return { kind: 'INTEGER', value }
+  return {}
+}
+
+function unicodeLength(value: string): number {
+  return [...value].length
+}
+
+function validateIntentOperation(
+  operation: JsonObject,
+  founder: JsonObject,
+  issues: SemanticIssue[],
+  index: number,
+): void {
+  if (typeof operation.field_path !== 'string') return
+  const fieldPath = operation.field_path
+  const fieldName = fieldPath.split('/').at(-1)
+  if (!fieldName || !(fieldName in founder)) return
+  const current = founder[fieldName]
+  const expected = object(operation.expected_old_value)
+  const typed = object(operation.typed_value)
+  const path = `/payload/operations/${index}`
+
+  if (INTENT_COLLECTION_FIELDS.has(fieldPath)) {
+    const values = strings(current)
+    const item = typed.value
+    if (typed.kind !== 'STRING' || typeof item !== 'string' || !item.trim() || unicodeLength(item) > 64) {
+      add(issues, 'INTENT_COLLECTION_VALUE_INVALID', `${path}/typed_value`, 'collection item must be non-blank text of at most 64 characters')
+      return
+    }
+    if (operation.kind === 'ADD') {
+      if (jsonKey(expected) !== jsonKey({ kind: 'NULL', value: null }) || values.includes(item) || values.length >= 8) {
+        add(issues, 'INTENT_COLLECTION_PRECONDITION_INVALID', path, 'collection ADD requires a new item, available capacity and a null precondition')
+      }
+      return
+    }
+    if (operation.kind === 'REMOVE') {
+      if (jsonKey(expected) !== jsonKey(typed) || !values.includes(item)) {
+        add(issues, 'INTENT_COLLECTION_PRECONDITION_INVALID', path, 'collection REMOVE must echo the same existing item')
+      }
+      return
+    }
+    add(issues, 'INTENT_OPERATION_KIND_INVALID', `${path}/kind`, 'collection fields support only ADD or REMOVE')
+    return
+  }
+
+  if (jsonKey(expected) !== jsonKey(intentTypedValue(current))) {
+    add(issues, 'INTENT_SCALAR_PRECONDITION_INVALID', `${path}/expected_old_value`, 'scalar precondition must exactly match current State')
+  }
+  if (operation.kind === 'UNSET' && fieldPath === '/founder/max_loss_krw') {
+    if (jsonKey(typed) !== jsonKey({ kind: 'NULL', value: null })) {
+      add(issues, 'INTENT_SCALAR_VALUE_INVALID', `${path}/typed_value`, 'max loss UNSET requires null')
+    }
+    if (current === null) {
+      add(issues, 'INTENT_SCALAR_VALUE_UNCHANGED', `${path}/typed_value`, 'UNSET must change a non-null max loss value')
+    }
+    return
+  }
+  if (operation.kind !== 'SET') {
+    add(issues, 'INTENT_OPERATION_KIND_INVALID', `${path}/kind`, 'scalar fields support only SET')
+    return
+  }
+
+  const value = typed.value
+  if (fieldPath === '/founder/own_funds_krw' || fieldPath === '/founder/max_loss_krw') {
+    if (typed.kind !== 'INTEGER' || typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      add(issues, 'INTENT_SCALAR_VALUE_INVALID', `${path}/typed_value`, 'money field requires a non-negative integer')
+    }
+  } else {
+    const allowed = INTENT_ENUM_VALUES[fieldPath]
+    if (typed.kind !== 'STRING' || typeof value !== 'string' || !value.trim()
+      || (fieldPath === '/founder/target_area_input' && unicodeLength(value) > 256)
+      || (allowed && !allowed.includes(value))) {
+      add(issues, 'INTENT_SCALAR_VALUE_INVALID', `${path}/typed_value`, 'string field value is invalid')
+    }
+  }
+  if (jsonKey(typed) === jsonKey(intentTypedValue(current))) {
+    add(issues, 'INTENT_SCALAR_VALUE_UNCHANGED', `${path}/typed_value`, 'SET must change the current scalar value')
+  }
+}
+
 function validateIntent(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
   const opPool = new Set(strings(taskPayload.operation_id_pool))
   const fieldPool = new Set(strings(taskPayload.allowed_field_paths))
+  const founder = object(object(taskPayload.current_state_projection).founder)
+  const producedFields: string[] = []
   for (const [index, rawOperation] of array(resultPayload.operations).entries()) {
     const operation = object(rawOperation)
     requirePoolMember(issues, opPool, operation.op_id, `/payload/operations/${index}/op_id`)
     if (typeof operation.field_path !== 'string' || !fieldPool.has(operation.field_path)) {
       add(issues, 'FIELD_PATH_NOT_ALLOWED', `/payload/operations/${index}/field_path`, 'field path is outside the controller-provided ontology')
+    } else {
+      producedFields.push(operation.field_path)
+      validateIntentOperation(operation, founder, issues, index)
     }
+  }
+  if (producedFields.length !== new Set(producedFields).size) {
+    add(issues, 'DUPLICATE_INTENT_FIELD', '/payload/operations', 'intent output may contain at most one operation per field')
   }
 }
 

@@ -49,17 +49,29 @@ class _StrictAgentCleanupSink:
         raise RuntimeError("Agent Runtime verification requires synchronous session deletion")
 
 
-def _agent_runtime_probe_task() -> dict[str, Any]:
+def _agent_runtime_probe_fixture(fixture_id: str) -> dict[str, Any]:
     root = Path(__file__).resolve().parents[2]
     matrix = json.loads(
         (root / "agents" / "fixtures" / "task-matrix.json").read_text(
             encoding="utf-8"
         )
     )
-    fixture = next(
-        item for item in matrix["cases"] if item["id"] == "evidence_plan-complete"
-    )
+    fixture = next((item for item in matrix["cases"] if item["id"] == fixture_id), None)
+    if not isinstance(fixture, dict):
+        raise ValueError(f"Unknown Agent Runtime probe fixture: {fixture_id}")
+    return cast(dict[str, Any], fixture)
+
+
+def _agent_runtime_probe_task(
+    fixture_id: str = "evidence_plan-complete",
+) -> dict[str, Any]:
+    root = Path(__file__).resolve().parents[2]
+    fixture = _agent_runtime_probe_fixture(fixture_id)
     task = copy.deepcopy(fixture["task"])
+    release = json.loads(
+        (root / "agents" / "release-manifest.json").read_text(encoding="utf-8")
+    )
+    deadline_seconds = release["tasks"][task["task_type"]]["deadline_seconds"]
     probe_id = uuid4().hex
     task.update(
         {
@@ -70,7 +82,7 @@ def _agent_runtime_probe_task() -> dict[str, Any]:
             "venture_project_id": f"runtime-preflight-{probe_id}",
             "transport_attempt": 1,
             "repair_attempt": 0,
-            "deadline_at": (datetime.now(UTC) + timedelta(minutes=3))
+            "deadline_at": (datetime.now(UTC) + timedelta(seconds=deadline_seconds))
             .isoformat()
             .replace("+00:00", "Z"),
         }
@@ -94,7 +106,13 @@ def main() -> None:
     )
     parser.add_argument("--timeout-seconds", type=float, default=1200.0)
     parser.add_argument("--poll-interval-seconds", type=float, default=5.0)
+    parser.add_argument(
+        "--agent-fixture-id", default="evidence_plan-complete"
+    )
+    parser.add_argument("--repeat", type=int, default=1)
     arguments = parser.parse_args()
+    if arguments.repeat < 1 or arguments.repeat > 20:
+        parser.error("repeat must be between 1 and 20")
 
     if arguments.command == "migrate":
         handle = create_database_handle(RuntimeSettings.from_environment())
@@ -158,20 +176,85 @@ def main() -> None:
         settings = RuntimeSettings.from_environment()
         if not settings.has_agent_runtime_configuration:
             parser.error("complete Agent Runtime configuration required")
-        result = AgentRuntimeHttpClient(
+        runtime = AgentRuntimeHttpClient(
             gcp_project_id=cast(str, settings.agent_runtime_project_id),
             resource_id=cast(str, settings.agent_runtime_resource_id),
             user_hmac_secret=cast(str, settings.agent_runtime_user_hmac_secret),
             access_tokens=GoogleAccessTokenProvider(),
             cleanup_sink=_StrictAgentCleanupSink(),
-        ).invoke(_agent_runtime_probe_task())
+        )
+        expected = _agent_runtime_probe_fixture(arguments.agent_fixture_id)["result"]
+        summaries: list[dict[str, Any]] = []
+        for run_number in range(1, arguments.repeat + 1):
+            result = runtime.invoke(
+                _agent_runtime_probe_task(arguments.agent_fixture_id)
+            )
+            if result["status"] != expected["status"]:
+                raise RuntimeError("Agent Runtime probe status differs from fixture")
+            expected_payload = expected.get("payload")
+            result_payload = result.get("payload")
+            expected_decision = (
+                expected_payload.get("decision")
+                if isinstance(expected_payload, dict)
+                else None
+            )
+            result_decision = (
+                result_payload.get("decision")
+                if isinstance(result_payload, dict)
+                else None
+            )
+            if expected_decision is not None and result_decision != expected_decision:
+                raise RuntimeError("Agent Runtime probe decision differs from fixture")
+            if expected_decision == "PROPOSE_DELTA":
+                if not isinstance(result_payload, dict):
+                    raise RuntimeError("Agent Runtime probe payload is missing")
+                expected_operations = expected_payload.get("operations")
+                result_operations = result_payload.get("operations")
+                if not isinstance(expected_operations, list) or not isinstance(
+                    result_operations, list
+                ):
+                    raise RuntimeError("Agent Runtime probe operations are missing")
+                core_fields = (
+                    "field_path",
+                    "kind",
+                    "expected_old_value",
+                    "typed_value",
+                )
+                expected_core = [
+                    {field: operation[field] for field in core_fields}
+                    for operation in expected_operations
+                    if isinstance(operation, dict)
+                ]
+                result_core = [
+                    {field: operation[field] for field in core_fields}
+                    for operation in result_operations
+                    if isinstance(operation, dict)
+                ]
+                if len(expected_core) != len(expected_operations) or len(
+                    result_core
+                ) != len(result_operations):
+                    raise RuntimeError("Agent Runtime probe operation shape is invalid")
+                if result_core != expected_core:
+                    raise RuntimeError("Agent Runtime probe operations differ from fixture")
+            summaries.append(
+                {
+                    "run": run_number,
+                    "agent_name": result["agent_name"],
+                    "task_type": result["task_type"],
+                    "result_status": result["status"],
+                    **(
+                        {"decision": result_decision}
+                        if result_decision is not None
+                        else {}
+                    ),
+                }
+            )
         print(
             json.dumps(
                 {
                     "status": "verified",
-                    "agent_name": result["agent_name"],
-                    "task_type": result["task_type"],
-                    "result_status": result["status"],
+                    "fixture_id": arguments.agent_fixture_id,
+                    "runs": summaries,
                 },
                 sort_keys=True,
             )

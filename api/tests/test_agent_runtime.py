@@ -91,6 +91,23 @@ def test_operational_probe_is_a_fresh_valid_evidence_plan_task() -> None:
     assert datetime.fromisoformat(task["deadline_at"].replace("Z", "+00:00")) > datetime.now(UTC)
 
 
+def test_operational_probe_can_build_a_live_shaped_intent_task() -> None:
+    task = _agent_runtime_probe_task("intent_delta-complete")
+
+    ContractRegistry().validate_agent_task(task)
+    assert task["task_type"] == "INTENT_DELTA"
+    assert task["agent_name"] == "INTENT_INTERPRETER"
+    assert task["prompt_version"] == "intent-interpreter.v2"
+    assert task["payload"]["allowed_field_paths"] == [
+        "/founder/borrowing_intent"
+    ]
+    assert task["input_digest"] == compute_agent_input_digest(task)
+    remaining = datetime.fromisoformat(
+        task["deadline_at"].replace("Z", "+00:00")
+    ) - datetime.now(UTC)
+    assert 0 < remaining.total_seconds() <= 30
+
+
 def evidence_fixture() -> tuple[dict[str, Any], dict[str, Any]]:
     root = Path(__file__).resolve().parents[2]
     matrix = json.loads(
@@ -581,6 +598,34 @@ def test_retryable_transport_uses_new_invocation_and_session_then_succeeds() -> 
     assert streamed_tasks[0]["input_digest"] == task["input_digest"]
     assert len(sleeps) == 1
     assert 0.25 <= sleeps[0] <= 0.35
+
+
+def test_terminal_agent_output_failure_is_not_retried() -> None:
+    task, _result = evidence_fixture()
+    create_calls = 0
+    stream_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal create_calls, stream_calls
+        body = json.loads(request.content)
+        method = body.get("class_method")
+        if method == "async_create_session":
+            create_calls += 1
+            return httpx.Response(
+                200, json={"output": {"id": body["input"]["session_id"]}}
+            )
+        if method == "async_delete_session":
+            return httpx.Response(200, json={"output": None})
+        stream_calls += 1
+        return httpx.Response(
+            422, json={"error": "VERTEX_MODEL_RESPONSE_INCOMPLETE"}
+        )
+
+    with pytest.raises(AgentRuntimeError, match="RUNTIME_AGENT_OUTPUT_INVALID"):
+        runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
+
+    assert create_calls == 1
+    assert stream_calls == 1
 
 
 def test_stream_retry_cleans_each_known_session() -> None:

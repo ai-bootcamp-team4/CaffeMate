@@ -646,6 +646,7 @@ class AgentRuntimeHttpClient:
             400: "RUNTIME_REQUEST_INVALID",
             401: "RUNTIME_UNAUTHENTICATED",
             403: "RUNTIME_FORBIDDEN",
+            422: "RUNTIME_AGENT_OUTPUT_INVALID",
         }.get(status, "RUNTIME_HTTP_TERMINAL")
         raise AgentRuntimeError(code)
 

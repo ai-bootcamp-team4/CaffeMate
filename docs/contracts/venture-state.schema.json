@@ -94,7 +94,8 @@
       "properties": {
         "target_area_input": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 256
         },
         "own_funds_krw": {
           "type": "integer",
@@ -125,14 +126,20 @@
         },
         "preferences": {
           "type": "array",
+          "maxItems": 8,
           "items": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
           }
         },
         "avoidances": {
           "type": "array",
+          "maxItems": 8,
           "items": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
           }
         },
         "max_loss_krw": {
