@@ -1,4 +1,5 @@
 import fixtureMatrix from '../fixtures/task-matrix.json'
+import releaseManifest from '../release-manifest.json'
 import { dispatchAgentTask } from './dispatcher'
 import { createApplicationDefaultGoogleCloudContext } from './gcp-auth'
 import { runGcpPreflight, type GcpPreflightResult } from './gcp-preflight'
@@ -44,6 +45,10 @@ async function defaultGcpPreflight(modelId?: string): Promise<GcpPreflightResult
     ragRegion: GCP_LOCATIONS.rag,
     embeddingRegion: GCP_LOCATIONS.embedding,
     approvedModelId: modelId ?? AGENT_MODEL.id,
+    runtimePin: {
+      resourceName: releaseManifest.runtime.resource_name,
+      imageUri: releaseManifest.runtime.image_uri,
+    },
     accessToken: cloud.accessToken,
   })
 }

@@ -25,7 +25,8 @@ COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --chown=node:node --from=build /app/runtime-server.mjs ./runtime-server.mjs
-COPY --chown=node:node agents ./agents
+COPY --chown=node:node agents/caffemate-agents ./agents/caffemate-agents
+COPY --chown=node:node agents/src ./agents/src
 COPY --chown=node:node docs/contracts ./docs/contracts
 
 USER node

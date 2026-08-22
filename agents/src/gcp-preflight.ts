@@ -37,7 +37,13 @@ export interface GcpPreflightResult {
   embeddingRegion: typeof GCP_LOCATIONS.embedding
   ragCorpusResource?: string
   runtimeResource?: string
+  runtimeImageUri?: string
   checks: GcpPreflightCheck[]
+}
+
+export interface GcpRuntimePin {
+  resourceName: string
+  imageUri: string
 }
 
 export interface GcpPreflightOptions {
@@ -47,6 +53,7 @@ export interface GcpPreflightOptions {
   ragRegion: typeof GCP_LOCATIONS.rag
   embeddingRegion: typeof GCP_LOCATIONS.embedding
   approvedModelId?: string
+  runtimePin: GcpRuntimePin
   accessToken: () => Promise<string>
   fetchImpl?: typeof fetch
 }
@@ -75,6 +82,9 @@ interface ReasoningEngineRow {
       name?: string
       api_mode?: string
     }>
+    containerSpec?: {
+      imageUri?: string
+    }
   }
 }
 
@@ -305,6 +315,7 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
 
   const runtimeResponse = await request(fetchImpl, token, `${runtimeBase}/reasoningEngines?pageSize=100`)
   let runtimeResource: string | undefined
+  let runtimeImageUri: string | undefined
   if (!runtimeResponse.ok) {
     checks.push(fail('agent-runtime', 'AGENT_RUNTIME_LIST_FAILED', `HTTP ${runtimeResponse.status}`))
   } else {
@@ -314,23 +325,34 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
       checks.push(fail('agent-runtime', 'AGENT_RUNTIME_NOT_DEPLOYED'))
     } else {
       runtimeResource = matches[0].name
-      const runtimeId = runtimeResource.split('/').at(-1)
-      if (!runtimeId) {
-        checks.push(fail('agent-runtime', 'AGENT_RUNTIME_RESOURCE_INVALID', runtimeResource))
+      if (runtimeResource !== options.runtimePin.resourceName) {
+        checks.push(fail('agent-runtime', 'AGENT_RUNTIME_RESOURCE_MISMATCH', runtimeResource))
       } else {
-        const runtimeGetResponse = await request(
-          fetchImpl,
-          token,
-          `${runtimeBase}/reasoningEngines/${encodeURIComponent(runtimeId)}`,
-        )
-        if (!runtimeGetResponse.ok) {
-          checks.push(fail('agent-runtime', 'AGENT_RUNTIME_GET_FAILED', `HTTP ${runtimeGetResponse.status}`))
+        const runtimeId = runtimeResource.split('/').at(-1)
+        if (!runtimeId) {
+          checks.push(fail('agent-runtime', 'AGENT_RUNTIME_RESOURCE_INVALID', runtimeResource))
         } else {
-          const runtime = await runtimeGetResponse.json() as ReasoningEngineRow
-          const mismatch = runtimeClassMethodMismatch(runtime)
-          checks.push(mismatch
-            ? fail('agent-runtime', 'AGENT_RUNTIME_CLASS_METHOD_MISMATCH', mismatch)
-            : pass('agent-runtime', 'AGENT_RUNTIME_OK', runtimeResource))
+          const runtimeGetResponse = await request(
+            fetchImpl,
+            token,
+            `${runtimeBase}/reasoningEngines/${encodeURIComponent(runtimeId)}`,
+          )
+          if (!runtimeGetResponse.ok) {
+            checks.push(fail('agent-runtime', 'AGENT_RUNTIME_GET_FAILED', `HTTP ${runtimeGetResponse.status}`))
+          } else {
+            const runtime = await runtimeGetResponse.json() as ReasoningEngineRow
+            const mismatch = runtimeClassMethodMismatch(runtime)
+            runtimeImageUri = runtime.spec?.containerSpec?.imageUri
+            if (runtime.name !== runtimeResource) {
+              checks.push(fail('agent-runtime', 'AGENT_RUNTIME_RESOURCE_MISMATCH', runtime.name ?? 'MISSING'))
+            } else if (mismatch) {
+              checks.push(fail('agent-runtime', 'AGENT_RUNTIME_CLASS_METHOD_MISMATCH', mismatch))
+            } else if (runtimeImageUri !== options.runtimePin.imageUri) {
+              checks.push(fail('agent-runtime', 'AGENT_RUNTIME_IMAGE_MISMATCH', runtimeImageUri ?? 'MISSING'))
+            } else {
+              checks.push(pass('agent-runtime', 'AGENT_RUNTIME_OK', runtimeResource))
+            }
+          }
         }
       }
     }
@@ -345,6 +367,7 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
     embeddingRegion: options.embeddingRegion,
     ...(ragCorpusResource ? { ragCorpusResource } : {}),
     ...(runtimeResource ? { runtimeResource } : {}),
+    ...(runtimeImageUri ? { runtimeImageUri } : {}),
     checks,
   }
 }

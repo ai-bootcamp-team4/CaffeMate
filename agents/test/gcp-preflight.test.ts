@@ -7,6 +7,8 @@ const GENERATION_REGION = 'global'
 const RAG_REGION = 'asia-northeast3'
 const EMBEDDING_REGION = 'asia-northeast3'
 const MODEL_ID = 'gemini-3.7-flash'
+const RUNTIME_RESOURCE = `projects/${PROJECT_ID}/locations/${RUNTIME_REGION}/reasoningEngines/777`
+const RUNTIME_IMAGE = `${RUNTIME_REGION}-docker.pkg.dev/${PROJECT_ID}/caffemate-agents/caffemate-agent-runtime@sha256:${'a'.repeat(64)}`
 
 function successfulFetch() {
   return vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -63,14 +65,14 @@ function successfulFetch() {
     if (url.includes('/reasoningEngines?')) {
       return Response.json({
         reasoningEngines: [{
-          name: `projects/${PROJECT_ID}/locations/${RUNTIME_REGION}/reasoningEngines/777`,
+          name: RUNTIME_RESOURCE,
           displayName: 'caffemate-agents',
         }],
       })
     }
     if (url.endsWith('/reasoningEngines/777')) {
       return Response.json({
-        name: `projects/${PROJECT_ID}/locations/${RUNTIME_REGION}/reasoningEngines/777`,
+        name: RUNTIME_RESOURCE,
         displayName: 'caffemate-agents',
         spec: {
           classMethods: [
@@ -78,6 +80,7 @@ function successfulFetch() {
             { name: 'async_stream_query', api_mode: 'async_stream' },
             { name: 'async_delete_session', api_mode: 'async' },
           ],
+          containerSpec: { imageUri: RUNTIME_IMAGE },
         },
       })
     }
@@ -93,6 +96,10 @@ function options(fetchImpl = successfulFetch()) {
     ragRegion: RAG_REGION,
     embeddingRegion: EMBEDDING_REGION,
     approvedModelId: MODEL_ID,
+    runtimePin: {
+      resourceName: RUNTIME_RESOURCE,
+      imageUri: RUNTIME_IMAGE,
+    },
     accessToken: async () => 'adc-token',
     fetchImpl,
   } as const
@@ -139,13 +146,14 @@ describe('GCP deployment preflight', () => {
       const url = String(input)
       if (url.endsWith('/reasoningEngines/777')) {
         return Response.json({
-          name: `projects/${PROJECT_ID}/locations/${RUNTIME_REGION}/reasoningEngines/777`,
+          name: RUNTIME_RESOURCE,
           displayName: 'caffemate-agents',
           spec: {
             classMethods: [
               { name: 'async_create_session', api_mode: 'async' },
               { name: 'async_delete_session', api_mode: 'async' },
             ],
+            containerSpec: { imageUri: RUNTIME_IMAGE },
           },
         })
       }
@@ -161,6 +169,41 @@ describe('GCP deployment preflight', () => {
       ok: false,
       code: 'AGENT_RUNTIME_CLASS_METHOD_MISMATCH',
       detail: 'async_stream_query:async_stream',
+    }))
+  })
+
+  it('fails closed when the release pin names a different Runtime resource', async () => {
+    const result = await runGcpPreflight({
+      ...options(),
+      runtimePin: {
+        resourceName: `projects/${PROJECT_ID}/locations/${RUNTIME_REGION}/reasoningEngines/999`,
+        imageUri: RUNTIME_IMAGE,
+      },
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'agent-runtime',
+      ok: false,
+      code: 'AGENT_RUNTIME_RESOURCE_MISMATCH',
+    }))
+  })
+
+  it('fails closed when the deployed Runtime image differs from the immutable release pin', async () => {
+    const result = await runGcpPreflight({
+      ...options(),
+      runtimePin: {
+        resourceName: RUNTIME_RESOURCE,
+        imageUri: `${RUNTIME_REGION}-docker.pkg.dev/${PROJECT_ID}/caffemate-agents/caffemate-agent-runtime@sha256:${'b'.repeat(64)}`,
+      },
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'agent-runtime',
+      ok: false,
+      code: 'AGENT_RUNTIME_IMAGE_MISMATCH',
+      detail: RUNTIME_IMAGE,
     }))
   })
 

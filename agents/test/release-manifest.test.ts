@@ -12,6 +12,14 @@ describe('local agent release manifest', () => {
       thinking_level: AGENT_MODEL.thinkingLevel,
     })
     expect(releaseManifest.runtime_region).toBe(GCP_LOCATIONS.runtime)
+    expect(releaseManifest.runtime).toEqual({
+      resource_name: expect.stringMatching(
+        /^projects\/proj-aj20-211200020328\/locations\/asia-northeast3\/reasoningEngines\/[0-9]+$/,
+      ),
+      image_uri: expect.stringMatching(
+        /^asia-northeast3-docker\.pkg\.dev\/proj-aj20-211200020328\/caffemate-agents\/caffemate-agent-runtime@sha256:[0-9a-f]{64}$/,
+      ),
+    })
     expect(releaseManifest.allow_global_fallback).toBe(false)
     expect(releaseManifest.network_mode).toBe('GCP_CONNECTED')
     expect(releaseManifest.gcp_preflight_status).toBe('GCP_PREFLIGHT_VERIFIED')
