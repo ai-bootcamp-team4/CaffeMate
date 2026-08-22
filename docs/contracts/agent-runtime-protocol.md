@@ -579,6 +579,12 @@ task id·invocation id·input digest를 유지하고 `repair_attempt=1`, 이전 
 validator error를 추가한다. 두 번째 출력도 실패하면 세 번째 생성을 하지 않고 원래의 명시적
 Runtime 실패로 종료한다. transport retry와 이 model-output repair는 서로 다른 예산이다.
 
+특히 `CANDIDATE_AUDIT`의 Runtime 의미 검증은 Control API 경계와 같은 규칙을 사용한다. COMPLETE
+응답은 입력 후보를 누락·중복 없이 정확히 한 번씩 포함하고, 계산 참조는 입력의 계산 버전·입력
+digest·출력 digest·후보 ID로 제한하며, PASS 항목에는 finding을 둘 수 없다. 이 규칙을 Runtime에서
+먼저 적용해야 validator-guided repair가 final event 이전에 작동하고, Runtime을 통과한 응답이
+Control API에서 다시 거절되는 split validation을 막을 수 있다.
+
 ### 9.2 RESULT_FEEDBACK
 
 ```text

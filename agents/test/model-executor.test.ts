@@ -113,6 +113,32 @@ describe('local model-backed Agent executors', () => {
     })
   })
 
+  it('repairs incomplete Candidate Audit coverage before returning a final event', async () => {
+    const { task, result } = completeFixture('CANDIDATE_AUDIT')
+    const invalid = structuredClone(result)
+    if (!invalid.payload || typeof invalid.payload !== 'object' || Array.isArray(invalid.payload)) {
+      throw new Error('candidate audit fixture payload is invalid')
+    }
+    invalid.payload = { ...invalid.payload, candidate_audits: [] }
+    const generate = vi.fn(async (invocation: AgentModelInvocation) => ({
+      kind: 'TEXT' as const,
+      text: JSON.stringify(invocation.repairAttempt === 0 ? invalid : result),
+    }))
+
+    const repaired = await dispatchAgentTask(
+      task,
+      createModelExecutors({ generate }, APPROVED_MODEL),
+    )
+
+    expect(repaired).toEqual(result)
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(generate.mock.calls[1]?.[0].task.repair_context).toMatchObject({
+      validator_errors: expect.arrayContaining([
+        expect.objectContaining({ code: 'CANDIDATE_AUDIT_COVERAGE_INVALID' }),
+      ]),
+    })
+  })
+
   it('rejects prose or Markdown instead of extracting JSON from it', async () => {
     const { task } = completeFixture('INTENT_DELTA')
     const client: AgentModelClient = {
