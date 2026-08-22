@@ -54,8 +54,10 @@ checkpoint하거나 failure로 덮지 않고 즉시 폐기한다. 한 Stage의 W
 제한하며 초과 시 `STAGE_TIMEOUT`으로 기록한다. timeout 뒤 백그라운드 호출이 늦게 반환해도
 checkpoint 경로가 없고 만료된 lease token으로는 Control API가 결과를 수용하지 않는다.
 
-Control API가 관리형 Agent Runtime의 `EVIDENCE_PLAN` 단계를 실행하려면 다음 설정이 모두
-필요하다. 하나라도 없으면 Agent stage executor는 fail-closed 상태를 유지한다.
+Control API가 `EVIDENCE_ASSESS`, Proposal과 Candidate Audit처럼 실제 추론이 필요한 관리형
+Agent Runtime 단계를 실행하려면 다음 설정이 모두 필요하다. 하나라도 없으면 해당 Agent stage
+executor는 fail-closed 상태를 유지한다. `EVIDENCE_PLAN`은 Control API의 결정론적 코드로
+실행되므로 Agent Runtime 설정이나 모델 호출을 요구하지 않는다.
 
 - `AGENT_RUNTIME_PROJECT_ID`
 - `AGENT_RUNTIME_RESOURCE_ID`

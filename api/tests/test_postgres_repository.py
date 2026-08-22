@@ -208,31 +208,30 @@ class FirstProposalMcpFixture:
     async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
         tool_name = kwargs["tool_name"]
         self.tool_names.append(tool_name)
-        if tool_name == "get_source_health":
+        if tool_name != "resolve_area":
+            request_id = f"request-{tool_name}-{len(self.tool_names)}"
             return McpCallOutcome(
-                request_id="request-source-health-1",
+                request_id=request_id,
                 tool_name=tool_name,
                 tool_version="1.0.0",
                 status="OK",
                 is_complete=True,
                 structured_content={
                     "schema_version": "1.0.0",
-                    "request_id": "request-source-health-1",
+                    "request_id": request_id,
                     "tool_name": tool_name,
                     "tool_version": "1.0.0",
                     "status": "OK",
                     "project_id": kwargs["venture_project_id"],
                     "data": [],
                     "evidence_records": [],
-                    "missing_fields": ["source_health"],
+                    "missing_fields": [],
                     "conflicts": [],
                     "source_trace": [],
                     "error_codes": [],
                     "observed_at": "2026-08-21T10:00:00Z",
                 },
             )
-        if tool_name != "resolve_area":
-            raise AssertionError(f"Unexpected MCP tool in integration: {tool_name}")
         return McpCallOutcome(
             request_id="request-area-1",
             tool_name="resolve_area",
@@ -264,48 +263,6 @@ class FirstProposalAgentFixture:
     def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
         task_type = task["task_type"]
         self.task_types.append(task_type)
-        if task_type == "EVIDENCE_PLAN":
-            first_claim = task["payload"]["claims"][0]
-            payload = {
-                "claim_plans": [
-                    {
-                        "claim_id": claim["claim_id"],
-                        "route": "MCP_STRUCTURED",
-                        "support_actions": (
-                            [
-                                {
-                                    "action_id": task["payload"]["action_id_pool"][0],
-                                    "claim_id": claim["claim_id"],
-                                    "polarity": "SUPPORT",
-                                    "tool_name": "get_source_health",
-                                    "tool_version": "1.0.0",
-                                    "typed_arguments": {
-                                        "source_ids": ["area-profile"],
-                                        "as_of": task["payload"][
-                                            "planning_constraints"
-                                        ]["as_of"],
-                                    },
-                                    "required_authority": ["PRIMARY_DATA"],
-                                    "date_constraints": {
-                                        "as_of": task["payload"][
-                                            "planning_constraints"
-                                        ]["as_of"],
-                                        "max_age_days": 365,
-                                    },
-                                    "scope_constraints": claim["geographic_scope"],
-                                }
-                            ]
-                            if claim["claim_id"] == first_claim["claim_id"]
-                            else []
-                        ),
-                        "counter_actions": [],
-                        "stop_condition": "No configured fixture action is required",
-                        "abstain_condition": "The claim remains explicitly missing",
-                    }
-                    for claim in task["payload"]["claims"]
-                ]
-            }
-            return self._result(task, payload=payload)
         if task_type == "EVIDENCE_ASSESS":
             missing = [claim["claim_id"] for claim in task["payload"]["claims"]]
             return self._result(
@@ -1408,7 +1365,6 @@ def test_workflow_start_reports_exact_missing_stage_configuration(
             "AREA_RESOLUTION",
             "CANDIDATE_AUDIT",
             "EVIDENCE_ASSESS",
-            "EVIDENCE_PLAN",
             "EVIDENCE_RETRIEVAL",
             "PROPOSE_FRANCHISE",
             "PROPOSE_INDEPENDENT",
@@ -1485,7 +1441,7 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
     handlers: dict[FirstProposalStage, FirstProposalStageHandler] = {
         FirstProposalStage.AREA_RESOLUTION: AreaResolutionStageHandler(mcp),
         FirstProposalStage.CLAIM_PLAN: ClaimPlanStageHandler(),
-        FirstProposalStage.EVIDENCE_PLAN: EvidencePlanStageHandler(runtime),
+        FirstProposalStage.EVIDENCE_PLAN: EvidencePlanStageHandler(),
         FirstProposalStage.EVIDENCE_RETRIEVAL: EvidenceRetrievalStageHandler(mcp),
         FirstProposalStage.EVIDENCE_ASSESS: EvidenceAssessStageHandler(runtime),
         FirstProposalStage.EVIDENCE_FREEZE: EvidenceFreezeStageHandler(),
@@ -1573,9 +1529,15 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
     assert result.stale_head_dimensions == []
     assert result.current_head == result.head
     assert committed_events == 1
-    assert mcp.tool_names == ["resolve_area", "get_source_health"]
+    assert mcp.tool_names[0] == "resolve_area"
+    assert set(mcp.tool_names[1:]) == {
+        "get_area_profile",
+        "search_cafe_observations",
+        "search_business_events",
+        "retrieve_official_documents",
+        "list_franchise_universe",
+    }
     assert runtime.task_types == [
-        "EVIDENCE_PLAN",
         "EVIDENCE_ASSESS",
         "PROPOSE_INDEPENDENT",
         "CANDIDATE_AUDIT",

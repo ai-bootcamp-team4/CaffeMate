@@ -4,7 +4,7 @@ status:: main
 
 > 구현 단계: active development
 >
-> 갱신일: 2026-08-21
+> 갱신일: 2026-08-23
 >
 > 범위: 대한민국 동네 단위 카페 창업 탐색부터 계약 전 판단 자료까지
 
@@ -123,6 +123,26 @@ flowchart TD
 ## 7. 상권 분석
 
 상권 분석은 단독 보고서가 아니라 후보 생성과 현실성 검사의 입력이다.
+
+첫 분석의 근거 조회 계획은 모델이 자유 생성하지 않는다. Control API가 Claim 종류별로
+버전이 고정된 규칙을 적용해 MCP·RAG read action을 생성한다. 같은 Claim Plan과 도구
+manifest는 같은 action plan과 digest를 만들어야 한다. Agent는 실행·검증된 조회 결과를
+평가하지만 도구 선택, 지역 코드, 날짜 범위와 호출 상한을 정하지 않는다.
+
+```text
+Claim Plan
+→ deterministic Evidence Plan
+→ bounded parallel MCP·RAG retrieval
+→ Evidence Assessment Agent
+→ frozen Evidence Snapshot
+```
+
+- 알 수 없는 Claim 종류는 모델 추측으로 우회하지 않고 계약 오류로 중단한다.
+- 정형 조회의 support·counter action이 같은 요청이면 물리 호출은 한 번만 수행하되 두
+  논리 action과 polarity는 보존한다.
+- 문서 RAG는 Claim별 고정 검색 목적과 source family 안에서만 실행한다.
+- 자료가 없거나 connector가 제공되지 않으면 빈 성공값을 만들지 않고 missing·failed action으로
+  남긴다.
 
 가능한 경우 다음을 표시한다.
 

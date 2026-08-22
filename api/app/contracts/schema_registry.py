@@ -30,6 +30,10 @@ class McpContractValidator(Protocol):
     def mcp_tool_version(self, tool_name: str) -> str: ...
 
 
+class EvidencePlanContractValidator(McpContractValidator, Protocol):
+    def validate_evidence_plan_result(self, value: dict[str, Any]) -> None: ...
+
+
 class CandidateContractValidator(Protocol):
     def validate_candidate_result(self, value: dict[str, Any]) -> None: ...
 
@@ -59,6 +63,16 @@ class ContractRegistry:
             )
             for name, schema in schemas.items()
         }
+        role_payload_schema = schemas["agent-role-payloads.schema.json"]
+        self._evidence_plan_validator = Draft202012Validator(
+            {
+                "$ref": (
+                    f"{role_payload_schema['$id']}#/$defs/evidencePlanResult"
+                )
+            },
+            registry=registry,
+            format_checker=FormatChecker(),
+        )
         manifest_path = self._schema_directory / "mcp-tool-manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest_id = (
@@ -123,6 +137,13 @@ class ContractRegistry:
         if tool is None:
             raise ContractValidationError(f"Unknown MCP tool: {tool_name}")
         return str(tool["version"])
+
+    def validate_evidence_plan_result(self, value: dict[str, Any]) -> None:
+        self._validate_with(
+            self._evidence_plan_validator,
+            "deterministic Evidence Plan result",
+            value,
+        )
 
     def validate_candidate_result(self, value: dict[str, Any]) -> None:
         self._validate("candidate-result.schema.json", value)

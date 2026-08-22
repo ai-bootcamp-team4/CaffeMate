@@ -1,7 +1,7 @@
 # 데이터와 그라운딩
 
 > 상태: draft
-> 갱신일: 2026-08-21
+> 갱신일: 2026-08-23
 
 ## 핵심 원칙
 
@@ -145,7 +145,8 @@ N0_NATIONWIDE_FACTS
 ## Advanced RAG Pipeline
 
 ```text
-Claim query decomposition
+deterministic Claim type routing
+→ versioned support·counter query template
 → authority·region·document type·data date filter
 → RAG semantic retrieval + exact typed lookup
 → result fusion

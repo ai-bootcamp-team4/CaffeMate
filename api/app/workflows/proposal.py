@@ -2,10 +2,10 @@ from collections.abc import Callable
 from typing import Any
 
 from app.agents.boundary import validate_agent_boundary
+from app.agents.protocols import AgentRuntime
 from app.agents.task_factory import AgentTaskFactory
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 from app.domain.models import CafeTypePreference
-from app.workflows.evidence_plan import AgentRuntime
 from app.workflows.models import StageControl, StageDisposition
 from app.workflows.stage_context import StageContext
 
