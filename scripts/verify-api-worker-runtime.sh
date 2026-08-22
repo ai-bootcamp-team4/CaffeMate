@@ -471,14 +471,25 @@ if [ "$canary_exit" != '0' ]; then
   printf '%s\n' 'FAIL FIRST_PROPOSAL canary Cloud Run Job' >&2
   exit 1
 fi
-canary_report=$(gcloud logging read \
-  "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${first_proposal_job}\" AND timestamp>=\"${canary_started_at}\" AND textPayload:\"\\\"status\\\": \\\"verified\\\"\"" \
-  --project="$project_id" --limit=1 --order=desc --format='value(textPayload)')
-CANARY_REPORT="$canary_report" python3 - <<'PY'
+canary_reports='[]'
+canary_log_attempt=0
+while [ "$canary_log_attempt" -lt 12 ]; do
+  canary_reports=$(gcloud logging read \
+    "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${first_proposal_job}\" AND timestamp>=\"${canary_started_at}\" AND jsonPayload.status=\"verified\"" \
+    --project="$project_id" --limit=1 --order=desc --format=json)
+  canary_report_count=$(printf '%s' "$canary_reports" | python3 -c \
+    'import json,sys; print(len(json.load(sys.stdin)))')
+  [ "$canary_report_count" -ge 1 ] && break
+  canary_log_attempt=$((canary_log_attempt + 1))
+  sleep 5
+done
+CANARY_REPORTS="$canary_reports" python3 - <<'PY'
 import json
 import os
 
-report = json.loads(os.environ["CANARY_REPORT"])
+rows = json.loads(os.environ["CANARY_REPORTS"])
+assert len(rows) == 1, f"expected one FIRST_PROPOSAL canary report, got {len(rows)}"
+report = rows[0]["jsonPayload"]
 assert report["status"] == "verified"
 assert report["workflow_status"] == "SUCCEEDED"
 assert report["stage_count"] == 13
@@ -486,6 +497,7 @@ assert report["candidate_count"] >= 1
 assert report["result_freshness"] == "CURRENT"
 print("PASS FIRST_PROPOSAL traversed all 13 production stages to a current result card")
 PY
+unset canary_reports
 cleanup_canary_files
 trap - EXIT HUP INT TERM
 

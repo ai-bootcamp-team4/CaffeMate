@@ -218,6 +218,9 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "caffemate-first-proposal-canary" in verifier
     assert "--task-timeout=25m" in verifier
     assert "FIRST_PROPOSAL traversed all 13 production stages" in verifier
+    assert 'jsonPayload.status=\\"verified\\"' in verifier
+    assert 'rows[0]["jsonPayload"]' in verifier
+    assert "expected one FIRST_PROPOSAL canary report" in verifier
     assert 'report["workflow_status"] == "SUCCEEDED"' in verifier
     assert 'report["stage_count"] == 13' in verifier
     assert 'report["result_freshness"] == "CURRENT"' in verifier
