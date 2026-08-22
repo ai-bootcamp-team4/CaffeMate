@@ -788,11 +788,11 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "prompt_version": "proposal-agent.v1",
+        "prompt_version": "proposal-agent.v2",
         "input_schema_id": "caffemate.agent.independent-proposal-input.v1",
         "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:12e8e303e115ddab8e9e7c69ca7e994c6a50c1c3f91e8d576fd41ef8ec628322",
+        "input_digest": "sha256:415a76ca5ef26846987648ad9e863bb4309d6182e16634e8e6ee637378995e8c",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -865,7 +865,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:12e8e303e115ddab8e9e7c69ca7e994c6a50c1c3f91e8d576fd41ef8ec628322",
+        "input_digest": "sha256:415a76ca5ef26846987648ad9e863bb4309d6182e16634e8e6ee637378995e8c",
         "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
         "status": "COMPLETE",
         "payload": {
@@ -897,11 +897,11 @@
       }
     },
     {
-      "id": "propose_independent-abstain",
+      "id": "propose_independent-needs-evidence",
       "task": {
         "schema_version": "1.0.0",
-        "task_id": "task-4-abstain",
-        "invocation_id": "inv-4-abstain",
+        "task_id": "task-4-needs-evidence",
+        "invocation_id": "inv-4-needs-evidence",
         "agent_name": "PROPOSAL_AGENT",
         "task_type": "PROPOSE_INDEPENDENT",
         "workflow_run_id": "wf-fixture",
@@ -919,11 +919,11 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "prompt_version": "proposal-agent.v1",
+        "prompt_version": "proposal-agent.v2",
         "input_schema_id": "caffemate.agent.independent-proposal-input.v1",
         "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:9882b1cccfc623c32a977a348c6154bc5a50c581ed19e96c8189e9c8ca542bea",
+        "input_digest": "sha256:5a2efbd02e704538b50394186ca5b223c9bda9e381e070ec7e0ddee304584ffe",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -955,6 +955,9 @@
             ]
           },
           "evidence_records": [],
+          "claim_id_pool": [
+            "claim-rent"
+          ],
           "model_seeds": [
             {
               "proposal_id": "proposal-independent-1",
@@ -979,8 +982,8 @@
       },
       "result": {
         "schema_version": "1.0.0",
-        "task_id": "task-4-abstain",
-        "invocation_id": "inv-4-abstain",
+        "task_id": "task-4-needs-evidence",
+        "invocation_id": "inv-4-needs-evidence",
         "agent_name": "PROPOSAL_AGENT",
         "task_type": "PROPOSE_INDEPENDENT",
         "workflow_run_id": "wf-fixture",
@@ -996,14 +999,37 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:9882b1cccfc623c32a977a348c6154bc5a50c581ed19e96c8189e9c8ca542bea",
+        "input_digest": "sha256:5a2efbd02e704538b50394186ca5b223c9bda9e381e070ec7e0ddee304584ffe",
         "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
-        "status": "ABSTAIN",
-        "payload": null,
+        "status": "NEEDS_EVIDENCE",
+        "payload": {
+          "candidate_proposals": [
+            {
+              "proposal_id": "proposal-independent-1",
+              "case_type": "INDEPENDENT",
+              "display_name": "소형 개인카페 모델",
+              "seed_or_brand_id": "independent-small-v1",
+              "adjusted_parameters": [],
+              "claim_refs": [],
+              "evidence_refs": [],
+              "assumption_refs": [
+                "seed-registry-1"
+              ],
+              "missing_fields": [
+                "rent"
+              ],
+              "warnings": [
+                "임대료 근거 필요"
+              ]
+            }
+          ]
+        },
         "evidence_refs": [],
-        "missing_claim_ids": [],
+        "missing_claim_ids": [
+          "claim-rent"
+        ],
         "reason_codes": [
-          "INSUFFICIENT_CONTEXT"
+          "MATERIAL_EVIDENCE_MISSING"
         ],
         "warnings": []
       }
@@ -1031,11 +1057,11 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "prompt_version": "proposal-agent.v1",
+        "prompt_version": "proposal-agent.v2",
         "input_schema_id": "caffemate.agent.franchise-proposal-input.v1",
         "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:286cc6edf90600530c11f0d7a22b0f4352f23e10802dbc8cbfe78cbde825ee59",
+        "input_digest": "sha256:05eecb962b7462f98211866d244813595aed7f14a06e7b014f7c34ccb1d87c63",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -1103,7 +1129,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:286cc6edf90600530c11f0d7a22b0f4352f23e10802dbc8cbfe78cbde825ee59",
+        "input_digest": "sha256:05eecb962b7462f98211866d244813595aed7f14a06e7b014f7c34ccb1d87c63",
         "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
         "status": "COMPLETE",
         "payload": {
@@ -1135,11 +1161,11 @@
       }
     },
     {
-      "id": "propose_franchise-abstain",
+      "id": "propose_franchise-needs-evidence",
       "task": {
         "schema_version": "1.0.0",
-        "task_id": "task-5-abstain",
-        "invocation_id": "inv-5-abstain",
+        "task_id": "task-5-needs-evidence",
+        "invocation_id": "inv-5-needs-evidence",
         "agent_name": "PROPOSAL_AGENT",
         "task_type": "PROPOSE_FRANCHISE",
         "workflow_run_id": "wf-fixture",
@@ -1157,11 +1183,11 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "prompt_version": "proposal-agent.v1",
+        "prompt_version": "proposal-agent.v2",
         "input_schema_id": "caffemate.agent.franchise-proposal-input.v1",
         "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:e847f2fbcd7cd870d89c775559dee42321805f2ba4fc260d7c545fc6743a82d6",
+        "input_digest": "sha256:b6ad43c094abdf8994fd349c85bb15e79c5b4e28a333a44f115f459af1521cf7",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -1193,6 +1219,9 @@
             ]
           },
           "evidence_records": [],
+          "claim_id_pool": [
+            "claim-royalty"
+          ],
           "franchise_universe": [
             {
               "proposal_id": "proposal-franchise-1",
@@ -1212,8 +1241,8 @@
       },
       "result": {
         "schema_version": "1.0.0",
-        "task_id": "task-5-abstain",
-        "invocation_id": "inv-5-abstain",
+        "task_id": "task-5-needs-evidence",
+        "invocation_id": "inv-5-needs-evidence",
         "agent_name": "PROPOSAL_AGENT",
         "task_type": "PROPOSE_FRANCHISE",
         "workflow_run_id": "wf-fixture",
@@ -1229,14 +1258,37 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:e847f2fbcd7cd870d89c775559dee42321805f2ba4fc260d7c545fc6743a82d6",
+        "input_digest": "sha256:b6ad43c094abdf8994fd349c85bb15e79c5b4e28a333a44f115f459af1521cf7",
         "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
-        "status": "ABSTAIN",
-        "payload": null,
+        "status": "NEEDS_EVIDENCE",
+        "payload": {
+          "candidate_proposals": [
+            {
+              "proposal_id": "proposal-franchise-1",
+              "case_type": "FRANCHISE",
+              "display_name": "검증 브랜드",
+              "seed_or_brand_id": "brand-1",
+              "adjusted_parameters": [],
+              "claim_refs": [],
+              "evidence_refs": [
+                "ev-franchise-1"
+              ],
+              "assumption_refs": [],
+              "missing_fields": [
+                "royalty"
+              ],
+              "warnings": [
+                "로열티 확인 필요"
+              ]
+            }
+          ]
+        },
         "evidence_refs": [],
-        "missing_claim_ids": [],
+        "missing_claim_ids": [
+          "claim-royalty"
+        ],
         "reason_codes": [
-          "INSUFFICIENT_CONTEXT"
+          "MATERIAL_EVIDENCE_MISSING"
         ],
         "warnings": []
       }

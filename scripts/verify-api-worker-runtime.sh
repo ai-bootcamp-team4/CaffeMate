@@ -573,6 +573,10 @@ for row in validation_rows:
         continue
     assert row.get("repair_attempt") == 0, row
     assert row.get("outcome") == "VALID", row
+    if row.get("task_type") == "PROPOSE_INDEPENDENT":
+        assert row.get("candidate_proposal_count", 0) >= 1, row
+    if row.get("task_type") == "CANDIDATE_AUDIT":
+        assert row.get("candidate_audit_count", 0) >= 1, row
 print("PASS FIRST_PROPOSAL managed Agents stopped within budget without repair")
 PY
 unset first_proposal_generation_logs first_proposal_validation_logs observed_agent_types

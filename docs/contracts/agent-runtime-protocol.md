@@ -547,6 +547,14 @@ Control API Claim Plan
 → reducer CAS
 ```
 
+Proposal Agent 입력의 `model_seeds`와 `franchise_universe`는 결정론적 eligibility 단계를 통과한
+후보다. 따라서 Agent는 `requested_candidate_count`만큼 서로 다른 proposal id를 반환해야 한다.
+비용·매출·수요·출점 가능성·정보공개서 일부가 없다는 이유만으로 후보 배열을 비우지 않는다.
+지원되지 않는 조정값은 만들지 않고 `missing_fields`와 warning에 남긴다. 대응 missing Claim id가
+있으면 후보를 포함한 `NEEDS_EVIDENCE`, 없으면 후보 생성 작업 자체가 끝났다는 뜻의 `COMPLETE`를
+사용한다. Runtime 의미 검증기는 빈 후보나 같은 seed·brand의 중복 padding을 한 번의 repair 대상으로
+거절하며, repair 뒤에도 위반하면 Stage를 실패시킨다.
+
 동일한 tool name·version·typed arguments 조합은 한 번만 물리 호출한다. 동일 호출을 공유한
 support·counter action은 각 `action_id`와 `polarity`를 유지하되 같은 `request_id`를 참조한다.
 개별 호출 실패는 빈 정상 결과로 바꾸지 않고 `failed_actions`에 남겨 `EVIDENCE_ASSESS`가

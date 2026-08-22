@@ -231,6 +231,44 @@ describe('agent semantic validator', () => {
     expect(validation.issues.some((issue) => issue.code === 'OUTPUT_ID_NOT_IN_POOL')).toBe(true)
   })
 
+  it.each(['PROPOSE_INDEPENDENT', 'PROPOSE_FRANCHISE'] as const)(
+    'rejects an empty %s result when the controller supplied eligible sources',
+    (taskType) => {
+      const { task, result } = fixture(taskType)
+      result.status = 'ABSTAIN'
+      result.payload = null
+      result.reason_codes = ['INSUFFICIENT_CONTEXT']
+
+      const validation = validateAgentSemantics(task, result)
+      expect(validation.ok).toBe(false)
+      expect(validation.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'PROPOSAL_COUNT_INVALID' }),
+      ]))
+    },
+  )
+
+  it('rejects duplicate proposal sources instead of padding the requested count', () => {
+    const { task, result } = fixture('PROPOSE_INDEPENDENT')
+    const taskPayload = task.payload as {
+      model_seeds: Array<Record<string, unknown>>
+      requested_candidate_count: number
+    }
+    const resultPayload = result.payload as { candidate_proposals: Array<Record<string, unknown>> }
+    taskPayload.model_seeds.push({
+      ...taskPayload.model_seeds[0],
+      proposal_id: 'proposal-independent-2',
+      model_id: 'independent-second-v1',
+    })
+    taskPayload.requested_candidate_count = 2
+    resultPayload.candidate_proposals.push(structuredClone(resultPayload.candidate_proposals[0]))
+
+    const validation = validateAgentSemantics(task, result)
+    expect(validation.ok).toBe(false)
+    expect(validation.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'PROPOSAL_SOURCE_DUPLICATE' }),
+    ]))
+  })
+
   it('rejects evidence and claim references that were not supplied in the frozen input', () => {
     const { task, result } = fixture('PROPOSE_INDEPENDENT')
     const payload = result.payload as { candidate_proposals: Array<{ claim_refs: string[]; evidence_refs: string[] }> }

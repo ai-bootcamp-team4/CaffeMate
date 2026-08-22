@@ -156,6 +156,40 @@ function validateMoneyRanges(value: unknown, issues: SemanticIssue[], path = '/p
   for (const [key, child] of Object.entries(candidate)) validateMoneyRanges(child, issues, `${path}/${key}`)
 }
 
+function validateProposalCandidateCount(
+  taskType: AgentTask['task_type'],
+  taskPayload: JsonObject,
+  resultPayload: JsonObject,
+  issues: SemanticIssue[],
+): void {
+  if (taskType !== 'PROPOSE_INDEPENDENT' && taskType !== 'PROPOSE_FRANCHISE') return
+  const sourceKey = taskType === 'PROPOSE_INDEPENDENT' ? 'model_seeds' : 'franchise_universe'
+  const sources = array(taskPayload[sourceKey])
+  const requestedCount = taskPayload.requested_candidate_count
+  const proposals = array(resultPayload.candidate_proposals)
+  if (!Number.isInteger(requestedCount) || Number(requestedCount) < 1 || sources.length < 1) return
+  const expectedCount = Math.min(Number(requestedCount), sources.length)
+  if (proposals.length !== expectedCount) {
+    add(
+      issues,
+      'PROPOSAL_COUNT_INVALID',
+      '/payload/candidate_proposals',
+      `proposal task requires exactly ${expectedCount} candidate proposals but returned ${proposals.length}`,
+    )
+  }
+  const proposalIds = proposals
+    .map((proposal) => object(proposal).proposal_id)
+    .filter((proposalId): proposalId is string => typeof proposalId === 'string')
+  if (new Set(proposalIds).size !== proposalIds.length) {
+    add(
+      issues,
+      'PROPOSAL_SOURCE_DUPLICATE',
+      '/payload/candidate_proposals',
+      'proposal task must use each supplied proposal id at most once',
+    )
+  }
+}
+
 function scopesDefinitelyMismatch(left: unknown, right: unknown): boolean {
   const expected = object(left)
   const actual = object(right)
@@ -543,6 +577,7 @@ export function validateAgentSemantics(task: AgentTask, result: AgentTaskResult)
   validateSupportedReferences(task, result, issues)
   validateEvidenceCoverageKinds(taskPayload, result, issues)
   validateMoneyRanges(result.payload, issues)
+  validateProposalCandidateCount(task.task_type, taskPayload, resultPayload, issues)
   if (result.payload === null) return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues }
 
   switch (task.task_type) {

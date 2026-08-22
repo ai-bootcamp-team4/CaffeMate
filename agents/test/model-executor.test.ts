@@ -36,7 +36,7 @@ describe('local model-backed Agent executors', () => {
     expect(invocation.maxOutputTokens).toBe(4096)
     expect(invocation.outputSchemaId).toBe('caffemate.agent.independent-proposal-result.v1')
     expect(invocation.systemInstruction).toContain(PROMPTS['common-system.v1'])
-    expect(invocation.systemInstruction).toContain(PROMPTS['proposal-agent.v1'])
+    expect(invocation.systemInstruction).toContain(PROMPTS['proposal-agent.v2'])
     expect(invocation.systemInstruction).not.toContain(PROMPTS['repair.v1'])
     expect('tools' in invocation).toBe(false)
     expect('temperature' in invocation).toBe(false)
@@ -137,6 +137,46 @@ describe('local model-backed Agent executors', () => {
         expect.objectContaining({ code: 'CANDIDATE_AUDIT_COVERAGE_INVALID' }),
       ]),
     })
+  })
+
+  it('repairs an empty Proposal result when eligible candidate sources were supplied', async () => {
+    const { task, result } = completeFixture('PROPOSE_INDEPENDENT')
+    const invalid = {
+      ...result,
+      status: 'ABSTAIN' as const,
+      payload: null,
+      reason_codes: ['INSUFFICIENT_CONTEXT'],
+    }
+    const generate = vi.fn(async (invocation: AgentModelInvocation) => ({
+      kind: 'TEXT' as const,
+      text: JSON.stringify(invocation.repairAttempt === 0 ? invalid : result),
+    }))
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+
+    try {
+      const repaired = await dispatchAgentTask(
+        task,
+        createModelExecutors({ generate }, APPROVED_MODEL),
+      )
+
+      expect(repaired).toEqual(result)
+      expect(generate).toHaveBeenCalledTimes(2)
+      expect(generate.mock.calls[1]?.[0].task.repair_context).toMatchObject({
+        validator_errors: expect.arrayContaining([
+          expect.objectContaining({ code: 'PROPOSAL_COUNT_INVALID' }),
+        ]),
+      })
+      const events = info.mock.calls.map(([line]) => JSON.parse(String(line)))
+      expect(events.at(-1)).toMatchObject({
+        event: 'AGENT_RESULT_VALIDATION',
+        task_type: 'PROPOSE_INDEPENDENT',
+        repair_attempt: 1,
+        outcome: 'VALID',
+        candidate_proposal_count: 1,
+      })
+    } finally {
+      info.mockRestore()
+    }
   })
 
   it('rejects prose or Markdown instead of extracting JSON from it', async () => {
