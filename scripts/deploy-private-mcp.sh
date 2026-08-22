@@ -37,7 +37,7 @@ fi
 gcloud run deploy "$service_name" --project="$project_id" --region="$region" --image="$image" \
   --service-account="$runtime_sa" --port=8080 --ingress=all --no-allow-unauthenticated \
   --set-env-vars="MCP_AUDIENCE=${audience},MCP_ALLOWED_CALLER_EMAIL=${api_sa}" \
-  --set-secrets='MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
+  --set-secrets='MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest,JUSO_API_KEY=caffemate-juso-api-key:latest' \
   --cpu=1 --memory=512Mi --min=0 --max=10 \
   --labels="source-revision=${source_revision},managed-by=caffemate-deploy" --quiet >/dev/null
 

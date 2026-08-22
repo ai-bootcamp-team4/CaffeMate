@@ -23,13 +23,13 @@ describe('official address connectors', () => {
     expect(result).toMatchObject({ status: 'OK', project_id: 'project-1' })
     expect(result.data).toEqual([{
       administrative_code: '4111710300', display_name: '경기도 수원시 영통구 원천동',
-      boundary_version: '2026-08-22', match_kind: 'AMBIGUOUS',
+      boundary_version: 'JUSO_LIVE_UNVERSIONED', match_kind: 'AMBIGUOUS',
     }])
     expect(fetcher).toHaveBeenCalledOnce()
   })
 
   it('reports configured and unknown source health without inventing success timestamps', async () => {
-    const fetcher = vi.fn(async () => new Response('official guide', { status: 200 }))
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ results: { common: { errorCode: '0' }, juso: [] } }), { status: 200 }))
     const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now }).get_source_health!
     const result = await connector({ source_ids: [JUSO_SOURCE_ID, 'unknown-source'], as_of: '2026-08-22' }, scope) as Record<string, unknown>
     expect(result.status).toBe('PARTIAL')
@@ -38,5 +38,15 @@ describe('official address connectors', () => {
       { source_id: 'unknown-source', status: 'UNAVAILABLE', last_success_at: null, data_date: null },
     ])
     expect(result.source_trace).toHaveLength(1)
+  })
+
+  it('does not report a configured but rejected credential as healthy', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ results: { common: { errorCode: 'E0005' } } }), { status: 200 }))
+    const connector = createConnectorRegistry({ jusoApiKey: 'rejected', fetch: fetcher as typeof fetch, now: () => now }).get_source_health!
+    const result = await connector({ source_ids: [JUSO_SOURCE_ID], as_of: '2026-08-22' }, scope) as Record<string, unknown>
+    expect(result).toMatchObject({
+      status: 'PARTIAL',
+      data: [{ source_id: JUSO_SOURCE_ID, status: 'UNAVAILABLE', last_success_at: null, data_date: null }],
+    })
   })
 })
