@@ -27,20 +27,13 @@ export interface VertexRagBackendOptions {
   accessToken: () => Promise<string>
   mapContext: (context: VertexRagContext, request: RagBackendRequest) => RagHit | null
   fetchImpl?: typeof fetch
+  timeoutMs?: number
 }
 
-interface RawVertexRagContext {
-  sourceUri?: string
-  sourceDisplayName?: string
-  text?: string
-  chunk?: unknown
-  score?: number
-}
+const DEFAULT_RAG_TIMEOUT_MS = 5000
 
-interface VertexRetrieveContextsResponse {
-  contexts?: {
-    contexts?: RawVertexRagContext[]
-  }
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 }
 
 function corpusResource(projectId: string, region: string, corpusId: string): string {
@@ -57,16 +50,66 @@ function corpusResource(projectId: string, region: string, corpusId: string): st
   return `${expectedPrefix}${corpusId}`
 }
 
-function normalizeContext(raw: RawVertexRagContext): VertexRagContext {
-  if (typeof raw.sourceUri !== 'string' || typeof raw.sourceDisplayName !== 'string' || typeof raw.text !== 'string') {
-    throw new VertexRagError('RAG_CONTEXT_INVALID', 'Vertex RAG context is missing source or text fields')
+function normalizeContext(raw: unknown): VertexRagContext {
+  const value = record(raw)
+  if (
+    !value
+    || typeof value.sourceUri !== 'string'
+    || !value.sourceUri
+    || typeof value.sourceDisplayName !== 'string'
+    || !value.sourceDisplayName
+    || typeof value.text !== 'string'
+  ) {
+    throw new VertexRagError('RAG_PROVIDER_PROTOCOL_ERROR', 'Vertex RAG context is missing required source or text fields')
+  }
+  if (value.score !== undefined && (typeof value.score !== 'number' || !Number.isFinite(value.score))) {
+    throw new VertexRagError('RAG_PROVIDER_PROTOCOL_ERROR', 'Vertex RAG context score must be a finite number')
   }
   return {
-    sourceUri: raw.sourceUri,
-    sourceDisplayName: raw.sourceDisplayName,
-    text: raw.text,
-    ...(raw.chunk !== undefined ? { chunk: raw.chunk } : {}),
-    ...(typeof raw.score === 'number' ? { score: raw.score } : {}),
+    sourceUri: value.sourceUri,
+    sourceDisplayName: value.sourceDisplayName,
+    text: value.text,
+    ...(value.chunk !== undefined ? { chunk: value.chunk } : {}),
+    ...(typeof value.score === 'number' ? { score: value.score } : {}),
+  }
+}
+
+function parseContexts(payload: unknown): unknown[] {
+  const root = record(payload)
+  const envelope = root ? record(root.contexts) : null
+  if (!envelope || !Array.isArray(envelope.contexts)) {
+    throw new VertexRagError(
+      'RAG_PROVIDER_PROTOCOL_ERROR',
+      'Vertex retrieveContexts 2xx response is missing contexts.contexts array',
+    )
+  }
+  return envelope.contexts
+}
+
+function createRetrievalSignal(timeoutMs: number, callerSignal?: AbortSignal): {
+  signal: AbortSignal
+  cleanup: () => void
+  timedOut: () => boolean
+} {
+  const controller = new AbortController()
+  let timedOut = false
+  const onCallerAbort = () => controller.abort(callerSignal?.reason)
+
+  if (callerSignal?.aborted) onCallerAbort()
+  else callerSignal?.addEventListener('abort', onCallerAbort, { once: true })
+
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort(new Error('Vertex RAG retrieval deadline exceeded'))
+  }, timeoutMs)
+
+  return {
+    signal: controller.signal,
+    timedOut: () => timedOut,
+    cleanup: () => {
+      clearTimeout(timer)
+      callerSignal?.removeEventListener('abort', onCallerAbort)
+    },
   }
 }
 
@@ -92,12 +135,17 @@ export function createVertexRagBackend(options: VertexRagBackendOptions): RagBac
     throw new VertexRagError('RAG_REGION_NOT_ALLOWED', `RAG retrieval is pinned to ${GCP_LOCATIONS.rag}`)
   }
   const fetchImpl = options.fetchImpl ?? fetch
+  const timeoutMs = options.timeoutMs ?? DEFAULT_RAG_TIMEOUT_MS
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new VertexRagError('RAG_TIMEOUT_INVALID', 'RAG retrieval timeout must be a positive finite number')
+  }
 
   return async (request) => {
     if (request.corpusKind === 'PROJECT' && (!request.ragFileIds || request.ragFileIds.length === 0)) {
       throw new VertexRagError('RAG_FILE_SCOPE_MISSING', 'project retrieval requires server-resolved RAG file ids')
     }
     if (request.limit < 1) throw new VertexRagError('RAG_LIMIT_INVALID', 'retrieval limit must be positive')
+    if (request.signal?.aborted) throw new VertexRagError('RAG_CANCELLED', 'retrieveContexts was cancelled by the caller')
     const token = await options.accessToken()
     if (!token) throw new VertexRagError('RAG_AUTH_TOKEN_MISSING', 'ADC did not return an access token')
 
@@ -107,42 +155,76 @@ export function createVertexRagBackend(options: VertexRagBackendOptions): RagBac
     if (request.ragFileIds?.length) ragResource.ragFileIds = [...request.ragFileIds]
     const metadataFilter = metadataFilterFor(request)
 
-    const response = await fetchImpl(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        vertexRagStore: { ragResources: [ragResource] },
-        query: {
-          text: request.query,
-          ragRetrievalConfig: {
-            topK: request.limit,
-            ranking: {
-              rankService: { modelName: RAG_RANKER.id },
-            },
-            ...(metadataFilter ? { filter: { metadataFilter } } : {}),
-          },
-        },
-      }),
-    })
-    if (!response.ok) {
-      throw new VertexRagError('RAG_HTTP_ERROR', `retrieveContexts returned HTTP ${response.status}`, response.status)
-    }
+    const retrievalSignal = createRetrievalSignal(timeoutMs, request.signal)
 
-    const payload = await response.json() as VertexRetrieveContextsResponse
-    const contexts = payload.contexts?.contexts ?? []
-    return contexts.map((raw) => {
-      const context = normalizeContext(raw)
-      const mapped = options.mapContext(context, request)
-      if (!mapped) {
+    try {
+      const response = await fetchImpl(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          vertexRagStore: { ragResources: [ragResource] },
+          query: {
+            text: request.query,
+            ragRetrievalConfig: {
+              topK: request.limit,
+              ranking: {
+                rankService: { modelName: RAG_RANKER.id },
+              },
+              ...(metadataFilter ? { filter: { metadataFilter } } : {}),
+            },
+          },
+        }),
+        signal: retrievalSignal.signal,
+      })
+      if (!response.ok) {
+        throw new VertexRagError('RAG_HTTP_ERROR', `retrieveContexts returned HTTP ${response.status}`, response.status)
+      }
+
+      let payload: unknown
+      try {
+        payload = await response.json()
+      } catch (error) {
+        if (retrievalSignal.timedOut()) {
+          throw new VertexRagError('RAG_TIMEOUT', `retrieveContexts exceeded ${timeoutMs}ms deadline`)
+        }
+        if (request.signal?.aborted) {
+          throw new VertexRagError('RAG_CANCELLED', 'retrieveContexts was cancelled by the caller')
+        }
+        throw new VertexRagError('RAG_PROVIDER_PROTOCOL_ERROR', `Vertex retrieveContexts returned invalid JSON: ${String(error)}`)
+      }
+
+      const contexts = parseContexts(payload)
+      if (contexts.length > request.limit) {
         throw new VertexRagError(
-          'RAG_CONTEXT_MAPPING_MISSING',
-          'retrieved context cannot be mapped to an authoritative document revision and anchor',
+          'RAG_RESULT_LIMIT_EXCEEDED',
+          `Vertex returned ${contexts.length} contexts for requested limit ${request.limit}`,
         )
       }
-      return mapped
-    })
+      return contexts.map((raw) => {
+        const context = normalizeContext(raw)
+        const mapped = options.mapContext(context, request)
+        if (!mapped) {
+          throw new VertexRagError(
+            'RAG_CONTEXT_MAPPING_MISSING',
+            'retrieved context cannot be mapped to an authoritative document revision and anchor',
+          )
+        }
+        return mapped
+      })
+    } catch (error) {
+      if (error instanceof VertexRagError) throw error
+      if (retrievalSignal.timedOut()) {
+        throw new VertexRagError('RAG_TIMEOUT', `retrieveContexts exceeded ${timeoutMs}ms deadline`)
+      }
+      if (request.signal?.aborted) {
+        throw new VertexRagError('RAG_CANCELLED', 'retrieveContexts was cancelled by the caller')
+      }
+      throw error
+    } finally {
+      retrievalSignal.cleanup()
+    }
   }
 }

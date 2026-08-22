@@ -172,4 +172,133 @@ describe('Vertex RAG Engine backend', () => {
       limit: 5,
     })).rejects.toMatchObject({ code: 'RAG_CONTEXT_MAPPING_MISSING' })
   })
+
+  it.each([
+    ['missing contexts envelope', { unexpected: 'schema-drift' }],
+    ['non-array context rows', { contexts: { contexts: { sourceUri: 'gs://source' } } }],
+    ['malformed context row', { contexts: { contexts: [{ sourceUri: 'gs://source', text: 'missing display name' }] } }],
+  ])('fails closed for malformed 2xx response: %s', async (_label, payload) => {
+    const backend = createVertexRagBackend({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl: async () => Response.json(payload),
+      mapContext: () => null,
+    })
+
+    await expect(backend({
+      corpusKind: 'OFFICIAL',
+      corpusId: '1234',
+      query: '법령',
+      sourceFamilies: ['LAW'],
+      asOf: '2026-08-21',
+      limit: 5,
+    })).rejects.toMatchObject({ code: 'RAG_PROVIDER_PROTOCOL_ERROR' })
+  })
+
+  it('fails closed when Vertex returns more contexts than requested', async () => {
+    const row = {
+      sourceUri: 'gs://source',
+      sourceDisplayName: 'source',
+      text: 'text',
+    }
+    const backend = createVertexRagBackend({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl: async () => Response.json({ contexts: { contexts: [row, row] } }),
+      mapContext: () => ({
+        documentRevisionId: 'docrev-1',
+        title: 'source',
+        anchor: 'anchor',
+        excerpt: 'text',
+        sourceDate: '2026-08-21',
+        evidenceId: 'ev-1',
+      }),
+    })
+
+    await expect(backend({
+      corpusKind: 'OFFICIAL',
+      corpusId: '1234',
+      query: '법령',
+      sourceFamilies: ['LAW'],
+      asOf: '2026-08-21',
+      limit: 1,
+    })).rejects.toMatchObject({ code: 'RAG_RESULT_LIMIT_EXCEEDED' })
+  })
+
+  it('aborts a hung Vertex fetch at the connector deadline', async () => {
+    const fetchImpl = vi.fn((_url: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+    }))
+    const backend = createVertexRagBackend({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl: fetchImpl as typeof fetch,
+      mapContext: () => null,
+      timeoutMs: 10,
+    })
+
+    await expect(backend({
+      corpusKind: 'OFFICIAL',
+      corpusId: '1234',
+      query: '법령',
+      sourceFamilies: ['LAW'],
+      asOf: '2026-08-21',
+      limit: 1,
+    })).rejects.toMatchObject({ code: 'RAG_TIMEOUT' })
+    expect(fetchImpl).toHaveBeenCalledOnce()
+  })
+
+  it('propagates caller cancellation into the Vertex fetch', async () => {
+    const controller = new AbortController()
+    const fetchImpl = vi.fn((_url: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+      controller.abort(new Error('caller cancelled'))
+    }))
+    const backend = createVertexRagBackend({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl: fetchImpl as typeof fetch,
+      mapContext: () => null,
+    })
+
+    await expect(backend({
+      corpusKind: 'OFFICIAL',
+      corpusId: '1234',
+      query: '법령',
+      sourceFamilies: ['LAW'],
+      asOf: '2026-08-21',
+      limit: 1,
+      signal: controller.signal,
+    })).rejects.toMatchObject({ code: 'RAG_CANCELLED' })
+  })
+
+  it('rejects a pre-cancelled request before fetching an access token or calling Vertex', async () => {
+    const controller = new AbortController()
+    controller.abort(new Error('caller cancelled'))
+    const accessToken = vi.fn(async () => 'adc-token')
+    const fetchImpl = vi.fn()
+    const backend = createVertexRagBackend({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken,
+      fetchImpl,
+      mapContext: () => null,
+    })
+
+    await expect(backend({
+      corpusKind: 'OFFICIAL',
+      corpusId: '1234',
+      query: '법령',
+      sourceFamilies: ['LAW'],
+      asOf: '2026-08-21',
+      limit: 1,
+      signal: controller.signal,
+    })).rejects.toMatchObject({ code: 'RAG_CANCELLED' })
+    expect(accessToken).not.toHaveBeenCalled()
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
 })
