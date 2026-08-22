@@ -20,6 +20,7 @@ export interface RagBackendRequest {
   corpusId: string
   query: string
   limit: number
+  signal?: AbortSignal
   asOf?: string
   sourceFamilies?: string[]
   documentType?: string | null

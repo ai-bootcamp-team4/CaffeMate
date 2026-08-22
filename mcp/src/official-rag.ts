@@ -3,6 +3,7 @@ import type { RagBackendRequest, RagHit } from '../../rag/src/retrieval'
 
 export const OFFICIAL_RAG_SOURCE = Object.freeze({
   sourceId: 'easylaw-csmSeq-706',
+  sourceFamily: 'GOVERNMENT_GUIDE',
   documentRevisionId: 'easylaw-csmSeq-706@2026-07-15',
   title: '커피전문점 영업신고 및 사업자등록',
   sourceDate: '2026-07-15',
@@ -22,6 +23,8 @@ function chunkIdentity(chunk: unknown): { fileId: string; chunkId: string } | nu
 
 export function mapOfficialRagContext(context: VertexRagContext, request: RagBackendRequest): RagHit | null {
   if (request.corpusKind !== 'OFFICIAL' || context.sourceUri !== OFFICIAL_RAG_SOURCE.sourceUri) return null
+  if (!request.sourceFamilies?.includes(OFFICIAL_RAG_SOURCE.sourceFamily)) return null
+  if (!request.asOf || OFFICIAL_RAG_SOURCE.sourceDate > request.asOf) return null
   const chunk = chunkIdentity(context.chunk)
   if (!chunk || chunk.fileId !== OFFICIAL_RAG_SOURCE.ragFileId) return null
 
