@@ -493,11 +493,89 @@ report = rows[0]["jsonPayload"]
 assert report["status"] == "verified"
 assert report["workflow_status"] == "SUCCEEDED"
 assert report["stage_count"] == 13
+assert report["max_stage_attempt"] == 1
+assert report["elapsed_ms"] <= 120_000, report
 assert report["candidate_count"] >= 1
 assert report["result_freshness"] == "CURRENT"
 print("PASS FIRST_PROPOSAL traversed all 13 production stages to a current result card")
 PY
 unset canary_reports
+
+first_proposal_generation_logs='[]'
+first_proposal_validation_logs='[]'
+agent_log_attempt=0
+while [ "$agent_log_attempt" -lt 12 ]; do
+  first_proposal_generation_logs=$(gcloud logging read \
+    "timestamp>=\"${canary_started_at}\" AND jsonPayload.event=\"VERTEX_AGENT_GENERATION\" AND (jsonPayload.task_type=\"EVIDENCE_ASSESS\" OR jsonPayload.task_type=\"PROPOSE_INDEPENDENT\" OR jsonPayload.task_type=\"CANDIDATE_AUDIT\")" \
+    --project="$project_id" --freshness=10m --limit=30 --format=json)
+  first_proposal_validation_logs=$(gcloud logging read \
+    "timestamp>=\"${canary_started_at}\" AND jsonPayload.event=\"AGENT_RESULT_VALIDATION\" AND (jsonPayload.task_type=\"EVIDENCE_ASSESS\" OR jsonPayload.task_type=\"PROPOSE_INDEPENDENT\" OR jsonPayload.task_type=\"CANDIDATE_AUDIT\")" \
+    --project="$project_id" --freshness=10m --limit=30 --format=json)
+  observed_agent_types=$(FIRST_PROPOSAL_GENERATION_LOGS="$first_proposal_generation_logs" \
+    FIRST_PROPOSAL_VALIDATION_LOGS="$first_proposal_validation_logs" python3 - <<'PY'
+import json
+import os
+
+required = {"EVIDENCE_ASSESS", "PROPOSE_INDEPENDENT", "CANDIDATE_AUDIT"}
+generations = {
+    row.get("jsonPayload", {}).get("task_type")
+    for row in json.loads(os.environ["FIRST_PROPOSAL_GENERATION_LOGS"])
+}
+validations = {
+    row.get("jsonPayload", {}).get("task_type")
+    for row in json.loads(os.environ["FIRST_PROPOSAL_VALIDATION_LOGS"])
+}
+print("ready" if required <= generations and required <= validations else "waiting")
+PY
+  )
+  [ "$observed_agent_types" = 'ready' ] && break
+  agent_log_attempt=$((agent_log_attempt + 1))
+  sleep 5
+done
+FIRST_PROPOSAL_GENERATION_LOGS="$first_proposal_generation_logs" \
+FIRST_PROPOSAL_VALIDATION_LOGS="$first_proposal_validation_logs" python3 - <<'PY'
+import json
+import os
+
+required = {"EVIDENCE_ASSESS", "PROPOSE_INDEPENDENT", "CANDIDATE_AUDIT"}
+token_budgets = {
+    "EVIDENCE_ASSESS": 6_000,
+    "PROPOSE_INDEPENDENT": 4_500,
+    "CANDIDATE_AUDIT": 6_500,
+}
+generation_rows = [
+    row.get("jsonPayload", {})
+    for row in json.loads(os.environ["FIRST_PROPOSAL_GENERATION_LOGS"])
+]
+validation_rows = [
+    row.get("jsonPayload", {})
+    for row in json.loads(os.environ["FIRST_PROPOSAL_VALIDATION_LOGS"])
+]
+observed_generations = {row.get("task_type") for row in generation_rows}
+observed_validations = {row.get("task_type") for row in validation_rows}
+assert required <= observed_generations, (
+    f"missing Agent generations: {sorted(required - observed_generations)}"
+)
+assert required <= observed_validations, (
+    f"missing Agent validations: {sorted(required - observed_validations)}"
+)
+for row in generation_rows:
+    task_type = row.get("task_type")
+    if task_type not in required:
+        continue
+    assert row.get("http_status") == 200, row
+    assert row.get("finish_reason") == "STOP", row
+    assert row.get("repair_attempt") == 0, row
+    assert 0 <= row.get("elapsed_ms", -1) <= 60_000, row
+    assert 0 < row.get("prompt_token_count", 0) <= token_budgets[task_type], row
+for row in validation_rows:
+    if row.get("task_type") not in required:
+        continue
+    assert row.get("repair_attempt") == 0, row
+    assert row.get("outcome") == "VALID", row
+print("PASS FIRST_PROPOSAL managed Agents stopped within budget without repair")
+PY
+unset first_proposal_generation_logs first_proposal_validation_logs observed_agent_types
 cleanup_canary_files
 trap - EXIT HUP INT TERM
 
