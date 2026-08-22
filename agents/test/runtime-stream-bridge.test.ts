@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { prepareRuntimeStreamMethod } from '../src/runtime-stream-bridge'
+import { encodeRuntimeStreamChunk, prepareRuntimeStreamMethod } from '../src/runtime-stream-bridge'
 
 async function collect(stream: AsyncIterable<unknown>): Promise<unknown[]> {
   const values: unknown[] = []
@@ -8,6 +8,15 @@ async function collect(stream: AsyncIterable<unknown>): Promise<unknown[]> {
 }
 
 describe('Agent Runtime async stream bridge', () => {
+  it('encodes every public streaming chunk in the Agent Platform output envelope', () => {
+    const event = {
+      author: 'DOCUMENT_ANALYST',
+      content: { parts: [{ text: '{"status":"COMPLETE"}' }] },
+    }
+
+    expect(encodeRuntimeStreamChunk(event)).toBe(`${JSON.stringify({ output: event })}\n`)
+  })
+
   it('runs async_stream_query against the exact existing managed session', async () => {
     const getSession = vi.fn(async () => ({ id: 'session-123' }))
     const runAsync = vi.fn(() => (async function* () {

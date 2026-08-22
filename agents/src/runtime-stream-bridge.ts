@@ -30,6 +30,10 @@ export type RuntimeStreamMethodResult =
   | { handled: true; status: 400 | 404; error: string }
   | { handled: true; status: 200; stream: AsyncIterable<unknown> }
 
+export function encodeRuntimeStreamChunk(chunk: unknown): string {
+  return `${JSON.stringify({ output: chunk })}\n`
+}
+
 function inputObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   return value as Record<string, unknown>

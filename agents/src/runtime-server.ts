@@ -9,7 +9,7 @@ import {
   handleRuntimeClassMethod,
   type RuntimeClassMethodRequest,
 } from './runtime-session-bridge'
-import { prepareRuntimeStreamMethod } from './runtime-stream-bridge'
+import { encodeRuntimeStreamChunk, prepareRuntimeStreamMethod } from './runtime-stream-bridge'
 
 const DEFAULT_PORT = 8080
 const MAX_CLASS_METHOD_BODY_BYTES = 1024 * 1024
@@ -165,7 +165,7 @@ export async function startCaffeMateRuntimeServer(): Promise<AdkApiServer> {
       res.setHeader('Cache-Control', 'no-cache')
       res.setHeader('Content-Type', 'application/json')
       for await (const event of result.stream) {
-        res.write(`${JSON.stringify(event)}\n`)
+        res.write(encodeRuntimeStreamChunk(event))
       }
       responseCompleted = true
       res.end()
