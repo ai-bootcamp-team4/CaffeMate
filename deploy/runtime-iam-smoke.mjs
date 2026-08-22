@@ -9,6 +9,7 @@ const required = [
   'aiplatform.endpoints.predict',
   'aiplatform.ragCorpora.get',
   'aiplatform.ragCorpora.query',
+  'aiplatform.ragFiles.get',
   'discoveryengine.rankingConfigs.rank',
 ]
 const prohibited = [

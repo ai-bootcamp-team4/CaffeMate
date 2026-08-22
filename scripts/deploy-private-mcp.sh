@@ -52,7 +52,7 @@ ensure_project_custom_role \
   "$mcp_retriever_role_id" \
   'CaffeMate MCP Retriever' \
   'Query approved Vertex RAG corpora and rerank retrieved evidence without mutation.' \
-  'aiplatform.endpoints.predict,aiplatform.ragCorpora.get,aiplatform.ragCorpora.query,discoveryengine.rankingConfigs.rank'
+  'aiplatform.endpoints.predict,aiplatform.ragCorpora.get,aiplatform.ragCorpora.query,aiplatform.ragFiles.get,discoveryengine.rankingConfigs.rank'
 gcloud projects add-iam-policy-binding "$project_id" \
   --member="serviceAccount:${runtime_sa}" --role="$mcp_retriever_role" --quiet >/dev/null
 gcloud projects add-iam-policy-binding "$project_id" \

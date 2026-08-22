@@ -313,6 +313,7 @@ def test_effective_iam_verification_runs_as_the_deployed_identities() -> None:
     assert "aiplatform.endpoints.predict" in smoke
     assert "aiplatform.ragCorpora.get" in smoke
     assert "aiplatform.ragCorpora.query" in smoke
+    assert "aiplatform.ragFiles.get" in smoke
     assert "discoveryengine.rankingConfigs.rank" in smoke
     assert "aiplatform.ragCorpora.delete" in smoke
     assert "aiplatform.ragFiles.delete" in smoke

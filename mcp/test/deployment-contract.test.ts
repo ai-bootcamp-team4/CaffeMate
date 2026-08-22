@@ -13,11 +13,12 @@ const agentControl = readFileSync(join(process.cwd(), 'agents/src/control.ts'), 
 describe('private MCP deployment IAM contract', () => {
   it('uses the minimum retrieval role and verifies effective mutation denial', () => {
     expect(deploy).toContain('caffemateMcpRetriever')
-    expect(deploy).toContain('aiplatform.endpoints.predict,aiplatform.ragCorpora.get,aiplatform.ragCorpora.query,discoveryengine.rankingConfigs.rank')
+    expect(deploy).toContain('aiplatform.endpoints.predict,aiplatform.ragCorpora.get,aiplatform.ragCorpora.query,aiplatform.ragFiles.get,discoveryengine.rankingConfigs.rank')
     expect(deploy).toContain("remove_project_role_binding \"serviceAccount:${runtime_sa}\" 'roles/aiplatform.user'")
     expect(deploy).toContain("remove_project_role_binding \"serviceAccount:${runtime_sa}\" 'roles/discoveryengine.viewer'")
     expect(verify).toContain('caffemateMcpRetriever')
     expect(verify).toContain('aiplatform.ragCorpora.get')
+    expect(verify).toContain('aiplatform.ragFiles.get')
     expect(deploy).toContain('_SOURCE_REVISION=${source_revision}')
     expect(verify).toContain('verified_build_id_for_image')
     expect(verify).toContain('MCP runtime identity has no prohibited effective mutation permission')

@@ -76,6 +76,7 @@ assert set(retriever_role_definition["includedPermissions"]) == {
     "aiplatform.endpoints.predict",
     "aiplatform.ragCorpora.get",
     "aiplatform.ragCorpora.query",
+    "aiplatform.ragFiles.get",
     "discoveryengine.rankingConfigs.rank",
 }
 assert any(b["role"] == retriever_role and member in b.get("members", []) for b in project_policy.get("bindings", []))
