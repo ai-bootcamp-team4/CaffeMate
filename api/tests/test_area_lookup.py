@@ -92,3 +92,21 @@ def test_selection_token_is_project_query_and_expiry_fenced() -> None:
     clock_value[0] = now + timedelta(minutes=16)
     with pytest.raises(ContractValidationError):
         service.resolve_selection(project_id="project-1", query="망원동", selection_token=token)
+
+
+def test_selection_accepts_the_selected_candidate_display_name_after_short_query() -> None:
+    now = datetime(2026, 8, 22, tzinfo=UTC)
+    service = AreaLookupService(
+        FakeMcpClient(),
+        token_signer=AreaSelectionTokenSigner(secret="s" * 32, clock=lambda: now),
+        policy_snapshot_id="policy-v1",
+    )
+    result = asyncio.run(service.search(project_id="project-1", query="망원동", limit=10))
+
+    selected = service.resolve_selection(
+        project_id="project-1",
+        query="서울특별시 마포구 망원동",
+        selection_token=result.candidates[0].selection_token,
+    )
+
+    assert selected.area_id == "legal-dong:1144012300"

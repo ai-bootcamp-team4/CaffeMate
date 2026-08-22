@@ -126,7 +126,11 @@ class AreaLookupService:
         except AreaSelectionTokenError as error:
             raise ContractValidationError("Area selection is invalid or expired") from error
         normalized_query = " ".join(query.split())
-        if claims.venture_project_id != project_id or claims.query != normalized_query:
+        selected_display_name = " ".join(claims.area.display_name.split())
+        if claims.venture_project_id != project_id or normalized_query not in {
+            claims.query,
+            selected_display_name,
+        }:
             raise ContractValidationError("Area selection does not match this project and query")
         return claims.area
 
