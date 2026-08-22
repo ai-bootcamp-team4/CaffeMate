@@ -13,6 +13,7 @@ from app.workflows.models import (
     StageLease,
 )
 
+from worker.errors import StageExecutionError
 from worker.pubsub import PubSubDelivery
 
 
@@ -166,6 +167,8 @@ class DurableWorker:
     def _failure_from_exception(error: Exception) -> StageFailure:
         if isinstance(error, ContractValidationError):
             return StageFailure(code="CONTRACT_REJECTED", retryable=False)
+        if isinstance(error, StageExecutionError):
+            return StageFailure(code=error.code, retryable=error.retryable)
         if isinstance(error, TimeoutError):
             return StageFailure(code="STAGE_TIMEOUT", retryable=True)
         return StageFailure(code="STAGE_PROCESSING_ERROR", retryable=True)

@@ -360,9 +360,22 @@ Workflow 취소는 GCP 계산이 즉시 중단됐음을 보장하지 않는다. 
 2. 같은 transaction의 outbox row에 `workflow_run_id`를 기록한다.
 3. outbox publisher가 Pub/Sub에 발행하고 발행 완료를 기록한다.
 
-`caffemate-worker`가 모든 Agent DAG stage의 유일한 lease owner다. Worker는 15초 heartbeat, 45초 lease를 사용하고 stage 시작·checkpoint·다음 outbox 생성에 compare-and-swap을 적용한다. API instance가 `202` 직후 종료돼도 DB outbox가 남으므로 실행이 사라지지 않는다. redelivery는 같은 `(workflow_run_id, stage_run_id, input_digest)`로 흡수한다.
+`caffemate-worker`가 모든 Agent DAG stage의 유일한 lease owner다. Worker는 15초 heartbeat, 90초 lease를 사용하고 stage 시작·checkpoint·다음 outbox 생성에 compare-and-swap을 적용한다. API instance가 `202` 직후 종료돼도 DB outbox가 남으므로 실행이 사라지지 않는다. redelivery는 같은 `(workflow_run_id, stage_run_id, input_digest)`로 흡수한다.
 
 Worker는 Agent Runtime·MCP credential을 갖지 않는다. Agent·MCP stage에서는 lease token과 full head를 넣어 private Control API stage-execute endpoint를 호출하고, Control API가 외부 호출과 boundary validation을 수행한 뒤 같은 lease token으로 checkpoint한다. 문서 parsing·embedding처럼 Worker가 직접 수행하는 stage도 persistent Venture State는 쓰지 않고 proposed artifact만 만들며 reducer 적용은 API를 통한다.
+
+내부 stage-execute endpoint의 실패 응답은 원문 예외를 노출하지 않고 안정적인
+`code`와 `retryable`만 반환한다. Agent Runtime·MCP adapter가 자체 transport retry를
+소진한 뒤 반환한 오류, HTTP 400·401·403, safety·Schema·protocol·fence 오류는
+`retryable=false`다. Worker와 Control API 사이의 network·408·429·5xx처럼 아직
+실행 경계에 도달했는지 확정할 수 없는 전송 실패만 `retryable=true`다. Worker는
+이 값을 보존해 `StageFailure`를 기록하며 임의로 모든 5xx를 재시도 가능 오류로
+평탄화하지 않는다.
+
+60초 Agent task를 Worker 전송 timeout이 먼저 끊지 않도록 stage lease는 90초,
+Worker의 Control API 요청 상한은 70초로 둔다. Agent의 logical `deadline_at`이 실제
+생성·stream·검증·cleanup 예산의 권위값이며, Worker heartbeat는 진행 중인 lease만
+연장하고 Agent 호출의 deadline을 연장하지 않는다.
 
 ```text
 POST   /v1/projects/{venture_project_id}/workflows/{workflow_code}

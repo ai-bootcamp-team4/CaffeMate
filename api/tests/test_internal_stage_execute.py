@@ -108,14 +108,17 @@ def test_path_mismatch_and_rejected_lease_never_execute() -> None:
         )
 
     assert wrong_path.status_code == rejected.status_code == 409
-    assert wrong_path.json() == rejected.json() == {"code": "STAGE_LEASE_REJECTED"}
+    assert wrong_path.json() == rejected.json() == {
+        "code": "STAGE_LEASE_REJECTED",
+        "retryable": False,
+    }
     assert authorizer.calls == 1
     assert executor.calls == 0
 
 
-def test_agent_runtime_subclass_is_reported_as_retryable_unavailable() -> None:
+def test_agent_runtime_terminal_code_is_preserved_without_stage_retry() -> None:
     authorizer = FakeAuthorizer()
-    executor = FakeExecutor(error=AgentRuntimeError("RUNTIME_EXECUTION_FAILED"))
+    executor = FakeExecutor(error=AgentRuntimeError("RUNTIME_FORBIDDEN"))
 
     with client(authorizer, executor) as test_client:
         response = test_client.post(
@@ -125,4 +128,4 @@ def test_agent_runtime_subclass_is_reported_as_retryable_unavailable() -> None:
         )
 
     assert response.status_code == 503
-    assert response.json() == {"code": "EXTERNAL_EXECUTION_UNAVAILABLE"}
+    assert response.json() == {"code": "RUNTIME_FORBIDDEN", "retryable": False}
