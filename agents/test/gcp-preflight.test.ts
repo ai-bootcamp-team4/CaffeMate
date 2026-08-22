@@ -7,7 +7,9 @@ const GENERATION_REGION = 'global'
 const RAG_REGION = 'asia-northeast3'
 const EMBEDDING_REGION = 'asia-northeast3'
 const MODEL_ID = 'gemini-3.7-flash'
+const RUNTIME_PROJECT_NUMBER = '424808310695'
 const RUNTIME_RESOURCE = `projects/${PROJECT_ID}/locations/${RUNTIME_REGION}/reasoningEngines/777`
+const RUNTIME_CANONICAL_RESOURCE = `projects/${RUNTIME_PROJECT_NUMBER}/locations/${RUNTIME_REGION}/reasoningEngines/777`
 const RUNTIME_IMAGE = `${RUNTIME_REGION}-docker.pkg.dev/${PROJECT_ID}/caffemate-agents/caffemate-agent-runtime@sha256:${'a'.repeat(64)}`
 
 function successfulFetch() {
@@ -65,7 +67,7 @@ function successfulFetch() {
     if (url.includes('/reasoningEngines?')) {
       return Response.json({
         reasoningEngines: [{
-          name: RUNTIME_RESOURCE,
+          name: RUNTIME_CANONICAL_RESOURCE,
           displayName: 'caffemate-agents',
         }],
       })

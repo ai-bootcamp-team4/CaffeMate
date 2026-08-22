@@ -88,6 +88,32 @@ interface ReasoningEngineRow {
   }
 }
 
+interface ReasoningEngineIdentity {
+  project: string
+  location: string
+  resourceId: string
+}
+
+function reasoningEngineIdentity(resourceName: string): ReasoningEngineIdentity | null {
+  const match = /^projects\/([^/]+)\/locations\/([^/]+)\/reasoningEngines\/([^/]+)$/.exec(resourceName)
+  if (!match) return null
+  const [, project, location, resourceId] = match
+  if (!project || !location || !resourceId) return null
+  return { project, location, resourceId }
+}
+
+function runtimeMatchesPinnedIdentity(
+  actualResource: string,
+  expectedResource: string,
+  options: GcpPreflightOptions,
+): boolean {
+  const actual = reasoningEngineIdentity(actualResource)
+  const expected = reasoningEngineIdentity(expectedResource)
+  if (!actual || !expected) return false
+  if (expected.project !== options.projectId || expected.location !== options.runtimeRegion) return false
+  return actual.location === expected.location && actual.resourceId === expected.resourceId
+}
+
 function pass(name: GcpPreflightCheck['name'], code: string, detail?: string): GcpPreflightCheck {
   return { name, ok: true, code, ...(detail ? { detail } : {}) }
 }
@@ -325,7 +351,7 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
       checks.push(fail('agent-runtime', 'AGENT_RUNTIME_NOT_DEPLOYED'))
     } else {
       runtimeResource = matches[0].name
-      if (runtimeResource !== options.runtimePin.resourceName) {
+      if (!runtimeMatchesPinnedIdentity(runtimeResource, options.runtimePin.resourceName, options)) {
         checks.push(fail('agent-runtime', 'AGENT_RUNTIME_RESOURCE_MISMATCH', runtimeResource))
       } else {
         const runtimeId = runtimeResource.split('/').at(-1)
@@ -343,7 +369,8 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
             const runtime = await runtimeGetResponse.json() as ReasoningEngineRow
             const mismatch = runtimeClassMethodMismatch(runtime)
             runtimeImageUri = runtime.spec?.containerSpec?.imageUri
-            if (runtime.name !== runtimeResource) {
+            if (!runtime.name
+              || !runtimeMatchesPinnedIdentity(runtime.name, options.runtimePin.resourceName, options)) {
               checks.push(fail('agent-runtime', 'AGENT_RUNTIME_RESOURCE_MISMATCH', runtime.name ?? 'MISSING'))
             } else if (mismatch) {
               checks.push(fail('agent-runtime', 'AGENT_RUNTIME_CLASS_METHOD_MISMATCH', mismatch))
