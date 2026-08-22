@@ -251,6 +251,73 @@ describe('Vertex RAG Engine backend', () => {
     expect(fetchImpl).toHaveBeenCalledOnce()
   })
 
+  it('applies the retrieval deadline while access-token acquisition is stalled', async () => {
+    const accessToken = vi.fn(() => new Promise<string>(() => undefined))
+    const fetchImpl = vi.fn()
+    const backend = createVertexRagBackend({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken,
+      fetchImpl,
+      mapContext: () => null,
+      timeoutMs: 10,
+    })
+
+    const outcome = backend({
+      corpusKind: 'OFFICIAL',
+      corpusId: '1234',
+      query: '법령',
+      sourceFamilies: ['LAW'],
+      asOf: '2026-08-21',
+      limit: 1,
+    }).then(
+      () => ({ code: 'RESOLVED' }),
+      (error: unknown) => error,
+    )
+
+    const result = await Promise.race([
+      outcome,
+      new Promise((resolve) => setTimeout(() => resolve({ code: 'STILL_PENDING' }), 50)),
+    ])
+    expect(result).toMatchObject({ code: 'RAG_TIMEOUT' })
+    expect(accessToken).toHaveBeenCalledOnce()
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('propagates caller cancellation while access-token acquisition is stalled', async () => {
+    const controller = new AbortController()
+    const accessToken = vi.fn(() => new Promise<string>(() => undefined))
+    const fetchImpl = vi.fn()
+    const backend = createVertexRagBackend({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken,
+      fetchImpl,
+      mapContext: () => null,
+    })
+
+    const outcome = backend({
+      corpusKind: 'OFFICIAL',
+      corpusId: '1234',
+      query: '법령',
+      sourceFamilies: ['LAW'],
+      asOf: '2026-08-21',
+      limit: 1,
+      signal: controller.signal,
+    }).then(
+      () => ({ code: 'RESOLVED' }),
+      (error: unknown) => error,
+    )
+    controller.abort(new Error('caller cancelled'))
+
+    const result = await Promise.race([
+      outcome,
+      new Promise((resolve) => setTimeout(() => resolve({ code: 'STILL_PENDING' }), 50)),
+    ])
+    expect(result).toMatchObject({ code: 'RAG_CANCELLED' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
   it('propagates caller cancellation into the Vertex fetch', async () => {
     const controller = new AbortController()
     const fetchImpl = vi.fn((_url: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {

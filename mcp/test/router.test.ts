@@ -36,6 +36,21 @@ describe('read-only MCP tool router', () => {
     expect(result).toEqual(resolveAreaResult())
   })
 
+  it('passes request cancellation to the selected connector', async () => {
+    const controller = new AbortController()
+    const connector = vi.fn(async (_input, _scope, execution) => {
+      expect(execution?.signal).toBe(controller.signal)
+      return resolveAreaResult()
+    })
+    const router = new McpToolRouter({ resolve_area: connector })
+
+    await router.call('resolve_area', { query: '성수동', country_code: 'KR', limit: 5 }, scope, {
+      signal: controller.signal,
+    })
+
+    expect(connector).toHaveBeenCalledTimes(1)
+  })
+
   it('fails closed before connector execution when input violates the tool schema', async () => {
     const connector = vi.fn(async () => resolveAreaResult())
     const router = new McpToolRouter({ resolve_area: connector })

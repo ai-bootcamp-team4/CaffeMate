@@ -14,6 +14,7 @@ export interface ProductionMcpConnectorOptions {
   jusoApiKey?: string
   fetch?: typeof globalThis.fetch
   now?: () => Date
+  officialRagHealthTimeoutMs?: number
 }
 
 function validateOfficialCorpusResource(projectId: string, resource: string): void {
@@ -36,6 +37,9 @@ export function createProductionMcpConnectors(options: ProductionMcpConnectorOpt
       officialCorpusResource: options.officialCorpusResource,
       accessToken: options.accessToken,
       fetch: fetchImpl,
+      ...(options.officialRagHealthTimeoutMs !== undefined
+        ? { timeoutMs: options.officialRagHealthTimeoutMs }
+        : {}),
     })],
   })
   const officialBackend = createVertexRagBackend({

@@ -112,6 +112,24 @@ function createRetrievalSignal(timeoutMs: number, callerSignal?: AbortSignal): {
   }
 }
 
+async function awaitWithSignal<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) throw signal.reason ?? new Error('operation aborted')
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error('operation aborted'))
+    signal.addEventListener('abort', onAbort, { once: true })
+    operation.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      },
+    )
+  })
+}
+
 function metadataFilterFor(request: RagBackendRequest): string | undefined {
   const clauses: string[] = []
   if (request.corpusKind === 'OFFICIAL') {
@@ -145,18 +163,18 @@ export function createVertexRagBackend(options: VertexRagBackendOptions): RagBac
     }
     if (request.limit < 1) throw new VertexRagError('RAG_LIMIT_INVALID', 'retrieval limit must be positive')
     if (request.signal?.aborted) throw new VertexRagError('RAG_CANCELLED', 'retrieveContexts was cancelled by the caller')
-    const token = await options.accessToken()
-    if (!token) throw new VertexRagError('RAG_AUTH_TOKEN_MISSING', 'ADC did not return an access token')
-
-    const resource = corpusResource(options.projectId, options.region, request.corpusId)
-    const endpoint = `https://${options.region}-aiplatform.googleapis.com/v1beta1/projects/${options.projectId}/locations/${options.region}:retrieveContexts`
-    const ragResource: { ragCorpus: string; ragFileIds?: string[] } = { ragCorpus: resource }
-    if (request.ragFileIds?.length) ragResource.ragFileIds = [...request.ragFileIds]
-    const metadataFilter = metadataFilterFor(request)
 
     const retrievalSignal = createRetrievalSignal(timeoutMs, request.signal)
-
     try {
+      const token = await awaitWithSignal(options.accessToken(), retrievalSignal.signal)
+      if (!token) throw new VertexRagError('RAG_AUTH_TOKEN_MISSING', 'ADC did not return an access token')
+
+      const resource = corpusResource(options.projectId, options.region, request.corpusId)
+      const endpoint = `https://${options.region}-aiplatform.googleapis.com/v1beta1/projects/${options.projectId}/locations/${options.region}:retrieveContexts`
+      const ragResource: { ragCorpus: string; ragFileIds?: string[] } = { ragCorpus: resource }
+      if (request.ragFileIds?.length) ragResource.ragFileIds = [...request.ragFileIds]
+      const metadataFilter = metadataFilterFor(request)
+
       const response = await fetchImpl(endpoint, {
         method: 'POST',
         headers: {

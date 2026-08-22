@@ -43,7 +43,13 @@ function requestId(value: string | number): string {
   return String(value)
 }
 
-function buildMcpServer(router: McpToolRouter, scope: AuthorizedMcpScope): McpServer {
+interface McpRequestContext {
+  scope: AuthorizedMcpScope
+  signal: AbortSignal
+}
+
+function buildMcpServer(router: McpToolRouter, requestContext: McpRequestContext): McpServer {
+  const { scope } = requestContext
   const server = new McpServer(
     { name: 'caffemate-mcp', version: '1.0.0' },
     { capabilities: { tools: {} } },
@@ -69,7 +75,9 @@ function buildMcpServer(router: McpToolRouter, scope: AuthorizedMcpScope): McpSe
           workflowRunId: scope.workflowRunId,
           requestId: requestId(context.mcpReq.id),
         }
-        const result = asStructuredContent(await router.call(definition.name, input, callScope))
+        const result = asStructuredContent(await router.call(definition.name, input, callScope, {
+          signal: requestContext.signal,
+        }))
         return {
           content: [{ type: 'text', text: JSON.stringify(result) }],
           structuredContent: result,
@@ -95,12 +103,12 @@ function authorizationResponse(error: McpAuthorizationError): Response {
 
 export function createCaffeMateMcpHttpHandler(options: CaffeMateMcpServerOptions): CaffeMateMcpHttpHandler {
   const router = new McpToolRouter(options.connectors)
-  const scopeStorage = new AsyncLocalStorage<AuthorizedMcpScope>()
+  const scopeStorage = new AsyncLocalStorage<McpRequestContext>()
   const handler = createMcpHandler(
     () => {
-      const scope = scopeStorage.getStore()
-      if (!scope) throw new Error('MCP_SCOPE_CONTEXT_MISSING')
-      return buildMcpServer(router, scope)
+      const requestContext = scopeStorage.getStore()
+      if (!requestContext) throw new Error('MCP_SCOPE_CONTEXT_MISSING')
+      return buildMcpServer(router, requestContext)
     },
     { legacy: 'reject' },
   )
@@ -112,7 +120,7 @@ export function createCaffeMateMcpHttpHandler(options: CaffeMateMcpServerOptions
         if (!scope.ventureProjectId || !scope.workflowRunId) {
           throw new McpAuthorizationError(403, 'MCP_SCOPE_TOKEN_INVALID', 'authorized scope is incomplete')
         }
-        return await scopeStorage.run(scope, () => handler.fetch(request))
+        return await scopeStorage.run({ scope, signal: request.signal }, () => handler.fetch(request))
       } catch (error) {
         if (error instanceof McpAuthorizationError) return authorizationResponse(error)
         throw error

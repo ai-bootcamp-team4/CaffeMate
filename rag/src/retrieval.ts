@@ -43,6 +43,7 @@ export interface ProjectRetrievalInput {
   documentRevisionIds: string[]
   limit: number
   documentType?: string | null
+  signal?: AbortSignal
 }
 
 export interface OfficialRetrievalInput {
@@ -50,6 +51,7 @@ export interface OfficialRetrievalInput {
   sourceFamilies: string[]
   asOf: string
   limit: number
+  signal?: AbortSignal
 }
 
 export interface RetrievalScope {
@@ -86,6 +88,7 @@ export class RetrievalCoordinator {
       sourceFamilies: [...input.sourceFamilies],
       asOf: input.asOf,
       limit: input.limit,
+      ...(input.signal ? { signal: input.signal } : {}),
     })
   }
 
@@ -118,6 +121,7 @@ export class RetrievalCoordinator {
       documentRevisionIds: [...input.documentRevisionIds],
       ragFileIds: ragFileIds as string[],
       limit: input.limit,
+      ...(input.signal ? { signal: input.signal } : {}),
     })
 
     for (const hit of hits) {

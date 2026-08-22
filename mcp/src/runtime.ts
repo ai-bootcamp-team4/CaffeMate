@@ -55,10 +55,30 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     if (Array.isArray(value)) value.forEach((item) => headers.append(name, item))
     else if (value !== undefined) headers.set(name, value)
   }
-  const init: RequestInit & { duplex?: 'half' } = { method, headers, body }
+  const abortController = new AbortController()
+  const abortRequest = () => {
+    if (!abortController.signal.aborted) abortController.abort(new Error('MCP caller disconnected'))
+  }
+  const abortResponse = () => {
+    if (!response.writableEnded) abortRequest()
+  }
+  request.once('aborted', abortRequest)
+  response.once('close', abortResponse)
+
+  const init: RequestInit & { duplex?: 'half' } = {
+    method,
+    headers,
+    body,
+    signal: abortController.signal,
+  }
   if (body) init.duplex = 'half'
   const webRequest = new Request(url, init)
-  await writeResponse(await handler.fetch(webRequest), response)
+  try {
+    await writeResponse(await handler.fetch(webRequest), response)
+  } finally {
+    request.removeListener('aborted', abortRequest)
+    response.removeListener('close', abortResponse)
+  }
 }
 
 const port = Number(process.env.PORT ?? '8080')

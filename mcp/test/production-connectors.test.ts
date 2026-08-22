@@ -5,6 +5,7 @@ import { McpToolRouter } from '../src/router'
 
 const projectId = 'proj-aj20-211200020328'
 const region = 'asia-northeast3'
+const projectNumber = '424808310695'
 const officialCorpus = `projects/${projectId}/locations/${region}/ragCorpora/5148740273991319552`
 const scope = { ventureProjectId: 'project-1', workflowRunId: 'workflow-1', requestId: 'request-1' }
 
@@ -91,7 +92,7 @@ describe('production MCP connector composition', () => {
       expect(init?.method).toBe('GET')
       expect(init?.headers).toMatchObject({ Authorization: 'Bearer access-token' })
       return Response.json({
-        name: ragFileResource,
+        name: ragFileResource.replace(`projects/${projectId}/`, `projects/${projectNumber}/`),
         fileStatus: { state: 'ACTIVE' },
         gcsSource: { uris: [OFFICIAL_RAG_SOURCE.sourceUri] },
       })
@@ -130,6 +131,32 @@ describe('production MCP connector composition', () => {
     })
     expect(accessToken).toHaveBeenCalledOnce()
     expect(fetcher).toHaveBeenCalledOnce()
+  })
+
+  it('bounds official source health even when ADC token acquisition stalls', async () => {
+    const accessToken = vi.fn(() => new Promise<string>(() => undefined))
+    const connectors = createProductionMcpConnectors({
+      projectId,
+      officialCorpusResource: officialCorpus,
+      accessToken,
+      fetch: vi.fn() as typeof fetch,
+      now: () => new Date('2026-08-22T01:30:00Z'),
+      officialRagHealthTimeoutMs: 10,
+    })
+
+    const outcome = new McpToolRouter(connectors).call('get_source_health', {
+      source_ids: [OFFICIAL_RAG_SOURCE.sourceId],
+      as_of: '2026-08-22',
+    }, scope)
+
+    const result = await Promise.race([
+      outcome,
+      new Promise((resolve) => setTimeout(() => resolve('STILL_PENDING'), 50)),
+    ])
+    expect(result).toMatchObject({
+      status: 'PARTIAL',
+      data: [{ source_id: OFFICIAL_RAG_SOURCE.sourceId, status: 'UNAVAILABLE' }],
+    })
   })
 
   it('preserves the configured official source data date when the health probe fails', async () => {
