@@ -7,6 +7,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 FROM base AS runtime
 COPY --chown=node:node docs/contracts ./docs/contracts
 COPY --chown=node:node rag/src ./rag/src
+COPY --chown=node:node mcp/data ./mcp/data
 COPY --chown=node:node mcp/src ./mcp/src
 COPY --chown=node:node deploy/runtime-iam-smoke.mjs ./deploy/runtime-iam-smoke.mjs
 USER node

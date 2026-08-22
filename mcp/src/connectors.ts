@@ -1,10 +1,16 @@
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { McpConnector, McpConnectorRegistry, McpScopeContext } from './router'
 import { createSourceHealthConnector, type McpConfiguredSource } from './source-health'
 
 const JUSO_SOURCE_ID = 'mois-juso-address-search'
 const JUSO_SOURCE_REF = 'https://business.juso.go.kr/addrlink/addrLinkApi.do'
 const JUSO_GUIDE_REF = 'https://business.juso.go.kr/jst/jstRoadNmAddrApiSearch'
+const LEGAL_DONG_SOURCE_ID = 'mois-legal-dong-directory'
+const LEGAL_DONG_SOURCE_REF = 'https://www.mois.go.kr/frt/bbs/type001/commonSelectBoardArticle.do?bbsId=BBSMSTR_000000000052&nttId=124059'
+const LEGAL_DONG_DATA_DATE = '2026-03-01'
+const LEGAL_DONG_BOUNDARY_VERSION = 'MOIS_LEGAL_DONG_20260301'
 const JUSO_REQUEST_TIMEOUT_MS = 8_000
 const JUSO_REQUEST_ATTEMPTS = 2
 
@@ -13,6 +19,7 @@ interface ConnectorOptions {
   fetch?: typeof globalThis.fetch
   now?: () => Date
   sourceHealthSources?: readonly McpConfiguredSource[]
+  useLegalDongDirectory?: boolean
 }
 
 interface JusoResult {
@@ -42,6 +49,37 @@ interface RankedAreaCandidate {
   score: number
 }
 
+interface LegalDongEntry {
+  administrativeCode: string
+  components: string[]
+  displayName: string
+  normalizedComponents: string[]
+  normalizedDisplayName: string
+}
+
+const LEGAL_DONG_DIRECTORY_TEXT = readFileSync(
+  resolve(process.cwd(), 'mcp/data/legal-dongs-20260301.tsv'),
+  'utf8',
+)
+const LEGAL_DONG_DIRECTORY_DIGEST = digest(LEGAL_DONG_DIRECTORY_TEXT)
+const LEGAL_DONG_DIRECTORY: readonly LegalDongEntry[] = Object.freeze(
+  LEGAL_DONG_DIRECTORY_TEXT.trim().split('\n').map((line) => {
+    const [administrativeCode, sido, sigungu, eupmyeondong, dongri] = line.split('\t')
+    if (!administrativeCode || !/^\d{10}$/.test(administrativeCode) || !sido) {
+      throw new Error('LEGAL_DONG_DIRECTORY_INVALID')
+    }
+    const components = [sido, sigungu, eupmyeondong, dongri].filter(Boolean) as string[]
+    const displayName = components.join(' ')
+    return {
+      administrativeCode,
+      components,
+      displayName,
+      normalizedComponents: components.map(normalizeSearchText),
+      normalizedDisplayName: normalizeSearchText(displayName),
+    }
+  }),
+)
+
 const LOCALITY_SUFFIXES = ['동', '읍', '면', '리', '구', '시'] as const
 
 function normalizeSearchText(value: string): string {
@@ -55,6 +93,54 @@ function queryTokens(query: string): string[] {
     .split(/\s+/)
     .map(normalizeSearchText)
     .filter(Boolean)
+}
+
+function directoryMatchScore(entry: LegalDongEntry, tokens: string[]): number | null {
+  if (!tokens.length) return null
+  let score = 0
+  for (const token of tokens) {
+    const tokenScore = Math.max(...entry.normalizedComponents.map((component, index) => {
+      const levelWeight = [0, 20, 40, 10][index] ?? 0
+      const suffixWeight = component.startsWith(token)
+        ? component.includes(`${token}동`) ? 30
+          : component.includes(`${token}읍`) ? 10
+            : component.includes(`${token}면`) ? 5
+              : 0
+        : 0
+      if (component === token) return 500 + levelWeight
+      if (component.startsWith(token)) return 400 + levelWeight + suffixWeight
+      if (component.includes(token)) return 250 + levelWeight
+      return 0
+    }))
+    if (tokenScore === 0) return null
+    score += tokenScore
+  }
+  return score
+}
+
+function searchLegalDongDirectory(query: string, limit: number): RankedAreaCandidate[] {
+  const tokens = queryTokens(query)
+  const normalizedQuery = tokens.join('')
+  return LEGAL_DONG_DIRECTORY
+    .map((entry) => ({ entry, score: directoryMatchScore(entry, tokens) }))
+    .filter((item): item is { entry: LegalDongEntry; score: number } => item.score !== null)
+    .sort((left, right) => right.score - left.score
+      || left.entry.displayName.localeCompare(right.entry.displayName, 'ko-KR'))
+    .slice(0, limit)
+    .map(({ entry }) => {
+      const locality = entry.normalizedComponents.at(-1) ?? ''
+      return {
+        administrative_code: entry.administrativeCode,
+        display_name: entry.displayName,
+        boundary_version: LEGAL_DONG_BOUNDARY_VERSION,
+        match_kind: entry.normalizedDisplayName === normalizedQuery || locality === normalizedQuery
+          ? 'EXACT'
+          : locality.startsWith(normalizedQuery)
+            ? 'ALIAS'
+            : 'CONTAINS',
+        score: directoryMatchScore(entry, tokens) ?? 0,
+      }
+    })
 }
 
 function localitySearchVariants(query: string): string[] {
@@ -181,6 +267,16 @@ function sourceTrace(now: Date, content: string) {
   }]
 }
 
+function legalDongSourceTrace(now: Date) {
+  return [{
+    source_id: LEGAL_DONG_SOURCE_ID,
+    source_ref: LEGAL_DONG_SOURCE_REF,
+    data_date: LEGAL_DONG_DATA_DATE,
+    retrieved_at: now.toISOString(),
+    content_digest: LEGAL_DONG_DIRECTORY_DIGEST,
+  }]
+}
+
 function unavailable(scope: McpScopeContext, toolName: string, now: Date, code: string) {
   return {
     ...base(scope, toolName, now), status: 'PARTIAL', data: [],
@@ -194,9 +290,27 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
 
   const resolveArea: McpConnector = async (rawInput, scope) => {
     const now = clock()
+    const input = rawInput as { query: string; limit: number }
+    const directoryData = options.useLegalDongDirectory === false
+      ? []
+      : searchLegalDongDirectory(input.query, input.limit)
+    if (directoryData.length) {
+      return {
+        ...base(scope, 'resolve_area', now),
+        status: 'OK',
+        data: directoryData.map((candidate) => ({
+          administrative_code: candidate.administrative_code,
+          display_name: candidate.display_name,
+          boundary_version: candidate.boundary_version,
+          match_kind: candidate.match_kind,
+        })),
+        missing_fields: [],
+        source_trace: legalDongSourceTrace(now),
+      }
+    }
+
     const jusoApiKey = options.jusoApiKey
     if (!jusoApiKey) return unavailable(scope, 'resolve_area', now, 'SOURCE_CREDENTIAL_MISSING')
-    const input = rawInput as { query: string; limit: number }
     const fetchJusoOnce = async (query: string, count: number) => {
       const url = new URL(JUSO_SOURCE_REF)
       url.search = new URLSearchParams({
@@ -226,16 +340,16 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
     try {
       originalBody = await fetchJuso(input.query, input.limit)
     } catch {
-      return { ...base(scope, 'resolve_area', now), status: 'ERROR', data: [], missing_fields: [], source_trace: [], error_codes: ['SOURCE_UNAVAILABLE'] }
+      return { ...base(scope, 'resolve_area', now), status: 'PARTIAL', data: [], missing_fields: ['administrative_area'], source_trace: [], error_codes: ['SOURCE_UNAVAILABLE'] }
     }
     let originalParsed: JusoResult
     try {
       originalParsed = JSON.parse(originalBody) as JusoResult
     } catch {
-      return { ...base(scope, 'resolve_area', now), status: 'ERROR', data: [], missing_fields: [], source_trace: sourceTrace(now, originalBody), error_codes: ['SOURCE_RESPONSE_INVALID'] }
+      return { ...base(scope, 'resolve_area', now), status: 'PARTIAL', data: [], missing_fields: ['administrative_area'], source_trace: sourceTrace(now, originalBody), error_codes: ['SOURCE_RESPONSE_INVALID'] }
     }
     if (originalParsed.results?.common?.errorCode !== '0') {
-      return { ...base(scope, 'resolve_area', now), status: 'ERROR', data: [], missing_fields: [], source_trace: sourceTrace(now, originalBody), error_codes: ['SOURCE_RESPONSE_REJECTED'] }
+      return { ...base(scope, 'resolve_area', now), status: 'PARTIAL', data: [], missing_fields: ['administrative_area'], source_trace: sourceTrace(now, originalBody), error_codes: ['SOURCE_RESPONSE_REJECTED'] }
     }
 
     const tokens = queryTokens(input.query)
@@ -323,4 +437,4 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
   return { resolve_area: resolveArea, get_source_health: getSourceHealth }
 }
 
-export { JUSO_SOURCE_ID }
+export { JUSO_SOURCE_ID, LEGAL_DONG_SOURCE_ID }

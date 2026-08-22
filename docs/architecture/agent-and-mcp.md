@@ -159,12 +159,16 @@ source_trace: []
 
 ## Retry와 실패
 
+- 동네 검색은 2026년 3월 1일 기준 행정안전부 법정동 디렉터리를 MCP 이미지에서 먼저 조회한다.
+  상세 주소 보조 조회만 외부 도로명주소 API에 의존한다.
 - read tool retry는 connector별 최대 횟수와 timeout을 가진다.
 - schema invalid Agent output은 한 번만 repair한다.
 - 두 번째 실패는 `INVALID` 또는 `ABSTAIN`으로 종료한다.
 - timeout·cancel 뒤 늦은 응답은 full head가 같아도 폐기한다. 그 외 응답도 full head 여덟 차원이 모두 current와 같을 때만 고려한다.
 - tool 일부 실패를 전체 성공으로 숨기지 않는다.
 - Evidence가 부족하면 Proposal은 후보 수를 억지로 채우지 않는다.
+- 배포 canary는 브라우저에서 사용자가 서명된 지역 후보를 선택한 뒤와 같은 구조화 `AreaState`를
+  사용한다. 주소 공급자 상태와 Agent 연쇄 실행 검증을 한 실패 원인으로 합치지 않는다.
 
 ## Observability
 
