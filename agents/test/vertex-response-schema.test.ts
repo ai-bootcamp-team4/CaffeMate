@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import fixtureMatrix from '../fixtures/task-matrix.json'
 import { buildAgentTaskResultResponseJsonSchema } from '../src/vertex-model-client'
-import { buildVertexRolePayloadSchema } from '../src/vertex-response-schema'
+import {
+  buildVertexRolePayloadSchema,
+  normalizeVertexEvidencePlanResult,
+} from '../src/vertex-response-schema'
 import type { AgentTask } from '../src/types'
 
 interface ProjectedSchema {
@@ -21,29 +24,25 @@ function evidencePlanTask(): AgentTask {
 }
 
 describe('Vertex role response schema projection', () => {
-  it('turns EVIDENCE_PLAN tool actions into an allowed-tool discriminated union', () => {
+  it('keeps one compact EVIDENCE_PLAN action shape with allowed tool and argument unions', () => {
     const schema = buildVertexRolePayloadSchema(evidencePlanTask()) as ProjectedSchema
     const actionSchema = schema.properties?.claim_plans.items?.properties?.support_actions.items
-    const toolNames = actionSchema?.properties?.tool_name.enum
-    const correlatedBranches = actionSchema?.anyOf
-    if (!correlatedBranches) throw new Error('missing projected tool action union')
+    if (!actionSchema?.properties) throw new Error('missing projected tool-action schema')
 
-    expect(toolNames).toEqual(['get_area_profile', 'get_source_health'])
-    expect(actionSchema?.properties?.typed_arguments).toEqual({ type: 'object' })
-    expect(correlatedBranches).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        properties: expect.objectContaining({
-          tool_name: expect.objectContaining({ enum: ['get_area_profile'] }),
-          typed_arguments: expect.objectContaining({ title: 'get_area_profile arguments' }),
-        }),
-      }),
-      expect.objectContaining({
-        properties: expect.objectContaining({
-          tool_name: expect.objectContaining({ enum: ['get_source_health'] }),
-          typed_arguments: expect.objectContaining({ title: 'get_source_health arguments' }),
-        }),
-      }),
-    ]))
+    expect(actionSchema.properties.tool_name?.enum).toEqual(['get_area_profile', 'get_source_health'])
+    expect(actionSchema.anyOf).toBeUndefined()
+    const argumentSchemas = actionSchema.properties.typed_arguments?.anyOf
+    if (!argumentSchemas) throw new Error('missing typed argument union')
+    expect(argumentSchemas).toHaveLength(2)
+    expect(argumentSchemas).toEqual(expect.arrayContaining([expect.objectContaining({
+      type: 'object',
+      additionalProperties: false,
+      required: expect.arrayContaining(['source_ids', 'as_of']),
+    }), expect.objectContaining({
+      type: 'object',
+      additionalProperties: false,
+      required: expect.arrayContaining(['administrative_code', 'as_of']),
+    })]))
   })
 
   it('keeps the full eight-tool evidence plan below the Vertex schema size boundary', () => {
@@ -77,8 +76,56 @@ describe('Vertex role response schema projection', () => {
     const responseSchema = buildAgentTaskResultResponseJsonSchema(task)
 
     expect(actionSchema?.properties?.tool_name.enum).toEqual(toolNames)
-    expect(actionSchema?.properties?.typed_arguments).toEqual({ type: 'object' })
-    expect(actionSchema?.anyOf).toHaveLength(8)
+    expect(actionSchema?.properties?.typed_arguments.anyOf).toHaveLength(8)
+    expect(actionSchema?.anyOf).toBeUndefined()
     expect(JSON.stringify(responseSchema).length).toBeLessThan(16_000)
+  })
+
+  it('removes only provider-union extra argument keys without inventing missing values', () => {
+    const task = evidencePlanTask()
+    const result = {
+      task_type: 'EVIDENCE_PLAN',
+      payload: {
+        claim_plans: [{
+          support_actions: [{
+            tool_name: 'get_area_profile',
+            typed_arguments: {
+              administrative_code: '11680',
+              boundary_version: '2026-01',
+              as_of: '2026-08-22',
+              metrics: ['store_count'],
+            },
+          }],
+          counter_actions: [{
+            tool_name: 'get_source_health',
+            typed_arguments: {
+              source_ids: 'wrong-type-stays-wrong',
+              unexpected: 'drop-me',
+            },
+          }, {
+            tool_name: 'not_allowed',
+            typed_arguments: {
+              arbitrary: 'leave-unchanged-for-strict-rejection',
+            },
+          }],
+        }],
+      },
+    }
+
+    normalizeVertexEvidencePlanResult(task, result)
+
+    const plan = result.payload.claim_plans[0]
+    expect(plan.support_actions[0]?.typed_arguments).toEqual({
+      administrative_code: '11680',
+      boundary_version: '2026-01',
+      as_of: '2026-08-22',
+    })
+    expect(plan.counter_actions[0]?.typed_arguments).toEqual({
+      source_ids: 'wrong-type-stays-wrong',
+    })
+    expect(plan.counter_actions[0]?.typed_arguments).not.toHaveProperty('as_of')
+    expect(plan.counter_actions[1]?.typed_arguments).toEqual({
+      arbitrary: 'leave-unchanged-for-strict-rejection',
+    })
   })
 })

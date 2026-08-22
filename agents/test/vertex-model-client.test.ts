@@ -12,6 +12,12 @@ function task(): AgentTask {
   return structuredClone(fixtureMatrix.cases[0]?.task) as unknown as AgentTask
 }
 
+function evidencePlanTask(): AgentTask {
+  const item = fixtureMatrix.cases.find((entry) => entry.task.task_type === 'EVIDENCE_PLAN' && entry.result.status === 'COMPLETE')
+  if (!item) throw new Error('missing EVIDENCE_PLAN fixture')
+  return structuredClone(item.task) as unknown as AgentTask
+}
+
 describe('Vertex Agent model client', () => {
   it('calls only the explicit global Vertex endpoint with ADC bearer auth and JSON-only generation', async () => {
     const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -248,5 +254,100 @@ describe('Vertex Agent model client', () => {
       region: REGION,
       thinkingLevel: 'high',
     }))).rejects.toMatchObject({ code: 'VERTEX_MODEL_HTTP_ERROR', status: 429 })
+  })
+
+  it('projects only EVIDENCE_PLAN provider-union extra keys before returning model text', async () => {
+    const evidenceTask = evidencePlanTask()
+    const client = new VertexAgentModelClient({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl: async () => Response.json({
+        candidates: [{
+          content: {
+            role: 'model',
+            parts: [{
+              text: JSON.stringify({
+                task_type: 'EVIDENCE_PLAN',
+                payload: {
+                  claim_plans: [{
+                    support_actions: [{
+                      tool_name: 'get_area_profile',
+                      typed_arguments: {
+                        administrative_code: '11680',
+                        boundary_version: '2026-01',
+                        as_of: '2026-08-22',
+                        metrics: ['store_count'],
+                      },
+                    }],
+                    counter_actions: [],
+                  }],
+                },
+              }),
+            }],
+          },
+          finishReason: 'STOP',
+        }],
+      }),
+    })
+
+    const generated = await client.generate(buildModelInvocation(evidenceTask, {
+      id: MODEL_ID,
+      region: REGION,
+      thinkingLevel: 'high',
+    }))
+
+    expect(generated.kind).toBe('TEXT')
+    if (generated.kind !== 'TEXT') throw new Error('expected text response')
+    const normalized = JSON.parse(generated.text) as {
+      payload: { claim_plans: Array<{ support_actions: Array<{ typed_arguments: Record<string, unknown> }> }> }
+    }
+    expect(normalized.payload.claim_plans[0]?.support_actions[0]?.typed_arguments).toEqual({
+      administrative_code: '11680',
+      boundary_version: '2026-01',
+      as_of: '2026-08-22',
+    })
+  })
+
+  it('preserves only a bounded provider error summary for non-2xx diagnostics', async () => {
+    const client = new VertexAgentModelClient({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl: async () => Response.json({
+        error: {
+          code: 400,
+          status: 'INVALID_ARGUMENT',
+          message: `generationConfig.responseJsonSchema is invalid\n${'x'.repeat(600)}`,
+          details: [{ '@type': 'sensitive-provider-detail', task: 'must-not-leak' }],
+        },
+      }, { status: 400 }),
+    })
+
+    await expect(client.generate(buildModelInvocation(task(), {
+      id: MODEL_ID,
+      region: REGION,
+      thinkingLevel: 'high',
+    }))).rejects.toMatchObject({
+      code: 'VERTEX_MODEL_HTTP_ERROR',
+      status: 400,
+      providerStatus: 'INVALID_ARGUMENT',
+      providerMessage: expect.stringMatching(/^generationConfig\.responseJsonSchema is invalid x+$/),
+    })
+
+    try {
+      await client.generate(buildModelInvocation(task(), {
+        id: MODEL_ID,
+        region: REGION,
+        thinkingLevel: 'high',
+      }))
+      expect.unreachable('expected VertexAgentModelError')
+    } catch (error) {
+      expect(error).toBeInstanceOf(VertexAgentModelError)
+      const modelError = error as VertexAgentModelError
+      expect(modelError.providerMessage.length).toBeLessThanOrEqual(300)
+      expect(modelError.message).not.toContain('must-not-leak')
+      expect(modelError.message).not.toContain('sensitive-provider-detail')
+    }
   })
 })

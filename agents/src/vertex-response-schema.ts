@@ -180,16 +180,13 @@ function evidencePlanAllowedTools(task: AgentTask): string[] {
   return [...new Set(allowedTools as string[])]
 }
 
-function buildEvidencePlanToolActionSchema(allowedTools: readonly string[]): JsonObject {
+function evidencePlanToolArgumentSchemas(allowedTools: readonly string[]): Map<string, JsonObject> {
   const defs = asObject(agentRolePayloadsSchema.$defs)
   const toolAction = defs ? asObject(defs.toolAction) : null
   if (!toolAction) throw new Error('VERTEX_TOOL_ACTION_SCHEMA_UNRESOLVED')
-
-  const properties = asObject(toolAction.properties)
-  if (!properties) throw new Error('VERTEX_TOOL_ACTION_PROPERTIES_UNRESOLVED')
   const conditionals = Array.isArray(toolAction.allOf) ? toolAction.allOf : []
   const allowed = new Set(allowedTools)
-  const correlatedBranches: JsonObject[] = []
+  const typedArgumentSchemas = new Map<string, JsonObject>()
 
   for (const conditional of conditionals) {
     const object = asObject(conditional)
@@ -203,34 +200,95 @@ function buildEvidencePlanToolActionSchema(allowedTools: readonly string[]): Jso
     const thenProperties = thenSchema ? asObject(thenSchema.properties) : null
     const typedArguments = thenProperties ? asObject(thenProperties.typed_arguments) : null
     if (!typedArguments) throw new Error(`VERTEX_TOOL_ARGUMENT_SCHEMA_UNRESOLVED: ${toolName}`)
+    typedArgumentSchemas.set(
+      toolName,
+      projectSchema(typedArguments, ROLE_SCHEMA_FILE, 0, new Set()),
+    )
+  }
 
-    const argumentSchema = {
-      title: `${toolName} arguments`,
-      ...projectSchema(typedArguments, ROLE_SCHEMA_FILE, 0, new Set()),
+  if (typedArgumentSchemas.size !== allowed.size) {
+    const missing = [...allowed].filter((tool) => !typedArgumentSchemas.has(tool))
+    throw new Error(`VERTEX_EVIDENCE_PLAN_TOOL_SCHEMA_UNRESOLVED: ${missing.join(',')}`)
+  }
+
+  return typedArgumentSchemas
+}
+
+function buildEvidencePlanToolActionSchema(allowedTools: readonly string[]): JsonObject {
+  const defs = asObject(agentRolePayloadsSchema.$defs)
+  const toolAction = defs ? asObject(defs.toolAction) : null
+  if (!toolAction) throw new Error('VERTEX_TOOL_ACTION_SCHEMA_UNRESOLVED')
+
+  const properties = asObject(toolAction.properties)
+  if (!properties) throw new Error('VERTEX_TOOL_ACTION_PROPERTIES_UNRESOLVED')
+  const typedArgumentSchemas = evidencePlanToolArgumentSchemas(allowedTools)
+
+  const compactProperties: JsonObject = { ...properties }
+  compactProperties.tool_name = { type: 'string', enum: [...allowedTools] }
+  // Vertex rejects the production 6/8-tool full discriminated action union as
+  // too complex. This provider schema is generation guidance only; the checked-in
+  // AgentTaskResult contract and semantic validator remain the authority boundary.
+  compactProperties.typed_arguments = {
+    anyOf: allowedTools.map((tool) => typedArgumentSchemas.get(tool) as JsonObject),
+  }
+  const compactInput: JsonObject = {
+    ...toolAction,
+    properties: compactProperties,
+  }
+  delete compactInput.allOf
+  return projectSchema(compactInput, ROLE_SCHEMA_FILE, 0, new Set())
+}
+
+function normalizeEvidencePlanAction(
+  action: unknown,
+  options: {
+    allowedTools: ReadonlySet<string>
+    typedArgumentSchemas: ReadonlyMap<string, JsonObject>
+  },
+): void {
+  const object = asObject(action)
+  if (!object) return
+  const toolName = object.tool_name
+  const typedArguments = asObject(object.typed_arguments)
+  if (typeof toolName !== 'string' || !options.allowedTools.has(toolName) || !typedArguments) return
+
+  const schema = options.typedArgumentSchemas.get(toolName)
+  const properties = schema ? asObject(schema.properties) : null
+  if (!properties) return
+  const allowedKeys = new Set(Object.keys(properties))
+  // Gemini can merge keys from sibling anyOf argument schemas. Remove only keys
+  // impossible for the selected tool; never add missing fields, coerce values,
+  // or normalize unknown/disallowed tools, so strict validation still fails closed.
+  object.typed_arguments = Object.fromEntries(
+    Object.entries(typedArguments).filter(([key]) => allowedKeys.has(key)),
+  )
+}
+
+export function normalizeVertexEvidencePlanResult(task: AgentTask, result: unknown): unknown {
+  if (task.task_type !== 'EVIDENCE_PLAN') return result
+  const output = asObject(result)
+  const payload = output ? asObject(output.payload) : null
+  const claimPlans = payload?.claim_plans
+  if (!Array.isArray(claimPlans)) return result
+
+  const allowedTools = evidencePlanAllowedTools(task)
+  const typedArgumentSchemas = evidencePlanToolArgumentSchemas(allowedTools)
+  const allowed = new Set(allowedTools)
+  for (const rawPlan of claimPlans) {
+    const plan = asObject(rawPlan)
+    if (!plan) continue
+    for (const field of ['support_actions', 'counter_actions']) {
+      const actions = plan[field]
+      if (!Array.isArray(actions)) continue
+      for (const action of actions) {
+        normalizeEvidencePlanAction(action, {
+          allowedTools: allowed,
+          typedArgumentSchemas,
+        })
+      }
     }
-    correlatedBranches.push({
-      type: 'object',
-      required: ['tool_name', 'typed_arguments'],
-      properties: {
-        tool_name: { type: 'string', enum: [toolName] },
-        typed_arguments: argumentSchema,
-      },
-    })
   }
-
-  if (correlatedBranches.length !== allowed.size) {
-    throw new Error('VERTEX_EVIDENCE_PLAN_TOOL_SCHEMA_UNRESOLVED')
-  }
-
-  const baseInput: JsonObject = { ...toolAction, properties: { ...properties } }
-  delete baseInput.allOf
-  const projected = projectSchema(baseInput, ROLE_SCHEMA_FILE, 0, new Set())
-  const projectedProperties = asObject(projected.properties)
-  if (!projectedProperties) throw new Error('VERTEX_TOOL_ACTION_PROJECTION_INVALID')
-  projectedProperties.tool_name = { type: 'string', enum: [...allowedTools] }
-  projectedProperties.typed_arguments = { type: 'object' }
-  projected.anyOf = correlatedBranches
-  return projected
+  return result
 }
 
 function applyEvidencePlanToolActionSchema(projected: JsonObject, task: AgentTask): void {
