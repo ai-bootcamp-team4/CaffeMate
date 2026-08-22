@@ -219,7 +219,7 @@ class FirstProposalCanary:
                 user_id=user_id,
                 idempotency_key=f"{canary_id}:onboarding",
                 founder=FounderState(
-                    target_area_input="경기도 수원시 영통구 월드컵로 206",
+                    target_area_input="경기도 수원시 영통구 원천동",
                     own_funds_krw=70_000_000,
                     borrowing_intent=BorrowingIntent.UNDECIDED,
                     cafe_type_preference=CafeTypePreference.OPEN_TO_BOTH,

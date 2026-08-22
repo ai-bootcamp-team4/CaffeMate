@@ -180,7 +180,7 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
         "result_freshness": "CURRENT",
     }
     assert projects.founder is not None
-    assert projects.founder.target_area_input == "경기도 수원시 영통구 월드컵로 206"
+    assert projects.founder.target_area_input == "경기도 수원시 영통구 원천동"
     assert cleaner.calls == [("canary-project", "first-proposal-canary-probe")]
     assert not workflows.cancelled
 
