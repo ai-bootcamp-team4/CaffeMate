@@ -10,7 +10,11 @@ from typing import Any
 import httpx
 import pytest
 
-from app.agents.runtime import AgentRuntimeError, AgentRuntimeHttpClient
+from app.agents.runtime import (
+    AgentRuntimeError,
+    AgentRuntimeHttpClient,
+    verify_agent_runtime_iam,
+)
 from app.agents.task_factory import compute_agent_input_digest
 from app.cli import _agent_runtime_probe_task
 from app.contracts.schema_registry import ContractRegistry
@@ -27,6 +31,53 @@ class FakeCleanupSink:
 
     def enqueue_session_delete(self, **kwargs: str) -> None:
         self.calls.append(kwargs)
+
+
+def test_runtime_iam_verifier_requires_query_and_rejects_mutation_permissions() -> None:
+    requested: list[str] = []
+
+    def allowed_handler(request: httpx.Request) -> httpx.Response:
+        requested.extend(json.loads(request.content)["permissions"])
+        return httpx.Response(
+            200,
+            json={"permissions": ["aiplatform.reasoningEngines.query"]},
+        )
+
+    report = verify_agent_runtime_iam(
+        gcp_project_id="gcp-project",
+        resource_id="runtime-1",
+        access_tokens=FakeTokens(),
+        transport=httpx.MockTransport(allowed_handler),
+    )
+
+    assert report["granted_permissions"] == ["aiplatform.reasoningEngines.query"]
+    assert set(requested) == {
+        "aiplatform.reasoningEngines.query",
+        "aiplatform.reasoningEngines.update",
+        "aiplatform.reasoningEngines.delete",
+    }
+
+    for granted, code in (
+        ([], "RUNTIME_QUERY_PERMISSION_MISSING"),
+        (
+            [
+                "aiplatform.reasoningEngines.query",
+                "aiplatform.reasoningEngines.update",
+            ],
+            "RUNTIME_MUTATION_PERMISSION_PRESENT",
+        ),
+    ):
+        with pytest.raises(AgentRuntimeError, match=code):
+            verify_agent_runtime_iam(
+                gcp_project_id="gcp-project",
+                resource_id="runtime-1",
+                access_tokens=FakeTokens(),
+                transport=httpx.MockTransport(
+                    lambda _request, granted=granted: httpx.Response(
+                        200, json={"permissions": granted}
+                    )
+                ),
+            )
 
 
 def test_operational_probe_is_a_fresh_valid_evidence_plan_task() -> None:

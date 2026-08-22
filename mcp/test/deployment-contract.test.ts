@@ -14,6 +14,6 @@ describe('private MCP deployment IAM contract', () => {
     expect(verify).toContain('caffemateMcpRetriever')
     expect(deploy).toContain('_SOURCE_REVISION=${source_revision}')
     expect(verify).toContain('verified_build_id_for_image')
-    expect(verify).toContain('Policy Troubleshooter confirms MCP has no prohibited effective mutation permission')
+    expect(verify).toContain('MCP runtime identity has no prohibited effective mutation permission')
   })
 })

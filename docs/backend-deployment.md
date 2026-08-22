@@ -123,8 +123,9 @@ token으로 다시 검증한다. `allUsers` Cloud Run Invoker가 필요하면 �
 범위로 부여한다. Runtime 관리형 identity에는 GCP가 관리하는 비변경성 기본 실행 권한과 고정
 Runtime 범위의 session 수명주기 권한만 남긴다. `agentContextEditor`, `expressUser`와 직접
 프로젝트 권한은 제거한다. MCP identity도 RAG query와 rerank만 허용한다. 검증 스크립트는
-custom role의 실제 permission 목록, broad predefined role 제거와 Policy Troubleshooter의
-금지 변경 권한 판정을 모두 읽어 확인한다.
+custom role의 실제 permission 목록과 broad predefined role 제거를 읽어 확인한다. 이어 실제
+API와 MCP 실행 계정으로 일회성 Cloud Run Job을 실행하여, 고정 리소스의 허용 권한과 금지된
+변경 권한을 `testIamPermissions` 응답에서 함께 확인한다.
 
 검증 스크립트는 API image와 같은 service account를 쓰는 일회성
 Cloud Run Job으로 실제 session 생성, Agent 실행, typed final event 검증과 session 삭제를
