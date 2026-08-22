@@ -1,0 +1,20 @@
+substitutions:
+  _REGION: asia-northeast3
+  _AR_REPOSITORY: caffemate-backend
+  _IMAGE_NAME: mcp
+  _IMAGE_TAG: manual
+
+steps:
+  - id: build-mcp-image
+    name: gcr.io/cloud-builders/docker
+    env: [DOCKER_BUILDKIT=1]
+    args: [build, --file, deploy/mcp.Dockerfile, --tag, '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}', .]
+  - id: push-mcp-image
+    name: gcr.io/cloud-builders/docker
+    args: [push, '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}']
+
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
