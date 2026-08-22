@@ -64,12 +64,13 @@ case "$agent_runtime_identity" in
   *) printf '%s\n' 'FAIL Agent Runtime effective identity is unavailable' >&2; exit 1 ;;
 esac
 project_policy=$(gcloud projects get-iam-policy "$project_id" --format=json)
-PROJECT_POLICY="$project_policy" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" python3 - <<'PY'
+PROJECT_POLICY="$project_policy" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'
 import json
 import os
 
 policy = json.loads(os.environ["PROJECT_POLICY"])
 identity = os.environ["AGENT_RUNTIME_IDENTITY"]
+api_member = f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}"
 roles = {
     row["role"]
     for row in policy.get("bindings", [])
@@ -77,7 +78,13 @@ roles = {
 }
 required = {"roles/aiplatform.expressUser", "roles/serviceusage.serviceUsageConsumer"}
 assert required <= roles, f"Agent Runtime identity lacks roles: {sorted(required - roles)}"
+assert any(
+    row.get("role") == "roles/serviceusage.serviceUsageConsumer"
+    and api_member in row.get("members", [])
+    for row in policy.get("bindings", [])
+), "Control API lacks project service usage permission"
 print("PASS Agent Runtime identity has model and service usage permissions")
+print("PASS Control API has project service usage permission")
 PY
 agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
   --header "Authorization: Bearer ${access_token}" \
