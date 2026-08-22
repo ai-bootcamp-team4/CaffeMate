@@ -1,7 +1,10 @@
 import { canonicalizeJson } from './input-digest'
 import { createApplicationDefaultGoogleCloudContext, type GoogleCloudContext } from './gcp-auth'
 import { AGENT_MODEL } from './registry'
-import { buildVertexRolePayloadSchema } from './vertex-response-schema'
+import {
+  buildVertexRolePayloadSchema,
+  normalizeVertexEvidencePlanResult,
+} from './vertex-response-schema'
 import type { AgentModelClient, AgentModelInvocation, AgentModelResponse } from './model-executor'
 import type { AgentTask } from './types'
 import {
@@ -18,6 +21,27 @@ export interface VertexAgentModelClientOptions {
   region: typeof AGENT_MODEL.region
   accessToken: () => Promise<string>
   fetchImpl?: typeof fetch
+}
+
+function boundedProviderMessage(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  return value.replace(/[\r\n]+/g, ' ').trim().slice(0, 300)
+}
+
+async function providerErrorSummary(response: Response): Promise<{ status?: string; message: string }> {
+  try {
+    const body = await response.json() as unknown
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return { message: '' }
+    const error = (body as Record<string, unknown>).error
+    if (!error || typeof error !== 'object' || Array.isArray(error)) return { message: '' }
+    const providerError = error as Record<string, unknown>
+    return {
+      status: typeof providerError.status === 'string' ? providerError.status.slice(0, 80) : undefined,
+      message: boundedProviderMessage(providerError.message),
+    }
+  } catch {
+    return { message: '' }
+  }
 }
 
 function nullableStringSchema(): Record<string, unknown> {
@@ -163,14 +187,27 @@ export class VertexAgentModelClient implements AgentModelClient {
     })
 
     if (!response.ok) {
+      const provider = await providerErrorSummary(response)
       throw new VertexAgentModelError(
         'VERTEX_MODEL_HTTP_ERROR',
         `generateContent returned HTTP ${response.status}`,
         response.status,
+        provider.status,
+        provider.message,
       )
     }
 
-    return parseVertexGenerationResponse(await response.json())
+    const generated = parseVertexGenerationResponse(await response.json())
+    if (generated.kind !== 'TEXT' || invocation.task.task_type !== 'EVIDENCE_PLAN') return generated
+    try {
+      const parsed = JSON.parse(generated.text) as unknown
+      return {
+        kind: 'TEXT',
+        text: JSON.stringify(normalizeVertexEvidencePlanResult(invocation.task, parsed)),
+      }
+    } catch {
+      return generated
+    }
   }
 }
 

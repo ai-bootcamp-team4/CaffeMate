@@ -6,8 +6,10 @@ export class VertexAgentModelError extends Error {
     public readonly code: string,
     message: string,
     public readonly status?: number,
+    public readonly providerStatus?: string,
+    public readonly providerMessage = '',
   ) {
-    super(`${code}: ${message}`)
+    super(`${code}: ${message}${providerStatus ? ` [${providerStatus}]` : ''}${providerMessage ? ` ${providerMessage}` : ''}`)
     this.name = 'VertexAgentModelError'
   }
 }
