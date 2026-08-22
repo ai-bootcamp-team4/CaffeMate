@@ -77,6 +77,11 @@ for role in roles/aiplatform.expressUser roles/serviceusage.serviceUsageConsumer
     --condition=None \
     --quiet >/dev/null
 done
+gcloud projects add-iam-policy-binding "$project_id" \
+  --member="serviceAccount:${api_sa}" \
+  --role='roles/serviceusage.serviceUsageConsumer' \
+  --condition=None \
+  --quiet >/dev/null
 
 agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
   --header "Authorization: Bearer ${access_token}" \

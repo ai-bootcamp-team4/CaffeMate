@@ -159,6 +159,7 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "roles/aiplatform.user" in deploy
     assert "roles/aiplatform.expressUser" in deploy
     assert "roles/serviceusage.serviceUsageConsumer" in deploy
+    assert 'member="serviceAccount:${api_sa}"' in deploy
     assert 'agent_runtime_identity="principal://${agent_runtime_identity}"' in deploy
     assert 'agent_runtime_identity="principal://${agent_runtime_identity}"' in verifier
     assert "--header=" not in deploy
@@ -178,6 +179,7 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "verify-agent-runtime" in verifier
     assert "resource-scoped Agent Runtime query IAM" in verifier
     assert "Agent Runtime identity has model and service usage permissions" in verifier
+    assert "Control API has project service usage permission" in verifier
     assert "created, executed, validated and deleted an Agent Runtime session" in verifier
     assert "Worker has public invoker policy" in verifier
     assert "Scheduler reached internal Worker with HTTP 200" in verifier

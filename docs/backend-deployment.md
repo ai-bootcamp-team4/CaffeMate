@@ -99,7 +99,8 @@ token으로 다시 검증한다. `allUsers` Cloud Run Invoker가 필요하면 �
 조회하고, API service account에 해당 Runtime resource 범위의 `roles/aiplatform.user`를
 부여한다. Runtime의 관리형 Agent identity에는 모델 실행용 `roles/aiplatform.expressUser`와
 할당량 사용용 `roles/serviceusage.serviceUsageConsumer`만 부여한 뒤 API에 project id와
-resource id를 주입한다. 검증 스크립트는 API image와 같은 service account를 쓰는 일회성
+resource id를 주입한다. API service account에도 Runtime 호출 시 프로젝트 할당량을 사용할 수
+있도록 `roles/serviceusage.serviceUsageConsumer`를 부여한다. 검증 스크립트는 API image와 같은 service account를 쓰는 일회성
 Cloud Run Job으로 실제 session 생성, Agent 실행, typed final event 검증과 session 삭제를
 모두 통과시킨다. 단순 resource 조회는 실행 가능성의 증거로 취급하지 않는다.
 
