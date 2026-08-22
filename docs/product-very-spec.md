@@ -147,7 +147,7 @@ BUILDING → EVALUATING → SHADOW → ACTIVE
 
 서비스 경계의 wire-level 정본은 [백엔드·Agent Runtime 연결 계약](./contracts/agent-runtime-protocol.md)이다.
 
-- 물리 전송은 GCP Agent Runtime의 `:streamQuery`에 `async_stream_query` class method를 사용한다.
+- 물리 전송은 GCP Agent Runtime의 `:streamQuery`에 `async_ephemeral_stream_query` class method를 사용한다. Runtime 내부에서 역할별 임시 session을 생성·실행·삭제하여 final event를 기다리는 계약은 유지하고 외부 왕복만 한 번으로 줄인다.
 - [Agent Task Schema](./contracts/agent-task.schema.json)를 ADK `newMessage`의 canonical JSON으로 전달한다.
 - final response는 [Agent Task Result Schema](./contracts/agent-task-result.schema.json)로 검증한다.
 - 역할별 payload는 [Agent Role Payload Schema](./contracts/agent-role-payloads.schema.json)로 검증한다.

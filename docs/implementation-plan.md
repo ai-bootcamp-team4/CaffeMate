@@ -107,7 +107,7 @@
 - 개인·프랜차이즈 Proposal branch
 - Typed Candidate Auditor
 - 서울 managed Agent Runtime과 승인된 `global` Gemini generation endpoint
-- deterministic root dispatcher, ADK 관리형 session create→`:streamQuery`의 `async_stream_query`→delete adapter와 full-head 검증
+- deterministic root dispatcher, 한 `async_ephemeral_stream_query` 안의 ADK 관리형 session create→Agent run→finally delete와 full-head 검증
 - Control API가 실행하는 MCP read action 경로
 - schema validation, explicit repair context와 단일 repair
 - Agent trace와 prompt/model version

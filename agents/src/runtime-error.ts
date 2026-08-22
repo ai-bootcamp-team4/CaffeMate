@@ -14,6 +14,10 @@ const TERMINAL_AGENT_ERROR_CODES = new Set([
   'VERTEX_MODEL_RESPONSE_INVALID',
 ])
 
+const RETRYABLE_RUNTIME_ERROR_CODES = new Set([
+  'RUNTIME_SESSION_CLEANUP_FAILED',
+])
+
 export interface RuntimeHttpFailure {
   status: 422 | 500
   body: { error: string }
@@ -54,5 +58,12 @@ export function runtimeHttpFailure(error: unknown): RuntimeHttpFailure {
     || (code && terminalAgentClass && providerStatus === null)) {
     return { status: 422, body: { error: code ?? 'RUNTIME_AGENT_OUTPUT_INVALID' } }
   }
-  return { status: 500, body: { error: 'RUNTIME_EXECUTION_FAILED' } }
+  return {
+    status: 500,
+    body: {
+      error: code && RETRYABLE_RUNTIME_ERROR_CODES.has(code)
+        ? code
+        : 'RUNTIME_EXECUTION_FAILED',
+    },
+  }
 }

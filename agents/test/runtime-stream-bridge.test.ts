@@ -33,7 +33,7 @@ describe('Agent Runtime async stream bridge', () => {
           message: '{"task_type":"INTENT_DELTA"}',
         },
       },
-      { getSession },
+      { createSession: vi.fn(), getSession, deleteSession: vi.fn() },
       { runAsync },
       abortController.signal,
     )
@@ -70,7 +70,11 @@ describe('Agent Runtime async stream bridge', () => {
           message: '{"task_type":"INTENT_DELTA"}',
         },
       },
-      { getSession: vi.fn(async () => undefined) },
+      {
+        createSession: vi.fn(),
+        getSession: vi.fn(async () => undefined),
+        deleteSession: vi.fn(),
+      },
       { runAsync },
     )
 
@@ -88,7 +92,7 @@ describe('Agent Runtime async stream bridge', () => {
 
     await expect(prepareRuntimeStreamMethod(
       { class_method: 'async_stream_query', input: { user_id: 'p-deadbeef' } },
-      { getSession },
+      { createSession: vi.fn(), getSession, deleteSession: vi.fn() },
       { runAsync },
     )).resolves.toEqual({
       handled: true,
@@ -102,10 +106,112 @@ describe('Agent Runtime async stream bridge', () => {
   it('leaves non-stream class methods to the unary bridge', async () => {
     const result = await prepareRuntimeStreamMethod(
       { class_method: 'async_create_session', input: { user_id: 'p-deadbeef' } },
-      { getSession: vi.fn() },
+      { createSession: vi.fn(), getSession: vi.fn(), deleteSession: vi.fn() },
       { runAsync: vi.fn() },
     )
 
     expect(result).toEqual({ handled: false })
+  })
+
+  it('creates, runs, and deletes one ephemeral session inside one stream', async () => {
+    const createSession = vi.fn(async (input: { sessionId?: string }) => ({
+      id: input.sessionId,
+    }))
+    const deleteSession = vi.fn(async () => undefined)
+    const getSession = vi.fn()
+    const runAsync = vi.fn(() => (async function* () {
+      yield {
+        author: 'PROPOSAL_AGENT',
+        content: { parts: [{ text: '{"status":"COMPLETE"}' }] },
+      }
+    })())
+
+    const result = await prepareRuntimeStreamMethod(
+      {
+        class_method: 'async_ephemeral_stream_query',
+        input: {
+          user_id: 'p-deadbeef',
+          session_id: 'session-ephemeral',
+          message: '{"task_type":"PROPOSE_INDEPENDENT"}',
+        },
+      },
+      { createSession, getSession, deleteSession },
+      { runAsync },
+    )
+
+    expect(result).toMatchObject({ handled: true, status: 200 })
+    if (!result.handled || result.status !== 200) throw new Error('expected successful stream preparation')
+    expect(deleteSession).not.toHaveBeenCalled()
+    expect(await collect(result.stream)).toHaveLength(1)
+    expect(createSession).toHaveBeenCalledWith({
+      appName: 'caffemate-agents',
+      userId: 'p-deadbeef',
+      state: {},
+      sessionId: 'session-ephemeral',
+    })
+    expect(getSession).not.toHaveBeenCalled()
+    expect(deleteSession).toHaveBeenCalledWith({
+      appName: 'caffemate-agents',
+      userId: 'p-deadbeef',
+      sessionId: 'session-ephemeral',
+    })
+  })
+
+  it('deletes the ephemeral session when Agent execution fails', async () => {
+    const deleteSession = vi.fn(async () => undefined)
+    const result = await prepareRuntimeStreamMethod(
+      {
+        class_method: 'async_ephemeral_stream_query',
+        input: {
+          user_id: 'p-deadbeef',
+          session_id: 'session-failed',
+          message: '{"task_type":"CANDIDATE_AUDIT"}',
+        },
+      },
+      {
+        createSession: vi.fn(async () => ({ id: 'session-failed' })),
+        getSession: vi.fn(),
+        deleteSession,
+      },
+      {
+        runAsync: vi.fn(() => (async function* () {
+          throw new Error('model failed')
+          yield undefined
+        })()),
+      },
+    )
+
+    if (!result.handled || result.status !== 200) throw new Error('expected prepared stream')
+    await expect(collect(result.stream)).rejects.toThrow('model failed')
+    expect(deleteSession).toHaveBeenCalledOnce()
+  })
+
+  it('surfaces an explicit cleanup code when ephemeral deletion is uncertain', async () => {
+    const result = await prepareRuntimeStreamMethod(
+      {
+        class_method: 'async_ephemeral_stream_query',
+        input: {
+          user_id: 'p-deadbeef',
+          session_id: 'session-cleanup-failed',
+          message: '{"task_type":"EVIDENCE_ASSESS"}',
+        },
+      },
+      {
+        createSession: vi.fn(async () => ({ id: 'session-cleanup-failed' })),
+        getSession: vi.fn(),
+        deleteSession: vi.fn(async () => { throw new Error('delete unavailable') }),
+      },
+      {
+        runAsync: vi.fn(() => (async function* () {
+          yield { author: 'EVIDENCE_RESEARCHER' }
+        })()),
+      },
+    )
+
+    if (!result.handled || result.status !== 200) throw new Error('expected prepared stream')
+    await expect(collect(result.stream)).rejects.toMatchObject({
+      code: 'RUNTIME_SESSION_CLEANUP_FAILED',
+      name: 'RuntimeSessionCleanupError',
+    })
   })
 })

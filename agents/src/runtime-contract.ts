@@ -30,6 +30,20 @@ export const AGENT_RUNTIME_CLASS_METHODS = Object.freeze([
     api_mode: 'async_stream',
   },
   {
+    name: 'async_ephemeral_stream_query',
+    description: 'Creates, executes, and deletes one isolated managed session within a single CaffeMate AgentTask stream.',
+    parameters: {
+      type: 'object',
+      properties: {
+        user_id: { type: 'string' },
+        session_id: { type: 'string' },
+        message: { type: 'string' },
+      },
+      required: ['user_id', 'session_id', 'message'],
+    },
+    api_mode: 'async_stream',
+  },
+  {
     name: 'async_delete_session',
     description: 'Deletes the ephemeral managed session after one CaffeMate Agent invocation.',
     parameters: {

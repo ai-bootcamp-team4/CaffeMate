@@ -97,36 +97,37 @@ flowchart LR
 
 Control API의 물리 설정은 `gcp_project_id`와 `resource_id`를 분리한다. 제품의 `venture_project_id`를 GCP endpoint 조립에 사용하지 않는다.
 
-한 invocation은 다음 순서만 사용한다.
+한 invocation은 Control API에서 Agent Runtime으로 한 번의
+`async_ephemeral_stream_query`만 호출한다. Runtime adapter가 그 요청 안에서 다음 순서를 지킨다.
 
-1. `POST .../reasoningEngines/{resource_id}:query`의 `async_create_session`으로 ADK 관리형 session을 생성한다.
-2. Runtime이 동일한 session id를 반환했는지 검증하고 아래 `:streamQuery`에 전달한다.
-3. terminal outcome 뒤 `async_delete_session`을 같은 `:query` endpoint로 호출한다.
-4. 삭제 실패는 durable cleanup outbox로 넘겨 재시도하고, 재시도 예산 소진 시 운영 경고를 만든다.
+1. Control API가 지정한 비식별 session id로 ADK 관리형 session을 생성하고 반환 id를 검증한다.
+2. 정확히 그 session에서 한 AgentTask를 실행하고 terminal event까지 스트리밍한다.
+3. 성공·Agent 오류·사용자 취소 모두에서 generator `finally`가 session을 삭제한다.
+4. 삭제가 끝나야 stream을 닫는다. 삭제 실패는 `RUNTIME_SESSION_CLEANUP_FAILED`로 명시하고
+   Control API가 deterministic session id를 durable cleanup outbox에 넣어 멱등 재시도한다.
+
+이 결합은 Agent 응답을 기다리지 않는 비동기 우회가 아니다. Control API는 여전히 final event와
+Runtime 내부 session 삭제 완료까지 기다린다. 단지 동일 Runtime에 대한 외부 HTTPS 왕복을
+`create → stream → delete` 세 번에서 한 번으로 줄인다. Proposal Agent와 Independent Critic은
+서로 다른 invocation id와 session id를 계속 사용하므로 독립적인 추론 문맥도 유지된다.
 
 `async_get_release_identity`는 사용자 invocation 경로가 아닌 배포 preflight 전용 read-only class method다. session을 생성하거나 제품 State를 읽고 쓰지 않으며, 배포 artifact가 직접 계산한 `prompt_bundle_digest`와 `agent_contract_bundle_digest`만 반환한다. Control API의 정상 Agent 호출 순서는 위 세 class method만 사용한다.
 
 ```text
-POST https://asia-northeast3-aiplatform.googleapis.com/v1/projects/{gcp_project_id}/locations/asia-northeast3/reasoningEngines/{resource_id}:query
-class_method=async_create_session
-
 POST https://asia-northeast3-aiplatform.googleapis.com/v1/projects/{gcp_project_id}/locations/asia-northeast3/reasoningEngines/{resource_id}:streamQuery?alt=sse
-class_method=async_stream_query
-
-POST https://asia-northeast3-aiplatform.googleapis.com/v1/projects/{gcp_project_id}/locations/asia-northeast3/reasoningEngines/{resource_id}:query
-class_method=async_delete_session
+class_method=async_ephemeral_stream_query
 ```
 
-session 생성 입력의 `user_id`는 실제 사용자 식별자가 아니라 `venture_project_id`를 서버 비밀값으로 HMAC한 `p-<digest>`다. Control API는 `invocation_id`의 SHA-256 digest로 충돌하기 어려운 비식별 session id를 생성해 `async_create_session`에 전달하고 Runtime이 그 값을 그대로 사용했는지 확인한다. 이 값은 create 응답이 deadline 때문에 유실돼도 같은 session을 durable cleanup 대상으로 지정하기 위한 식별자이며 제품 State나 사용자 식별자가 아니다. 별도 Sessions REST API와 `async_create_session`을 혼용하지 않으며 session TTL을 제품 계약으로 주장하지 않는다. 모든 `AgentTask`는 session 이력 없이 완전해야 하고 session은 제품 State나 대화 기억이 아니다.
+session 생성 입력의 `user_id`는 실제 사용자 식별자가 아니라 `venture_project_id`를 서버 비밀값으로 HMAC한 `p-<digest>`다. Control API는 `invocation_id`의 SHA-256 digest로 충돌하기 어려운 비식별 session id를 생성해 ephemeral stream에 전달하고 Runtime이 그 값으로 session을 만들었는지 확인한다. 이 값은 stream 응답이 deadline 때문에 유실돼도 같은 session을 durable cleanup 대상으로 지정하기 위한 식별자이며 제품 State나 사용자 식별자가 아니다. 별도 Sessions REST API와 Runtime adapter를 혼용하지 않으며 session TTL을 정상 삭제의 대체 계약으로 주장하지 않는다. 모든 `AgentTask`는 session 이력 없이 완전해야 하고 session은 제품 State나 대화 기억이 아니다.
 
 `:streamQuery` body는 다음과 같다.
 
 ```json
 {
-  "class_method": "async_stream_query",
+  "class_method": "async_ephemeral_stream_query",
   "input": {
     "user_id": "p-<venture-project-hmac>",
-    "session_id": "<async_create_session returned id>",
+    "session_id": "<invocation-id-derived ephemeral id>",
     "message": "<RFC 8785 canonical AgentTask JSON>"
   }
 }
@@ -165,8 +166,8 @@ Control API가 수용하는 final event는 다음 조건을 모두 만족해야 
 
 ### 4.4 인증과 전송 adapter
 
-- Control API 전용 service account가 OAuth access token으로 세 endpoint를 호출한다.
-- 이 경로는 session 생성·삭제를 `:query`, 실행을 `:streamQuery` adapter로 수행하고 배포 service account에는 대상 runtime query에 필요한 최소 권한만 부여한다.
+- Control API 전용 service account가 OAuth access token으로 한 `:streamQuery` endpoint를 호출한다.
+- Runtime adapter만 자체 관리형 session을 생성·삭제하고, 배포 service account에는 대상 Runtime query에 필요한 최소 권한만 부여한다.
 - 사용자 token, MCP credential, database credential과 raw secret을 Agent 입력에 넣지 않는다.
 - runtime의 Agent identity에는 모델 호출과 자체 session 외에 MCP, Cloud SQL, BigQuery, Cloud Storage, Secret Manager 권한을 주지 않는다.
 
@@ -351,7 +352,7 @@ Agent 호출은 side effect가 없으므로 동일 `task_id`가 둘 이상 실�
 | fence·ACL·unsupported ref | 0회 | 즉시 폐기 |
 | deadline 초과 | 0회 | `TIMED_OUT`, session stream 종료, 늦은 결과 폐기 |
 
-transport backoff는 250ms, 750ms이고 invocation id에서 파생한 0~100ms jitter를 더한다. 429의 `Retry-After`는 2초 이하이면서 남은 deadline 안에 있을 때만 우선한다. session 생성, run, response validation, repair와 cleanup enqueue까지 모두 `deadline_at` 예산에 포함하며 각 호출 직전에 남은 시간이 2초 미만이면 재시도하지 않는다. create/delete query 호출은 각각 최대 10초로 제한하고, stream 호출은 현재 남은 logical deadline에서 cleanup용 2초를 제외한 값만 timeout으로 사용한다. 따라서 60초 task가 transport의 30초 상한으로 조용히 잘리지 않으며 stream timeout 뒤에도 가능한 한 같은 invocation 안에서 session 삭제를 시도한다.
+transport backoff는 250ms, 750ms이고 invocation id에서 파생한 0~100ms jitter를 더한다. 429의 `Retry-After`는 2초 이하이면서 남은 deadline 안에 있을 때만 우선한다. Runtime 내부 session 생성, run, 삭제, response validation, repair와 cleanup enqueue까지 모두 `deadline_at` 예산에 포함하며 각 호출 직전에 남은 시간이 2초 미만이면 재시도하지 않는다. ephemeral stream은 현재 남은 logical deadline에서 durable cleanup enqueue용 2초를 제외한 값만 timeout으로 사용한다. 따라서 60초 task가 transport의 30초 상한으로 조용히 잘리지 않는다. stream이 중단되거나 Runtime이 삭제 실패를 명시하면 Control API는 해당 invocation의 deterministic session id를 cleanup outbox에 넣고 원래 실패를 보존한다.
 
 repair는 같은 session 이력에 의존하지 않는다. `repair_context`에 직전 응답 text, 그 SHA-256 digest와 최대 50개 validator error가 반드시 들어간다. 두 번째 schema 실패는 기권으로 끝나며 세 번째 생성 호출은 없다.
 

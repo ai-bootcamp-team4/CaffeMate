@@ -30,6 +30,15 @@ describe('Agent Runtime HTTP failure classification', () => {
     })
   })
 
+  it('preserves only the safe cleanup code so Control API can enqueue deletion', () => {
+    expect(runtimeHttpFailure(Object.assign(new Error('private delete details'), {
+      code: 'RUNTIME_SESSION_CLEANUP_FAILED',
+    }))).toEqual({
+      status: 500,
+      body: { error: 'RUNTIME_SESSION_CLEANUP_FAILED' },
+    })
+  })
+
   it('keeps transient provider status retryable and terminal provider status non-retryable', () => {
     const providerError = (status: number) => Object.assign(new Error('provider'), {
       name: 'VertexAgentModelError',

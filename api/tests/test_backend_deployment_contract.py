@@ -204,7 +204,10 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "runtime identity has query-only effective access" in verifier
     assert "shared Agent GCP release preflight" in verifier
     assert "Control API has project service usage permission" in verifier
-    assert "created, executed, validated and deleted an Agent Runtime session" in verifier
+    assert (
+        "completed one ephemeral Agent Runtime stream with create, execute, validate and delete"
+        in verifier
+    )
     assert "caffemate-agent-runtime-intent-preflight" in verifier
     assert "--agent-fixture-id,intent_delta-complete,--repeat,3" in verifier
     assert 'jsonPayload.preflight=true' in verifier
