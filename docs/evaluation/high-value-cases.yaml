@@ -342,7 +342,7 @@ cases:
     expected_behavior:
       - 동일 Claim과 request의 결과는 Agent 입력에 한 번만 포함한다.
       - action별 rerank 상위 세 Evidence record만 포함하고 provider data 행은 제외한다.
-      - EVIDENCE_ASSESS는 low 사고 수준, 최대 4096 출력 토큰과 60초 deadline을 사용한다.
+      - EVIDENCE_ASSESS는 low 사고 수준, 최대 2048 출력 토큰과 60초 deadline을 사용한다.
       - 응답 배열 상한을 unique Evidence와 Claim 수로 제한한다.
       - 정상 Agent 결과는 기존 Schema와 의미 검증을 통과한다.
       - 다른 모델이나 리전으로 자동 전환하지 않는다.
@@ -476,3 +476,30 @@ cases:
       - safe Agent result validation telemetry
       - schema and semantic validation result
     pass_condition: 명시적인 의향 fixture 3회가 모두 첫 생성에서 COMPLETE와 정확한 NO에서 YES operation으로 끝난다.
+
+  - id: EV-029
+    title: Typed Agent의 과도한 추론 예산 회귀
+    input: 동일한 frozen Evidence와 결정론적 계산 snapshot으로 첫 후보를 생성하고 감사함
+    relevant_state:
+      workflow_code: FIRST_PROPOSAL
+      agent_stages:
+        - EVIDENCE_ASSESS
+        - PROPOSE_INDEPENDENT
+        - CANDIDATE_AUDIT
+    trap: 역할 이름이 Agent라는 이유만으로 모든 단계에 medium 이상 사고 수준과 실제 출력보다 큰 토큰 한도를 적용한다.
+    expected_behavior:
+      - Evidence Assess는 low 사고 수준과 최대 2048 출력 토큰을 사용한다.
+      - Proposal과 Candidate Audit은 low 사고 수준과 최대 4096 출력 토큰을 사용한다.
+      - 각 역할은 실제 모델 응답을 기다리고 Schema·echo·의미 검증을 통과한 뒤에만 다음 단계로 진행한다.
+      - Proposal과 Candidate Audit는 서로 독립된 역할과 입력 계약을 유지한다.
+      - 비용 계산, Hard Gate와 순위는 계속 결정론적 코드가 수행한다.
+    forbidden_behavior:
+      - Agent 실패를 가짜 COMPLETE 또는 고정 ABSTAIN으로 바꾼다.
+      - Candidate Audit를 Proposal 응답이나 결정론적 문구로 대체한다.
+      - latency를 줄이기 위해 timeout을 정상 성공으로 처리한다.
+    required_evidence:
+      - managed Runtime generation telemetry
+      - first-attempt Agent result validation telemetry
+      - 13-stage production canary
+      - current result card
+    pass_condition: 세 Agent 단계가 repair 없이 계약을 통과하고 FIRST_PROPOSAL이 13단계를 완주하며, 각 생성 호출이 60초 deadline 안에 종료된다.
