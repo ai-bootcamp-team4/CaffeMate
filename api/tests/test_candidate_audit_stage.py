@@ -94,7 +94,7 @@ def test_candidate_audit_task_projects_schema_valid_deterministic_inputs() -> No
 
     candidate = task["payload"]["candidates"][0]
     assert task["task_type"] == "CANDIDATE_AUDIT"
-    assert task["deadline_at"] == "2026-08-21T10:00:30Z"
+    assert task["deadline_at"] == "2026-08-21T10:01:00Z"
     assert task["runtime_tool_policy"] == "NO_DIRECT_TOOL_CALLS"
     assert task["available_tool_catalog"] == []
     assert task["input_digest"] == compute_agent_input_digest(task)

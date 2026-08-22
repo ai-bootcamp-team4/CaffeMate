@@ -1,10 +1,12 @@
 FROM node:24-slim
 ENV NODE_ENV=production
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY docs/contracts ./docs/contracts
-COPY mcp/src ./mcp/src
+COPY --chown=node:node docs/contracts ./docs/contracts
+COPY --chown=node:node agents/src ./agents/src
+COPY --chown=node:node rag/src ./rag/src
+COPY --chown=node:node mcp/src ./mcp/src
 USER node
 EXPOSE 8080
 CMD ["node", "--import", "tsx", "mcp/src/runtime.ts"]

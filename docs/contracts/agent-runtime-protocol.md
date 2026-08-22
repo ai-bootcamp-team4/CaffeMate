@@ -75,13 +75,13 @@ flowchart LR
 
 ### 4.1 현재 배포 가능 상태
 
-`asia-northeast3` Agent Runtime 배치는 확정이다. 그러나 2026-08-21 공식 모델 문서상 기존 선택인 `gemini-3.5-flash`의 지원 생성 리전에 서울이 없다. 따라서 생성 모델 id는 현재 `PENDING_HUMAN_DECISION`, Agent 경로는 `BLOCKED_BY_REGION`이다.
+`asia-northeast3` Agent Runtime 배치는 유지한다. 생성 모델은 사용자 승인에 따라 `global` endpoint의 `gemini-3.7-flash`로 고정하며, 2026-08-21 `global` `generateContent` 실호출에서 HTTP 200과 `STOP` 응답을 확인했다. RAG Engine과 embedding은 계속 `asia-northeast3`를 사용한다.
 
-- 서울 Runtime을 다른 리전으로 자동 변경하지 않는다.
-- `global` model endpoint로 자동 fallback하지 않는다.
-- Runtime 생성, 생성 모델 호출, embedding 호출, reranker 호출을 서로 독립된 배포 preflight로 실행한다.
-- 네 항목 중 필수 항목 하나라도 서울에서 실패하면 Agent Workflow를 시작하지 않고 global 호출 수가 0임을 검증한다.
-- 서울에서 실제 `generateContent` read-back을 통과한 모델 id를 인간이 승인하고 release manifest에 pin한 뒤에만 차단을 해제한다.
+- 서울 Runtime을 다른 리전으로 자동 변경하지 않는다. Agent Runtime 자체를 `global`에 배치하지 않는다.
+- `global`은 승인된 생성 위치이며 fallback이 아니다. 생성 실패 시 regional endpoint로 조용히 전환하지 않는다.
+- Runtime 생성, `global` 생성 모델 호출, 서울 embedding 호출, 서울 reranker 호출을 서로 독립된 배포 preflight로 실행한다.
+- 네 항목 중 필수 항목 하나라도 고정된 위치에서 실패하면 Agent Workflow를 시작하지 않고 대체 위치 호출 수가 0임을 검증한다.
+- release manifest에는 Runtime region과 generation region을 분리해 pin한다.
 
 ### 4.2 GCP endpoint와 관리형 session
 
@@ -192,13 +192,13 @@ trace_context: optional W3C trace context
 
 | `task_type` | `agent_name` | 입력 payload | 출력 payload | 최대 실행시간 |
 | --- | --- | --- | --- | ---: |
-| `INTENT_DELTA` | `INTENT_INTERPRETER` | current State projection, latest input, field ontology | delta proposal | 15초 |
-| `EVIDENCE_PLAN` | `EVIDENCE_RESEARCHER` | atomic Claims, pinned MCP catalog | support·counter action plan | 20초 |
+| `INTENT_DELTA` | `INTENT_INTERPRETER` | current State projection, latest input, field ontology | delta proposal | 30초 |
+| `EVIDENCE_PLAN` | `EVIDENCE_RESEARCHER` | atomic Claims, pinned MCP catalog | support·counter action plan | 30초 |
 | `EVIDENCE_ASSESS` | `EVIDENCE_RESEARCHER` | Claims, validated MCP·RAG results | Evidence assessments·conflicts | 30초 |
 | `PROPOSE_INDEPENDENT` | `PROPOSAL_AGENT` | Founder·Area snapshot, registered model seeds, Evidence | independent candidate proposals | 30초 |
 | `PROPOSE_FRANCHISE` | `PROPOSAL_AGENT` | Founder·Area snapshot, verified franchise universe, Evidence | franchise candidate proposals | 30초 |
 | `DOCUMENT_EXTRACT` | `DOCUMENT_ANALYST` | extraction contract, parser blocks, anchors | proposed Claims·risk flags | batch당 60초 |
-| `CANDIDATE_AUDIT` | `TYPED_CANDIDATE_AUDITOR` | frozen candidate·Evidence·calculation·Gate | audit findings | 20초 |
+| `CANDIDATE_AUDIT` | `TYPED_CANDIDATE_AUDITOR` | frozen candidate·Evidence·calculation·Gate | audit findings | 60초 |
 
 각 row의 `input_schema_id`와 `output_schema_id`는 배포 manifest에 고정한다. Agent code를 구현하기 전에 역할별 payload Schema와 최소 정상·기권 fixture가 존재해야 한다. 이름만 맞고 payload Schema가 없는 Agent는 배포할 수 없다.
 
@@ -340,7 +340,7 @@ Agent 호출은 side effect가 없으므로 동일 `task_id`가 둘 이상 실�
 | fence·ACL·unsupported ref | 0회 | 즉시 폐기 |
 | deadline 초과 | 0회 | `TIMED_OUT`, session stream 종료, 늦은 결과 폐기 |
 
-transport backoff는 250ms, 750ms이고 invocation id에서 파생한 0~100ms jitter를 더한다. 429의 `Retry-After`는 2초 이하이면서 남은 deadline 안에 있을 때만 우선한다. session 생성, run, response validation, repair와 cleanup enqueue까지 모두 `deadline_at` 예산에 포함하며 각 호출 직전에 남은 시간이 2초 미만이면 재시도하지 않는다.
+transport backoff는 250ms, 750ms이고 invocation id에서 파생한 0~100ms jitter를 더한다. 429의 `Retry-After`는 2초 이하이면서 남은 deadline 안에 있을 때만 우선한다. session 생성, run, response validation, repair와 cleanup enqueue까지 모두 `deadline_at` 예산에 포함하며 각 호출 직전에 남은 시간이 2초 미만이면 재시도하지 않는다. create/delete query 호출은 각각 최대 10초로 제한하고, stream 호출은 현재 남은 logical deadline에서 cleanup용 2초를 제외한 값만 timeout으로 사용한다. 따라서 60초 task가 transport의 30초 상한으로 조용히 잘리지 않으며 stream timeout 뒤에도 가능한 한 같은 invocation 안에서 session 삭제를 시도한다.
 
 repair는 같은 session 이력에 의존하지 않는다. `repair_context`에 직전 응답 text, 그 SHA-256 digest와 최대 50개 validator error가 반드시 들어간다. 두 번째 schema 실패는 기권으로 끝나며 세 번째 생성 호출은 없다.
 
@@ -382,9 +382,9 @@ cancel command도 durable Event로 기록하고 generation을 증가시킨다. �
 - 사용하지 않는 기능: write tool, prompts, sampling, elicitation, persistent MCP session, Tasks extension
 - implementation: MCP server는 공식 TypeScript SDK v2의 `createMcpHandler(..., { legacy: 'reject' })`, FastAPI Control API는 공식 Python SDK v2 client를 사용한다. 양쪽 package version을 lockfile·release manifest에 pin하며 hand-written transport와 2025 fallback은 허용하지 않는다.
 
-첫 배포의 실제 connector 범위는 `resolve_area`와 `get_source_health`다. `resolve_area`는 행정안전부 도로명주소 검색 API를 호출하며 `JUSO_API_KEY`가 없으면 임의 후보를 만들지 않고 `PARTIAL`과 `SOURCE_CREDENTIAL_MISSING`을 반환한다. 공식 응답이 경계 revision과 데이터 기준일을 제공하지 않으므로 `boundary_version`은 `JUSO_LIVE_UNVERSIONED`, `source_trace.data_date`는 `null`로 반환하고 응답 digest를 남긴다. `get_source_health`는 실제 검색 probe가 성공하고 공식 오류 코드가 정상일 때만 `HEALTHY`로 반환한다. 나머지 여덟 tool은 manifest에는 고정하되 connector가 연결되기 전까지 호출 시 `MCP_CONNECTOR_UNAVAILABLE`로 실패한다.
+현재 production connector 범위는 `resolve_area`, `get_source_health`, `retrieve_official_documents`다. `resolve_area`는 행정안전부 도로명주소 검색 API를 호출하며 `JUSO_API_KEY`가 없으면 임의 후보를 만들지 않고 `PARTIAL`과 `SOURCE_CREDENTIAL_MISSING`을 반환한다. 공식 응답이 경계 revision과 데이터 기준일을 제공하지 않으므로 `boundary_version`은 `JUSO_LIVE_UNVERSIONED`, `source_trace.data_date`는 `null`로 반환하고 응답 digest를 남긴다. `get_source_health`는 실제 검색 probe가 성공하고 공식 오류 코드가 정상일 때만 `HEALTHY`로 반환한다. `retrieve_official_documents`는 서울 Vertex AI RAG Engine의 승인 official corpus만 조회하고, checked-in source catalog의 exact GCS URI·RAG file id·source revision에 매핑되지 않는 context를 거절한다. `retrieve_project_documents`는 Cloud SQL의 venture-project별 corpus/file mapping이 구현되기 전까지 제공하지 않는다. 나머지 일곱 tool은 manifest에는 고정하되 각 권위 source connector가 연결되기 전까지 호출 시 `MCP_CONNECTOR_UNAVAILABLE`로 실패한다.
 
-배포 단위는 `caffemate-mcp` Cloud Run service다. 서비스는 unauthenticated invoker를 허용하지 않고 `caffemate-api-runtime`만 `roles/run.invoker`를 가진다. application boundary에서도 같은 service identity의 Google ID token, service URL audience, 최대 300초의 HMAC scope token을 모두 검증한다. Control API는 `MCP_BASE_URL`, `MCP_AUDIENCE`, `MCP_SCOPE_HMAC_SECRET` 세 설정이 모두 있을 때만 MCP client를 구성한다.
+배포 단위는 `caffemate-mcp` Cloud Run service다. 서비스는 unauthenticated invoker를 허용하지 않고 `caffemate-api-runtime`만 `roles/run.invoker`를 가진다. MCP runtime identity는 official RAG 조회용 `roles/aiplatform.user`와 RAG `rank_service`가 요구하는 `discoveryengine.rankingConfigs.rank`를 포함한 read-only `roles/discoveryengine.viewer`만 추가로 가진다. application boundary에서도 같은 service identity의 Google ID token, service URL audience, 최대 300초의 HMAC scope token을 모두 검증한다. Control API는 `MCP_BASE_URL`, `MCP_AUDIENCE`, `MCP_SCOPE_HMAC_SECRET` 세 설정이 모두 있을 때만 MCP client를 구성한다.
 
 모든 POST는 `MCP-Protocol-Version`과 body의 실제 method를 반영한 `Mcp-Method`를 포함한다. `Mcp-Name`은 `tools/call`처럼 `params.name`이 정의된 요청에만 포함한다. header와 body가 다르면 HTTP 400, JSON-RPC `-32020`으로 거절한다.
 
@@ -552,7 +552,7 @@ validated parser blocks
 | `CP-006` | Workflow 취소 뒤 결과 도착 | `LATE_DISCARDED`, current write 0 |
 | `CP-007` | MCP scope token project 불일치 | 403, retrieval result 0 |
 | `CP-008` | MCP `PARTIAL` | 전체 성공으로 표시하지 않음 |
-| `CP-009` | 서울 Runtime·생성·embedding·reranker 독립 preflight 중 하나 실패 | `BLOCKED_BY_REGION`, Agent Workflow와 global 호출 0 |
+| `CP-009` | 서울 Runtime·global 생성·서울 embedding·서울 reranker 독립 preflight 중 하나 실패 | `BLOCKED_BY_REGION`, Agent Workflow와 대체 위치 호출 0 |
 | `CP-010` | 직접 Agent tool 호출 시도 | 실행 0, policy violation 기록 |
 | `CP-011` | 고정 조건부 프랜차이즈 fixture | expected `NEXT_REVIEW_PRIORITY` rank와 primary review target이 정확히 일치 |
 | `CP-012` | 문서 추출 폼 반영 전 | State·finance·Gate·rank 변경 0 |
@@ -573,7 +573,7 @@ validated parser blocks
 - 백엔드 fixture가 실제 Agent adapter 없이도 Workflow test를 통과한다.
 - Agent fixture가 실제 database·MCP write 없이 role test를 통과한다.
 - MCP client와 server가 `2026-07-28` conformance와 tool output validation을 통과한다.
-- 배포 뒤 서울 Runtime·승인된 생성·embedding·reranker endpoint, IAM identity, runtime revision과 MCP service를 각각 read-back한다.
+- 배포 뒤 서울 Runtime·`global` 승인 생성·서울 embedding·서울 reranker endpoint, IAM identity, runtime revision과 MCP service를 각각 read-back한다.
 
 ## 11. 버전 관리
 

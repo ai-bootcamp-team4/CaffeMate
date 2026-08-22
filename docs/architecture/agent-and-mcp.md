@@ -47,9 +47,9 @@ Cloud Run Control API
 - 첫 구현에서 Agent Runtime은 MCP를 직접 호출하지 않으며 MCP invoke 권한, 원본 credential과 database write 권한을 갖지 않는다.
 - Evidence Researcher는 read action을 제안하고 Control API가 allowlist·scope·인자를 검증한 뒤 MCP를 호출한다.
 - 서울 리전에서 managed Agent Gateway가 지원되지 않으므로 Control API가 Agent Runtime을 직접 호출한다.
-- Runtime·Sessions의 정식 지원과 별개로 선택한 model의 서울 리전 지원 여부를 배포 Gate에서 따로 검증한다.
-- 생성·embedding model endpoint는 `asia-northeast3`만 허용하며 `global` fallback은 금지한다.
-- 기존 `gemini-3.5-flash`는 서울 생성 리전 미지원으로 제거됐으며, 서울 실제 호출을 통과한 model id 승인 전에는 `BLOCKED_BY_REGION`이다.
+- Runtime·Sessions의 서울 지원과 별개로 승인한 생성 model의 고정 endpoint 가용성을 배포 Gate에서 따로 검증한다.
+- 생성 model endpoint는 `global`의 `gemini-3.7-flash`, embedding endpoint는 `asia-northeast3`로 고정하며 다른 위치로 fallback하지 않는다.
+- `gemini-3.7-flash`는 2026-08-21 `global` 실제 호출을 통과하고 사용자 승인을 받아 pin했으며, 고정 위치 preflight가 실패하면 `BLOCKED_BY_REGION`이다.
 - ADK root는 모델이 아니라 deterministic dispatcher다. `task_type`을 검증해 정확히 한 역할만 실행하며 역할 transfer와 Agent 간 호출을 허용하지 않는다.
 
 ## 실행 Graph

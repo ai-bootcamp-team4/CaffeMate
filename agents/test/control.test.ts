@@ -1,15 +1,32 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { runAgentControl } from '../src/control'
 
 describe('Agent Control CLI core', () => {
-  it('reports the pinned local-only registry as JSON-friendly data', async () => {
+  it('reports the pinned global generation registry as JSON-friendly data', async () => {
     const output = await runAgentControl(['registry'])
     expect(output.ok).toBe(true)
     expect(output.data).toMatchObject({
       model: {
-        id: null,
-        approvalStatus: 'PENDING_HUMAN_DECISION',
-        networkEnabled: false,
+        id: 'gemini-3.7-flash',
+        approvalStatus: 'APPROVED',
+        region: 'global',
+        networkEnabled: true,
+      },
+    })
+  })
+
+  it('reports the deployable Runtime class-method contract', async () => {
+    const output = await runAgentControl(['runtime-spec'])
+
+    expect(output).toMatchObject({
+      ok: true,
+      data: {
+        appName: 'caffemate-agents',
+        classMethods: [
+          { name: 'async_create_session', api_mode: 'async' },
+          { name: 'async_stream_query', api_mode: 'async_stream' },
+          { name: 'async_delete_session', api_mode: 'async' },
+        ],
       },
     })
   })
@@ -28,5 +45,30 @@ describe('Agent Control CLI core', () => {
   it('returns a typed failure for unknown fixture ids', async () => {
     const output = await runAgentControl(['dispatch-fixture', 'missing'])
     expect(output).toMatchObject({ ok: false, code: 'FIXTURE_NOT_FOUND' })
+  })
+
+  it('runs the GCP preflight through the Agent Control CLI and forwards an optional model candidate', async () => {
+    const gcpPreflight = vi.fn(async (modelId?: string) => ({
+      ok: false,
+      projectId: 'proj-aj20-211200020328',
+      runtimeRegion: 'asia-northeast3' as const,
+      generationRegion: 'global' as const,
+      ragRegion: 'asia-northeast3' as const,
+      embeddingRegion: 'asia-northeast3' as const,
+      checks: [{ name: 'generation-model' as const, ok: false, code: 'MODEL_NOT_APPROVED' }],
+      modelId,
+    }))
+
+    const output = await runAgentControl(
+      ['gcp-preflight', 'gemini-3.7-flash'],
+      { gcpPreflight },
+    )
+
+    expect(gcpPreflight).toHaveBeenCalledWith('gemini-3.7-flash')
+    expect(output).toMatchObject({
+      ok: false,
+      code: 'GCP_PREFLIGHT_BLOCKED',
+      data: { projectId: 'proj-aj20-211200020328' },
+    })
   })
 })

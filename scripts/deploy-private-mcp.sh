@@ -5,12 +5,17 @@ project_id=${CAFFEMATE_GCP_PROJECT_ID:-}
 region=${CAFFEMATE_GCP_REGION:-asia-northeast3}
 source_revision=${CAFFEMATE_SOURCE_REVISION:-}
 service_name=${CAFFEMATE_MCP_SERVICE_NAME:-caffemate-mcp}
+official_rag_corpus_resource=${CAFFEMATE_OFFICIAL_RAG_CORPUS_RESOURCE:-}
 
-if [ -z "$project_id" ] || [ "${#source_revision}" -ne 40 ] || [ "$region" != 'asia-northeast3' ]; then
-  printf '%s\n' 'project, Seoul region and full source revision are required' >&2
+if [ -z "$project_id" ] || [ "${#source_revision}" -ne 40 ] || [ "$region" != 'asia-northeast3' ] || [ -z "$official_rag_corpus_resource" ]; then
+  printf '%s\n' 'project, Seoul region, full source revision and official RAG corpus resource are required' >&2
   exit 2
 fi
 case "$source_revision" in *[!0-9a-f]*) printf '%s\n' 'source revision must be lowercase hexadecimal' >&2; exit 2;; esac
+case "$official_rag_corpus_resource" in
+  "projects/${project_id}/locations/${region}/ragCorpora/"*) ;;
+  *) printf '%s\n' 'official RAG corpus must belong to the requested project and Seoul region' >&2; exit 2;;
+esac
 if [ "$(gcloud config get-value project 2>/dev/null)" != "$project_id" ]; then
   printf '%s\n' 'active gcloud project does not match requested project' >&2
   exit 2
@@ -20,6 +25,11 @@ tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-backend/mcp:${sou
 build_sa="projects/${project_id}/serviceAccounts/caffemate-backend-build@${project_id}.iam.gserviceaccount.com"
 runtime_sa="caffemate-mcp-runtime@${project_id}.iam.gserviceaccount.com"
 api_sa="caffemate-api-runtime@${project_id}.iam.gserviceaccount.com"
+
+gcloud projects add-iam-policy-binding "$project_id" \
+  --member="serviceAccount:${runtime_sa}" --role='roles/aiplatform.user' --quiet >/dev/null
+gcloud projects add-iam-policy-binding "$project_id" \
+  --member="serviceAccount:${runtime_sa}" --role='roles/discoveryengine.viewer' --quiet >/dev/null
 
 if ! gcloud artifacts docker images describe "$tagged_image" --project="$project_id" >/dev/null 2>&1; then
   gcloud builds submit . --project="$project_id" --region="$region" \
@@ -36,7 +46,7 @@ fi
 
 gcloud run deploy "$service_name" --project="$project_id" --region="$region" --image="$image" \
   --service-account="$runtime_sa" --port=8080 --ingress=all --no-allow-unauthenticated \
-  --set-env-vars="MCP_AUDIENCE=${audience},MCP_ALLOWED_CALLER_EMAIL=${api_sa}" \
+  --set-env-vars="MCP_AUDIENCE=${audience},MCP_ALLOWED_CALLER_EMAIL=${api_sa},CAFFEMATE_GCP_PROJECT_ID=${project_id},RAG_OFFICIAL_CORPUS_RESOURCE=${official_rag_corpus_resource}" \
   --set-secrets='MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest,JUSO_API_KEY=caffemate-juso-api-key:latest' \
   --cpu=1 --memory=512Mi --min=0 --max=10 \
   --labels="source-revision=${source_revision},managed-by=caffemate-deploy" --quiet >/dev/null

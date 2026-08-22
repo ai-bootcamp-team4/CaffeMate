@@ -1,17 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import fixtureMatrix from '../fixtures/task-matrix.json'
 import releaseManifest from '../release-manifest.json'
-import { AGENT_MODEL, TASK_REGISTRY } from '../src/registry'
+import { AGENT_MODEL, GCP_LOCATIONS, TASK_REGISTRY } from '../src/registry'
 
 describe('local agent release manifest', () => {
   it('pins model, region, prompt and schema registry together', () => {
     expect(releaseManifest.model).toMatchObject({
       id: AGENT_MODEL.id,
       approval_status: AGENT_MODEL.approvalStatus,
+      region: AGENT_MODEL.region,
+      thinking_level: AGENT_MODEL.thinkingLevel,
     })
-    expect(releaseManifest.runtime_region).toBe(AGENT_MODEL.region)
+    expect(releaseManifest.runtime_region).toBe(GCP_LOCATIONS.runtime)
+    expect(releaseManifest.runtime).toEqual({
+      resource_name: expect.stringMatching(
+        /^projects\/proj-aj20-211200020328\/locations\/asia-northeast3\/reasoningEngines\/[0-9]+$/,
+      ),
+      image_uri: expect.stringMatching(
+        /^asia-northeast3-docker\.pkg\.dev\/proj-aj20-211200020328\/caffemate-agents\/caffemate-agent-runtime@sha256:[0-9a-f]{64}$/,
+      ),
+    })
     expect(releaseManifest.allow_global_fallback).toBe(false)
-    expect(releaseManifest.gcp_preflight_status).toBe('NOT_RUN')
+    expect(releaseManifest.network_mode).toBe('GCP_CONNECTED')
+    expect(releaseManifest.gcp_preflight_status).toBe('GCP_PREFLIGHT_VERIFIED')
     expect(releaseManifest.mcp).toEqual({
       protocol_revision: '2026-07-28',
       server_sdk: '@modelcontextprotocol/server@2.0.0',
@@ -29,6 +40,7 @@ describe('local agent release manifest', () => {
         prompt_version: registration.promptVersion,
         input_schema_id: registration.inputSchemaId,
         output_schema_id: registration.outputSchemaId,
+        deadline_seconds: registration.deadlineSeconds,
       })
     }
 

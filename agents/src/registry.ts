@@ -1,12 +1,19 @@
 import type { AgentName, TaskType } from './types'
 
+export const GCP_LOCATIONS = Object.freeze({
+  runtime: 'asia-northeast3',
+  generation: 'global',
+  rag: 'asia-northeast3',
+  embedding: 'asia-northeast3',
+} as const)
+
 export const AGENT_MODEL = Object.freeze({
-  id: null,
-  approvalStatus: 'PENDING_HUMAN_DECISION',
-  region: 'asia-northeast3',
-  networkEnabled: false,
+  id: 'gemini-3.7-flash',
+  approvalStatus: 'APPROVED',
+  region: GCP_LOCATIONS.generation,
+  networkEnabled: true,
   allowGlobalFallback: false,
-  thinkingLevel: 'medium',
+  thinkingLevel: 'high',
 } as const)
 
 export interface TaskRegistration {
@@ -24,15 +31,15 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     promptVersion: 'intent-interpreter.v1',
     inputSchemaId: 'caffemate.agent.intent-input.v1',
     outputSchemaId: 'caffemate.agent.intent-result.v1',
-    deadlineSeconds: 15,
-    maxOutputTokens: 2048,
+    deadlineSeconds: 30,
+    maxOutputTokens: 4096,
   },
   EVIDENCE_PLAN: {
     agentName: 'EVIDENCE_RESEARCHER',
     promptVersion: 'evidence-researcher.v1',
     inputSchemaId: 'caffemate.agent.evidence-plan-input.v1',
     outputSchemaId: 'caffemate.agent.evidence-plan-result.v1',
-    deadlineSeconds: 20,
+    deadlineSeconds: 30,
     maxOutputTokens: 4096,
   },
   EVIDENCE_ASSESS: {
@@ -72,7 +79,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     promptVersion: 'typed-candidate-auditor.v1',
     inputSchemaId: 'caffemate.agent.candidate-audit-input.v1',
     outputSchemaId: 'caffemate.agent.candidate-audit-result.v1',
-    deadlineSeconds: 20,
+    deadlineSeconds: 60,
     maxOutputTokens: 6144,
   },
 })

@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
+import { createApplicationDefaultGoogleCloudContext } from '../../agents/src/gcp-auth'
 import { createProductionAuthorizer } from './auth'
-import { createConnectorRegistry } from './connectors'
+import { createProductionMcpConnectors } from './production-connectors'
 import { createCaffeMateMcpHttpHandler } from './server'
 
 function required(name: string): string {
@@ -10,13 +11,19 @@ function required(name: string): string {
   return value
 }
 
+const googleCloud = createApplicationDefaultGoogleCloudContext()
 const handler = createCaffeMateMcpHttpHandler({
   authorize: createProductionAuthorizer({
     audience: required('MCP_AUDIENCE'),
     allowedCallerEmail: required('MCP_ALLOWED_CALLER_EMAIL'),
     scopeSecret: required('MCP_SCOPE_HMAC_SECRET'),
   }),
-  connectors: createConnectorRegistry({ jusoApiKey: process.env.JUSO_API_KEY }),
+  connectors: createProductionMcpConnectors({
+    projectId: required('CAFFEMATE_GCP_PROJECT_ID'),
+    officialCorpusResource: required('RAG_OFFICIAL_CORPUS_RESOURCE'),
+    accessToken: () => googleCloud.accessToken(),
+    jusoApiKey: process.env.JUSO_API_KEY,
+  }),
 })
 
 async function writeResponse(response: Response, target: ServerResponse): Promise<void> {
