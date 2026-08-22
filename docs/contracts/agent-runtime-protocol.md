@@ -394,7 +394,11 @@ POST   /v1/projects/{venture_project_id}/workflows/{workflow_run_id}:cancel
 POST   /internal/v1/workflows/{workflow_run_id}/stages/{stage_run_id}:execute
 ```
 
-`/internal/**`은 제품·브라우저 API가 아니라 Worker service identity만 호출하는 배포 내부 endpoint다. 이 경로를 외부 ingress에 노출하지 않는다.
+`/internal/**`은 제품·브라우저 API가 아니라 Worker service identity만 호출하는 내부 계약이다.
+현재 Control API는 브라우저 API를 위해 public invoker를 사용하므로 이 path 자체는 transport 경계에서
+도달 가능하다. 따라서 모든 `/internal/**` route는 요청 본문을 Pydantic model로 파싱하기 전에
+service identity dependency를 먼저 실행한다. 인증되지 않은 malformed body는 내부 Schema 세부를
+담은 422가 아니라 `401 UNAUTHENTICATED`로 끝나며 handler·저장소·Agent·MCP 호출은 0회다.
 
 cancel command도 durable Event로 기록하고 generation을 증가시킨다. 진행 중인 worker는 다음 heartbeat 또는 외부 호출 반환 시 이를 관측하고 checkpoint를 금지한다. cleanup outbox는 cancel과 별개로 session 삭제를 끝까지 시도한다.
 

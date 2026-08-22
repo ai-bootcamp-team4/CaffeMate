@@ -197,6 +197,7 @@ API가 workflow_run·stage_run·idempotency·outbox를 한 transaction으로 기
 - 모든 object는 `user_id`와 `project_id` scope를 가진다.
 - API, Worker, MCP와 Agent Runtime은 별도 service identity를 사용한다.
 - MCP와 Worker는 public invoker를 허용하지 않는다.
+- public Control API의 `/internal/**` route는 본문 파싱 전에 Worker service identity를 검증한다.
 - MCP invoke 권한은 Control API identity에만 부여한다.
 - Agent는 raw credential을 받지 않는다.
 - Secret은 Secret Manager에서 runtime identity로 읽는다.

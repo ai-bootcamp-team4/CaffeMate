@@ -487,6 +487,14 @@ def create_app(
             raise UnauthenticatedError("Bearer ID token is required")
         return verifier.verify(token.strip())
 
+    def current_worker(authorization: Annotated[str | None, Header()] = None) -> str:
+        if authorization is None:
+            raise UnauthenticatedError("Worker service identity token is required")
+        scheme, separator, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not separator or not token.strip():
+            raise UnauthenticatedError("Worker service identity token is required")
+        return worker_verifier.verify(token.strip())
+
     @app.exception_handler(DomainError)
     async def domain_error_handler(_request: object, error: DomainError) -> JSONResponse:
         status_by_error_type = {
@@ -542,14 +550,8 @@ def create_app(
         workflow_run_id: str,
         stage_run_id: str,
         request: StageExecuteRequest,
-        authorization: Annotated[str | None, Header()] = None,
+        _worker_id: Annotated[str, Depends(current_worker)],
     ) -> StageExecuteResponse | JSONResponse:
-        if authorization is None:
-            raise UnauthenticatedError("Worker service identity token is required")
-        scheme, separator, token = authorization.partition(" ")
-        if scheme.lower() != "bearer" or not separator or not token.strip():
-            raise UnauthenticatedError("Worker service identity token is required")
-        worker_verifier.verify(token.strip())
         try:
             result = internal_stages.execute(
                 workflow_run_id=workflow_run_id,
@@ -614,14 +616,8 @@ def create_app(
     def record_document_scan_result(
         document_revision_id: str,
         request: DocumentScanResultRequest,
-        authorization: Annotated[str | None, Header()] = None,
+        _worker_id: Annotated[str, Depends(current_worker)],
     ) -> DocumentRevision:
-        if authorization is None:
-            raise UnauthenticatedError("Worker service identity token is required")
-        scheme, separator, token = authorization.partition(" ")
-        if scheme.lower() != "bearer" or not separator or not token.strip():
-            raise UnauthenticatedError("Worker service identity token is required")
-        worker_verifier.verify(token.strip())
         return documents.record_scan_result(
             project_id=request.project_id,
             document_revision_id=document_revision_id,
@@ -637,14 +633,8 @@ def create_app(
     def record_document_parser_result(
         document_revision_id: str,
         request: ParserResultRequest,
-        authorization: Annotated[str | None, Header()] = None,
+        _worker_id: Annotated[str, Depends(current_worker)],
     ) -> DocumentExtractionForm:
-        if authorization is None:
-            raise UnauthenticatedError("Worker service identity token is required")
-        scheme, separator, token = authorization.partition(" ")
-        if scheme.lower() != "bearer" or not separator or not token.strip():
-            raise UnauthenticatedError("Worker service identity token is required")
-        worker_verifier.verify(token.strip())
         return document_extraction.accept_parser_result(
             document_revision_id=document_revision_id,
             request=request,
@@ -657,14 +647,8 @@ def create_app(
     )
     def refresh_evidence(
         request: EvidenceRefreshRequest,
-        authorization: Annotated[str | None, Header()] = None,
+        _worker_id: Annotated[str, Depends(current_worker)],
     ) -> EvidenceRefreshResult:
-        if authorization is None:
-            raise UnauthenticatedError("Worker service identity token is required")
-        scheme, separator, token = authorization.partition(" ")
-        if scheme.lower() != "bearer" or not separator or not token.strip():
-            raise UnauthenticatedError("Worker service identity token is required")
-        worker_verifier.verify(token.strip())
         return evidence_refresh.refresh(request)
 
     @app.post("/v1/projects", response_model=Project, status_code=status.HTTP_201_CREATED)
