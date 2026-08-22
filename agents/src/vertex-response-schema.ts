@@ -189,7 +189,7 @@ function buildEvidencePlanToolActionSchema(allowedTools: readonly string[]): Jso
   if (!properties) throw new Error('VERTEX_TOOL_ACTION_PROPERTIES_UNRESOLVED')
   const conditionals = Array.isArray(toolAction.allOf) ? toolAction.allOf : []
   const allowed = new Set(allowedTools)
-  const argumentBranches: JsonObject[] = []
+  const correlatedBranches: JsonObject[] = []
 
   for (const conditional of conditionals) {
     const object = asObject(conditional)
@@ -204,13 +204,21 @@ function buildEvidencePlanToolActionSchema(allowedTools: readonly string[]): Jso
     const typedArguments = thenProperties ? asObject(thenProperties.typed_arguments) : null
     if (!typedArguments) throw new Error(`VERTEX_TOOL_ARGUMENT_SCHEMA_UNRESOLVED: ${toolName}`)
 
-    argumentBranches.push({
+    const argumentSchema = {
       title: `${toolName} arguments`,
       ...projectSchema(typedArguments, ROLE_SCHEMA_FILE, 0, new Set()),
+    }
+    correlatedBranches.push({
+      type: 'object',
+      required: ['tool_name', 'typed_arguments'],
+      properties: {
+        tool_name: { type: 'string', enum: [toolName] },
+        typed_arguments: argumentSchema,
+      },
     })
   }
 
-  if (argumentBranches.length !== allowed.size) {
+  if (correlatedBranches.length !== allowed.size) {
     throw new Error('VERTEX_EVIDENCE_PLAN_TOOL_SCHEMA_UNRESOLVED')
   }
 
@@ -220,7 +228,8 @@ function buildEvidencePlanToolActionSchema(allowedTools: readonly string[]): Jso
   const projectedProperties = asObject(projected.properties)
   if (!projectedProperties) throw new Error('VERTEX_TOOL_ACTION_PROJECTION_INVALID')
   projectedProperties.tool_name = { type: 'string', enum: [...allowedTools] }
-  projectedProperties.typed_arguments = { anyOf: argumentBranches }
+  projectedProperties.typed_arguments = { type: 'object' }
+  projected.anyOf = correlatedBranches
   return projected
 }
 

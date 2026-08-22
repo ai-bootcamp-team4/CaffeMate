@@ -25,23 +25,23 @@ describe('Vertex role response schema projection', () => {
     const schema = buildVertexRolePayloadSchema(evidencePlanTask()) as ProjectedSchema
     const actionSchema = schema.properties?.claim_plans.items?.properties?.support_actions.items
     const toolNames = actionSchema?.properties?.tool_name.enum
-    const argumentBranches = actionSchema?.properties?.typed_arguments.anyOf
-    if (!argumentBranches) throw new Error('missing projected tool argument union')
+    const correlatedBranches = actionSchema?.anyOf
+    if (!correlatedBranches) throw new Error('missing projected tool action union')
 
     expect(toolNames).toEqual(['get_area_profile', 'get_source_health'])
-    expect(argumentBranches).toHaveLength(2)
-    expect(argumentBranches).toEqual(expect.arrayContaining([
+    expect(actionSchema?.properties?.typed_arguments).toEqual({ type: 'object' })
+    expect(correlatedBranches).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        title: 'get_source_health arguments',
-        type: 'object',
-        additionalProperties: false,
-        required: expect.arrayContaining(['source_ids', 'as_of']),
+        properties: expect.objectContaining({
+          tool_name: expect.objectContaining({ enum: ['get_area_profile'] }),
+          typed_arguments: expect.objectContaining({ title: 'get_area_profile arguments' }),
+        }),
       }),
       expect.objectContaining({
-        title: 'get_area_profile arguments',
-        type: 'object',
-        additionalProperties: false,
-        required: expect.arrayContaining(['administrative_code', 'as_of']),
+        properties: expect.objectContaining({
+          tool_name: expect.objectContaining({ enum: ['get_source_health'] }),
+          typed_arguments: expect.objectContaining({ title: 'get_source_health arguments' }),
+        }),
       }),
     ]))
   })
@@ -77,7 +77,8 @@ describe('Vertex role response schema projection', () => {
     const responseSchema = buildAgentTaskResultResponseJsonSchema(task)
 
     expect(actionSchema?.properties?.tool_name.enum).toEqual(toolNames)
-    expect(actionSchema?.properties?.typed_arguments.anyOf).toHaveLength(8)
+    expect(actionSchema?.properties?.typed_arguments).toEqual({ type: 'object' })
+    expect(actionSchema?.anyOf).toHaveLength(8)
     expect(JSON.stringify(responseSchema).length).toBeLessThan(16_000)
   })
 })
