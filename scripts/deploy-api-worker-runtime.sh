@@ -60,7 +60,7 @@ agent_runtime_name="projects/${project_id}/locations/${region}/reasoningEngines/
 agent_runtime_url="https://${region}-aiplatform.googleapis.com/v1/${agent_runtime_name}"
 access_token=$(gcloud auth print-access-token)
 agent_runtime_json=$(curl --fail --silent --show-error \
-  --header="Authorization: Bearer ${access_token}" \
+  --header "Authorization: Bearer ${access_token}" \
   "$agent_runtime_url")
 agent_runtime_identity=$(printf '%s' "$agent_runtime_json" | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["spec"]["effectiveIdentity"])')
@@ -78,8 +78,8 @@ for role in roles/aiplatform.expressUser roles/serviceusage.serviceUsageConsumer
 done
 
 agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
-  --header="Authorization: Bearer ${access_token}" \
-  --header='Content-Type: application/json' \
+  --header "Authorization: Bearer ${access_token}" \
+  --header 'Content-Type: application/json' \
   "${agent_runtime_url}:getIamPolicy" \
   --data='{}')
 agent_runtime_policy=$(AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'
@@ -102,8 +102,8 @@ print(json.dumps({"policy": policy}, separators=(",", ":")))
 PY
 )
 agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
-  --header="Authorization: Bearer ${access_token}" \
-  --header='Content-Type: application/json' \
+  --header "Authorization: Bearer ${access_token}" \
+  --header 'Content-Type: application/json' \
   "${agent_runtime_url}:setIamPolicy" \
   --data="$agent_runtime_policy")
 AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'

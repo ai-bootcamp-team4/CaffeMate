@@ -54,7 +54,7 @@ esac
 agent_runtime_url="https://${region}-aiplatform.googleapis.com/v1/projects/${project_id}/locations/${region}/reasoningEngines/${configured_agent_resource}"
 access_token=$(gcloud auth print-access-token)
 agent_runtime_json=$(curl --fail --silent --show-error \
-  --header="Authorization: Bearer ${access_token}" \
+  --header "Authorization: Bearer ${access_token}" \
   "$agent_runtime_url")
 agent_runtime_identity=$(printf '%s' "$agent_runtime_json" | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["spec"]["effectiveIdentity"])')
@@ -75,8 +75,8 @@ assert required <= roles, f"Agent Runtime identity lacks roles: {sorted(required
 print("PASS Agent Runtime identity has model and service usage permissions")
 PY
 agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
-  --header="Authorization: Bearer ${access_token}" \
-  --header='Content-Type: application/json' \
+  --header "Authorization: Bearer ${access_token}" \
+  --header 'Content-Type: application/json' \
   "${agent_runtime_url}:getIamPolicy" --data='{}')
 AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'
 import json
