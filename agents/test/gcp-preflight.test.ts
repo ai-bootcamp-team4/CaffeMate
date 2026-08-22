@@ -64,7 +64,12 @@ function successfulFetch() {
     }
     if (url.includes(`${MODEL_ID}:generateContent`)) {
       return Response.json({
-        candidates: [{ content: { parts: [{ text: '{"ok":true}' }] }, finishReason: 'STOP' }],
+        candidates: [{
+          content: {
+            parts: [{ text: '{"ok":true}', thoughtSignature: 'opaque-provider-signature' }],
+          },
+          finishReason: 'STOP',
+        }],
       })
     }
     if (url.endsWith('/reasoningEngines/777')) {
