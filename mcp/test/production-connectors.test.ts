@@ -13,33 +13,57 @@ describe('production MCP connector composition', () => {
   it('adds only the verified official RAG connector to the first-deployment connector set', async () => {
     const accessToken = vi.fn(async () => 'access-token')
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe(
-        `https://${region}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${region}:retrieveContexts`,
-      )
+      const url = String(input)
       expect(init?.headers).toMatchObject({ Authorization: 'Bearer access-token' })
-      expect(JSON.parse(String(init?.body))).toEqual({
-        vertexRagStore: { ragResources: [{ ragCorpus: officialCorpus }] },
-        query: {
-          text: '커피전문점 영업신고',
-          ragRetrievalConfig: {
-            topK: 3,
-            ranking: { rankService: { modelName: 'semantic-ranker-default-004' } },
-            filter: {
-              metadataFilter: 'source_family == "GOVERNMENT_GUIDE" && published_or_data_date <= "2026-07-15"',
+      if (url.endsWith(':retrieveContexts')) {
+        expect(url).toBe(
+          `https://${region}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${region}:retrieveContexts`,
+        )
+        expect(JSON.parse(String(init?.body))).toEqual({
+          vertexRagStore: { ragResources: [{ ragCorpus: officialCorpus }] },
+          query: {
+            text: '커피전문점 영업신고',
+            ragRetrievalConfig: {
+              topK: 3,
+              filter: {
+                metadataFilter: 'source_family == "GOVERNMENT_GUIDE" && published_or_data_date <= "2026-07-15"',
+              },
             },
           },
-        },
+        })
+        return Response.json({
+          contexts: {
+            contexts: [{
+              sourceUri: OFFICIAL_RAG_SOURCE.sourceUri,
+              sourceDisplayName: 'source.html',
+              text: '커피전문점은 휴게음식점 영업신고를 해야 합니다.',
+              chunk: { fileId: OFFICIAL_RAG_SOURCE.ragFileId, chunkId: '5769839172020912571' },
+              score: 0.15,
+            }],
+          },
+        })
+      }
+      expect(url).toBe(
+        `https://discoveryengine.googleapis.com/v1/projects/${projectId}/locations/${region}/rankingConfigs/default_ranking_config:rank`,
+      )
+      expect(init?.headers).toMatchObject({ 'X-Goog-User-Project': projectId })
+      expect(JSON.parse(String(init?.body))).toEqual({
+        model: 'semantic-ranker-default-004',
+        query: '커피전문점 영업신고',
+        records: [{
+          id: 'context-0',
+          title: 'source.html',
+          content: '커피전문점은 휴게음식점 영업신고를 해야 합니다.',
+        }],
+        topN: 1,
       })
       return Response.json({
-        contexts: {
-          contexts: [{
-            sourceUri: OFFICIAL_RAG_SOURCE.sourceUri,
-            sourceDisplayName: 'source.html',
-            text: '커피전문점은 휴게음식점 영업신고를 해야 합니다.',
-            chunk: { fileId: OFFICIAL_RAG_SOURCE.ragFileId, chunkId: '5769839172020912571' },
-            score: 0.15,
-          }],
-        },
+        records: [{
+          id: 'context-0',
+          title: 'source.html',
+          content: '커피전문점은 휴게음식점 영업신고를 해야 합니다.',
+          score: 0.91,
+        }],
       })
     })
 
@@ -81,7 +105,7 @@ describe('production MCP connector composition', () => {
       }],
     })
     expect(accessToken).toHaveBeenCalledOnce()
-    expect(fetcher).toHaveBeenCalledOnce()
+    expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
   it('reports configured official RAG source health from the pinned active RagFile and keeps unknown sources unavailable', async () => {

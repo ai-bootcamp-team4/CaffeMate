@@ -24,7 +24,7 @@ describe('Vertex RAG Engine backend', () => {
             text: '임대료',
             ragRetrievalConfig: {
               topK: 5,
-              filter: { metadataFilter: 'document_type == \"LEASE\"' },
+              filter: { metadataFilter: 'document_type == "LEASE"' },
             },
           },
         })
