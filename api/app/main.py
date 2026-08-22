@@ -483,7 +483,7 @@ def create_app(
 
     @app.exception_handler(DomainError)
     async def domain_error_handler(_request: object, error: DomainError) -> JSONResponse:
-        status_code = {
+        status_by_error_type = {
             ProjectNotFoundError: status.HTTP_404_NOT_FOUND,
             ResultNotFoundError: status.HTTP_404_NOT_FOUND,
             StateVersionConflictError: status.HTTP_409_CONFLICT,
@@ -507,7 +507,15 @@ def create_app(
             FirstProposalPreflightUnavailableError: (
                 status.HTTP_503_SERVICE_UNAVAILABLE
             ),
-        }.get(type(error), status.HTTP_400_BAD_REQUEST)
+        }
+        status_code = next(
+            (
+                mapped_status
+                for error_type, mapped_status in status_by_error_type.items()
+                if isinstance(error, error_type)
+            ),
+            status.HTTP_400_BAD_REQUEST,
+        )
         content: dict[str, object] = {"code": error.code}
         if isinstance(error, FirstProposalConfigurationUnavailableError):
             content["missing_stage_codes"] = error.missing_stage_codes

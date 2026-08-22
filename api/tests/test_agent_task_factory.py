@@ -96,7 +96,7 @@ def test_evidence_plan_task_is_manifest_pinned_schema_valid_and_digest_bound() -
 
     assert task["agent_name"] == "EVIDENCE_RESEARCHER"
     assert task["runtime_tool_policy"] == "NO_DIRECT_TOOL_CALLS"
-    assert task["deadline_at"] == "2026-08-21T10:00:30Z"
+    assert task["deadline_at"] == "2026-08-21T10:01:00Z"
     assert len(task["available_tool_catalog"]) == 10
     assert task["input_digest"] == compute_agent_input_digest(task)
     assert task["tool_manifest_digest"].startswith("sha256:")

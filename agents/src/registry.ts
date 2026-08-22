@@ -39,8 +39,8 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     promptVersion: 'evidence-researcher.v1',
     inputSchemaId: 'caffemate.agent.evidence-plan-input.v1',
     outputSchemaId: 'caffemate.agent.evidence-plan-result.v1',
-    deadlineSeconds: 30,
-    maxOutputTokens: 8192,
+    deadlineSeconds: 60,
+    maxOutputTokens: 16384,
   },
   EVIDENCE_ASSESS: {
     agentName: 'EVIDENCE_RESEARCHER',

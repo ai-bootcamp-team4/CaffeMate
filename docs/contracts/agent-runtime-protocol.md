@@ -199,7 +199,7 @@ trace_context: optional W3C trace context
 | `task_type` | `agent_name` | 입력 payload | 출력 payload | 최대 실행시간 |
 | --- | --- | --- | --- | ---: |
 | `INTENT_DELTA` | `INTENT_INTERPRETER` | current State projection, latest input, field ontology | delta proposal | 30초 |
-| `EVIDENCE_PLAN` | `EVIDENCE_RESEARCHER` | atomic Claims, pinned MCP catalog | support·counter action plan | 30초 |
+| `EVIDENCE_PLAN` | `EVIDENCE_RESEARCHER` | atomic Claims, pinned MCP catalog | support·counter action plan | 60초 |
 | `EVIDENCE_ASSESS` | `EVIDENCE_RESEARCHER` | Claims, validated MCP·RAG results | Evidence assessments·conflicts | 30초 |
 | `PROPOSE_INDEPENDENT` | `PROPOSAL_AGENT` | Founder·Area snapshot, registered model seeds, Evidence | independent candidate proposals | 30초 |
 | `PROPOSE_FRANCHISE` | `PROPOSAL_AGENT` | Founder·Area snapshot, verified franchise universe, Evidence | franchise candidate proposals | 30초 |
