@@ -84,6 +84,7 @@ ingress를 유지하며 Pub/Sub push, Scheduler와 Worker identity만 invoker다
 revision=$(git rev-parse HEAD)
 CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
 CAFFEMATE_SOURCE_REVISION="$revision" \
+CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID='<numeric-reasoning-engine-id>' \
   ./scripts/deploy-api-worker-runtime.sh
 CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
 CAFFEMATE_SOURCE_REVISION="$revision" \
@@ -93,6 +94,15 @@ CAFFEMATE_SOURCE_REVISION="$revision" \
 API는 browser가 호출하므로 network ingress는 `all`이지만 모든 업무 요청을 Firebase ID
 token으로 다시 검증한다. `allUsers` Cloud Run Invoker가 필요하면 관리자가 API service에만
 한 번 부여하고 정책을 read-back한다. build는 IAM policy를 수정하지 않는다.
+
+배포 스크립트는 `CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID`가 가리키는 서울 Runtime을 먼저
+조회하고, API service account에 해당 Runtime resource 범위의 `roles/aiplatform.user`를
+부여한다. Runtime의 관리형 Agent identity에는 모델 실행용 `roles/aiplatform.expressUser`와
+할당량 사용용 `roles/serviceusage.serviceUsageConsumer`만 부여한 뒤 API에 project id와
+resource id를 주입한다. API service account에도 Runtime 호출 시 프로젝트 할당량을 사용할 수
+있도록 `roles/serviceusage.serviceUsageConsumer`를 부여한다. 검증 스크립트는 API image와 같은 service account를 쓰는 일회성
+Cloud Run Job으로 실제 session 생성, Agent 실행, typed final event 검증과 session 삭제를
+모두 통과시킨다. 단순 resource 조회는 실행 가능성의 증거로 취급하지 않는다.
 
 Worker ingress는 `internal`이다. 같은 project의 Pub/Sub subscription과 Cloud Scheduler는
 default `run.app` URL로 내부 호출할 수 있다. 각 호출 identity에는 Worker service의
@@ -128,6 +138,7 @@ Migration job은 API 시작 명령을 사용하지 않고 `caffemate-api migrate
 5. API 업무 endpoint의 무인증 요청이 거절됨
 6. Worker 업무 endpoint가 internet과 권한 없는 identity에서 거절됨
 7. test Workflow outbox가 `PUBLISHED`가 되고 Pub/Sub push 뒤 stage event가 이어짐
+8. Control API identity로 Agent Runtime session 생성·실행·typed final 검증·삭제 성공
 
 하나라도 확인하지 못하면 배포 상태는 `pending`이다.
 

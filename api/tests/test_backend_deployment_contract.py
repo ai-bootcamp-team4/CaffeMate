@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_backend_cloudbuild_preserves_order_and_security_boundaries() -> None:
     config = (ROOT / "cloudbuild.backend.yaml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "deploy" / "backend.Dockerfile").read_text(encoding="utf-8")
     ordered_steps = [
         "- id: build-backend-image",
         "- id: push-backend-image",
@@ -28,6 +29,8 @@ def test_backend_cloudbuild_preserves_order_and_security_boundaries() -> None:
     assert "worker.main:app,--host,0.0.0.0,--port,8080" in config
     assert "--allow-unauthenticated" not in config
     assert "set-iam-policy" not in config
+    assert "COPY agents/release-manifest.json ./agents/release-manifest.json" in dockerfile
+    assert "COPY agents/fixtures ./agents/fixtures" in dockerfile
 
 
 def test_backend_deployment_contract_requires_operational_readback() -> None:
@@ -148,6 +151,21 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "--oidc-service-account-email" in deploy
     assert "WORKER_ID=caffemate-worker" in deploy
     assert "roles/iam.serviceAccountTokenCreator" in deploy
+    assert "CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID" in deploy
+    assert "AGENT_RUNTIME_PROJECT_ID=${project_id}" in deploy
+    assert "AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id}" in deploy
+    assert '"${agent_runtime_url}:getIamPolicy"' in deploy
+    assert '"${agent_runtime_url}:setIamPolicy"' in deploy
+    assert "roles/aiplatform.user" in deploy
+    assert "roles/aiplatform.expressUser" in deploy
+    assert "roles/serviceusage.serviceUsageConsumer" in deploy
+    assert 'member="serviceAccount:${api_sa}"' in deploy
+    assert 'agent_runtime_identity="principal://${agent_runtime_identity}"' in deploy
+    assert 'agent_runtime_identity="principal://${agent_runtime_identity}"' in verifier
+    assert "--header=" not in deploy
+    assert "--header=" not in verifier
+    assert "--data=" not in deploy
+    assert "--data=" not in verifier
     assert "MCP_SCOPE_HMAC_SECRET" not in deploy.split("gcloud run deploy caffemate-worker", 1)[1]
     assert "API unauthenticated business request returned HTTP 401" in verifier
     assert '"${api_url}/health"' in verifier
@@ -156,5 +174,12 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "Worker unauthenticated internet request rejected" in verifier
     assert "authenticated Pub/Sub push configuration" in verifier
     assert "API and Worker use the same image digest" in verifier
+    assert "verify-mcp-preflight" in verifier
+    assert "Control API SDK manifest preflight against deployed MCP" in verifier
+    assert "verify-agent-runtime" in verifier
+    assert "resource-scoped Agent Runtime query IAM" in verifier
+    assert "Agent Runtime identity has model and service usage permissions" in verifier
+    assert "Control API has project service usage permission" in verifier
+    assert "created, executed, validated and deleted an Agent Runtime session" in verifier
     assert "Worker has public invoker policy" in verifier
     assert "Scheduler reached internal Worker with HTTP 200" in verifier

@@ -21,8 +21,6 @@ from app.contracts.schema_registry import AgentContractValidator, ContractRegist
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 
 CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
-QUERY_TIMEOUT_SECONDS = 10.0
-CLEANUP_RESERVE_SECONDS = 2.0
 
 
 class AccessTokenProvider(Protocol):
@@ -201,12 +199,12 @@ class AgentRuntimeHttpClient:
         session_id: str | None = None
         primary_error: Exception | None = None
         try:
-            session_id = self._create_session(user_id, timeout=self._query_timeout(task))
+            session_id = self._create_session(user_id, timeout=self._request_timeout(task))
             events = self._stream_query(
                 user_id=user_id,
                 session_id=session_id,
                 task=task,
-                timeout=self._stream_timeout(task),
+                timeout=self._request_timeout(task),
             )
             self._ensure_before_deadline(task)
             response_text = self._select_final_text(events, expected_author=task["agent_name"])
@@ -222,7 +220,7 @@ class AgentRuntimeHttpClient:
                     self._delete_session(
                         user_id=user_id,
                         session_id=session_id,
-                        timeout=self._query_timeout(task),
+                        timeout=self._request_timeout(task),
                     )
                 except Exception:
                     try:
@@ -353,20 +351,16 @@ class AgentRuntimeHttpClient:
                 timeout=timeout,
             ) as response:
                 response.raise_for_status()
-                media_type = response.headers.get("content-type", "").split(";", 1)[0].strip()
-                if media_type != "application/json":
-                    raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID")
                 events = []
                 for line in response.iter_lines():
-                    if not line.strip():
+                    if not line:
                         continue
-                    value = json.loads(line)
-                    if not isinstance(value, dict) or set(value) != {"output"}:
-                        raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID")
-                    output = value["output"]
-                    if not isinstance(output, dict):
-                        raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID")
-                    events.append(output)
+                    encoded = line[5:].strip() if line.startswith("data:") else line
+                    value = json.loads(encoded)
+                    if not isinstance(value, dict):
+                        continue
+                    output = value.get("output")
+                    events.append(output if isinstance(output, dict) else value)
         except json.JSONDecodeError as error:
             raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID") from error
         except httpx.HTTPStatusError as error:
@@ -492,17 +486,11 @@ class AgentRuntimeHttpClient:
             now = now.replace(tzinfo=UTC)
         return (deadline - now).total_seconds()
 
-    def _query_timeout(self, task: dict[str, Any]) -> float:
+    def _request_timeout(self, task: dict[str, Any]) -> float:
         remaining = self._remaining_seconds(task)
         if remaining <= 0:
             raise AgentRuntimeError("RUNTIME_TIMED_OUT")
-        return min(QUERY_TIMEOUT_SECONDS, remaining)
-
-    def _stream_timeout(self, task: dict[str, Any]) -> float:
-        available = self._remaining_seconds(task) - CLEANUP_RESERVE_SECONDS
-        if available <= 0:
-            raise AgentRuntimeError("RUNTIME_TIMED_OUT")
-        return available
+        return min(30.0, remaining)
 
     def _retry_after_seconds(self, response: httpx.Response) -> float | None:
         value = response.headers.get("Retry-After")

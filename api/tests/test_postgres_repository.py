@@ -47,7 +47,8 @@ from app.feedback.models import FeedbackPreviewStatus
 from app.feedback.postgres_repository import PostgresFeedbackRepository
 from app.feedback.service import FeedbackService
 from app.main import create_app
-from app.mcp.client import McpCallOutcome
+from app.mcp.client import McpCallOutcome, McpClientError
+from app.mcp.preflight import McpPreflightReport
 from app.migrations import apply_migrations
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
@@ -97,6 +98,9 @@ class FixedIdentityVerifier:
 
 
 class ConfiguredExternalDependencies:
+    def __init__(self) -> None:
+        self.preflight_project_ids: list[str] = []
+
     def invoke(self, task: dict[str, object]) -> dict[str, object]:
         del task
         raise AssertionError("Agent Runtime must not run while starting a workflow")
@@ -104,6 +108,20 @@ class ConfiguredExternalDependencies:
     async def call_tool(self, **kwargs: object) -> object:
         del kwargs
         raise AssertionError("MCP must not run while starting a workflow")
+
+    async def run(self, **kwargs: object) -> McpPreflightReport:
+        self.preflight_project_ids.append(str(kwargs["venture_project_id"]))
+        return McpPreflightReport(
+            protocol_revision="2026-07-28",
+            manifest_digest="a" * 64,
+            tool_count=10,
+        )
+
+
+class FailedPreflightDependencies(ConfiguredExternalDependencies):
+    async def run(self, **kwargs: object) -> McpPreflightReport:
+        del kwargs
+        raise McpClientError("MCP_MANIFEST_MISMATCH")
 
 
 class DocumentStorageFixture:
@@ -1267,6 +1285,7 @@ def test_http_202_workflow_survives_api_instance_shutdown(
             identity_verifier=FixedIdentityVerifier(),
             agent_runtime=dependencies,  # type: ignore[arg-type]
             mcp_client=dependencies,  # type: ignore[arg-type]
+            mcp_manifest_preflight=dependencies,  # type: ignore[arg-type]
         )
     ) as client:
         project = client.post(
@@ -1285,6 +1304,7 @@ def test_http_202_workflow_survives_api_instance_shutdown(
             json={},
         )
         assert response.status_code == 202
+        assert dependencies.preflight_project_ids == [project["project_id"]]
         workflow_run_id = response.json()["workflow_run_id"]
         progress = client.get(
             f"/v1/projects/{project['project_id']}/workflows/{workflow_run_id}",
@@ -1318,6 +1338,7 @@ def test_http_202_workflow_survives_api_instance_shutdown(
             identity_verifier=FixedIdentityVerifier(),
             agent_runtime=dependencies,  # type: ignore[arg-type]
             mcp_client=dependencies,  # type: ignore[arg-type]
+            mcp_manifest_preflight=dependencies,  # type: ignore[arg-type]
         )
     ) as restarted_client:
         cancelled = restarted_client.post(
@@ -1382,6 +1403,62 @@ def test_workflow_start_reports_exact_missing_stage_configuration(
     }
     with postgres_engine.connect() as connection:
         assert connection.execute(text("SELECT COUNT(*) FROM workflow_runs")).scalar_one() == 0
+
+
+def test_workflow_start_rejects_manifest_drift_before_persistence(
+    postgres_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with postgres_engine.begin() as connection:
+        connection.execute(
+            text(
+                "TRUNCATE result_bundles, workflow_outbox, workflow_idempotency_records, "
+                "workflow_events, stage_runs, workflow_runs, idempotency_records, "
+                "project_events, venture_states, venture_projects CASCADE"
+            )
+        )
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        postgres_engine.url.render_as_string(hide_password=False),
+    )
+    monkeypatch.setenv("CAFFEMATE_POLICY_SNAPSHOT_ID", "policy-v1")
+    dependencies = FailedPreflightDependencies()
+    headers = {"Authorization": "Bearer valid-token"}
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(
+        create_app(
+            identity_verifier=FixedIdentityVerifier(),
+            agent_runtime=dependencies,  # type: ignore[arg-type]
+            mcp_client=dependencies,  # type: ignore[arg-type]
+            mcp_manifest_preflight=dependencies,  # type: ignore[arg-type]
+        )
+    ) as client:
+        project = client.post(
+            "/v1/projects",
+            headers={**headers, "Idempotency-Key": "create-preflight-failure"},
+            json={},
+        ).json()
+        client.post(
+            f"/v1/projects/{project['project_id']}/onboarding/confirm",
+            headers={**headers, "Idempotency-Key": "onboarding-preflight-failure"},
+            json={"founder": founder().model_dump(mode="json")},
+        )
+        response = client.post(
+            f"/v1/projects/{project['project_id']}/workflows/FIRST_PROPOSAL",
+            headers={**headers, "Idempotency-Key": "workflow-preflight-failure"},
+            json={},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "code": "FIRST_PROPOSAL_PREFLIGHT_UNAVAILABLE",
+        "reason_codes": ["MCP_MANIFEST_MISMATCH"],
+    }
+    with postgres_engine.connect() as connection:
+        assert connection.execute(text("SELECT COUNT(*) FROM workflow_runs")).scalar_one() == 0
+        assert connection.execute(text("SELECT COUNT(*) FROM workflow_outbox")).scalar_one() == 0
 
 
 def test_first_proposal_runs_all_real_handlers_through_worker_to_result(

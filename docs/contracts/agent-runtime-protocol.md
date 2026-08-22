@@ -120,13 +120,11 @@ session 생성 입력의 `user_id`는 실제 사용자 식별자가 아니라 `v
 }
 ```
 
-배포된 custom Runtime의 streaming 응답은 newline-delimited JSON으로 해석한다. 각 non-empty line은 정확히 다음 한 겹의 envelope만 허용한다.
-
-```json
-{"output": {"author": "<agent_name>", "content": {"parts": [{"text": "<AgentTaskResult JSON>"}]}}}
-```
-
-Control API는 `output`이 object가 아니거나 envelope에 다른 top-level key가 섞인 응답을 `RUNTIME_STREAM_PROTOCOL_INVALID`로 거절한다. raw ADK Event와 `data:` SSE framing을 별도 호환 경로로 수용하지 않는다. public `:streamQuery?alt=sse` 호출에서도 이 CaffeMate custom Runtime wire contract를 검증한 뒤 `output` 한 겹을 제거하고 아래 final-event 규칙을 적용한다.
+관리형 Runtime의 stream 응답은 배포 방식에 따라 `data: <event>` SSE line 또는
+`{"output": <event>}` newline JSON envelope로 전달될 수 있다. Control API adapter는 줄마다
+JSON object 하나만 허용하고 `output` object가 있으면 한 단계만 벗긴 뒤 동일한 final event
+검증을 적용한다. 임의의 중첩 envelope, JSON이 아닌 line과 여러 final event를 정상 결과로
+간주하지 않는다.
 
 ### 4.3 결정론적 root dispatcher
 
@@ -486,6 +484,8 @@ tool 이름, input·output Schema와 version은 [MCP Tool Manifest](./mcp-tool-m
 인구·업소·개폐업·프랜차이즈 구조화 필드는 나머지 typed connector tool로 조회하며 문서 RAG context를 정형 수치의 최종값으로 사용하지 않는다. RAG retrieval hit도 바로 Evidence가 아니며 tool output Schema, 원문 anchor·source revision·scope·freshness 검사를 통과한 뒤에만 `evidence_records`에 들어간다.
 
 배포 preflight는 pagination을 끝까지 소비한 `tools/list`의 name·version·inputSchema·outputSchema를 RFC 8785로 정규화한다. checked-in manifest도 같은 방식으로 정규화하고 [manifest digest](./mcp-tool-manifest.sha256)와 비교한다. 누락·추가 tool, schema 차이 또는 digest 차이가 하나라도 있으면 `MCP_MANIFEST_MISMATCH`로 Workflow 시작을 막는다. `server/discover`는 capability preflight에만 쓰며 business request의 선행 handshake가 아니다.
+
+Control API는 `FIRST_PROPOSAL` Workflow를 저장하기 전에 Python SDK의 `McpManifestPreflight`를 실행한다. 이 검사는 discover revision, pagination 전체, tool version, input·output Schema와 RFC 8785 manifest digest를 모두 확인한다. MCP 미설정, transport 실패 또는 manifest 불일치 시 Workflow row와 outbox를 만들지 않고 `FIRST_PROPOSAL_PREFLIGHT_UNAVAILABLE`과 구체적인 MCP reason code를 반환한다. 배포 검증도 Control API image와 runtime service account로 같은 preflight를 실행해야 한다.
 
 ## 9. 역할별 Workflow handoff
 
