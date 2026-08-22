@@ -2,9 +2,9 @@
 
 > 상태: draft
 >
-> 갱신일: 2026-08-21
+> 갱신일: 2026-08-23
 >
-> 구현 상태: frontend 외 구성요소는 아직 배포되지 않음
+> 구현 상태: Web·API·Worker·MCP·Agent Runtime 배포 및 운영 검증 진행 중
 
 ## 결정
 
@@ -65,6 +65,18 @@ flowchart LR
 | MCP | 공식·프로젝트 자료 read tools | tool latency·권한 경계 | 비공개 |
 
 API 내부 모듈은 독립 테스트가 가능해야 하지만 첫 구현에서 각각 별도 서비스로 배포하지 않는다.
+
+Agent Runtime은 의미 판단을 담당하지만 Workflow 생존권이나 권위 State를 소유하지 않는다.
+결정론적으로 대체할 수 없는 `EVIDENCE_ASSESS` 실패를 가짜 `ABSTAIN` 성공으로 바꾸지 않는다.
+Control API는 원래 Runtime code와 trace를 가진 명시적 Stage 실패로 남기고 어떤 조회 record도
+Evidence로 승격하지 않는다. 모델·endpoint·리전을 바꾸는 자동 fallback도 계속 금지한다.
+
+Agent 호출은 역할별로 최적화한다. Control API는 전체 MCP 저장본에서 의미 판정에 필요한 rerank
+상위 Evidence만 투영하고, Runtime은 task별 사고 수준·출력 토큰·deadline을 release manifest에서
+고정한다. `EVIDENCE_ASSESS`는 bounded 분류 작업이므로 `low` 사고 수준과 최대 4,096 출력 토큰,
+60초 deadline을 사용한다. Proposal과 Candidate Audit은 후보 구성·반례 탐색이 필요하므로
+`medium`을 사용한다. Runtime은 task type, 요청 byte, 지연, 종료 사유와 provider token usage만
+구조화 log로 남기며 사용자 입력·Evidence 본문·프로젝트·세션 식별자는 기록하지 않는다.
 
 ```text
 api/

@@ -7,7 +7,7 @@ import {
   vertexRagEndpoint,
   vertexRankingEndpoint,
 } from '../../rag/src/vertex-rag-backend'
-import { GCP_LOCATIONS, TASK_REGISTRY } from './registry'
+import { AGENT_MODEL, GCP_LOCATIONS, TASK_REGISTRY } from './registry'
 import {
   type GcpMcpRuntimePin,
   type GcpRuntimePin,
@@ -518,6 +518,7 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
           systemInstruction: 'CaffeMate generation deployment preflight. Return only the requested JSON object.',
           userText: 'Return exactly {"ok":true}.',
           responseJsonSchema: GENERATION_PREFLIGHT_RESPONSE_SCHEMA,
+          thinkingLevel: AGENT_MODEL.thinkingLevel,
           maxOutputTokens: GENERATION_PREFLIGHT_MAX_OUTPUT_TOKENS,
         })),
       },

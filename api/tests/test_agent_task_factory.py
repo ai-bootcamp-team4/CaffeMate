@@ -18,6 +18,7 @@ from app.domain.models import (
 from app.workflows.claim_plan import ClaimPlanStageHandler
 from app.workflows.models import HeadFence, StageLease
 from app.workflows.stage_context import StageContext
+from tests.test_agent_boundary import evidence_record
 
 
 def evidence_plan_context() -> StageContext:
@@ -196,11 +197,74 @@ def test_evidence_assess_task_contains_only_normalized_retrieval_inputs() -> Non
     ).build_evidence_assess(value)
 
     assert task["task_type"] == "EVIDENCE_ASSESS"
-    assert task["deadline_at"] == "2026-08-21T10:00:30Z"
+    assert task["deadline_at"] == "2026-08-21T10:01:00Z"
     assert task["tool_manifest_digest"] is None
     assert task["available_tool_catalog"] == []
     assert task["payload"] == {
         "claims": claim_plan["claims"],
         "executed_actions": [],
     }
+    assert task["input_digest"] == compute_agent_input_digest(task)
+
+
+def test_evidence_assess_projection_deduplicates_and_bounds_model_context() -> None:
+    value = evidence_plan_context()
+    claim_plan = value.dependency_results["CLAIM_PLAN"]["claim_plan"]
+    value.lease = value.lease.model_copy(
+        update={"stage_run_id": "assess-stage", "stage_code": "EVIDENCE_ASSESS"}
+    )
+    records = [evidence_record(f"evidence-{index}") for index in range(1, 6)]
+    result = {
+        "schema_version": "1.0.0",
+        "request_id": "request-shared",
+        "tool_name": "get_area_profile",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": records,
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": [{"metric": "bulk-row"}],
+    }
+    actions = [
+        {
+            "action_id": f"action-{polarity.lower()}",
+            "claim_id": "claim:AREA_PROFILE",
+            "polarity": polarity,
+            "tool_name": "get_area_profile",
+            "request_id": "request-shared",
+            "structured_result": result,
+        }
+        for polarity in ("SUPPORT", "COUNTER")
+    ]
+    value.dependency_results = {
+        "EVIDENCE_RETRIEVAL": {
+            "evidence_retrieval": {
+                "claims": claim_plan["claims"],
+                "executed_actions": actions,
+                "failed_actions": [],
+                "completeness": "COMPLETE",
+            }
+        }
+    }
+
+    factory = AgentTaskFactory(
+        now=lambda: datetime(2026, 8, 21, 10, 0, tzinfo=UTC),
+        new_invocation_id=lambda: "invocation-assess",
+    )
+    task = factory.build_evidence_assess(value)
+    projected = task["payload"]["executed_actions"]
+
+    assert len(projected) == 1
+    assert [
+        record["evidence_id"]
+        for record in projected[0]["structured_result"]["evidence_records"]
+    ] == ["evidence-1", "evidence-2", "evidence-3"]
+    assert projected[0]["structured_result"]["data"] == []
+    assert len(actions) == 2
+    assert len(actions[0]["structured_result"]["evidence_records"]) == 5
+    assert actions[0]["structured_result"]["data"] == [{"metric": "bulk-row"}]
     assert task["input_digest"] == compute_agent_input_digest(task)

@@ -1,4 +1,4 @@
-import { AGENT_MODEL } from './registry'
+import { AGENT_MODEL, type AgentThinkingLevel } from './registry'
 import type { AgentModelResponse } from './model-executor'
 
 export class VertexAgentModelError extends Error {
@@ -18,6 +18,7 @@ export interface VertexGenerationRequestInput {
   systemInstruction: string
   userText: string
   responseJsonSchema: Record<string, unknown>
+  thinkingLevel: AgentThinkingLevel
   maxOutputTokens: number
 }
 
@@ -40,7 +41,7 @@ export function buildVertexGenerationRequest(input: VertexGenerationRequestInput
       responseJsonSchema: input.responseJsonSchema,
       seed: 17,
       thinkingConfig: {
-        thinkingLevel: AGENT_MODEL.thinkingLevel.toUpperCase(),
+        thinkingLevel: input.thinkingLevel.toUpperCase(),
       },
       maxOutputTokens: input.maxOutputTokens,
     },

@@ -83,6 +83,8 @@ describe('local agent release manifest', () => {
         input_schema_id: registration.inputSchemaId,
         output_schema_id: registration.outputSchemaId,
         deadline_seconds: registration.deadlineSeconds,
+        thinking_level: registration.thinkingLevel,
+        max_output_tokens: registration.maxOutputTokens,
       })
     }
 

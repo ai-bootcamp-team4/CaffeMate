@@ -17,6 +17,8 @@ export interface ReleaseTaskPin {
   input_schema_id: string
   output_schema_id: string
   deadline_seconds: number
+  thinking_level: string
+  max_output_tokens: number
 }
 
 export interface ReleaseSourceRevisionPin {
@@ -159,6 +161,8 @@ function verifyTaskPins(manifest: AgentReleaseManifest, issues: ReleaseSealIssue
       input_schema_id: registration.inputSchemaId,
       output_schema_id: registration.outputSchemaId,
       deadline_seconds: registration.deadlineSeconds,
+      thinking_level: registration.thinkingLevel,
+      max_output_tokens: registration.maxOutputTokens,
     }
     if (canonicalizeJson(pin) !== canonicalizeJson(expected)) {
       issue(issues, 'RELEASE_TASK_PIN_MISMATCH', `${taskType} does not match the runtime registry`)

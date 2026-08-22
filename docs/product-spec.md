@@ -298,6 +298,16 @@ OCR·문서 분석 결과는 필드별 확인 팝업이 아니라 한 화면의 
 - `asia-northeast3` RAG Engine의 Preview 위험은 본 프로젝트에서 수용한다. 배포 전 corpus 생성, 문서 import, retrieval과 rerank 실제 호출을 각각 검증한다.
 - RAG Engine 실패를 Cloud SQL `pgvector`나 다른 리전으로 조용히 우회하지 않는다. 필수 사전 검증이 실패하면 문서 RAG 경로를 `BLOCKED_BY_REGION` 또는 `RAG_UNAVAILABLE`로 중단한다.
 - 인구·카페 수·개폐업·매출 관측처럼 계산에 쓰이는 정형 수치는 RAG가 아니라 검증된 API·BigQuery·SQL Tool로 조회한다.
+- `EVIDENCE_ASSESS`는 근거의 의미 관계·범위·시점·권위를 판정하는 필수 관리형 Agent 단계다.
+  Runtime 실패를 성공이나 결정론적 Agent 대체값으로 바꾸지 않는다. 실패는 원래 Runtime code와
+  trace를 보존한 명시적 Stage 실패로 남기며, 조회 record를 검증된 Evidence로 승격하지 않는다.
+- Agent에는 완전한 조회 저장본이 아니라 의미 판정에 필요한 bounded projection만 보낸다. 동일
+  Claim과 물리 요청의 중복 결과는 한 번만 전달하고, action별 rerank 상위 세 Evidence candidate만
+  포함하며 공급자 원시 data row는 제외한다. 완전한 MCP 결과는 Control API가 별도로 보존하여
+  Evidence Freeze와 후보 입력에서 사용한다.
+- 역할별 생성 예산을 고정한다. Intent·Evidence 평가는 `low`, Proposal·Document·Candidate
+  Audit은 `medium` 사고 수준을 사용한다. 이는 Agent를 제거하는 최적화가 아니라 역할의 인지적
+  난이도에 맞춰 지연과 `MAX_TOKENS` 실패를 제한하는 설정이다.
 
 ## 17. 현재 미결정 또는 검증 필요
 

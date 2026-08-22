@@ -19,7 +19,7 @@ Proposal Agent를 포함한 5-Agent 구조와 결정론적 Core를 유지하면�
 | 생성 모델 | `gemini-3.7-flash`, 사용자 승인 및 `global` 실호출 검증 완료 |
 | 생성 endpoint | `global` (`gemini-3.7-flash`); fallback 아님 |
 | embedding endpoint | `asia-northeast3`; 다른 리전 fallback 금지 |
-| 생성 설정 | `thinking_level=HIGH`, `candidateCount=1`, `seed=17`, JSON structured output; `temperature`/`topP`/`topK`는 모델 기본값 사용 |
+| 생성 설정 | 역할별 `thinking_level`, `candidateCount=1`, `seed=17`, JSON structured output; `temperature`/`topP`/`topK`는 모델 기본값 사용 |
 | Advanced RAG | Vertex AI RAG Engine, `asia-northeast3`; 운영 필수 검색 계층 |
 | Embedding | RAG corpus 생성 시 pin하며 서울 import·retrieval read-back 전 사용 금지 |
 | Exact retrieval | Cloud SQL typed lookup; id·날짜·금액·단위 전용 |
@@ -159,13 +159,19 @@ BUILDING → EVALUATING → SHADOW → ACTIVE
 
 공통 모델 설정:
 
-| Agent | Output 한도 | Deadline |
-|---|---:|---:|
-| Intent Interpreter | 4,096 | 30초 |
-| Evidence Researcher ASSESS | 8,192 | 30초 |
-| Proposal Agent | 8,192 | 30초 |
-| Document Analyst | 8,192 | batch당 60초 |
-| Typed Candidate Auditor | 6,144 | 60초 |
+| Agent task | 사고 수준 | Output 한도 | Deadline |
+|---|---|---:|---:|
+| Intent Interpreter | `low` | 4,096 | 30초 |
+| Evidence Researcher PLAN 호환 경로 | `low` | 8,192 | 60초 |
+| Evidence Assessor | `low` | 4,096 | 60초 |
+| Proposal Agent | `medium` | 8,192 | 60초 |
+| Document Analyst | `medium` | 8,192 | batch당 60초 |
+| Typed Candidate Auditor | `medium` | 6,144 | 60초 |
+
+사고 수준은 모델 전체에 한 값을 적용하지 않고 release manifest의 task pin으로 관리한다. Intent와
+Evidence 평가는 bounded 분류 작업이므로 `low`를 사용한다. Proposal과 Audit은 여러 근거를 묶고
+반례를 찾는 작업이므로 `medium`을 사용한다. `high`를 모든 task에 적용해 내부 사고 토큰이 JSON
+출력 예산을 소진하는 구성을 금지한다.
 
 Transport retry는 408·429·5xx·network failure에 한해 최대 2회다. JSON/schema 오류는 repair prompt로 한 번만 고친다. Safety block, 400, 401, 403, anchor·ACL 오류는 retry하지 않는다.
 
@@ -211,6 +217,21 @@ In PLAN mode, map each supplied atomic Claim to zero or more typed read actions 
 In ASSESS mode, inspect only the supplied tool results and retrieved candidates. Link each candidate to its Claim and classify scope, date, authority, freshness, anchor completeness, and whether it supports, contradicts, or does not address the Claim.
 
 A retrieval hit is not Evidence. Return Evidence candidates only. Do not confirm a Claim, choose a source winner, create a candidate, calculate finance, apply a Gate, or rank anything. Preserve retrieval time separately from the source's data or effective date.
+```
+
+이 prompt는 현재 결정론적 Evidence Plan의 이전 LLM 호환 경로에만 남는다. 실제
+`EVIDENCE_ASSESS`는 `evidence-assessor.v2`를 사용한다.
+
+`evidence-assessor.v2`:
+
+```text
+Your role is Evidence Assessor.
+
+Assess only the supplied bounded Evidence candidates. The controller already selected tools and executed retrieval; do not plan searches, request tools, or repeat source contents.
+
+Return at most one assessment for each unique claim_id and candidate_ref pair. Copy structured freshness status and evaluate only the Claim relation, geographic scope, date, anchor, and authority represented in the supplied fields. Keep missing_context and conflict reasons short. A support or counter query label is search intent, not proof of the candidate's relation.
+
+List every Claim without a usable candidate in missing_claims. A retrieval hit is not approved Evidence. Do not confirm a Claim, choose a source winner, create a candidate, calculate finance, apply a Gate, or rank anything.
 ```
 
 `proposal-agent.v1`:

@@ -32,7 +32,7 @@ describe('local model-backed Agent executors', () => {
 
     expect(invocation.model).toBe('approved-model-after-gcp-preflight')
     expect(invocation.region).toBe('global')
-    expect(invocation.thinkingLevel).toBe('high')
+    expect(invocation.thinkingLevel).toBe('medium')
     expect(invocation.maxOutputTokens).toBe(8192)
     expect(invocation.outputSchemaId).toBe('caffemate.agent.independent-proposal-result.v1')
     expect(invocation.systemInstruction).toContain(PROMPTS['common-system.v1'])
