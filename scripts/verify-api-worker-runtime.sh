@@ -36,6 +36,41 @@ worker_image=$(gcloud run services describe caffemate-worker --project="$project
 }
 printf '%s\n' 'PASS API and Worker use the same image digest'
 
+mcp_url=$(gcloud run services describe caffemate-mcp --project="$project_id" \
+  --region="$region" --format='value(status.url)')
+api_service_json=$(gcloud run services describe caffemate-api --project="$project_id" \
+  --region="$region" --format=json)
+configured_mcp_url=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; print(next(row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "MCP_BASE_URL"))')
+configured_mcp_audience=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; print(next(row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "MCP_AUDIENCE"))')
+[ "$configured_mcp_url" = "$mcp_url" ] && [ "$configured_mcp_audience" = "$mcp_url" ] || {
+  printf '%s\n' 'FAIL Control API MCP URL or audience differs from deployed MCP' >&2; exit 1;
+}
+
+preflight_job='caffemate-mcp-control-preflight'
+api_sa="caffemate-api-runtime@${project_id}.iam.gserviceaccount.com"
+configure_preflight_job() {
+  action=$1
+  gcloud run jobs "$action" "$preflight_job" --project="$project_id" --region="$region" \
+    --image="$api_image" --service-account="$api_sa" \
+    --set-env-vars="MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1" \
+    --set-secrets='MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
+    --command=caffemate-api --args=verify-mcp-preflight \
+    --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=2m \
+    --cpu=1 --memory=512Mi \
+    --labels="source-revision=${source_revision},managed-by=caffemate-verify" \
+    --quiet >/dev/null
+}
+if gcloud run jobs describe "$preflight_job" --project="$project_id" --region="$region" >/dev/null 2>&1; then
+  configure_preflight_job update
+else
+  configure_preflight_job create
+fi
+gcloud run jobs execute "$preflight_job" --project="$project_id" --region="$region" \
+  --wait --quiet >/dev/null
+printf '%s\n' 'PASS Control API SDK manifest preflight against deployed MCP'
+
 api_public=$(gcloud run services get-iam-policy caffemate-api \
   --project="$project_id" --region="$region" \
   --flatten='bindings[].members' \

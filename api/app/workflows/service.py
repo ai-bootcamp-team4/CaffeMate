@@ -29,7 +29,7 @@ class WorkflowService:
         idempotency_key: str,
     ) -> WorkflowRun:
         if self._start_guard is not None:
-            self._start_guard.validate(workflow_code)
+            self._start_guard.validate(workflow_code, project_id=project_id)
         return self._repository.start(
             StartWorkflowCommand(
                 project_id=project_id,

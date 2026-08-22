@@ -156,5 +156,7 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "Worker unauthenticated internet request rejected" in verifier
     assert "authenticated Pub/Sub push configuration" in verifier
     assert "API and Worker use the same image digest" in verifier
+    assert "verify-mcp-preflight" in verifier
+    assert "Control API SDK manifest preflight against deployed MCP" in verifier
     assert "Worker has public invoker policy" in verifier
     assert "Scheduler reached internal Worker with HTTP 200" in verifier
