@@ -141,6 +141,82 @@ describe('GCP deployment preflight', () => {
     expect(urls.some((url) => url.includes('discoveryengine.googleapis.com'))).toBe(false)
   })
 
+  it('exercises the production HIGH structured-output generation contract', async () => {
+    const fetchImpl = successfulFetch()
+
+    await runGcpPreflight(options(fetchImpl))
+
+    const generationCall = fetchImpl.mock.calls.find(([input]) => String(input).includes(':generateContent'))
+    expect(generationCall).toBeDefined()
+    const body = JSON.parse(String(generationCall?.[1]?.body)) as Record<string, unknown>
+    expect(body).toMatchObject({
+      systemInstruction: { parts: [{ text: expect.any(String) }] },
+      contents: [{ role: 'user', parts: [{ text: expect.any(String) }] }],
+      generationConfig: {
+        candidateCount: 1,
+        responseMimeType: 'application/json',
+        responseJsonSchema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['ok'],
+          properties: {
+            ok: { type: 'boolean' },
+          },
+        },
+        seed: 17,
+        thinkingConfig: { thinkingLevel: 'HIGH' },
+        maxOutputTokens: 8192,
+      },
+    })
+  })
+
+  it.each([
+    {
+      name: 'multiple candidates',
+      payload: {
+        candidates: [
+          { content: { parts: [{ text: '{"ok":true}' }] }, finishReason: 'STOP' },
+          { content: { parts: [{ text: '{"ok":true}' }] }, finishReason: 'STOP' },
+        ],
+      },
+    },
+    {
+      name: 'extra response parts',
+      payload: {
+        candidates: [{
+          content: { parts: [{ text: '{"ok":true}' }, { text: 'extra' }] },
+          finishReason: 'STOP',
+        }],
+      },
+    },
+    {
+      name: 'mixed function payload',
+      payload: {
+        candidates: [{
+          content: { parts: [{ text: '{"ok":true}', functionCall: { name: 'unexpected' } }] },
+          finishReason: 'STOP',
+        }],
+      },
+    },
+  ])('fails generation preflight on $name rejected by the production client', async ({ payload }) => {
+    const fetchImpl = successfulFetch()
+    const baseImplementation = fetchImpl.getMockImplementation()
+    fetchImpl.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).includes(`${MODEL_ID}:generateContent`)) return Response.json(payload)
+      if (!baseImplementation) throw new Error('missing base fetch implementation')
+      return baseImplementation(input, init)
+    })
+
+    const result = await runGcpPreflight(options(fetchImpl))
+
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'generation-model',
+      ok: false,
+      code: 'GENERATION_RESPONSE_INVALID',
+    }))
+  })
+
   it('fails closed when the deployed Runtime does not expose the required stream class method', async () => {
     const fetchImpl = successfulFetch()
     const baseImplementation = fetchImpl.getMockImplementation()

@@ -148,6 +148,34 @@ describe('Vertex Agent model client', () => {
     })
   })
 
+  it('fails closed when the single response part mixes text with a non-text payload', async () => {
+    const client = new VertexAgentModelClient({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl: async () => Response.json({
+        candidates: [{
+          content: {
+            role: 'model',
+            parts: [{
+              text: '{"status":"ABSTAIN"}',
+              inlineData: { mimeType: 'application/octet-stream', data: 'AA==' },
+            }],
+          },
+          finishReason: 'STOP',
+        }],
+      }),
+    })
+
+    await expect(client.generate(buildModelInvocation(task(), {
+      id: MODEL_ID,
+      region: REGION,
+      thinkingLevel: 'high',
+    }))).rejects.toMatchObject({
+      code: 'VERTEX_MODEL_RESPONSE_INVALID',
+    })
+  })
+
   it('fails closed on HTTP errors without returning provider response text as an Agent result', async () => {
     const client = new VertexAgentModelClient({
       projectId: PROJECT_ID,
