@@ -13,7 +13,7 @@ const expected = {
 
 const expectedDeadlines = {
   INTENT_DELTA: 30,
-  EVIDENCE_PLAN: 30,
+  EVIDENCE_PLAN: 60,
   EVIDENCE_ASSESS: 30,
   PROPOSE_INDEPENDENT: 30,
   PROPOSE_FRANCHISE: 30,
@@ -32,7 +32,7 @@ describe('task registry', () => {
   })
 
   it('reserves enough output budget for high-thinking evidence plans', () => {
-    expect(TASK_REGISTRY.EVIDENCE_PLAN.maxOutputTokens).toBe(8192)
+    expect(TASK_REGISTRY.EVIDENCE_PLAN.maxOutputTokens).toBe(16384)
   })
 
   it('pins the approved global generation model while keeping runtime and RAG in Seoul', () => {

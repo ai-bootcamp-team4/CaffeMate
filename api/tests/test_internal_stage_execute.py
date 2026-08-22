@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
+from app.agents.runtime import AgentRuntimeError
 from app.auth import IdentityVerifier
 from app.main import create_app
 from app.workflows.models import HeadFence, StageLease
@@ -27,11 +28,14 @@ class FakeAuthorizer:
 
 
 class FakeExecutor:
-    def __init__(self) -> None:
+    def __init__(self, *, error: Exception | None = None) -> None:
         self.calls = 0
+        self.error = error
 
     def execute(self, lease: StageLease) -> dict[str, object]:
         self.calls += 1
+        if self.error is not None:
+            raise self.error
         return {"stage_code": lease.stage_code, "attempt": lease.attempt}
 
 
@@ -107,3 +111,18 @@ def test_path_mismatch_and_rejected_lease_never_execute() -> None:
     assert wrong_path.json() == rejected.json() == {"code": "STAGE_LEASE_REJECTED"}
     assert authorizer.calls == 1
     assert executor.calls == 0
+
+
+def test_agent_runtime_subclass_is_reported_as_retryable_unavailable() -> None:
+    authorizer = FakeAuthorizer()
+    executor = FakeExecutor(error=AgentRuntimeError("RUNTIME_EXECUTION_FAILED"))
+
+    with client(authorizer, executor) as test_client:
+        response = test_client.post(
+            "/internal/v1/workflows/workflow-1/stages/stage-1:execute",
+            headers={"Authorization": "Bearer worker-token"},
+            json={"lease": lease().model_dump(mode="json")},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {"code": "EXTERNAL_EXECUTION_UNAVAILABLE"}
