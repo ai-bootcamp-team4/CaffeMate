@@ -1,10 +1,26 @@
 import { RAG_RANKER } from '../../rag/src/config'
-import { GCP_LOCATIONS } from './registry'
+import { GCP_LOCATIONS, TASK_REGISTRY } from './registry'
 import { AGENT_RUNTIME_CLASS_METHODS } from './runtime-contract'
+import {
+  buildVertexGenerationRequest,
+  parseVertexGenerationResponse,
+  vertexGenerationEndpoint,
+} from './vertex-generation-contract'
 
 const OFFICIAL_CORPUS_DISPLAY_NAME = 'caffemate-official-v1'
 const EMBEDDING_MODEL_ID = 'text-multilingual-embedding-002'
 const RUNTIME_DISPLAY_NAME = 'caffemate-agents'
+const GENERATION_PREFLIGHT_MAX_OUTPUT_TOKENS = Math.max(
+  ...Object.values(TASK_REGISTRY).map((registration) => registration.maxOutputTokens),
+)
+const GENERATION_PREFLIGHT_RESPONSE_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['ok'],
+  properties: {
+    ok: { type: 'boolean' },
+  },
+} as const)
 
 export class GcpPreflightError extends Error {
   constructor(public readonly code: string, message: string) {
@@ -158,11 +174,6 @@ function regionalBase(projectId: string, region: string): string {
   return `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}`
 }
 
-function generationEndpoint(projectId: string, region: typeof GCP_LOCATIONS.generation, modelId: string): string {
-  const host = region === 'global' ? 'aiplatform.googleapis.com' : `${region}-aiplatform.googleapis.com`
-  return `https://${host}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${encodeURIComponent(modelId)}:generateContent`
-}
-
 async function request(fetchImpl: typeof fetch, token: string, url: string, init?: RequestInit): Promise<Response> {
   return fetchImpl(url, {
     ...init,
@@ -312,30 +323,29 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
     const generationResponse = await request(
       fetchImpl,
       token,
-      generationEndpoint(options.projectId, options.generationRegion, options.approvedModelId),
+      vertexGenerationEndpoint(options.projectId, options.generationRegion, options.approvedModelId),
       {
         method: 'POST',
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: 'Return exactly {"ok":true}.' }] }],
-          generationConfig: {
-            candidateCount: 1,
-            responseMimeType: 'application/json',
-            maxOutputTokens: 256,
-          },
-        }),
+        body: JSON.stringify(buildVertexGenerationRequest({
+          systemInstruction: 'CaffeMate generation deployment preflight. Return only the requested JSON object.',
+          userText: 'Return exactly {"ok":true}.',
+          responseJsonSchema: GENERATION_PREFLIGHT_RESPONSE_SCHEMA,
+          maxOutputTokens: GENERATION_PREFLIGHT_MAX_OUTPUT_TOKENS,
+        })),
       },
     )
     if (!generationResponse.ok) {
       checks.push(fail('generation-model', 'GENERATION_PREFLIGHT_FAILED', `HTTP ${generationResponse.status}`))
     } else {
-      const generationPayload = await generationResponse.json() as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> }; finishReason?: string }>
+      try {
+        const generationResult = parseVertexGenerationResponse(await generationResponse.json())
+        checks.push(generationResult.kind === 'TEXT'
+          ? pass('generation-model', 'GENERATION_PREFLIGHT_OK', options.approvedModelId)
+          : fail('generation-model', 'GENERATION_RESPONSE_INVALID', generationResult.kind))
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        checks.push(fail('generation-model', 'GENERATION_RESPONSE_INVALID', detail))
       }
-      const candidate = generationPayload.candidates?.[0]
-      const text = candidate?.content?.parts?.[0]?.text
-      checks.push(typeof text === 'string' && text.length > 0 && candidate?.finishReason === 'STOP'
-        ? pass('generation-model', 'GENERATION_PREFLIGHT_OK', options.approvedModelId)
-        : fail('generation-model', 'GENERATION_RESPONSE_INVALID'))
     }
   }
 
