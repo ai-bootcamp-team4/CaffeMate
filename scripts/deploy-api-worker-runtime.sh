@@ -96,7 +96,7 @@ ensure_project_custom_role \
   "$release_verifier_role_id" \
   'CaffeMate AI Release Verifier' \
   'Read and execute the bounded Agent, RAG, embedding and reranker release probes.' \
-  'aiplatform.endpoints.predict,aiplatform.ragCorpora.get,aiplatform.ragCorpora.list,aiplatform.ragCorpora.query,aiplatform.ragFiles.get,aiplatform.ragFiles.list,aiplatform.reasoningEngines.get,aiplatform.reasoningEngines.list,discoveryengine.rankingConfigs.rank'
+  'aiplatform.endpoints.predict,aiplatform.ragCorpora.get,aiplatform.ragCorpora.list,aiplatform.ragCorpora.query,aiplatform.ragFiles.get,aiplatform.ragFiles.list,aiplatform.reasoningEngines.get,aiplatform.reasoningEngines.list,aiplatform.reasoningEngines.query,discoveryengine.rankingConfigs.rank,run.services.get,storage.objects.get'
 
 remove_project_role_binding "$agent_runtime_identity" 'roles/aiplatform.expressUser'
 remove_project_role_binding "$agent_runtime_identity" 'roles/serviceusage.serviceUsageConsumer'

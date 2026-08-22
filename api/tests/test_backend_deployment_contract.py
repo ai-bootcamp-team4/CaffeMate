@@ -163,6 +163,13 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "caffemateAgentRuntimeInvoker" in deploy
     assert "caffemateAgentSessionManager" in deploy
     assert "caffemateReleaseVerifier" in deploy
+    for permission in (
+        "aiplatform.reasoningEngines.query",
+        "run.services.get",
+        "storage.objects.get",
+    ):
+        assert permission in deploy
+        assert permission in verifier
     assert "remove_project_role_binding" in deploy
     assert "roles/serviceusage.serviceUsageConsumer" in deploy
     assert 'member="serviceAccount:${api_sa}"' in deploy
@@ -242,11 +249,11 @@ def test_agent_runtime_release_is_source_and_digest_bound() -> None:
     assert "classMethods" in verifier
     assert "effectiveIdentity" in verifier
     assert "git-sha" in verifier
-    assert 'checkout is None or checkout_index != 0' in provenance
-    assert 'checkout_args[1].strip() != expected_checkout_script' in provenance
-    assert 'build_index != 1' in provenance
-    assert 'if args != expected_args' in provenance
+    assert "def checkout_is_exact" in provenance
+    assert 'args[1].strip() == expected_checkout_script' in provenance
     assert 'if len(steps) != 2' in provenance
+    assert 'steps[1].get("id") != "build-agent-runtime-image"' in provenance
+    assert '"/workspace/source/agents/Dockerfile.runtime"' in provenance
 
 
 def test_mcp_build_provenance_uses_only_reviewed_checkout() -> None:
@@ -255,26 +262,43 @@ def test_mcp_build_provenance_uses_only_reviewed_checkout() -> None:
         encoding="utf-8"
     )
 
-    ordered_steps = ["checkout-reviewed-source", "build-mcp-image", "push-mcp-image"]
+    ordered_steps = [
+        "checkout-reviewed-source",
+        "build-mcp-image",
+        "build-agent-release-preflight-image",
+        "push-mcp-image",
+        "push-agent-release-preflight-image",
+    ]
     assert [cloudbuild.index(step) for step in ordered_steps] == sorted(
         cloudbuild.index(step) for step in ordered_steps
     )
+    assert "--target, runtime" in cloudbuild
+    assert "--target, release-preflight" in cloudbuild
+    assert "agent-release-preflight" in cloudbuild
     assert "/workspace/source/deploy/mcp.Dockerfile" in cloudbuild
     assert cloudbuild.count("/workspace/source") >= 2
-    assert 'build_step.get("name") != "gcr.io/cloud-builders/docker"' in provenance
-    assert 'build_step_id = "build-mcp-image"' in provenance
-    assert 'if len(steps) != 3' in provenance
-    assert 'push_step.get("args") != ["push", expected_image]' in provenance
+    assert "def mcp_build_shape_is_exact" in provenance
+    assert 'if len(steps) != 5' in provenance
+    assert '"build-agent-release-preflight-image"' in provenance
+    assert '"push-agent-release-preflight-image"' in provenance
+    assert '"release-preflight"' in provenance
 
 
-def test_shared_agent_preflight_dependencies_are_in_mcp_image() -> None:
+def test_shared_agent_preflight_uses_a_non_self_referential_verifier_image() -> None:
     dockerfile = (ROOT / "deploy" / "mcp.Dockerfile").read_text(encoding="utf-8")
     verifier = (ROOT / "scripts" / "verify-api-worker-runtime.sh").read_text(
         encoding="utf-8"
     )
 
-    assert "agents/release-manifest.json ./agents/release-manifest.json" in dockerfile
-    assert "agents/fixtures ./agents/fixtures" in dockerfile
+    runtime_section = dockerfile.split("FROM base AS runtime", 1)[1].split(
+        "FROM base AS release-preflight", 1
+    )[0]
+    preflight_section = dockerfile.split("FROM base AS release-preflight", 1)[1]
+    assert "agents/" not in runtime_section
+    assert "agents/release-manifest.json ./agents/release-manifest.json" in preflight_section
+    assert "agents/fixtures ./agents/fixtures" in preflight_section
+    assert "agent-release-preflight:${source_revision}" in verifier
+    assert '--image="$agent_release_preflight_image"' in verifier
     assert "agents/src/control-cli.ts,gcp-preflight,--json" in verifier
     assert "CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME" in verifier
     assert "CAFFEMATE_AGENT_RUNTIME_IMAGE_URI" in verifier
