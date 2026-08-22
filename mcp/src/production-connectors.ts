@@ -3,6 +3,7 @@ import { RetrievalCoordinator } from '../../rag/src/retrieval'
 import { createVertexRagBackend } from '../../rag/src/vertex-rag-backend'
 import { createConnectorRegistry } from './connectors'
 import { mapOfficialRagContext } from './official-rag'
+import { createOfficialRagHealthSource } from './official-rag-health'
 import { createRagMcpConnectors } from './rag-connectors'
 import type { McpConnectorRegistry } from './router'
 
@@ -31,6 +32,11 @@ export function createProductionMcpConnectors(options: ProductionMcpConnectorOpt
     jusoApiKey: options.jusoApiKey,
     fetch: fetchImpl,
     now,
+    sourceHealthSources: [createOfficialRagHealthSource({
+      officialCorpusResource: options.officialCorpusResource,
+      accessToken: options.accessToken,
+      fetch: fetchImpl,
+    })],
   })
   const officialBackend = createVertexRagBackend({
     projectId: options.projectId,
