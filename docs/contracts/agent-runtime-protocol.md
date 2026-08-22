@@ -568,8 +568,16 @@ Evidence Freeze에 전달한다.
 다시 실행하거나 다른 모델·endpoint·리전으로 전환하지 않는다.
 
 Runtime의 안전한 generation telemetry에는 task type, 요청 byte, 사고 수준, 출력 토큰 상한, 지연,
-HTTP status, finish reason과 provider token count만 포함한다. 사용자 입력, Evidence 내용, task·project·
-workflow·session 식별자와 credential은 기록하지 않는다.
+HTTP status, finish reason, repair attempt와 provider token count만 포함한다. 사용자 입력, Evidence
+내용, task·project·workflow·session 식별자와 credential은 기록하지 않는다.
+
+Runtime dispatcher는 모델 출력을 외부로 보내기 전에 전체 Schema·echo·의미 검증을 수행한다.
+따라서 이 검증에서 거절된 출력은 Control API까지 도달하지 않으며, 외부 adapter만으로는 repair할
+수 없다. Dispatcher는 최초 출력이 `RESULT_SCHEMA_INVALID`, `RESULT_ECHO_MISMATCH` 또는
+`RESULT_SEMANTIC_INVALID`일 때 같은 관리형 실행 안에서 한 번만 repair한다. repair 입력은 원래
+task id·invocation id·input digest를 유지하고 `repair_attempt=1`, 이전 출력 digest와 최대 50개
+validator error를 추가한다. 두 번째 출력도 실패하면 세 번째 생성을 하지 않고 원래의 명시적
+Runtime 실패로 종료한다. transport retry와 이 model-output repair는 서로 다른 예산이다.
 
 ### 9.2 RESULT_FEEDBACK
 

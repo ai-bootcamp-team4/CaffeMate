@@ -76,7 +76,10 @@ Agent 호출은 역할별로 최적화한다. Control API는 전체 MCP 저장�
 고정한다. `EVIDENCE_ASSESS`는 bounded 분류 작업이므로 `low` 사고 수준과 최대 4,096 출력 토큰,
 60초 deadline을 사용한다. Proposal과 Candidate Audit은 후보 구성·반례 탐색이 필요하므로
 `medium`을 사용한다. Runtime은 task type, 요청 byte, 지연, 종료 사유와 provider token usage만
-구조화 log로 남기며 사용자 입력·Evidence 본문·프로젝트·세션 식별자는 기록하지 않는다.
+구조화 log로 남기며 사용자 입력·Evidence 본문·프로젝트·세션 식별자는 기록하지 않는다. 모델
+출력의 Schema·echo·의미 검증은 Runtime 내부에서 이뤄지므로, 거절된 첫 출력은 같은 관리형 실행
+안에서 validator error를 사용해 한 번만 수리한다. 두 번째 실패를 반복 생성이나 성공값으로
+바꾸지 않는다.
 
 ```text
 api/

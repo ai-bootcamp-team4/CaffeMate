@@ -99,6 +99,31 @@ describe('deterministic dispatcher', () => {
     const child = vi.fn(async () => invalidResult)
 
     await expect(dispatchAgentTask(task, { INTENT_INTERPRETER: child })).rejects.toThrow('RESULT_SCHEMA_INVALID')
+    expect(child).toHaveBeenCalledTimes(2)
+  })
+
+  it('repairs one invalid model result inside the managed invocation', async () => {
+    const task = makeIntentTask()
+    const invalidResult = { ...makeIntentResult(task), payload: { decision: 'NOOP' } } as AgentTaskResult
+    const child = vi.fn()
+      .mockResolvedValueOnce(invalidResult)
+      .mockImplementationOnce(async (repairTask: AgentTask) => makeIntentResult(repairTask))
+
+    const result = await dispatchAgentTask(task, { INTENT_INTERPRETER: child })
+
+    expect(result.status).toBe('COMPLETE')
+    expect(child).toHaveBeenCalledTimes(2)
+    const repairTask = child.mock.calls[1]?.[0] as AgentTask
+    expect(repairTask.invocation_id).toBe(task.invocation_id)
+    expect(repairTask.input_digest).toBe(task.input_digest)
+    expect(repairTask.repair_attempt).toBe(1)
+    expect(repairTask.repair_of_invocation_id).toBe(task.invocation_id)
+    expect(repairTask.repair_context).toMatchObject({
+      previous_response_digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+      validator_errors: expect.arrayContaining([
+        expect.objectContaining({ code: 'RESULT_SCHEMA_INVALID' }),
+      ]),
+    })
   })
 
   it('rejects a result whose immutable echo differs from the task', async () => {
@@ -106,5 +131,6 @@ describe('deterministic dispatcher', () => {
     const child = vi.fn(async () => ({ ...makeIntentResult(task), task_id: 'other-task' }))
 
     await expect(dispatchAgentTask(task, { INTENT_INTERPRETER: child })).rejects.toThrow('RESULT_ECHO_MISMATCH')
+    expect(child).toHaveBeenCalledTimes(2)
   })
 })

@@ -27,6 +27,7 @@ export interface VertexAgentModelClientOptions {
 interface SafeGenerationTelemetry {
   event: 'VERTEX_AGENT_GENERATION'
   task_type: AgentTask['task_type']
+  repair_attempt: number
   elapsed_ms: number
   request_bytes: number
   thinking_level: AgentModelInvocation['thinkingLevel']
@@ -63,6 +64,7 @@ export function safeGenerationTelemetry(input: {
   return {
     event: 'VERTEX_AGENT_GENERATION',
     task_type: input.invocation.taskType,
+    repair_attempt: input.invocation.repairAttempt,
     elapsed_ms: Math.max(0, Math.round(input.elapsedMs)),
     request_bytes: input.requestBytes,
     thinking_level: input.invocation.thinkingLevel,

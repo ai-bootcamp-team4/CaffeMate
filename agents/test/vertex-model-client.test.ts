@@ -210,6 +210,7 @@ describe('Vertex Agent model client', () => {
     expect(telemetry).toMatchObject({
       event: 'VERTEX_AGENT_GENERATION',
       task_type: 'INTENT_DELTA',
+      repair_attempt: 0,
       thinking_level: 'low',
       max_output_tokens: 4096,
       http_status: 200,

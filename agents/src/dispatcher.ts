@@ -1,15 +1,31 @@
+import { createHash } from 'node:crypto'
 import { computeAgentTaskInputDigest } from './input-digest'
+import { canonicalizeJson } from './input-digest'
 import { TASK_REGISTRY } from './registry'
 import { validateAgentTask, validateAgentTaskResult } from './schema-validator'
 import { validateAgentSemantics } from './semantic-validator'
 import type { AgentExecutorMap, AgentTask, AgentTaskResult, HeadFence } from './types'
 
 export class AgentDispatchError extends Error {
-  constructor(public readonly code: string, message: string) {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly validatorErrors: Array<{
+      code: string
+      json_pointer: string
+      message: string
+    }> = [],
+  ) {
     super(`${code}: ${message}`)
     this.name = 'AgentDispatchError'
   }
 }
+
+const REPAIRABLE_RESULT_CODES = new Set([
+  'RESULT_SCHEMA_INVALID',
+  'RESULT_ECHO_MISMATCH',
+  'RESULT_SEMANTIC_INVALID',
+])
 
 function sameHead(left: HeadFence, right: HeadFence): boolean {
   return left.workflow_generation === right.workflow_generation
@@ -67,7 +83,63 @@ function assertResultEcho(task: AgentTask, result: AgentTaskResult): void {
     && sameHead(result.head_fence_seen, task.head_fence)
 
   if (!matches) {
-    throw new AgentDispatchError('RESULT_ECHO_MISMATCH', `result for task ${task.task_id} does not echo the immutable request envelope`)
+    throw new AgentDispatchError(
+      'RESULT_ECHO_MISMATCH',
+      `result for task ${task.task_id} does not echo the immutable request envelope`,
+      [{
+        code: 'RESULT_ECHO_MISMATCH',
+        json_pointer: '',
+        message: 'result does not echo the immutable request envelope',
+      }],
+    )
+  }
+}
+
+function validateResult(task: AgentTask, result: AgentTaskResult): void {
+  const resultValidation = validateAgentTaskResult(result)
+  if (!resultValidation.ok) {
+    throw new AgentDispatchError(
+      'RESULT_SCHEMA_INVALID',
+      JSON.stringify(resultValidation.errors),
+      resultValidation.errors.slice(0, 50).map((error) => ({
+        code: 'RESULT_SCHEMA_INVALID',
+        json_pointer: error.path,
+        message: error.message.slice(0, 500),
+      })),
+    )
+  }
+  assertResultEcho(task, result)
+  const semanticValidation = validateAgentSemantics(task, result)
+  if (!semanticValidation.ok) {
+    throw new AgentDispatchError(
+      'RESULT_SEMANTIC_INVALID',
+      JSON.stringify(semanticValidation.issues),
+      semanticValidation.issues.slice(0, 50).map((issue) => ({
+        code: issue.code,
+        json_pointer: issue.path,
+        message: issue.message.slice(0, 500),
+      })),
+    )
+  }
+}
+
+function buildInlineRepairTask(
+  task: AgentTask,
+  result: AgentTaskResult,
+  error: AgentDispatchError,
+): AgentTask {
+  const previousResponseText = canonicalizeJson(result).slice(0, 65536)
+  return {
+    ...task,
+    repair_attempt: 1,
+    repair_of_invocation_id: task.invocation_id,
+    repair_context: {
+      previous_response_text: previousResponseText,
+      previous_response_digest: `sha256:${createHash('sha256').update(previousResponseText).digest('hex')}`,
+      validator_errors: error.validatorErrors.length > 0
+        ? error.validatorErrors
+        : [{ code: error.code, json_pointer: '', message: error.message.slice(0, 500) }],
+    },
   }
 }
 
@@ -81,14 +153,19 @@ export async function dispatchAgentTask(task: AgentTask, executors: AgentExecuto
   }
 
   const result = await executor(task)
-  const resultValidation = validateAgentTaskResult(result)
-  if (!resultValidation.ok) {
-    throw new AgentDispatchError('RESULT_SCHEMA_INVALID', JSON.stringify(resultValidation.errors))
+  try {
+    validateResult(task, result)
+    return result
+  } catch (error) {
+    if (!(error instanceof AgentDispatchError)
+      || !REPAIRABLE_RESULT_CODES.has(error.code)
+      || task.repair_attempt !== 0) {
+      throw error
+    }
+    const repairTask = buildInlineRepairTask(task, result, error)
+    validateAgentTaskForDispatch(repairTask)
+    const repaired = await executor(repairTask)
+    validateResult(repairTask, repaired)
+    return repaired
   }
-  assertResultEcho(task, result)
-  const semanticValidation = validateAgentSemantics(task, result)
-  if (!semanticValidation.ok) {
-    throw new AgentDispatchError('RESULT_SEMANTIC_INVALID', JSON.stringify(semanticValidation.issues))
-  }
-  return result
 }
