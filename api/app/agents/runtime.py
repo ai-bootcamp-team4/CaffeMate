@@ -353,11 +353,14 @@ class AgentRuntimeHttpClient:
                 response.raise_for_status()
                 events = []
                 for line in response.iter_lines():
-                    if not line.startswith("data:"):
+                    if not line:
                         continue
-                    value = json.loads(line[5:].strip())
-                    if isinstance(value, dict):
-                        events.append(value)
+                    encoded = line[5:].strip() if line.startswith("data:") else line
+                    value = json.loads(encoded)
+                    if not isinstance(value, dict):
+                        continue
+                    output = value.get("output")
+                    events.append(output if isinstance(output, dict) else value)
         except json.JSONDecodeError as error:
             raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID") from error
         except httpx.HTTPStatusError as error:

@@ -148,6 +148,14 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "--oidc-service-account-email" in deploy
     assert "WORKER_ID=caffemate-worker" in deploy
     assert "roles/iam.serviceAccountTokenCreator" in deploy
+    assert "CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID" in deploy
+    assert "AGENT_RUNTIME_PROJECT_ID=${project_id}" in deploy
+    assert "AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id}" in deploy
+    assert '"${agent_runtime_url}:getIamPolicy"' in deploy
+    assert '"${agent_runtime_url}:setIamPolicy"' in deploy
+    assert "roles/aiplatform.user" in deploy
+    assert "roles/aiplatform.expressUser" in deploy
+    assert "roles/serviceusage.serviceUsageConsumer" in deploy
     assert "MCP_SCOPE_HMAC_SECRET" not in deploy.split("gcloud run deploy caffemate-worker", 1)[1]
     assert "API unauthenticated business request returned HTTP 401" in verifier
     assert '"${api_url}/health"' in verifier
@@ -158,5 +166,9 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "API and Worker use the same image digest" in verifier
     assert "verify-mcp-preflight" in verifier
     assert "Control API SDK manifest preflight against deployed MCP" in verifier
+    assert "verify-agent-runtime" in verifier
+    assert "resource-scoped Agent Runtime query IAM" in verifier
+    assert "Agent Runtime identity has model and service usage permissions" in verifier
+    assert "created, executed, validated and deleted an Agent Runtime session" in verifier
     assert "Worker has public invoker policy" in verifier
     assert "Scheduler reached internal Worker with HTTP 200" in verifier

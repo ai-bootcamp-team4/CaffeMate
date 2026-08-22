@@ -14,6 +14,7 @@ api_url=$(gcloud run services describe caffemate-api --project="$project_id" \
   --region="$region" --format='value(status.url)')
 worker_url=$(gcloud run services describe caffemate-worker --project="$project_id" \
   --region="$region" --format='value(status.url)')
+api_sa="caffemate-api-runtime@${project_id}.iam.gserviceaccount.com"
 
 for service in caffemate-api caffemate-worker; do
   revision=$(gcloud run services describe "$service" --project="$project_id" \
@@ -36,10 +37,85 @@ worker_image=$(gcloud run services describe caffemate-worker --project="$project
 }
 printf '%s\n' 'PASS API and Worker use the same image digest'
 
-mcp_url=$(gcloud run services describe caffemate-mcp --project="$project_id" \
-  --region="$region" --format='value(status.url)')
 api_service_json=$(gcloud run services describe caffemate-api --project="$project_id" \
   --region="$region" --format=json)
+configured_agent_project=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; print(next(row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "AGENT_RUNTIME_PROJECT_ID"))')
+configured_agent_resource=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; print(next(row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "AGENT_RUNTIME_RESOURCE_ID"))')
+[ "$configured_agent_project" = "$project_id" ] || {
+  printf '%s\n' 'FAIL Control API Agent Runtime project differs from deployment project' >&2
+  exit 1
+}
+case "$configured_agent_resource" in
+  *[!0-9]*|'') printf '%s\n' 'FAIL Control API Agent Runtime resource id is invalid' >&2; exit 1 ;;
+esac
+
+agent_runtime_url="https://${region}-aiplatform.googleapis.com/v1/projects/${project_id}/locations/${region}/reasoningEngines/${configured_agent_resource}"
+access_token=$(gcloud auth print-access-token)
+agent_runtime_json=$(curl --fail --silent --show-error \
+  --header="Authorization: Bearer ${access_token}" \
+  "$agent_runtime_url")
+agent_runtime_identity=$(printf '%s' "$agent_runtime_json" | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["spec"]["effectiveIdentity"])')
+project_policy=$(gcloud projects get-iam-policy "$project_id" --format=json)
+PROJECT_POLICY="$project_policy" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" python3 - <<'PY'
+import json
+import os
+
+policy = json.loads(os.environ["PROJECT_POLICY"])
+identity = os.environ["AGENT_RUNTIME_IDENTITY"]
+roles = {
+    row["role"]
+    for row in policy.get("bindings", [])
+    if identity in row.get("members", [])
+}
+required = {"roles/aiplatform.expressUser", "roles/serviceusage.serviceUsageConsumer"}
+assert required <= roles, f"Agent Runtime identity lacks roles: {sorted(required - roles)}"
+print("PASS Agent Runtime identity has model and service usage permissions")
+PY
+agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
+  --header="Authorization: Bearer ${access_token}" \
+  --header='Content-Type: application/json' \
+  "${agent_runtime_url}:getIamPolicy" --data='{}')
+AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'
+import json
+import os
+
+policy = json.loads(os.environ["AGENT_RUNTIME_POLICY"])
+member = f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}"
+assert any(
+    row.get("role") == "roles/aiplatform.user" and member in row.get("members", [])
+    for row in policy.get("bindings", [])
+), "Control API lacks Agent Runtime query IAM"
+print("PASS Control API has resource-scoped Agent Runtime query IAM")
+PY
+unset access_token agent_runtime_identity agent_runtime_json agent_runtime_policy project_policy
+
+agent_preflight_job='caffemate-agent-runtime-control-preflight'
+configure_agent_preflight_job() {
+  action=$1
+  gcloud run jobs "$action" "$agent_preflight_job" --project="$project_id" --region="$region" \
+    --image="$api_image" --service-account="$api_sa" \
+    --set-env-vars="AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${configured_agent_resource}" \
+    --set-secrets='AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest' \
+    --command=caffemate-api --args=verify-agent-runtime \
+    --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=5m \
+    --cpu=1 --memory=512Mi \
+    --labels="source-revision=${source_revision},managed-by=caffemate-verify" \
+    --quiet >/dev/null
+}
+if gcloud run jobs describe "$agent_preflight_job" --project="$project_id" --region="$region" >/dev/null 2>&1; then
+  configure_agent_preflight_job update
+else
+  configure_agent_preflight_job create
+fi
+gcloud run jobs execute "$agent_preflight_job" --project="$project_id" --region="$region" \
+  --wait --quiet >/dev/null
+printf '%s\n' 'PASS Control API created, executed, validated and deleted an Agent Runtime session'
+
+mcp_url=$(gcloud run services describe caffemate-mcp --project="$project_id" \
+  --region="$region" --format='value(status.url)')
 configured_mcp_url=$(printf '%s' "$api_service_json" | python3 -c \
   'import json,sys; print(next(row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "MCP_BASE_URL"))')
 configured_mcp_audience=$(printf '%s' "$api_service_json" | python3 -c \
@@ -49,7 +125,6 @@ configured_mcp_audience=$(printf '%s' "$api_service_json" | python3 -c \
 }
 
 preflight_job='caffemate-mcp-control-preflight'
-api_sa="caffemate-api-runtime@${project_id}.iam.gserviceaccount.com"
 configure_preflight_job() {
   action=$1
   gcloud run jobs "$action" "$preflight_job" --project="$project_id" --region="$region" \

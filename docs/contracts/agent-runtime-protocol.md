@@ -120,6 +120,12 @@ session 생성 입력의 `user_id`는 실제 사용자 식별자가 아니라 `v
 }
 ```
 
+관리형 Runtime의 stream 응답은 배포 방식에 따라 `data: <event>` SSE line 또는
+`{"output": <event>}` newline JSON envelope로 전달될 수 있다. Control API adapter는 줄마다
+JSON object 하나만 허용하고 `output` object가 있으면 한 단계만 벗긴 뒤 동일한 final event
+검증을 적용한다. 임의의 중첩 envelope, JSON이 아닌 line과 여러 final event를 정상 결과로
+간주하지 않는다.
+
 ### 4.3 결정론적 root dispatcher
 
 ADK application의 root는 LLM Agent가 아니라 custom `BaseAgent`인 `CAFFEMATE_TASK_DISPATCHER`다. 다음 매핑을 코드 상수와 release manifest로 함께 고정한다.

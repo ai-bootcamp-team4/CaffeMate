@@ -5,15 +5,22 @@ project_id=${CAFFEMATE_GCP_PROJECT_ID:-}
 region=${CAFFEMATE_GCP_REGION:-asia-northeast3}
 source_revision=${CAFFEMATE_SOURCE_REVISION:-}
 instance_id=${CAFFEMATE_DB_INSTANCE_ID:-caffemate-postgres}
+agent_runtime_resource_id=${CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID:-}
 
-if [ -z "$project_id" ] || [ -z "$source_revision" ]; then
-  printf '%s\n' 'CAFFEMATE_GCP_PROJECT_ID and CAFFEMATE_SOURCE_REVISION are required' >&2
+if [ -z "$project_id" ] || [ -z "$source_revision" ] || [ -z "$agent_runtime_resource_id" ]; then
+  printf '%s\n' 'CAFFEMATE_GCP_PROJECT_ID, CAFFEMATE_SOURCE_REVISION and CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID are required' >&2
   exit 2
 fi
 if [ "$region" != 'asia-northeast3' ] || [ "${#source_revision}" -ne 40 ]; then
   printf '%s\n' 'canonical region and full commit SHA are required' >&2
   exit 2
 fi
+case "$agent_runtime_resource_id" in
+  *[!0-9]*|'')
+    printf '%s\n' 'Agent Runtime resource id must be numeric' >&2
+    exit 2
+    ;;
+esac
 
 active_project=$(gcloud config get-value project 2>/dev/null)
 if [ "$active_project" != "$project_id" ]; then
@@ -48,6 +55,69 @@ if [ -z "$mcp_url" ]; then
   printf '%s\n' 'private MCP service must be deployed before Control API' >&2
   exit 1
 fi
+
+agent_runtime_name="projects/${project_id}/locations/${region}/reasoningEngines/${agent_runtime_resource_id}"
+agent_runtime_url="https://${region}-aiplatform.googleapis.com/v1/${agent_runtime_name}"
+access_token=$(gcloud auth print-access-token)
+agent_runtime_json=$(curl --fail --silent --show-error \
+  --header="Authorization: Bearer ${access_token}" \
+  "$agent_runtime_url")
+agent_runtime_identity=$(printf '%s' "$agent_runtime_json" | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["spec"]["effectiveIdentity"])')
+case "$agent_runtime_identity" in
+  principal://agents.*) ;;
+  *) printf '%s\n' 'Agent Runtime effective identity is unavailable' >&2; exit 1 ;;
+esac
+
+for role in roles/aiplatform.expressUser roles/serviceusage.serviceUsageConsumer; do
+  gcloud projects add-iam-policy-binding "$project_id" \
+    --member="$agent_runtime_identity" \
+    --role="$role" \
+    --condition=None \
+    --quiet >/dev/null
+done
+
+agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
+  --header="Authorization: Bearer ${access_token}" \
+  --header='Content-Type: application/json' \
+  "${agent_runtime_url}:getIamPolicy" \
+  --data='{}')
+agent_runtime_policy=$(AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'
+import json
+import os
+
+policy = json.loads(os.environ["AGENT_RUNTIME_POLICY"])
+member = f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}"
+binding = next(
+    (row for row in policy.get("bindings", []) if row.get("role") == "roles/aiplatform.user"),
+    None,
+)
+if binding is None:
+    binding = {"role": "roles/aiplatform.user", "members": []}
+    policy.setdefault("bindings", []).append(binding)
+if member not in binding["members"]:
+    binding["members"].append(member)
+binding["members"].sort()
+print(json.dumps({"policy": policy}, separators=(",", ":")))
+PY
+)
+agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
+  --header="Authorization: Bearer ${access_token}" \
+  --header='Content-Type: application/json' \
+  "${agent_runtime_url}:setIamPolicy" \
+  --data="$agent_runtime_policy")
+AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'
+import json
+import os
+
+policy = json.loads(os.environ["AGENT_RUNTIME_POLICY"])
+member = f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}"
+assert any(
+    row.get("role") == "roles/aiplatform.user" and member in row.get("members", [])
+    for row in policy.get("bindings", [])
+), "Agent Runtime query IAM binding was not persisted"
+PY
+unset access_token agent_runtime_json agent_runtime_identity agent_runtime_policy
 
 create_service_account() {
   account_id=$1
@@ -84,7 +154,7 @@ gcloud run deploy caffemate-api \
   --image="$image" \
   --service-account="$api_sa" \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url}" \
+  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest,AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
   --port=8080 \
   --ingress=all \
