@@ -1,8 +1,14 @@
 import argparse
 import asyncio
+import copy
 import json
-from typing import cast
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any, cast
+from uuid import uuid4
 
+from app.agents.runtime import AgentRuntimeHttpClient, GoogleAccessTokenProvider
+from app.agents.task_factory import compute_agent_input_digest
 from app.candidates.seed_registry import IndependentSeedRegistry
 from app.database import create_database_handle
 from app.mcp.client import GoogleIdentityTokenProvider
@@ -13,11 +19,58 @@ from app.settings import RuntimeSettings
 from app.workflows.models import HeadFence
 
 
+class _StrictAgentCleanupSink:
+    def enqueue_session_delete(
+        self,
+        *,
+        runtime_resource: str,
+        user_id: str,
+        session_id: str,
+    ) -> None:
+        del runtime_resource, user_id, session_id
+        raise RuntimeError("Agent Runtime verification requires synchronous session deletion")
+
+
+def _agent_runtime_probe_task() -> dict[str, Any]:
+    root = Path(__file__).resolve().parents[2]
+    matrix = json.loads(
+        (root / "agents" / "fixtures" / "task-matrix.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    fixture = next(
+        item for item in matrix["cases"] if item["id"] == "evidence_plan-complete"
+    )
+    task = copy.deepcopy(fixture["task"])
+    probe_id = uuid4().hex
+    task.update(
+        {
+            "task_id": f"runtime-preflight-{probe_id}",
+            "invocation_id": str(uuid4()),
+            "workflow_run_id": f"runtime-preflight-{probe_id}",
+            "stage_run_id": f"runtime-preflight-{probe_id}",
+            "venture_project_id": f"runtime-preflight-{probe_id}",
+            "transport_attempt": 1,
+            "repair_attempt": 0,
+            "deadline_at": (datetime.now(UTC) + timedelta(minutes=3))
+            .isoformat()
+            .replace("+00:00", "Z"),
+        }
+    )
+    task["input_digest"] = compute_agent_input_digest(task)
+    return cast(dict[str, Any], task)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="caffemate-api")
     parser.add_argument(
         "command",
-        choices=["migrate", "verify-migrations", "verify-mcp-preflight"],
+        choices=[
+            "migrate",
+            "verify-migrations",
+            "verify-mcp-preflight",
+            "verify-agent-runtime",
+        ],
     )
     arguments = parser.parse_args()
 
@@ -79,3 +132,25 @@ def main() -> None:
             )
         )
         print(json.dumps({"status": "verified", **report.model_dump()}, sort_keys=True))
+    elif arguments.command == "verify-agent-runtime":
+        settings = RuntimeSettings.from_environment()
+        if not settings.has_agent_runtime_configuration:
+            parser.error("complete Agent Runtime configuration required")
+        result = AgentRuntimeHttpClient(
+            gcp_project_id=cast(str, settings.agent_runtime_project_id),
+            resource_id=cast(str, settings.agent_runtime_resource_id),
+            user_hmac_secret=cast(str, settings.agent_runtime_user_hmac_secret),
+            access_tokens=GoogleAccessTokenProvider(),
+            cleanup_sink=_StrictAgentCleanupSink(),
+        ).invoke(_agent_runtime_probe_task())
+        print(
+            json.dumps(
+                {
+                    "status": "verified",
+                    "agent_name": result["agent_name"],
+                    "task_type": result["task_type"],
+                    "result_status": result["status"],
+                },
+                sort_keys=True,
+            )
+        )

@@ -8,6 +8,9 @@ import httpx
 import pytest
 
 from app.agents.runtime import AgentRuntimeError, AgentRuntimeHttpClient
+from app.agents.task_factory import compute_agent_input_digest
+from app.cli import _agent_runtime_probe_task
+from app.contracts.schema_registry import ContractRegistry
 
 
 class FakeTokens:
@@ -21,6 +24,17 @@ class FakeCleanupSink:
 
     def enqueue_session_delete(self, **kwargs: str) -> None:
         self.calls.append(kwargs)
+
+
+def test_operational_probe_is_a_fresh_valid_evidence_plan_task() -> None:
+    task = _agent_runtime_probe_task()
+
+    ContractRegistry().validate_agent_task(task)
+    assert task["task_type"] == "EVIDENCE_PLAN"
+    assert task["agent_name"] == "EVIDENCE_RESEARCHER"
+    assert task["venture_project_id"].startswith("runtime-preflight-")
+    assert task["input_digest"] == compute_agent_input_digest(task)
+    assert datetime.fromisoformat(task["deadline_at"].replace("Z", "+00:00")) > datetime.now(UTC)
 
 
 def evidence_fixture() -> tuple[dict[str, Any], dict[str, Any]]:
@@ -65,7 +79,7 @@ def test_runtime_creates_streams_validates_and_deletes_one_managed_session() -> 
             "partial": False,
             "content": {"parts": [{"text": json.dumps(result)}]},
         }
-        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
+        return httpx.Response(200, text=f'{json.dumps({"output": event})}\n')
 
     cleanup = FakeCleanupSink()
     loaded = runtime_client(httpx.MockTransport(handler), cleanup).invoke(task)
