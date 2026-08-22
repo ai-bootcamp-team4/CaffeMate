@@ -3,8 +3,8 @@
   "runtime_region": "asia-northeast3",
   "runtime": {
     "resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/reasoningEngines/4667470840374231040",
-    "source_revision": "f16fe65acbc076ddd17abca9dbd064540b32ad34",
-    "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-agents/caffemate-agent-runtime@sha256:77e189290ea1143cf33c89ff1a4b72419a0e7adfa8a6bfe664284eb766e3f080"
+    "source_revision": "fb9dc6956eb4f960012712fa7eded52aa11d6fde",
+    "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-agents/caffemate-agent-runtime@sha256:0ef932c2f4cb5d4d985d4622ec2f72a44db9c50c5404830d1b561abf6dcff7e2"
   },
   "model": {
     "id": "gemini-3.7-flash",
