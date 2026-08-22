@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { computeAgentContractBundleDigest, computePromptBundleDigest } from '../src/release-seal'
 import { handleRuntimeClassMethod } from '../src/runtime-session-bridge'
 
 describe('Agent Runtime managed-session bridge', () => {
@@ -73,6 +74,29 @@ describe('Agent Runtime managed-session bridge', () => {
       sessionId: 'session-123',
     })
     expect(result).toEqual({ handled: true, status: 200, body: { output: null } })
+  })
+
+  it('reads back the release identity computed from the deployed Runtime artifact', async () => {
+    const service = { createSession: vi.fn(), deleteSession: vi.fn() }
+
+    const result = await handleRuntimeClassMethod(
+      { class_method: 'async_get_release_identity', input: {} },
+      service,
+    )
+
+    expect(service.createSession).not.toHaveBeenCalled()
+    expect(service.deleteSession).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      handled: true,
+      status: 200,
+      body: {
+        output: {
+          schema_version: '1.0.0',
+          prompt_bundle_digest: computePromptBundleDigest(),
+          agent_contract_bundle_digest: computeAgentContractBundleDigest(),
+        },
+      },
+    })
   })
 
   it('fails closed on malformed managed-session requests', async () => {

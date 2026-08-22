@@ -122,7 +122,10 @@ assert set(release_role["includedPermissions"]) == {
     "aiplatform.ragFiles.list",
     "aiplatform.reasoningEngines.get",
     "aiplatform.reasoningEngines.list",
+    "aiplatform.reasoningEngines.query",
     "discoveryengine.rankingConfigs.rank",
+    "run.services.get",
+    "storage.objects.get",
 }
 identity = os.environ["AGENT_RUNTIME_IDENTITY"]
 api_member = f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}"
@@ -265,6 +268,20 @@ mcp_verified_build_id=$(verified_build_id_for_image \
   printf '%s\n' 'FAIL MCP producer build provenance differs from deployed label' >&2; exit 1;
 }
 printf '%s\n' 'PASS MCP producer source, build and digest match backend release'
+agent_release_preflight_tag="${region}-docker.pkg.dev/${project_id}/caffemate-backend/agent-release-preflight:${source_revision}"
+agent_release_preflight_image=$(gcloud artifacts docker images describe "$agent_release_preflight_tag" \
+  --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
+case "$agent_release_preflight_image" in
+  "${region}-docker.pkg.dev/${project_id}/caffemate-backend/agent-release-preflight@sha256:"*) ;;
+  *) printf '%s\n' 'FAIL Agent release-preflight image digest is unavailable' >&2; exit 1 ;;
+esac
+agent_release_preflight_build_id=$(verified_build_id_for_image \
+  "$agent_release_preflight_tag" "${agent_release_preflight_image##*@}" "$source_revision" \
+  "projects/${project_id}/serviceAccounts/caffemate-backend-build@${project_id}.iam.gserviceaccount.com")
+[ "$agent_release_preflight_build_id" = "$mcp_verified_build_id" ] || {
+  printf '%s\n' 'FAIL Agent release-preflight and MCP artifacts come from different builds' >&2; exit 1;
+}
+printf '%s\n' 'PASS Agent release-preflight artifact shares MCP source and build provenance'
 configured_mcp_url=$(printf '%s' "$api_service_json" | python3 -c \
   'import json,sys; print(next(row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "MCP_BASE_URL"))')
 configured_mcp_audience=$(printf '%s' "$api_service_json" | python3 -c \
@@ -278,8 +295,7 @@ configure_agent_gcp_preflight_job() {
   action=$1
   gcloud run jobs "$action" "$agent_gcp_preflight_job" \
     --project="$project_id" --region="$region" \
-    --image="$mcp_image" --service-account="$release_verifier_sa" \
-    --set-env-vars="CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME=${agent_runtime_resource_name},CAFFEMATE_AGENT_RUNTIME_IMAGE_URI=${agent_runtime_image}" \
+    --image="$agent_release_preflight_image" --service-account="$release_verifier_sa" \
     --command=node \
     --args='--import,tsx,agents/src/control-cli.ts,gcp-preflight,--json' \
     --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=5m \

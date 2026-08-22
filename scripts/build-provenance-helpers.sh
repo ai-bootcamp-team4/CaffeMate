@@ -24,36 +24,20 @@ import json
 import os
 import sys
 
-matches = []
-for build in json.loads(os.environ["BUILDS_JSON"]):
-    if build.get("substitutions", {}).get("_SOURCE_REVISION") != os.environ["EXPECTED_REVISION"]:
-        continue
-    if build.get("serviceAccount") != os.environ["EXPECTED_BUILD_SA"]:
-        continue
-    if build.get("source"):
-        continue
-    if build.get("availableSecrets"):
-        continue
-    options = build.get("options", {})
-    if options.get("env") or options.get("secretEnv") or options.get("volumes"):
-        continue
-    steps = build.get("steps", [])
-    checkout_index = next(
-        (index for index, step in enumerate(steps) if step.get("id") == "checkout-reviewed-source"),
-        None,
+
+def step_is_clean(step, *, name, args, env=None, entrypoint=None):
+    return (
+        step.get("name") == name
+        and step.get("args", []) == args
+        and step.get("env", []) == (env or [])
+        and step.get("entrypoint") == entrypoint
+        and not step.get("secretEnv")
+        and not step.get("volumes")
+        and not step.get("dir")
     )
-    checkout = steps[checkout_index] if checkout_index is not None else None
-    if checkout is None or checkout_index != 0:
-        continue
-    if (
-        checkout.get("name") != "gcr.io/cloud-builders/git"
-        or checkout.get("entrypoint") != "sh"
-        or checkout.get("env")
-        or checkout.get("secretEnv")
-        or checkout.get("volumes")
-        or checkout.get("dir")
-    ):
-        continue
+
+
+def checkout_is_exact(step):
     expected_checkout_script = "\n".join(
         [
             "git init /workspace/source",
@@ -72,81 +56,145 @@ for build in json.loads(os.environ["BUILDS_JSON"]):
             ),
         ]
     )
-    checkout_args = checkout.get("args", [])
-    if (
-        not isinstance(checkout_args, list)
-        or len(checkout_args) != 2
-        or checkout_args[0] != "-ceu"
-        or not isinstance(checkout_args[1], str)
-        or checkout_args[1].strip() != expected_checkout_script
-    ):
-        continue
-    expected_image = os.environ["EXPECTED_IMAGE"]
-    if "/caffemate-agents/caffemate-agent-runtime:" in expected_image:
-        component = "agent-runtime"
-        build_step_id = "build-agent-runtime-image"
-        expected_dockerfile = "/workspace/source/agents/Dockerfile.runtime"
-    elif "/caffemate-backend/mcp:" in expected_image:
-        component = "mcp"
-        build_step_id = "build-mcp-image"
-        expected_dockerfile = "/workspace/source/deploy/mcp.Dockerfile"
-    else:
-        continue
-    build_index = next(
-        (index for index, step in enumerate(steps) if step.get("id") == build_step_id),
-        None,
+    args = step.get("args", [])
+    return (
+        step.get("id") == "checkout-reviewed-source"
+        and step.get("name") == "gcr.io/cloud-builders/git"
+        and step.get("entrypoint") == "sh"
+        and step.get("env", []) == []
+        and not step.get("secretEnv")
+        and not step.get("volumes")
+        and not step.get("dir")
+        and isinstance(args, list)
+        and len(args) == 2
+        and args[0] == "-ceu"
+        and isinstance(args[1], str)
+        and args[1].strip() == expected_checkout_script
     )
-    if build_index != 1:
-        continue
-    build_step = steps[build_index]
-    if build_step.get("name") != "gcr.io/cloud-builders/docker":
-        continue
-    expected_build_env = [] if component == "agent-runtime" else ["DOCKER_BUILDKIT=1"]
-    if (
-        build_step.get("env", []) != expected_build_env
-        or build_step.get("secretEnv")
-        or build_step.get("volumes")
-        or build_step.get("dir")
-        or build_step.get("entrypoint")
-    ):
-        continue
-    args = build_step.get("args", [])
-    if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
-        continue
-    expected_args = [
-        "build",
-        "--file",
-        expected_dockerfile,
-        "--tag",
-        expected_image,
-        "/workspace/source",
+
+
+def mcp_build_shape_is_exact(steps, selected_image):
+    if len(steps) != 5:
+        return False
+    if "/caffemate-backend/mcp:" in selected_image:
+        mcp_image = selected_image
+        preflight_image = selected_image.replace(
+            "/caffemate-backend/mcp:",
+            "/caffemate-backend/agent-release-preflight:",
+            1,
+        )
+    elif "/caffemate-backend/agent-release-preflight:" in selected_image:
+        preflight_image = selected_image
+        mcp_image = selected_image.replace(
+            "/caffemate-backend/agent-release-preflight:",
+            "/caffemate-backend/mcp:",
+            1,
+        )
+    else:
+        return False
+
+    dockerfile = "/workspace/source/deploy/mcp.Dockerfile"
+    expected = [
+        (
+            "build-mcp-image",
+            [
+                "build",
+                "--target",
+                "runtime",
+                "--file",
+                dockerfile,
+                "--tag",
+                mcp_image,
+                "/workspace/source",
+            ],
+            ["DOCKER_BUILDKIT=1"],
+        ),
+        (
+            "build-agent-release-preflight-image",
+            [
+                "build",
+                "--target",
+                "release-preflight",
+                "--file",
+                dockerfile,
+                "--tag",
+                preflight_image,
+                "/workspace/source",
+            ],
+            ["DOCKER_BUILDKIT=1"],
+        ),
+        ("push-mcp-image", ["push", mcp_image], []),
+        (
+            "push-agent-release-preflight-image",
+            ["push", preflight_image],
+            [],
+        ),
     ]
-    if args != expected_args:
+    for step, (step_id, args, env) in zip(steps[1:], expected, strict=True):
+        if step.get("id") != step_id:
+            return False
+        if not step_is_clean(
+            step,
+            name="gcr.io/cloud-builders/docker",
+            args=args,
+            env=env,
+        ):
+            return False
+    return True
+
+
+matches = []
+for build in json.loads(os.environ["BUILDS_JSON"]):
+    if build.get("substitutions", {}).get("_SOURCE_REVISION") != os.environ["EXPECTED_REVISION"]:
         continue
-    if component == "agent-runtime":
+    if build.get("serviceAccount") != os.environ["EXPECTED_BUILD_SA"]:
+        continue
+    if build.get("source") or build.get("availableSecrets"):
+        continue
+    options = build.get("options", {})
+    if options.get("env") or options.get("secretEnv") or options.get("volumes"):
+        continue
+
+    steps = build.get("steps", [])
+    if not steps or not checkout_is_exact(steps[0]):
+        continue
+
+    selected_image = os.environ["EXPECTED_IMAGE"]
+    if "/caffemate-agents/caffemate-agent-runtime:" in selected_image:
         if len(steps) != 2:
             continue
-    else:
-        if len(steps) != 3:
+        runtime_args = [
+            "build",
+            "--file",
+            "/workspace/source/agents/Dockerfile.runtime",
+            "--tag",
+            selected_image,
+            "/workspace/source",
+        ]
+        if steps[1].get("id") != "build-agent-runtime-image":
             continue
-        push_step = steps[2]
-        if (
-            push_step.get("id") != "push-mcp-image"
-            or push_step.get("name") != "gcr.io/cloud-builders/docker"
-            or push_step.get("args") != ["push", expected_image]
-            or push_step.get("env")
-            or push_step.get("secretEnv")
-            or push_step.get("volumes")
-            or push_step.get("dir")
-            or push_step.get("entrypoint")
+        if not step_is_clean(
+            steps[1],
+            name="gcr.io/cloud-builders/docker",
+            args=runtime_args,
         ):
             continue
+    elif (
+        "/caffemate-backend/mcp:" in selected_image
+        or "/caffemate-backend/agent-release-preflight:" in selected_image
+    ):
+        if not mcp_build_shape_is_exact(steps, selected_image):
+            continue
+    else:
+        continue
+
     for image in build.get("results", {}).get("images", []):
         if (
-            image.get("name") == os.environ["EXPECTED_IMAGE"]
+            image.get("name") == selected_image
             and image.get("digest") == os.environ["EXPECTED_DIGEST"]
         ):
             matches.append(build.get("id"))
+
 if not matches or not matches[0]:
     print("a successful source-bound Cloud Build is required", file=sys.stderr)
     raise SystemExit(1)

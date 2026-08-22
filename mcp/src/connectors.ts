@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { McpConnector, McpConnectorRegistry, McpScopeContext } from './router'
+import { createSourceHealthConnector, type McpConfiguredSource } from './source-health'
 
 const JUSO_SOURCE_ID = 'mois-juso-address-search'
 const JUSO_SOURCE_REF = 'https://business.juso.go.kr/addrlink/addrLinkApi.do'
@@ -9,6 +10,7 @@ interface ConnectorOptions {
   jusoApiKey?: string
   fetch?: typeof globalThis.fetch
   now?: () => Date
+  sourceHealthSources?: readonly McpConfiguredSource[]
 }
 
 interface JusoResult {
@@ -90,13 +92,13 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
     }
   }
 
-  const getSourceHealth: McpConnector = async (rawInput, scope) => {
-    const now = clock()
-    const input = rawInput as { source_ids: string[] }
-    let probeBody = ''
-    let reachable = false
-    let credentialValid = false
-    if (input.source_ids.includes(JUSO_SOURCE_ID)) {
+  const jusoHealthSource: McpConfiguredSource = {
+    sourceId: JUSO_SOURCE_ID,
+    dataDate: null,
+    probeHealth: async ({ observedAt }) => {
+      let probeBody: string
+      let reachable: boolean
+      let credentialValid = false
       try {
         const probeUrl = options.jusoApiKey
           ? new URL(JUSO_SOURCE_REF)
@@ -118,27 +120,26 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
           credentialValid = parsed.results?.common?.errorCode === '0'
         }
       } catch {
-        reachable = false
+        return { status: 'UNAVAILABLE', lastSuccessAt: null, dataDate: null }
       }
-    }
-    const data = input.source_ids.map((sourceId) => {
-      if (sourceId !== JUSO_SOURCE_ID) return { source_id: sourceId, status: 'UNAVAILABLE', last_success_at: null, data_date: null }
-      if (!reachable) return { source_id: sourceId, status: 'UNAVAILABLE', last_success_at: null, data_date: null }
-      if (!options.jusoApiKey) return { source_id: sourceId, status: 'DEGRADED', last_success_at: now.toISOString(), data_date: null }
-      if (!credentialValid) return { source_id: sourceId, status: 'UNAVAILABLE', last_success_at: null, data_date: null }
-      return { source_id: sourceId, status: 'HEALTHY', last_success_at: now.toISOString(), data_date: null }
-    })
-    const fullyHealthy = data.length > 0 && data.every((row) => row.status === 'HEALTHY')
-    return {
-      ...base(scope, 'get_source_health', now), status: fullyHealthy ? 'OK' : 'PARTIAL', data,
-      missing_fields: fullyHealthy ? [] : ['healthy_source'],
-      source_trace: reachable ? [{
-        source_id: JUSO_SOURCE_ID, source_ref: options.jusoApiKey ? JUSO_SOURCE_REF : JUSO_GUIDE_REF, data_date: null,
-        retrieved_at: now.toISOString(), content_digest: digest(probeBody),
-      }] : [],
-      error_codes: fullyHealthy ? [] : ['SOURCE_DEGRADED'],
-    }
+
+      if (!reachable) return { status: 'UNAVAILABLE', lastSuccessAt: null, dataDate: null }
+      const sourceTrace = {
+        sourceRef: options.jusoApiKey ? JUSO_SOURCE_REF : JUSO_GUIDE_REF,
+        dataDate: null,
+        contentDigest: digest(probeBody),
+      }
+      if (!options.jusoApiKey) {
+        return { status: 'DEGRADED', lastSuccessAt: observedAt.toISOString(), dataDate: null, sourceTrace }
+      }
+      if (!credentialValid) return { status: 'UNAVAILABLE', lastSuccessAt: null, dataDate: null, sourceTrace }
+      return { status: 'HEALTHY', lastSuccessAt: observedAt.toISOString(), dataDate: null, sourceTrace }
+    },
   }
+  const getSourceHealth = createSourceHealthConnector(
+    [jusoHealthSource, ...(options.sourceHealthSources ?? [])],
+    clock,
+  )
 
   return { resolve_area: resolveArea, get_source_health: getSourceHealth }
 }

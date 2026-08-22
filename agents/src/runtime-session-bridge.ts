@@ -1,4 +1,5 @@
 import { CAFFEMATE_AGENT_APP_NAME } from './runtime-contract'
+import { runtimeReleaseIdentity } from './release-seal'
 
 export interface ManagedSessionService {
   createSession(request: {
@@ -39,6 +40,18 @@ export async function handleRuntimeClassMethod(
   sessionService: ManagedSessionService,
 ): Promise<RuntimeClassMethodResult> {
   const classMethod = nonEmptyString(request.class_method)
+  if (classMethod === 'async_get_release_identity') {
+    const input = inputObject(request.input)
+    if (!input || Object.keys(input).length !== 0) {
+      return {
+        handled: true,
+        status: 400,
+        body: { error: 'async_get_release_identity requires an empty input object' },
+      }
+    }
+    return { handled: true, status: 200, body: { output: runtimeReleaseIdentity() } }
+  }
+
   if (classMethod !== 'async_create_session' && classMethod !== 'async_delete_session') {
     return { handled: false }
   }

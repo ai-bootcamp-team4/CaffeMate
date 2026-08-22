@@ -83,17 +83,18 @@ function resultEnvelope(
 export function createRagMcpConnectors(dependencies: RagMcpConnectorDependencies): McpConnectorRegistry {
   const now = dependencies.now ?? (() => new Date().toISOString())
   return {
-    retrieve_official_documents: async (input, scope) => {
+    retrieve_official_documents: async (input, scope, execution) => {
       const value = input as OfficialDocumentsInput
       const hits = await dependencies.retrieval.retrieveOfficial({
         query: value.query,
         sourceFamilies: [...value.source_families],
         asOf: value.as_of,
         limit: value.limit,
+        ...(execution?.signal ? { signal: execution.signal } : {}),
       })
       return resultEnvelope('retrieve_official_documents', scope, hits, now())
     },
-    retrieve_project_documents: async (input, scope) => {
+    retrieve_project_documents: async (input, scope, execution) => {
       const value = input as ProjectDocumentsInput
       const mapping = await dependencies.resolveProjectCorpusMapping(scope)
       const retrievalInput: ProjectRetrievalInput = {
@@ -101,6 +102,7 @@ export function createRagMcpConnectors(dependencies: RagMcpConnectorDependencies
         documentRevisionIds: [...value.document_revision_ids],
         limit: value.limit,
         documentType: value.document_type ?? null,
+        ...(execution?.signal ? { signal: execution.signal } : {}),
       }
       const hits = await dependencies.retrieval.retrieveProject(
         retrievalInput,

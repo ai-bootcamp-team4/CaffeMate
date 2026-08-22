@@ -7,7 +7,15 @@ export interface McpScopeContext {
   requestId: string
 }
 
-export type McpConnector = (input: unknown, scope: McpScopeContext) => Promise<unknown>
+export interface McpExecutionContext {
+  signal?: AbortSignal
+}
+
+export type McpConnector = (
+  input: unknown,
+  scope: McpScopeContext,
+  execution?: McpExecutionContext,
+) => Promise<unknown>
 export type McpConnectorRegistry = Partial<Record<McpToolName, McpConnector>>
 
 export class McpToolError extends Error {
@@ -24,7 +32,12 @@ function record(value: unknown): Record<string, unknown> | null {
 export class McpToolRouter {
   constructor(private readonly connectors: McpConnectorRegistry) {}
 
-  async call(toolName: McpToolName, input: unknown, scope: McpScopeContext): Promise<unknown> {
+  async call(
+    toolName: McpToolName,
+    input: unknown,
+    scope: McpScopeContext,
+    execution: McpExecutionContext = {},
+  ): Promise<unknown> {
     const definition = getMcpToolDefinition(toolName)
     if (!definition) {
       throw new McpToolError('MCP_TOOL_NOT_ALLOWED', `tool ${String(toolName)} is not in the fixed read-only manifest`)
@@ -40,7 +53,7 @@ export class McpToolRouter {
       throw new McpToolError('MCP_CONNECTOR_UNAVAILABLE', `connector ${definition.name} is not configured`)
     }
 
-    const result = await connector(input, scope)
+    const result = await connector(input, scope, execution)
     const resultValidation = validateMcpToolResult(definition.name, result)
     if (!resultValidation.ok) {
       throw new McpToolError('MCP_OUTPUT_SCHEMA_INVALID', JSON.stringify(resultValidation.errors))

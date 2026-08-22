@@ -27,6 +27,7 @@ gcloud iam roles describe caffemateMcpRetriever \
   --project="$project_id" --format=json >"$retriever_role_json"
 
 tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-backend/mcp:${source_revision}"
+preflight_tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-backend/agent-release-preflight:${source_revision}"
 tagged_digest=$(gcloud artifacts docker images describe "$tagged_image" \
   --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
 case "$tagged_digest" in
@@ -36,6 +37,18 @@ esac
 digest=${tagged_digest##*@}
 build_id=$(verified_build_id_for_image \
   "$tagged_image" "$digest" "$source_revision" "$build_sa")
+preflight_tagged_digest=$(gcloud artifacts docker images describe "$preflight_tagged_image" \
+  --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
+case "$preflight_tagged_digest" in
+  "${region}-docker.pkg.dev/${project_id}/caffemate-backend/agent-release-preflight@sha256:"*) ;;
+  *) printf '%s\n' 'tagged Agent release-preflight image digest is unavailable' >&2; exit 1 ;;
+esac
+preflight_build_id=$(verified_build_id_for_image \
+  "$preflight_tagged_image" "${preflight_tagged_digest##*@}" "$source_revision" "$build_sa")
+[ "$preflight_build_id" = "$build_id" ] || {
+  printf '%s\n' 'MCP runtime and Agent release-preflight build provenance differ' >&2
+  exit 1
+}
 
 python3 - "$service_json" "$policy_json" "$project_policy_json" "$retriever_role_json" "$source_revision" "$api_sa" "$mcp_sa" "$project_id" "$official_rag_corpus_resource" "$tagged_digest" "$build_id" <<'PY'
 import json, sys

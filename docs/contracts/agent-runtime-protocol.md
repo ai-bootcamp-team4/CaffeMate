@@ -82,6 +82,10 @@ flowchart LR
 - Runtime 생성, `global` 생성 모델 호출, 서울 embedding 호출, 서울 reranker 호출을 서로 독립된 배포 preflight로 실행한다.
 - 네 항목 중 필수 항목 하나라도 고정된 위치에서 실패하면 Agent Workflow를 시작하지 않고 대체 위치 호출 수가 0임을 검증한다.
 - release manifest에는 Runtime region과 generation region을 분리해 pin한다.
+- release manifest는 운영 검색에 사용할 `ACTIVE IndexGeneration`의 exact RAG corpus resource, ACTIVE RAG file set, parser·index schema revision, embedding model, reranker, source revision set과 sealed evaluation digest를 함께 pin한다. 배포 preflight는 display name으로 corpus를 재탐색하지 않고 이 exact resource와 file set을 read-back한다.
+- RAG gold set과 수치 Gate가 고정되기 전 `sealed_evaluation_digest`는 `docs/evaluation/high-value-cases.yaml`의 provisional sealed evaluation input identity를 pin한다. 이 digest 자체를 성능 통과 증거로 해석하지 않으며, 현재 release 승격에는 exact corpus/file read-back과 실제 retrieval·rerank preflight 성공이 별도로 필요하다.
+- prompt와 Agent payload contract의 content digest는 소스에서 계산할 뿐 아니라 배포된 Runtime의 preflight 전용 `async_get_release_identity`를 호출해 artifact 내부 값도 read-back한다. manifest·source·Runtime 중 하나라도 다르면 release 승격을 막는다.
+- private MCP도 release manifest에 Cloud Run service name·region·40자 source revision·immutable image digest를 함께 pin하고, Agent GCP preflight가 Cloud Run v2 service를 직접 GET해 template label과 단일 container image를 authoritative read-back한다. protocol/tool manifest가 같아도 runtime artifact가 다르면 release 승격을 막는다.
 
 ### 4.2 GCP endpoint와 관리형 session
 
@@ -93,6 +97,8 @@ Control API의 물리 설정은 `gcp_project_id`와 `resource_id`를 분리한�
 2. Runtime이 동일한 session id를 반환했는지 검증하고 아래 `:streamQuery`에 전달한다.
 3. terminal outcome 뒤 `async_delete_session`을 같은 `:query` endpoint로 호출한다.
 4. 삭제 실패는 durable cleanup outbox로 넘겨 재시도하고, 재시도 예산 소진 시 운영 경고를 만든다.
+
+`async_get_release_identity`는 사용자 invocation 경로가 아닌 배포 preflight 전용 read-only class method다. session을 생성하거나 제품 State를 읽고 쓰지 않으며, 배포 artifact가 직접 계산한 `prompt_bundle_digest`와 `agent_contract_bundle_digest`만 반환한다. Control API의 정상 Agent 호출 순서는 위 세 class method만 사용한다.
 
 ```text
 POST https://asia-northeast3-aiplatform.googleapis.com/v1/projects/{gcp_project_id}/locations/asia-northeast3/reasoningEngines/{resource_id}:query
@@ -384,7 +390,7 @@ cancel command도 durable Event로 기록하고 generation을 증가시킨다. �
 
 현재 production connector 범위는 `resolve_area`, `get_source_health`, `retrieve_official_documents`다. `resolve_area`는 행정안전부 도로명주소 검색 API를 호출하며 `JUSO_API_KEY`가 없으면 임의 후보를 만들지 않고 `PARTIAL`과 `SOURCE_CREDENTIAL_MISSING`을 반환한다. 공식 응답이 경계 revision과 데이터 기준일을 제공하지 않으므로 `boundary_version`은 `JUSO_LIVE_UNVERSIONED`, `source_trace.data_date`는 `null`로 반환하고 응답 digest를 남긴다. `get_source_health`는 실제 검색 probe가 성공하고 공식 오류 코드가 정상일 때만 `HEALTHY`로 반환한다. `retrieve_official_documents`는 서울 Vertex AI RAG Engine의 승인 official corpus만 조회하고, checked-in source catalog의 exact GCS URI·RAG file id·source revision에 매핑되지 않는 context를 거절한다. `retrieve_project_documents`는 Cloud SQL의 venture-project별 corpus/file mapping이 구현되기 전까지 제공하지 않는다. 나머지 일곱 tool은 manifest에는 고정하되 각 권위 source connector가 연결되기 전까지 호출 시 `MCP_CONNECTOR_UNAVAILABLE`로 실패한다.
 
-배포 단위는 `caffemate-mcp` Cloud Run service다. 서비스는 unauthenticated invoker를 허용하지 않고 `caffemate-api-runtime`만 `roles/run.invoker`를 가진다. MCP runtime identity는 official RAG 조회용 `roles/aiplatform.user`와 RAG `rank_service`가 요구하는 `discoveryengine.rankingConfigs.rank`를 포함한 read-only `roles/discoveryengine.viewer`만 추가로 가진다. application boundary에서도 같은 service identity의 Google ID token, service URL audience, 최대 300초의 HMAC scope token을 모두 검증한다. Control API는 `MCP_BASE_URL`, `MCP_AUDIENCE`, `MCP_SCOPE_HMAC_SECRET` 세 설정이 모두 있을 때만 MCP client를 구성한다.
+배포 단위는 `caffemate-mcp` Cloud Run service다. 서비스는 unauthenticated invoker를 허용하지 않고 `caffemate-api-runtime`만 `roles/run.invoker`를 가진다. MCP runtime identity는 official RAG 조회와 서울 Vertex AI Ranking API 호출에 필요한 최소 권한만 가진다. `aiplatform.ragCorpora.query`와 `discoveryengine.rankingConfigs.rank`를 제외한 mutation 권한은 허용하지 않는다. application boundary에서도 같은 service identity의 Google ID token, service URL audience, 최대 300초의 HMAC scope token을 모두 검증한다. Control API는 `MCP_BASE_URL`, `MCP_AUDIENCE`, `MCP_SCOPE_HMAC_SECRET` 세 설정이 모두 있을 때만 MCP client를 구성한다.
 
 모든 POST는 `MCP-Protocol-Version`과 body의 실제 method를 반영한 `Mcp-Method`를 포함한다. `Mcp-Name`은 `tools/call`처럼 `params.name`이 정의된 요청에만 포함한다. header와 body가 다르면 HTTP 400, JSON-RPC `-32020`으로 거절한다.
 
@@ -563,7 +569,7 @@ validated parser blocks
 | `CP-017` | MCP JSON·SSE·cancel | 둘 다 같은 result, cancel 뒤 적용 0 |
 | `CP-018` | MCP audience·identity·scope·project 공격 matrix | 전부 거절하고 project data 0 |
 | `CP-019` | UNKNOWN·FRESH date·assumption coverage·money range·franchise eligibility 위반 | 명시된 semantic error code로 모두 거절 |
-| `CP-020` | model·prompt·Schema·tool manifest 중 하나가 release와 다름 | release 승격 실패 |
+| `CP-020` | model·prompt content·Schema content·tool manifest·ACTIVE IndexGeneration 중 하나가 release와 다름 | release 승격 실패 |
 
 완료 기준:
 
@@ -582,7 +588,9 @@ validated parser blocks
 - 설명·오탈자처럼 wire 동작이 같은 변경: patch version
 - producer는 최소 한 minor 호환 기간 동안 직전 major를 읽을 수 있어야 한다. 보안상 제거가 필요한 계약은 예외로 즉시 차단한다.
 - 요청과 결과는 반드시 동일 major version을 사용한다.
-- prompt, model, payload Schema, tool Schema와 runtime revision은 release manifest에서 함께 pin한다.
+- prompt, model, payload Schema, tool Schema, Agent Runtime revision, private MCP runtime artifact와 ACTIVE IndexGeneration은 release manifest에서 함께 pin한다.
+- prompt와 Agent payload contract는 symbolic version/id뿐 아니라 canonical content digest도 pin한다. 같은 id 아래 내용이 바뀌어도 release source seal이 실패해야 한다.
+- manifest 자체에 수동 `VERIFIED` 상태를 기록하지 않는다. release 승격 가능 여부는 immutable pin과 현재 source seal, 실제 GCP preflight read-back 결과로 계산한다.
 
 ## 12. 공식 근거와 확인 시점
 
@@ -590,10 +598,10 @@ validated parser blocks
 - [Agent Runtime에서 ADK Agent 사용](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/use-an-adk-agent)
 - [ADK app의 관리형 session 생성·삭제](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/use-an-adk-agent)
 - [Agent Platform Runtime 지원 리전](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations)
-- [Gemini 3.5 Flash 모델별 지원 리전](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-flash)
+- [Gemini 3.7 Flash 모델별 지원 리전](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-7-flash)
 - [Cloud Run service-to-service 인증](https://docs.cloud.google.com/run/docs/authenticating/service-to-service)
 - [MCP 2026-07-28 Streamable HTTP 명세](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)
 - [MCP TypeScript SDK v2의 2026-07-28 지원](https://ts.sdk.modelcontextprotocol.io/v2/migration/support-2026-07-28)
 - [Cloud Run MCP server 배치](https://docs.cloud.google.com/run/docs/host-mcp-servers)
 
-`accessed_at: 2026-08-21`. GCP API version, 지원 리전, SDK의 MCP revision과 실제 request shape는 배포 preflight에서 다시 확인한다.
+`accessed_at: 2026-08-22`. GCP API version, 지원 리전, SDK의 MCP revision과 실제 request shape는 배포 preflight에서 다시 확인한다.

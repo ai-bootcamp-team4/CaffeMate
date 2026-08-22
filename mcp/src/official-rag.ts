@@ -3,11 +3,13 @@ import type { RagBackendRequest, RagHit } from '../../rag/src/retrieval'
 
 export const OFFICIAL_RAG_SOURCE = Object.freeze({
   sourceId: 'easylaw-csmSeq-706',
+  sourceFamily: 'GOVERNMENT_GUIDE',
   documentRevisionId: 'easylaw-csmSeq-706@2026-07-15',
   title: '커피전문점 영업신고 및 사업자등록',
   sourceDate: '2026-07-15',
   sourceRef: 'http://easylaw.go.kr/CSP/CnpClsMain.laf?popMenu=ov&csmSeq=706&ccfNo=3&cciNo=2&cnpClsNo=1',
   sourceUri: 'gs://proj-aj20-211200020328-caffemate-grounding/official/easylaw/coffee-business-registration/2026-08-22/source.html',
+  gcsGeneration: '1787329995006379',
   ragFileId: '5769839172015160639',
   contentDigest: 'sha256:f44af895c9dd771ba22d3890016928ba8bfaa3ed2306d9cd0a5b5bb6ee9d9c34',
 } as const)
@@ -22,6 +24,8 @@ function chunkIdentity(chunk: unknown): { fileId: string; chunkId: string } | nu
 
 export function mapOfficialRagContext(context: VertexRagContext, request: RagBackendRequest): RagHit | null {
   if (request.corpusKind !== 'OFFICIAL' || context.sourceUri !== OFFICIAL_RAG_SOURCE.sourceUri) return null
+  if (!request.sourceFamilies?.includes(OFFICIAL_RAG_SOURCE.sourceFamily)) return null
+  if (!request.asOf || OFFICIAL_RAG_SOURCE.sourceDate > request.asOf) return null
   const chunk = chunkIdentity(context.chunk)
   if (!chunk || chunk.fileId !== OFFICIAL_RAG_SOURCE.ragFileId) return null
 

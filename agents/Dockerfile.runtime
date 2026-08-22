@@ -1,8 +1,8 @@
-FROM node:22-alpine AS build
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS build
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY agents/runtime-package/package.json agents/runtime-package/package-lock.json ./
 RUN npm ci
 
 COPY agents ./agents
@@ -16,12 +16,12 @@ RUN ./node_modules/.bin/esbuild agents/src/runtime-server.ts \
     --packages=external \
     --outfile=/app/runtime-server.mjs
 
-FROM node:22-alpine AS runtime
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY --chown=node:node package.json package-lock.json ./
+COPY --chown=node:node agents/runtime-package/package.json agents/runtime-package/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --chown=node:node --from=build /app/runtime-server.mjs ./runtime-server.mjs

@@ -1,8 +1,9 @@
 import fixtureMatrix from '../fixtures/task-matrix.json'
 import releaseManifest from '../release-manifest.json'
 import { dispatchAgentTask } from './dispatcher'
-import { createApplicationDefaultGoogleCloudContext } from './gcp-auth'
+import { createApplicationDefaultGoogleCloudContext, type GoogleCloudContext } from './gcp-auth'
 import { runGcpPreflight, type GcpPreflightResult } from './gcp-preflight'
+import { verifyReleaseSourceSeal, type AgentReleaseManifest } from './release-seal'
 import { AGENT_MODEL, GCP_LOCATIONS, TASK_REGISTRY } from './registry'
 import { AGENT_RUNTIME_CLASS_METHODS, CAFFEMATE_AGENT_APP_NAME } from './runtime-contract'
 import { validateAgentTask, validateAgentTaskResult } from './schema-validator'
@@ -35,8 +36,15 @@ function fixtureValidation(fixture: FixtureCase) {
   return { id: fixture.id, task, result, semantics, ok: task.ok && result.ok && semantics.ok }
 }
 
-async function defaultGcpPreflight(modelId?: string): Promise<GcpPreflightResult> {
-  const cloud = createApplicationDefaultGoogleCloudContext()
+export async function runDefaultGcpPreflight(
+  modelId?: string,
+  cloud: GoogleCloudContext = createApplicationDefaultGoogleCloudContext(),
+): Promise<GcpPreflightResult> {
+  const sourceSeal = verifyReleaseSourceSeal(releaseManifest as AgentReleaseManifest)
+  if (!sourceSeal.ok) {
+    throw new Error(`RELEASE_SOURCE_SEAL_INVALID: ${sourceSeal.issues.map((issue) => issue.code).join(',')}`)
+  }
+
   const projectId = await cloud.projectId()
   return runGcpPreflight({
     projectId,
@@ -46,8 +54,29 @@ async function defaultGcpPreflight(modelId?: string): Promise<GcpPreflightResult
     embeddingRegion: GCP_LOCATIONS.embedding,
     approvedModelId: modelId ?? AGENT_MODEL.id,
     runtimePin: {
-      resourceName: process.env.CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME ?? releaseManifest.runtime.resource_name,
-      imageUri: process.env.CAFFEMATE_AGENT_RUNTIME_IMAGE_URI ?? releaseManifest.runtime.image_uri,
+      resourceName: releaseManifest.runtime.resource_name,
+      imageUri: releaseManifest.runtime.image_uri,
+      promptBundleDigest: releaseManifest.prompt_bundle_digest,
+      agentContractBundleDigest: releaseManifest.agent_contract_bundle_digest,
+    },
+    mcpPin: {
+      serviceName: releaseManifest.mcp.runtime.service_name,
+      region: releaseManifest.mcp.runtime.region,
+      sourceRevision: releaseManifest.mcp.runtime.source_revision,
+      imageUri: releaseManifest.mcp.runtime.image_uri,
+    },
+    ragPin: {
+      corpusResourceName: releaseManifest.index_generation.corpus_resource_name,
+      ragFileResourceNames: releaseManifest.index_generation.source_revisions.map((source) => source.rag_file_resource_name),
+      embeddingModelId: releaseManifest.index_generation.embedding_model_id,
+      rerankerId: releaseManifest.index_generation.reranker_id,
+      sourceRevisions: releaseManifest.index_generation.source_revisions.map((source) => ({
+        sourceFamily: source.source_family,
+        sourceDate: source.source_date,
+        sourceUri: source.source_uri,
+        gcsObjectGeneration: source.gcs_object_generation,
+        ragFileResourceName: source.rag_file_resource_name,
+      })),
     },
     accessToken: cloud.accessToken,
   })
@@ -94,7 +123,7 @@ export async function runAgentControl(
     }
     case 'gcp-preflight': {
       try {
-        const result = await (dependencies.gcpPreflight ?? defaultGcpPreflight)(target)
+        const result = await (dependencies.gcpPreflight ?? runDefaultGcpPreflight)(target)
         return {
           ok: result.ok,
           code: result.ok ? undefined : 'GCP_PREFLIGHT_BLOCKED',

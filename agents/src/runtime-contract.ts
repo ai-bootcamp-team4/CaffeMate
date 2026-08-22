@@ -42,4 +42,14 @@ export const AGENT_RUNTIME_CLASS_METHODS = Object.freeze([
     },
     api_mode: 'async',
   },
+  {
+    name: 'async_get_release_identity',
+    description: 'Reads the content-addressed Agent prompt and payload-contract identity from the deployed Runtime artifact.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+    api_mode: 'async',
+  },
 ] as const)

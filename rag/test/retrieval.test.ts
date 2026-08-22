@@ -95,6 +95,22 @@ describe('RAG retrieval coordinator', () => {
     expect(project).not.toHaveBeenCalled()
   })
 
+  it('threads caller cancellation to the official backend request', async () => {
+    const controller = new AbortController()
+    const official = vi.fn(async () => [hit('official-rev-1')])
+    const coordinator = new RetrievalCoordinator({ official }, { officialCorpusId: officialCorpusResource })
+
+    await coordinator.retrieveOfficial({
+      query: '가맹사업법',
+      sourceFamilies: ['LAW'],
+      asOf: '2026-08-21',
+      limit: 5,
+      signal: controller.signal,
+    })
+
+    expect(official).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }))
+  })
+
   it('rejects official retrieval before backend execution when no authoritative corpus mapping is configured', async () => {
     const official = vi.fn(async () => [hit('official-rev-1')])
     const coordinator = new RetrievalCoordinator({ official })
