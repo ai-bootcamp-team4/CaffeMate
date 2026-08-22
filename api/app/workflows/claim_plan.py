@@ -64,13 +64,10 @@ class ClaimPlanStageHandler:
             self._claim("AREA_BUSINESS_CHURN", ClaimMateriality.HIGH, area_scope, "P365D"),
             self._claim("AREA_DEMAND_SIGNALS", ClaimMateriality.HIGH, area_scope, "P180D"),
         ]
-        allowed_tools = {
-            "get_area_profile",
-            "search_cafe_observations",
-            "search_business_events",
-            "retrieve_official_documents",
-            "get_source_health",
-        }
+        # Keep claims complete, but expose only connectors that are wired in the
+        # deployed FIRST_PROPOSAL retrieval path. Unsupported claims remain
+        # explicit missing evidence instead of becoming guaranteed MCP errors.
+        allowed_tools = {"retrieve_official_documents"}
         preference = context.state.founder.cafe_type_preference
         if preference in {
             CafeTypePreference.OPEN_TO_BOTH,
@@ -112,9 +109,6 @@ class ClaimPlanStageHandler:
                     ),
                 ]
             )
-            allowed_tools.update(
-                {"list_franchise_universe", "get_franchise_disclosure"}
-            )
         claims.append(
             self._claim(
                 "CAFE_OPENING_REQUIRED_PROCEDURES",
@@ -123,7 +117,6 @@ class ClaimPlanStageHandler:
                 "P365D",
             )
         )
-        allowed_tools.add("get_official_procedure")
         output = ClaimPlanOutput(
             claims=claims,
             planning_constraints=EvidencePlanningConstraints(

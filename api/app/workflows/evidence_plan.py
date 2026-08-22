@@ -86,16 +86,14 @@ class DeterministicEvidencePlanner:
             raise ContractValidationError(
                 "Deterministic Evidence Plan requires two actions per claim"
             )
-        required_action_count = len(claims) * 2
-        if not isinstance(max_total, int) or required_action_count > max_total:
+        if not isinstance(max_total, int) or max_total < 1:
             raise ContractValidationError(
-                "Deterministic Evidence Plan exceeds the total action limit"
+                "Deterministic Evidence Plan requires a positive total action limit"
             )
-        if len(action_id_pool) < required_action_count:
-            raise ContractValidationError("Evidence Plan action id pool is exhausted")
 
         seen_claim_ids: set[str] = set()
         claim_plans: list[dict[str, Any]] = []
+        missing_claim_ids: list[str] = []
         action_index = 0
         for claim in claims:
             if not isinstance(claim, dict):
@@ -113,6 +111,35 @@ class DeterministicEvidencePlanner:
                 )
             rule = self._rules[claim_type]
             support, counter = rule.builder(claim, as_of)
+            self._contracts.validate_mcp_tool_input(
+                support.tool_name, support.typed_arguments
+            )
+            self._contracts.validate_mcp_tool_input(
+                counter.tool_name, counter.typed_arguments
+            )
+            if support.tool_name not in allowed_tools or counter.tool_name not in allowed_tools:
+                missing_claim_ids.append(claim_id)
+                claim_plans.append(
+                    {
+                        "claim_id": claim_id,
+                        "route": rule.route,
+                        "support_actions": [],
+                        "counter_actions": [],
+                        "stop_condition": (
+                            "Stop without execution because the required production "
+                            "connector is unavailable."
+                        ),
+                        "abstain_condition": (
+                            "Preserve this Claim as missing until an authoritative "
+                            "production connector is available."
+                        ),
+                    }
+                )
+                continue
+            if action_index + 2 > max_total or action_index + 2 > len(action_id_pool):
+                raise ContractValidationError(
+                    "Evidence Plan supported action budget is exhausted"
+                )
             support_action = self._action(
                 action_id=action_id_pool[action_index],
                 claim=claim,
@@ -148,8 +175,10 @@ class DeterministicEvidencePlanner:
             "claims": claims,
             "planning_constraints": constraints,
             "claim_plans": claim_plans,
-            "missing_claim_ids": [],
-            "reason_codes": [],
+            "missing_claim_ids": missing_claim_ids,
+            "reason_codes": (
+                ["MCP_CAPABILITY_UNAVAILABLE"] if missing_claim_ids else []
+            ),
             "warnings": [],
         }
         plan_digest = hashlib.sha256(

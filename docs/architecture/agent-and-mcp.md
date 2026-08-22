@@ -46,6 +46,7 @@ Cloud Run Control API
 - Control API가 workflow, State version, 재시도 예산과 종료 조건을 소유한다.
 - Agent Runtime은 reasoning과 ADK Agent 실행을 담당하지만 persistent State를 쓰지 않는다.
 - 첫 구현에서 Agent Runtime은 MCP를 직접 호출하지 않으며 MCP invoke 권한, 원본 credential과 database write 권한을 갖지 않는다.
+- 결정론적 Evidence Plan은 고정 manifest와 별개인 production connector capability를 적용한다. 미배포 tool이 필요한 Claim은 실행하지 않고 missing Claim으로 전달하며, Agent가 connector 실패를 근거 부족처럼 해석하게 만들지 않는다.
 - Control API의 결정론적 계획기가 Claim 종류를 고정된 support·counter read action으로 변환하고
   allowlist·scope·날짜·인자·호출 상한을 검증한 뒤 MCP를 호출한다.
 - Evidence Researcher는 실행·검증된 MCP·RAG 결과만 평가하며 read action을 생성하지 않는다.
