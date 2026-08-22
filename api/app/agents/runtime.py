@@ -351,13 +351,20 @@ class AgentRuntimeHttpClient:
                 timeout=timeout,
             ) as response:
                 response.raise_for_status()
+                media_type = response.headers.get("content-type", "").split(";", 1)[0].strip()
+                if media_type != "application/json":
+                    raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID")
                 events = []
                 for line in response.iter_lines():
-                    if not line.startswith("data:"):
+                    if not line.strip():
                         continue
-                    value = json.loads(line[5:].strip())
-                    if isinstance(value, dict):
-                        events.append(value)
+                    value = json.loads(line)
+                    if not isinstance(value, dict) or set(value) != {"output"}:
+                        raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID")
+                    output = value["output"]
+                    if not isinstance(output, dict):
+                        raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID")
+                    events.append(output)
         except json.JSONDecodeError as error:
             raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID") from error
         except httpx.HTTPStatusError as error:

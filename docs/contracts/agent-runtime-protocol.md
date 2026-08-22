@@ -120,6 +120,14 @@ session 생성 입력의 `user_id`는 실제 사용자 식별자가 아니라 `v
 }
 ```
 
+배포된 custom Runtime의 streaming 응답은 newline-delimited JSON으로 해석한다. 각 non-empty line은 정확히 다음 한 겹의 envelope만 허용한다.
+
+```json
+{"output": {"author": "<agent_name>", "content": {"parts": [{"text": "<AgentTaskResult JSON>"}]}}}
+```
+
+Control API는 `output`이 object가 아니거나 envelope에 다른 top-level key가 섞인 응답을 `RUNTIME_STREAM_PROTOCOL_INVALID`로 거절한다. raw ADK Event와 `data:` SSE framing을 별도 호환 경로로 수용하지 않는다. public `:streamQuery?alt=sse` 호출에서도 이 CaffeMate custom Runtime wire contract를 검증한 뒤 `output` 한 겹을 제거하고 아래 final-event 규칙을 적용한다.
+
 ### 4.3 결정론적 root dispatcher
 
 ADK application의 root는 LLM Agent가 아니라 custom `BaseAgent`인 `CAFFEMATE_TASK_DISPATCHER`다. 다음 매핑을 코드 상수와 release manifest로 함께 고정한다.

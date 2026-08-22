@@ -32,6 +32,11 @@ def evidence_fixture() -> tuple[dict[str, Any], dict[str, Any]]:
     return copy.deepcopy(fixture["task"]), copy.deepcopy(fixture["result"])
 
 
+def stream_response(*events: dict[str, Any]) -> httpx.Response:
+    body = "".join(json.dumps({"output": event}) + "\n" for event in events)
+    return httpx.Response(200, text=body, headers={"Content-Type": "application/json"})
+
+
 def runtime_client(
     handler: httpx.MockTransport,
     cleanup: FakeCleanupSink,
@@ -65,7 +70,7 @@ def test_runtime_creates_streams_validates_and_deletes_one_managed_session() -> 
             "partial": False,
             "content": {"parts": [{"text": json.dumps(result)}]},
         }
-        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
+        return stream_response(event)
 
     cleanup = FakeCleanupSink()
     loaded = runtime_client(httpx.MockTransport(handler), cleanup).invoke(task)
@@ -84,6 +89,38 @@ def test_runtime_creates_streams_validates_and_deletes_one_managed_session() -> 
     assert json.loads(stream_input["message"]) == task
     assert all(request["headers"]["Authorization"] == "Bearer access-token" for request in requests)
     assert cleanup.calls == []
+
+
+@pytest.mark.parametrize(
+    "stream_body",
+    [
+        'data: {"output":{"author":"EVIDENCE_RESEARCHER"}}\n\n',
+        '{"author":"EVIDENCE_RESEARCHER"}\n',
+        '{"output":{"author":"EVIDENCE_RESEARCHER"},"extra":true}\n',
+        '{"output":"not-an-event"}\n',
+    ],
+)
+def test_stream_wire_format_rejects_non_authoritative_envelopes(stream_body: str) -> None:
+    task, _result = evidence_fixture()
+    deleted: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        method = body.get("class_method")
+        if method == "async_create_session":
+            return httpx.Response(200, json={"output": {"id": "session-1"}})
+        if method == "async_delete_session":
+            deleted.append(body["input"]["session_id"])
+            return httpx.Response(200, json={"output": None})
+        return httpx.Response(
+            200,
+            text=stream_body,
+            headers={"Content-Type": "application/json"},
+        )
+
+    with pytest.raises(AgentRuntimeError, match="RUNTIME_STREAM_PROTOCOL_INVALID"):
+        runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
+    assert deleted == ["session-1"]
 
 
 def test_wrong_author_and_duplicate_final_events_are_protocol_errors_but_still_cleanup() -> None:
@@ -111,8 +148,7 @@ def test_wrong_author_and_duplicate_final_events_are_protocol_errors_but_still_c
                 "content": {"parts": [{"text": json.dumps(result)}]},
             },
         ]
-        body_text = "".join(f"data: {json.dumps(event)}\n\n" for event in events)
-        return httpx.Response(200, text=body_text)
+        return stream_response(*events)
 
     with pytest.raises(AgentRuntimeError, match="RUNTIME_PROTOCOL_INVALID"):
         runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
@@ -132,7 +168,7 @@ def test_delete_failure_is_durably_enqueued_without_losing_valid_result() -> Non
             "author": "EVIDENCE_RESEARCHER",
             "content": {"parts": [{"text": json.dumps(result)}]},
         }
-        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
+        return stream_response(event)
 
     cleanup = FakeCleanupSink()
     loaded = runtime_client(httpx.MockTransport(handler), cleanup).invoke(task)
@@ -191,7 +227,7 @@ def test_retryable_transport_uses_new_invocation_and_session_then_succeeds() -> 
             "author": task["agent_name"],
             "content": {"parts": [{"text": json.dumps(response_result)}]},
         }
-        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
+        return stream_response(event)
 
     loaded = runtime_client(
         httpx.MockTransport(handler),
@@ -235,7 +271,7 @@ def test_stream_retry_cleans_each_known_session() -> None:
             "author": task["agent_name"],
             "content": {"parts": [{"text": json.dumps(response_result)}]},
         }
-        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
+        return stream_response(event)
 
     runtime_client(
         httpx.MockTransport(handler),
@@ -273,7 +309,7 @@ def test_schema_invalid_result_is_repaired_once_in_a_new_session() -> None:
             "author": task["agent_name"],
             "content": {"parts": [{"text": response_text}]},
         }
-        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
+        return stream_response(event)
 
     loaded = runtime_client(
         httpx.MockTransport(handler),
@@ -316,7 +352,7 @@ def test_second_schema_failure_stops_without_third_generation() -> None:
             "author": task["agent_name"],
             "content": {"parts": [{"text": "{}"}]},
         }
-        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
+        return stream_response(event)
 
     with pytest.raises(AgentRuntimeError, match="RUNTIME_RESULT_SCHEMA_INVALID"):
         runtime_client(
@@ -365,7 +401,7 @@ def test_safety_block_event_is_terminal_and_session_is_cleaned() -> None:
             deletes += 1
             return httpx.Response(200, json={"output": None})
         event = {"errorCode": "SAFETY_BLOCKED"}
-        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
+        return stream_response(event)
 
     with pytest.raises(AgentRuntimeError, match="SAFETY_BLOCKED"):
         runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
@@ -418,7 +454,7 @@ def test_retry_after_is_used_only_within_two_seconds() -> None:
             "author": task["agent_name"],
             "content": {"parts": [{"text": json.dumps(response_result)}]},
         }
-        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
+        return stream_response(event)
 
     runtime_client(
         httpx.MockTransport(handler),
@@ -458,7 +494,7 @@ def test_transport_retry_then_repair_references_invalid_retry_invocation() -> No
             "author": task["agent_name"],
             "content": {"parts": [{"text": response_text}]},
         }
-        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
+        return stream_response(event)
 
     runtime_client(
         httpx.MockTransport(handler),
