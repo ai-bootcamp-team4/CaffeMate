@@ -1,10 +1,8 @@
-from copy import deepcopy
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
 
-from app.agents.task_factory import AgentTaskFactory
 from app.domain.errors import ContractValidationError
 from app.domain.models import (
     AreaResolutionStatus,
@@ -17,12 +15,15 @@ from app.domain.models import (
     VentureState,
     VentureStatus,
 )
-from app.workflows.evidence_plan import EvidencePlanStageHandler
+from app.workflows.claim_plan import ClaimPlanStageHandler
+from app.workflows.evidence_plan import PLANNER_VERSION, EvidencePlanStageHandler
 from app.workflows.models import HeadFence, StageLease
 from app.workflows.stage_context import StageContext
 
 
-def stage_context() -> StageContext:
+def stage_context(
+    preference: CafeTypePreference = CafeTypePreference.OPEN_TO_BOTH,
+) -> StageContext:
     now = datetime(2026, 8, 21, 9, 0, tzinfo=UTC)
     head = HeadFence(
         workflow_generation=1,
@@ -34,190 +35,198 @@ def stage_context() -> StageContext:
         index_generation_id=None,
         seed_registry_id=None,
     )
-    return StageContext(
+    state = VentureState(
+        project_id="project-1",
+        user_id="user-1",
+        state_version=1,
+        status=VentureStatus.ANALYZING,
+        founder=FounderState(
+            target_area_input="수원 아주대 부근",
+            own_funds_krw=50_000_000,
+            borrowing_intent=BorrowingIntent.UNDECIDED,
+            cafe_type_preference=preference,
+            operation_mode=OperationMode.DIRECT_FULL_TIME,
+        ),
+        area=AreaState(
+            resolution_status=AreaResolutionStatus.RESOLVED,
+            administrative_code="4111756000",
+            display_name="경기도 수원시 영통구 원천동",
+            boundary_version="2026-01",
+            coverage_profile=CoverageProfile.N1_NATIONWIDE_CONDITIONAL,
+        ),
+        updated_at=now,
+    )
+    claim_context = StageContext(
         lease=StageLease(
             workflow_run_id="workflow-1",
-            stage_run_id="evidence-plan-1",
-            stage_code="EVIDENCE_PLAN",
+            stage_run_id="claim-plan-1",
+            stage_code="CLAIM_PLAN",
             input_digest="a" * 64,
             lease_token="lease-token",
-            lease_expires_at=now + timedelta(seconds=45),
+            lease_expires_at=now + timedelta(seconds=90),
             attempt=1,
             head=head,
         ),
         project_id="project-1",
-        state=VentureState(
-            project_id="project-1",
-            user_id="user-1",
-            state_version=1,
-            status=VentureStatus.ANALYZING,
-            founder=FounderState(
-                target_area_input="수원 아주대 부근",
-                own_funds_krw=50_000_000,
-                borrowing_intent=BorrowingIntent.UNDECIDED,
-                cafe_type_preference=CafeTypePreference.OPEN_TO_BOTH,
-                operation_mode=OperationMode.DIRECT_FULL_TIME,
-            ),
-            area=AreaState(
-                resolution_status=AreaResolutionStatus.RESOLVED,
-                administrative_code="41117550",
-                display_name="경기도 수원시 영통구 원천동",
-                boundary_version="2026-01",
-                coverage_profile=CoverageProfile.N1_NATIONWIDE_CONDITIONAL,
-            ),
-            updated_at=now,
-        ),
+        state=state,
         dependency_results={
-            "CLAIM_PLAN": {
-                "claim_plan": {
-                    "claims": [
-                        {
-                            "claim_id": "claim:AREA_PROFILE",
-                            "claim_type": "AREA_PROFILE",
-                            "materiality": "HIGH",
-                            "geographic_scope": {
-                                "scope_type": "ADMINISTRATIVE_AREA",
-                                "scope_id": "41117550",
-                                "boundary_version": "2026-01",
-                            },
-                            "required_freshness": "P365D",
-                        }
-                    ],
-                    "planning_constraints": {
-                        "as_of": "2026-08-21",
-                        "max_actions_per_claim": 2,
-                        "max_total_actions": 4,
-                        "allowed_tools": ["get_source_health"],
+            "AREA_RESOLUTION": {
+                "area_resolution": {
+                    "resolution_status": "RESOLVED",
+                    "selected": {
+                        "administrative_code": "4111756000",
+                        "display_name": "경기도 수원시 영통구 원천동",
+                        "boundary_version": "2026-01",
+                        "match_kind": "EXACT",
                     },
-                    "action_id_pool": ["action-01", "action-02"],
                 }
             }
         },
     )
-
-
-def complete_result(task: dict[str, Any]) -> dict[str, Any]:
-    scope = task["payload"]["claims"][0]["geographic_scope"]
-    return {
-        "schema_version": "1.0.0",
-        "task_id": task["task_id"],
-        "invocation_id": task["invocation_id"],
-        "agent_name": task["agent_name"],
-        "task_type": task["task_type"],
-        "workflow_run_id": task["workflow_run_id"],
-        "stage_run_id": task["stage_run_id"],
-        "venture_project_id": task["venture_project_id"],
-        "head_fence_seen": deepcopy(task["head_fence"]),
-        "input_digest": task["input_digest"],
-        "output_schema_id": task["output_schema_id"],
-        "status": "COMPLETE",
-        "payload": {
-            "claim_plans": [
-                {
-                    "claim_id": "claim:AREA_PROFILE",
-                    "route": "MCP_STRUCTURED",
-                    "support_actions": [
-                        {
-                            "action_id": "action-01",
-                            "claim_id": "claim:AREA_PROFILE",
-                            "polarity": "SUPPORT",
-                            "tool_name": "get_source_health",
-                            "tool_version": "1.0.0",
-                            "typed_arguments": {
-                                "source_ids": ["area-profile"],
-                                "as_of": "2026-08-21",
-                            },
-                            "required_authority": ["PRIMARY_DATA"],
-                            "date_constraints": {
-                                "as_of": "2026-08-21",
-                                "max_age_days": 365,
-                            },
-                            "scope_constraints": scope,
-                        }
-                    ],
-                    "counter_actions": [],
-                    "stop_condition": "공식 자료를 확보하면 종료",
-                    "abstain_condition": "공식 자료가 없으면 기권",
-                }
-            ]
-        },
-        "evidence_refs": [],
-        "missing_claim_ids": [],
-        "reason_codes": [],
-        "warnings": [],
-    }
-
-
-class FakeRuntime:
-    def __init__(self, status: str = "COMPLETE") -> None:
-        self.status = status
-        self.tasks: list[dict[str, Any]] = []
-
-    def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
-        self.tasks.append(task)
-        result = complete_result(task)
-        if self.status != "COMPLETE":
-            result.update(
-                status=self.status,
-                payload=None,
-                reason_codes=["INSUFFICIENT_CONTEXT"],
-            )
-        return result
-
-
-def handler(runtime: FakeRuntime) -> EvidencePlanStageHandler:
-    return EvidencePlanStageHandler(
-        runtime,
-        task_factory=AgentTaskFactory(
-            now=lambda: datetime(2026, 8, 21, 9, 0, tzinfo=UTC),
-            new_invocation_id=lambda: "invocation-1",
+    claim_result = ClaimPlanStageHandler(today=lambda: date(2026, 8, 21)).execute(
+        claim_context
+    )
+    return StageContext(
+        lease=claim_context.lease.model_copy(
+            update={"stage_run_id": "evidence-plan-1", "stage_code": "EVIDENCE_PLAN"}
         ),
+        project_id="project-1",
+        state=state,
+        dependency_results={"CLAIM_PLAN": claim_result},
     )
 
 
-def test_complete_plan_crosses_runtime_boundary_and_becomes_stage_output() -> None:
-    runtime = FakeRuntime()
+def actions(result: dict[str, object]) -> list[dict[str, Any]]:
+    plan = result["evidence_plan"]
+    assert isinstance(plan, dict)
+    return [
+        action
+        for claim_plan in plan["claim_plans"]
+        for field in ("support_actions", "counter_actions")
+        for action in claim_plan[field]
+    ]
 
-    result = handler(runtime).execute(stage_context())
+
+def test_complete_plan_is_generated_without_agent_runtime() -> None:
+    result = EvidencePlanStageHandler().execute(stage_context())
 
     assert result["stage_control"] == {"disposition": "CONTINUE", "reason_codes": []}
     plan = result["evidence_plan"]
     assert isinstance(plan, dict)
     assert plan["status"] == "COMPLETE"
-    assert plan["claim_plans"][0]["support_actions"][0]["action_id"] == "action-01"
-    assert plan["agent_trace"]["invocation_id"] == "invocation-1"
-    assert runtime.tasks[0]["runtime_tool_policy"] == "NO_DIRECT_TOOL_CALLS"
-
-
-@pytest.mark.parametrize(
-    ("status", "disposition"),
-    [("NEEDS_HUMAN", "WAITING_FOR_HUMAN"), ("ABSTAIN", "ABSTAIN")],
-)
-def test_noncomplete_agent_status_stops_the_workflow_safely(
-    status: str,
-    disposition: str,
-) -> None:
-    result = handler(FakeRuntime(status)).execute(stage_context())
-
-    assert result["stage_control"] == {
-        "disposition": disposition,
-        "reason_codes": ["INSUFFICIENT_CONTEXT"],
+    assert len(plan["claims"]) == 9
+    assert len(plan["claim_plans"]) == 9
+    assert len(actions(result)) == 18
+    assert plan["planner_trace"]["planner_version"] == PLANNER_VERSION
+    assert plan["planner_trace"]["plan_digest"].startswith("sha256:")
+    assert {action["action_id"] for action in actions(result)} == {
+        f"action-{index:02d}" for index in range(1, 19)
     }
 
 
-def test_invalid_agent_input_status_is_a_nonretryable_contract_failure() -> None:
-    with pytest.raises(ContractValidationError, match="rejected its input"):
-        handler(FakeRuntime("INVALID")).execute(stage_context())
+def test_same_claim_plan_produces_identical_output() -> None:
+    context = stage_context()
+
+    assert EvidencePlanStageHandler().execute(context) == EvidencePlanStageHandler().execute(
+        context
+    )
 
 
-def test_unallocated_action_is_rejected_before_mcp_execution() -> None:
-    class InvalidRuntime(FakeRuntime):
-        def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
-            result = complete_result(task)
-            result["payload"]["claim_plans"][0]["support_actions"][0][
-                "action_id"
-            ] = "invented-action"
-            return result
+def test_plan_digest_changes_when_claim_contract_changes() -> None:
+    original = stage_context(CafeTypePreference.INDEPENDENT_ONLY)
+    changed = original.model_copy(deep=True)
+    changed.dependency_results["CLAIM_PLAN"]["claim_plan"]["claims"][0][
+        "materiality"
+    ] = "MEDIUM"
 
-    with pytest.raises(ContractValidationError, match="UNALLOCATED_OUTPUT_ID"):
-        handler(InvalidRuntime()).execute(stage_context())
+    original_plan = EvidencePlanStageHandler().execute(original)["evidence_plan"]
+    changed_plan = EvidencePlanStageHandler().execute(changed)["evidence_plan"]
+    assert isinstance(original_plan, dict)
+    assert isinstance(changed_plan, dict)
+    assert (
+        original_plan["planner_trace"]["plan_digest"]
+        != changed_plan["planner_trace"]["plan_digest"]
+    )
+
+
+def test_rules_use_typed_tools_for_each_claim() -> None:
+    result = EvidencePlanStageHandler().execute(stage_context())
+    plan = result["evidence_plan"]
+    assert isinstance(plan, dict)
+    tools_by_claim = {
+        value["claim_id"]: {
+            action["tool_name"]
+            for field in ("support_actions", "counter_actions")
+            for action in value[field]
+        }
+        for value in plan["claim_plans"]
+    }
+
+    assert tools_by_claim == {
+        "claim:AREA_PROFILE": {"get_area_profile"},
+        "claim:AREA_CAFE_COMPETITION": {"search_cafe_observations"},
+        "claim:AREA_BUSINESS_CHURN": {"search_business_events"},
+        "claim:AREA_DEMAND_SIGNALS": {"search_cafe_observations"},
+        "claim:INDEPENDENT_STARTUP_COST_BENCHMARK": {
+            "retrieve_official_documents"
+        },
+        "claim:INDEPENDENT_OPERATING_COST_BENCHMARK": {
+            "retrieve_official_documents"
+        },
+        "claim:FRANCHISE_UNIVERSE_ELIGIBILITY": {"list_franchise_universe"},
+        "claim:FRANCHISE_DISCLOSURE_AVAILABILITY": {"list_franchise_universe"},
+        "claim:CAFE_OPENING_REQUIRED_PROCEDURES": {
+            "retrieve_official_documents"
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("preference", "claim_count", "action_count"),
+    [
+        (CafeTypePreference.OPEN_TO_BOTH, 9, 18),
+        (CafeTypePreference.INDEPENDENT_ONLY, 7, 14),
+        (CafeTypePreference.FRANCHISE_ONLY, 7, 14),
+    ],
+)
+def test_branch_preferences_keep_plan_within_bounded_action_budget(
+    preference: CafeTypePreference,
+    claim_count: int,
+    action_count: int,
+) -> None:
+    result = EvidencePlanStageHandler().execute(stage_context(preference))
+    plan = result["evidence_plan"]
+    assert isinstance(plan, dict)
+
+    assert len(plan["claim_plans"]) == claim_count
+    assert len(actions(result)) == action_count
+    assert action_count <= plan["planning_constraints"]["max_total_actions"]
+
+
+def test_unknown_claim_type_is_a_nonretryable_contract_failure() -> None:
+    context = stage_context(CafeTypePreference.INDEPENDENT_ONLY)
+    claim = context.dependency_results["CLAIM_PLAN"]["claim_plan"]["claims"][0]
+    claim["claim_type"] = "UNREGISTERED_CLAIM"
+
+    with pytest.raises(ContractValidationError, match="Unsupported deterministic"):
+        EvidencePlanStageHandler().execute(context)
+
+
+def test_rule_cannot_use_a_tool_removed_from_the_claim_plan_allowlist() -> None:
+    context = stage_context(CafeTypePreference.INDEPENDENT_ONLY)
+    constraints = context.dependency_results["CLAIM_PLAN"]["claim_plan"][
+        "planning_constraints"
+    ]
+    constraints["allowed_tools"].remove("get_area_profile")
+
+    with pytest.raises(ContractValidationError, match="tool is not allowed"):
+        EvidencePlanStageHandler().execute(context)
+
+
+def test_invalid_area_identity_is_rejected_before_mcp_execution() -> None:
+    context = stage_context(CafeTypePreference.INDEPENDENT_ONLY)
+    claim = context.dependency_results["CLAIM_PLAN"]["claim_plan"]["claims"][0]
+    claim["geographic_scope"]["scope_id"] = "invalid"
+
+    with pytest.raises(ContractValidationError, match="MCP tool get_area_profile input"):
+        EvidencePlanStageHandler().execute(context)

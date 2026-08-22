@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from worker.outbox import OutboxPublisher, PostgresOutboxRepository
 from worker.pubsub import GooglePubSubPublisher
 
+from app.agents.protocols import AgentRuntime
 from app.agents.runtime import (
     AgentRuntimeError,
     AgentRuntimeHttpClient,
@@ -124,7 +125,7 @@ from app.workflows.claim_plan import ClaimPlanStageHandler
 from app.workflows.commit_result import CommitResultStageHandler
 from app.workflows.evidence_assess import EvidenceAssessStageHandler
 from app.workflows.evidence_freeze import EvidenceFreezeStageHandler
-from app.workflows.evidence_plan import AgentRuntime, EvidencePlanStageHandler
+from app.workflows.evidence_plan import EvidencePlanStageHandler
 from app.workflows.evidence_retrieval import (
     EvidenceMcpClient,
     EvidenceRetrievalStageHandler,
@@ -280,6 +281,7 @@ def create_app(
 
     stage_handlers: dict[FirstProposalStage, FirstProposalStageHandler] = {
         FirstProposalStage.CLAIM_PLAN: ClaimPlanStageHandler(),
+        FirstProposalStage.EVIDENCE_PLAN: EvidencePlanStageHandler(),
         FirstProposalStage.EVIDENCE_FREEZE: EvidenceFreezeStageHandler(),
         FirstProposalStage.INDEPENDENT_SEED: IndependentSeedStageHandler(seed_registry),
         FirstProposalStage.FRANCHISE_ELIGIBILITY: FranchiseEligibilityStageHandler(),
@@ -298,9 +300,6 @@ def create_app(
             }
         )
     if configured_agent_runtime is not None:
-        stage_handlers[FirstProposalStage.EVIDENCE_PLAN] = EvidencePlanStageHandler(
-            configured_agent_runtime
-        )
         stage_handlers[FirstProposalStage.EVIDENCE_ASSESS] = EvidenceAssessStageHandler(
             configured_agent_runtime
         )

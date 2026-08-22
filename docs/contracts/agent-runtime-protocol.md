@@ -2,13 +2,13 @@
 
 > 상태: active implementation contract
 >
-> 계약 버전: `1.0.0`
+> 계약 버전: `1.1.0`
 >
 > 제품 정본: [제품 명세](../product-spec.md)
 >
 > 기술 기준: [Agent·RAG 런타임 상세 계약](../product-very-spec.md)
 >
-> 갱신일: 2026-08-21
+> 갱신일: 2026-08-23
 
 ## 1. 목적과 권한
 
@@ -50,8 +50,10 @@ Producer는 Schema, 정상 fixture, 실패 fixture와 consumer 영향 변경을 
 ```mermaid
 flowchart LR
     web[React Web] -->|public JSON API| api[Control API]
+    api --> planner[Deterministic Evidence Planner]
+    planner -->|validated bounded read action| mcp
     api -->|GCP authenticated run| runtime[Agent Runtime ADK App]
-    api -->|MCP 2026-07-28 tools/call| mcp[Private MCP]
+    mcp[Private MCP]
     runtime -->|AgentTaskResult only| api
     mcp -->|structuredContent only| api
     api --> core[Deterministic Finance Gate Rank]
@@ -67,7 +69,11 @@ flowchart LR
 - Agent는 typed proposal만 반환한다. State·Evidence·Calculation·Gate·rank를 쓰지 않는다.
 - MCP는 read-only data plane이다. 추천·계산·write tool을 제공하지 않는다.
 - 첫 구현에서 Agent Runtime은 MCP를 직접 호출하지 않는다.
-- Evidence Researcher `PLAN`은 필요한 read action만 제안한다. Control API가 allowlist와 인자를 검증해 MCP를 실행하고 결과를 `ASSESS` 입력으로 전달한다.
+- Control API는 Claim 종류별 버전형 규칙으로 support·counter read action을 결정한다. Agent가
+  도구, 지역 코드, 날짜 범위, query 상한을 선택하지 않는다.
+- 동일한 Claim Plan과 MCP manifest에는 같은 action plan과 digest가 생성되어야 한다.
+- Control API가 allowlist와 typed arguments를 검증해 MCP를 실행하고 결과를 Evidence
+  Researcher의 `ASSESS` 입력으로 전달한다.
 
 이 경계로 Agent의 잘못된 tool 선택이 권한 실행으로 바로 이어지는 것을 막고, MCP 호출을 같은 Workflow trace와 project fence 안에서 재현할 수 있게 한다.
 
@@ -138,7 +144,7 @@ ADK application의 root는 LLM Agent가 아니라 custom `BaseAgent`인 `CAFFEMA
 
 ```text
 INTENT_DELTA                         → INTENT_INTERPRETER
-EVIDENCE_PLAN | EVIDENCE_ASSESS     → EVIDENCE_RESEARCHER
+EVIDENCE_ASSESS                     → EVIDENCE_RESEARCHER
 PROPOSE_INDEPENDENT | PROPOSE_FRANCHISE → PROPOSAL_AGENT
 DOCUMENT_EXTRACT                    → DOCUMENT_ANALYST
 CANDIDATE_AUDIT                     → TYPED_CANDIDATE_AUDITOR
@@ -189,7 +195,7 @@ input_artifacts: []
 input_digest: sha256 digest
 deadline_at: UTC date-time
 runtime_tool_policy: NO_DIRECT_TOOL_CALLS
-tool_manifest_digest: Evidence plan only; otherwise null
+tool_manifest_digest: null for active Agent tasks
 payload: typed role input
 trace_context: optional W3C trace context
 ```
@@ -199,7 +205,6 @@ trace_context: optional W3C trace context
 | `task_type` | `agent_name` | 입력 payload | 출력 payload | 최대 실행시간 |
 | --- | --- | --- | --- | ---: |
 | `INTENT_DELTA` | `INTENT_INTERPRETER` | current State projection, latest input, field ontology | delta proposal | 30초 |
-| `EVIDENCE_PLAN` | `EVIDENCE_RESEARCHER` | atomic Claims, pinned MCP catalog | support·counter action plan | 60초 |
 | `EVIDENCE_ASSESS` | `EVIDENCE_RESEARCHER` | Claims, validated MCP·RAG results | Evidence assessments·conflicts | 30초 |
 | `PROPOSE_INDEPENDENT` | `PROPOSAL_AGENT` | Founder·Area snapshot, registered model seeds, Evidence | independent candidate proposals | 30초 |
 | `PROPOSE_FRANCHISE` | `PROPOSAL_AGENT` | Founder·Area snapshot, verified franchise universe, Evidence | franchise candidate proposals | 30초 |
@@ -362,7 +367,11 @@ Workflow 취소는 GCP 계산이 즉시 중단됐음을 보장하지 않는다. 
 
 `caffemate-worker`가 모든 Agent DAG stage의 유일한 lease owner다. Worker는 15초 heartbeat, 90초 lease를 사용하고 stage 시작·checkpoint·다음 outbox 생성에 compare-and-swap을 적용한다. API instance가 `202` 직후 종료돼도 DB outbox가 남으므로 실행이 사라지지 않는다. redelivery는 같은 `(workflow_run_id, stage_run_id, input_digest)`로 흡수한다.
 
-Worker는 Agent Runtime·MCP credential을 갖지 않는다. Agent·MCP stage에서는 lease token과 full head를 넣어 private Control API stage-execute endpoint를 호출하고, Control API가 외부 호출과 boundary validation을 수행한 뒤 같은 lease token으로 checkpoint한다. 문서 parsing·embedding처럼 Worker가 직접 수행하는 stage도 persistent Venture State는 쓰지 않고 proposed artifact만 만들며 reducer 적용은 API를 통한다.
+Worker는 Agent Runtime·MCP credential을 갖지 않는다. 결정론적 Evidence Plan, Agent·MCP
+stage에서는 lease token과 full head를 넣어 private Control API stage-execute endpoint를 호출하고,
+Control API가 계획 생성 또는 외부 호출과 boundary validation을 수행한 뒤 같은 lease token으로
+checkpoint한다. 문서 parsing·embedding처럼 Worker가 직접 수행하는 stage도 persistent Venture
+State는 쓰지 않고 proposed artifact만 만들며 reducer 적용은 API를 통한다.
 
 내부 stage-execute endpoint의 실패 응답은 원문 예외를 노출하지 않고 안정적인
 `code`와 `retryable`만 반환한다. Agent Runtime·MCP adapter가 자체 transport retry를
@@ -372,7 +381,7 @@ Worker는 Agent Runtime·MCP credential을 갖지 않는다. Agent·MCP stage에
 이 값을 보존해 `StageFailure`를 기록하며 임의로 모든 5xx를 재시도 가능 오류로
 평탄화하지 않는다.
 
-60초 Agent task를 Worker 전송 timeout이 먼저 끊지 않도록 stage lease는 90초,
+최대 60초 Agent task를 Worker 전송 timeout이 먼저 끊지 않도록 stage lease는 90초,
 Worker의 Control API 요청 상한은 70초로 둔다. Agent의 logical `deadline_at`이 실제
 생성·stream·검증·cleanup 예산의 권위값이며, Worker heartbeat는 진행 중인 lease만
 연장하고 Agent 호출의 deadline을 연장하지 않는다.
@@ -519,8 +528,8 @@ Control API는 `FIRST_PROPOSAL` Workflow를 저장하기 전에 Python SDK의 `M
 
 ```text
 Control API Claim Plan
-→ EVIDENCE_PLAN AgentTask
-→ validate planned read actions
+→ versioned deterministic Evidence Plan
+→ validate Claim coverage·allowed tool·typed arguments·scope·date·action budget
 → MCP tools/call in parallel
 → validate structuredContent
 → EVIDENCE_ASSESS AgentTask
@@ -537,6 +546,13 @@ Control API Claim Plan
 support·counter action은 각 `action_id`와 `polarity`를 유지하되 같은 `request_id`를 참조한다.
 개별 호출 실패는 빈 정상 결과로 바꾸지 않고 `failed_actions`에 남겨 `EVIDENCE_ASSESS`가
 자료 부족과 counter search 실패를 구분할 수 있게 한다.
+
+결정론적 계획기는 현재 등록된 Claim 종류만 처리하며 각 Claim에 support action 하나와 counter
+action 하나를 만든다. `OPEN_TO_BOTH`의 최대 9개 Claim은 18개 논리 action으로 제한되고 전체
+상한 20을 넘지 않는다. 정형 source의 두 polarity가 같은 typed request를 사용할 때에는 한 번의
+물리 조회 결과를 공유한다. 공식 문서 RAG는 서로 다른 support·counter query template을 사용한다.
+등록되지 않은 Claim, action id pool 부족, 허용되지 않은 tool과 MCP input Schema 불일치는 외부
+호출 전에 non-retryable 계약 오류로 끝난다.
 
 ### 9.2 RESULT_FEEDBACK
 
@@ -590,6 +606,7 @@ validated parser blocks
 | `CP-018` | MCP audience·identity·scope·project 공격 matrix | 전부 거절하고 project data 0 |
 | `CP-019` | UNKNOWN·FRESH date·assumption coverage·money range·franchise eligibility 위반 | 명시된 semantic error code로 모두 거절 |
 | `CP-020` | model·prompt content·Schema content·tool manifest·ACTIVE IndexGeneration 중 하나가 release와 다름 | release 승격 실패 |
+| `CP-021` | 같은 Claim Plan을 반복 실행하고 Claim·allowlist·action budget을 변조 | 정상 입력은 byte-equivalent plan·digest, 변조 입력은 MCP 호출 전 계약 오류, Agent 호출 0 |
 
 완료 기준:
 

@@ -61,7 +61,7 @@ flowchart LR
 | Web | 정적 앱과 client routing | 정적 요청량 | 공개 |
 | API | 인증, 프로젝트, Workflow, reducer, 계산, 결과 | 동기 요청량 | 인증 API만 공개 |
 | Worker | 모든 durable Workflow의 lease·heartbeat·redelivery, 문서·embedding·수집 작업 | queue backlog | 비공개 |
-| Agent Runtime | ADK 역할 실행, read action 계획, 근거 기반 proposal·audit | Agent run과 model latency | 비공개 |
+| Agent Runtime | ADK 역할 실행, 근거 평가와 proposal·audit | Agent run과 model latency | 비공개 |
 | MCP | 공식·프로젝트 자료 read tools | tool latency·권한 경계 | 비공개 |
 
 API 내부 모듈은 독립 테스트가 가능해야 하지만 첫 구현에서 각각 별도 서비스로 배포하지 않는다.

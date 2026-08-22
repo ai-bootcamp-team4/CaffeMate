@@ -1,7 +1,7 @@
 # State와 Workflow
 
 > 상태: draft
-> 갱신일: 2026-08-21
+> 갱신일: 2026-08-23
 
 ## 원칙
 
@@ -140,7 +140,9 @@ Workflow가 실패하면 Phase A의 새 State는 남기되 이전 Decision을 �
 onboarding confirmed
 → area identity·coverage
 → required Claim plan
-→ Evidence retrieval
+→ deterministic Evidence action plan
+→ bounded parallel Evidence retrieval
+→ Evidence Research Agent assessment
 → Proposal Agent independent·franchise branches
 → deterministic calculation·Gate
 → Typed Candidate Auditor

@@ -1,7 +1,7 @@
 # Agent와 MCP Workflow
 
 > 상태: draft
-> 갱신일: 2026-08-21
+> 갱신일: 2026-08-23
 
 ## 원칙
 
@@ -16,7 +16,7 @@
 | Role | Trigger | Input | Output | 금지 |
 | --- | --- | --- | --- | --- |
 | Intake Interpreter | 결과 이후 자연어·문서 intent | State summary + input | typed intent·delta proposal | 바로 State 변경 |
-| Evidence Research Agent | 새 분석·Claim gap·stale | required Claims + read tools | Evidence candidates·missing·counterevidence | 계산·최종 추천 |
+| Evidence Research Agent | 조회 완료·Claim gap·stale | Claims + 검증된 MCP·RAG 결과 | Evidence candidates·missing·counterevidence | 도구 선택·계산·최종 추천 |
 | Proposal Agent | frozen Evidence 준비 | Founder constraints + Evidence | typed candidates | 존재하지 않는 브랜드·근거 없는 비용·매출 생성 |
 | Document Analyst | parsing 완료 | page/table anchors + schema | proposed Claims·risk flags | 법적 판단·자동 확정 |
 | Typed Candidate Auditor | 계산 후보 생성 | candidate·Evidence·Calculation snapshot | violation·missing·Evidence request | 원 추천 작성·State write |
@@ -35,7 +35,8 @@ Cloud Run Control API
 → Control API validation and State reducer
 
 Cloud Run Control API
-→ validated read action
+→ versioned deterministic Evidence Plan
+→ validated bounded read action
 → private MCP read tool
 → validated structured result
 → next Agent task input
@@ -45,7 +46,9 @@ Cloud Run Control API
 - Control API가 workflow, State version, 재시도 예산과 종료 조건을 소유한다.
 - Agent Runtime은 reasoning과 ADK Agent 실행을 담당하지만 persistent State를 쓰지 않는다.
 - 첫 구현에서 Agent Runtime은 MCP를 직접 호출하지 않으며 MCP invoke 권한, 원본 credential과 database write 권한을 갖지 않는다.
-- Evidence Researcher는 read action을 제안하고 Control API가 allowlist·scope·인자를 검증한 뒤 MCP를 호출한다.
+- Control API의 결정론적 계획기가 Claim 종류를 고정된 support·counter read action으로 변환하고
+  allowlist·scope·날짜·인자·호출 상한을 검증한 뒤 MCP를 호출한다.
+- Evidence Researcher는 실행·검증된 MCP·RAG 결과만 평가하며 read action을 생성하지 않는다.
 - 서울 리전에서 managed Agent Gateway가 지원되지 않으므로 Control API가 Agent Runtime을 직접 호출한다.
 - Runtime·Sessions의 서울 지원과 별개로 승인한 생성 model의 고정 endpoint 가용성을 배포 Gate에서 따로 검증한다.
 - 생성 model endpoint는 `global`의 `gemini-3.7-flash`, embedding endpoint는 `asia-northeast3`로 고정하며 다른 위치로 fallback하지 않는다.
@@ -57,7 +60,10 @@ Cloud Run Control API
 ### 첫 제안
 
 ```text
-Evidence Research Agent
+Claim Plan
+→ deterministic Evidence Plan
+→ parallel MCP·RAG retrieval
+→ Evidence Research Agent assessment
 → independent and franchise Proposal branches
 → deterministic Finance and Gate
 → Typed Candidate Auditor
@@ -177,7 +183,7 @@ source_trace: []
 
 ### Evidence Research
 
-- required Claim coverage
+- assessed Claim coverage
 - unsupported source rate
 - stale·scope mismatch detection
 - counterevidence recall

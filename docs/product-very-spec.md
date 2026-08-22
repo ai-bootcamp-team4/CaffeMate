@@ -4,7 +4,7 @@
 >
 > 정본: [제품 명세](./product-spec.md)
 >
-> 갱신일: 2026-08-21
+> 갱신일: 2026-08-23
 
 ## 1. 확정 기술 선택
 
@@ -44,14 +44,14 @@ Runtime 생성은 `asia-northeast3`, 생성 모델은 `global`, embedding 모델
 Vertex AI RAG Engine은 비정형 문서의 주 검색 계층이다. Cloud SQL은 사용자·프로젝트 State, 문서 revision, corpus·file mapping, Evidence ledger와 retrieval audit의 정본이며 문서 vector serving을 담당하지 않는다.
 
 ```text
-Evidence Research Agent
-→ read action proposal
-→ Control API scope validation
+Control API Claim Plan
+→ versioned deterministic Evidence Plan
+→ Control API scope·allowlist·typed argument validation
 → private MCP RAG tool
 → Vertex AI RAG Engine
 → structured retrieval result
 → Control API Evidence validation
-→ next Agent task
+→ Evidence Research Agent ASSESS task
 ```
 
 Agent Runtime은 RAG Engine credential을 갖지 않는다. MCP가 허용 corpus와 file id를 선택하며 Agent가 `venture_project_id`, corpus id 또는 metadata filter를 임의로 바꿀 수 없다.
@@ -151,7 +151,9 @@ BUILDING → EVALUATING → SHADOW → ACTIVE
 - [Agent Task Schema](./contracts/agent-task.schema.json)를 ADK `newMessage`의 canonical JSON으로 전달한다.
 - final response는 [Agent Task Result Schema](./contracts/agent-task-result.schema.json)로 검증한다.
 - 역할별 payload는 [Agent Role Payload Schema](./contracts/agent-role-payloads.schema.json)로 검증한다.
-- 첫 구현에서 Agent Runtime은 MCP를 직접 호출하지 않는다. Evidence Researcher가 read action을 제안하면 Control API가 검증·실행하고 결과를 다음 Agent task에 넣는다.
+- 첫 구현에서 Agent Runtime은 MCP를 직접 호출하지 않는다. Control API의 결정론적 계획기가
+  Claim 종류를 버전형 read action으로 변환하고 검증·실행한 결과를 Evidence Researcher의
+  ASSESS task에 넣는다.
 
 `additionalProperties:false`를 서버 validator에 적용한다. Vertex response schema에는 `$ref`, `allOf`, 복잡한 조건부 검증을 넣지 않고 Agent별 작은 DTO만 제공한다. 전체 JSON Schema와 의미 검증은 서버가 수행한다.
 
@@ -160,7 +162,6 @@ BUILDING → EVALUATING → SHADOW → ACTIVE
 | Agent | Output 한도 | Deadline |
 |---|---:|---:|
 | Intent Interpreter | 4,096 | 30초 |
-| Evidence Researcher PLAN | 4,096 | 30초 |
 | Evidence Researcher ASSESS | 8,192 | 30초 |
 | Proposal Agent | 8,192 | 30초 |
 | Document Analyst | 8,192 | batch당 60초 |
@@ -359,17 +360,20 @@ candidate_audits[]:
 global_findings[]
 ```
 
-Evidence Researcher는 native function-calling loop를 사용하지 않는다.
+Evidence Researcher는 native function-calling loop를 사용하지 않는다. Runtime source에 남아 있는
+`PLAN` payload 호환 경로는 현재 `FIRST_PROPOSAL`에서 dispatch하지 않으며, 실제 조회 계획의
+권위자는 Control API의 `deterministic-evidence-plan.v1`이다.
 
 ```text
-PLAN Agent
+deterministic Claim rule
 → Controller가 action schema·ACL·tool allowlist 검증
 → MCP를 병렬 실행
 → ASSESS Agent
 → deterministic Evidence validator
 ```
 
-Material Claim의 support와 counter 검색은 PLAN에서 함께 생성한다. ASSESS 이후 Agent가 추가 도구를 자율 호출하지 않는다. 부족하면 `NEEDS_EVIDENCE`로 종료한다.
+Material Claim의 support와 counter 검색은 버전형 rule에서 함께 생성한다. ASSESS 이후 Agent가
+추가 도구를 자율 호출하지 않는다. 부족하면 `NEEDS_EVIDENCE`로 종료한다.
 
 Document Analyst는 문서 revision·Claim family별로 최대 12 anchors, 최대 16K input tokens로 batch한다. 추출 결과는 [Document Extraction Form Schema](./contracts/document-extraction-form.schema.json)에 맞춰 한 화면에 자동 입력한다. 사용자는 값을 수정·삭제할 수 있고 `반영하고 다시 계산`을 한 번만 누른다. 애매한 값은 빈 필드와 `REVIEW_REQUIRED` 경고로 남기며 필드별 confirm을 요구하지 않는다.
 
@@ -383,8 +387,7 @@ Auditor가 timeout·ABSTAIN한 경우 deterministic hard validator가 통과했�
 Auth/ownership/full-head capture
 → deterministic area resolution
 → deterministic Claim Plan
-→ structured SQL/MCP branches
-→ Evidence Researcher PLAN, 필요한 Claim만
+→ deterministic support·counter action plan
 → MCP/RAG support+counter retrieval
 → Evidence Researcher ASSESS
 → deterministic anchor/scope/date/unit validator
