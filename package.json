@@ -16,14 +16,15 @@
     "check": "npm run lint && npm run typecheck && npm run test && npm run build && npm run check:api"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "^2.0.0",
     "@google/adk": "1.6.0",
     "@google/adk-devtools": "1.6.0",
+    "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "@tailwindcss/vite": "4.3.3",
     "@vitejs/plugin-react": "6.1.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
+    "firebase": "^12.18.0",
     "google-auth-library": "11.0.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",

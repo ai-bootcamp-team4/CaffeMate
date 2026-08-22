@@ -248,7 +248,7 @@ gcloud run deploy caffemate-api \
   --image="$image" \
   --service-account="$api_sa" \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url}${api_audience_env}" \
+  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CORS_ALLOWED_ORIGINS=https://caffemate-web-hfgnuuc55q-du.a.run.app;https://caffemate-web-424808310695.asia-northeast3.run.app,CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url}${api_audience_env}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest,AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
   --port=8080 \
   --ingress=all \

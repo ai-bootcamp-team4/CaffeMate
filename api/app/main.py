@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated, cast
 
 from fastapi import Depends, FastAPI, Header, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
@@ -410,6 +411,15 @@ def create_app(
                 database_handle.close()
 
     app = FastAPI(title="CaffeMate Control API", version="0.2.0", lifespan=lifespan)
+    if settings.cors_allowed_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(settings.cors_allowed_origins),
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+            max_age=3600,
+        )
 
     def current_user(authorization: Annotated[str | None, Header()] = None) -> str:
         if authorization is None:
