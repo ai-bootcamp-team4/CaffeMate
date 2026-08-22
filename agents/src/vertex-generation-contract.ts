@@ -55,8 +55,12 @@ function singleTextPart(candidate: Record<string, unknown>): string | null {
   const [part] = content.parts
   if (!isRecord(part)) return null
   const keys = Object.keys(part)
-  if (keys.length !== 1 || keys[0] !== 'text') return null
+  if (!keys.includes('text') || keys.some((key) => key !== 'text' && key !== 'thoughtSignature')) return null
   if (typeof part.text !== 'string' || !part.text.trim()) return null
+  // Gemini 3 can attach an opaque thought signature to the final non-function text Part.
+  // Treat it as provider metadata only; every other Part field remains fail-closed.
+  if ('thoughtSignature' in part
+    && (typeof part.thoughtSignature !== 'string' || !part.thoughtSignature.trim())) return null
   return part.text
 }
 
@@ -90,7 +94,7 @@ export function parseVertexGenerationResponse(payload: unknown): AgentModelRespo
   if (!text) {
     throw new VertexAgentModelError(
       'VERTEX_MODEL_RESPONSE_INVALID',
-      'candidate must contain exactly one non-empty text-only part',
+      'candidate must contain exactly one non-empty final text part',
     )
   }
   return { kind: 'TEXT', text }
