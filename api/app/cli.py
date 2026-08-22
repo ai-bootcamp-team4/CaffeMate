@@ -178,11 +178,11 @@ def main() -> None:
         )
     elif arguments.command == "verify-agent-runtime-iam":
         settings = RuntimeSettings.from_environment()
-        if not settings.has_agent_runtime_configuration:
-            parser.error("complete Agent Runtime configuration required")
+        if not settings.agent_runtime_project_id or not settings.agent_runtime_resource_id:
+            parser.error("Agent Runtime project and resource configuration required")
         iam_report = verify_agent_runtime_iam(
-            gcp_project_id=cast(str, settings.agent_runtime_project_id),
-            resource_id=cast(str, settings.agent_runtime_resource_id),
+            gcp_project_id=settings.agent_runtime_project_id,
+            resource_id=settings.agent_runtime_resource_id,
             access_tokens=GoogleAccessTokenProvider(),
         )
         print(json.dumps({"status": "verified", **iam_report}, sort_keys=True))
