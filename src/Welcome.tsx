@@ -1,4 +1,4 @@
-export default function Welcome({ onStart }: { onStart: () => void }) {
+export default function Welcome({ onStart, busy = false, error = '' }: { onStart: () => void; busy?: boolean; error?: string }) {
   return (
     <div className="welcome-shell">
       <header className="welcome-nav">
@@ -14,9 +14,10 @@ export default function Welcome({ onStart }: { onStart: () => void }) {
               희망 지역과 예산을 입력하면 상권부터 창업비용, 경쟁환경, 인허가, 지원사업까지
               AI 에이전트가 조사해 하나의 창업 리포트로 정리합니다.
             </p>
-            <button className="welcome-cta" type="button" onClick={onStart}>
-              내 카페 창업 분석 시작하기 <span aria-hidden="true">→</span>
+            <button className="welcome-cta" type="button" onClick={onStart} disabled={busy} aria-busy={busy}>
+              {busy ? 'Google 계정 연결 중' : '내 카페 창업 분석 시작하기'} <span aria-hidden="true">→</span>
             </button>
+            {error && <p className="field__message" data-tone="error" role="alert">{error}</p>}
             <p className="welcome-note">계약이나 투자를 대신 결정하지 않고, 확인할 근거와 다음 행동을 정리합니다.</p>
           </div>
 

@@ -84,7 +84,7 @@ function ChoiceGroup({
   )
 }
 
-export default function Onboarding({ onComplete }: { onComplete: (values: OnboardingValues) => void }) {
+export default function Onboarding({ onComplete }: { onComplete: (values: OnboardingValues) => Promise<void> }) {
   const [step, setStep] = useState(0)
   const [values, setValues] = useState(initialOnboardingValues)
   const [message, setMessage] = useState('필수 항목만 입력해도 분석을 시작할 수 있습니다.')
@@ -114,11 +114,16 @@ export default function Onboarding({ onComplete }: { onComplete: (values: Onboar
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault()
     setIsAnalyzing(true)
     setMessage('입력한 조건을 기준으로 후보와 근거를 찾고 있어요.')
-    window.setTimeout(() => onComplete(values), 900)
+    try {
+      await onComplete(values)
+    } catch (error) {
+      setIsAnalyzing(false)
+      setMessage(error instanceof Error ? error.message : '분석을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.')
+    }
   }
 
   const selectLocation = (suggestion: LocationSuggestion) => {

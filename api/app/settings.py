@@ -25,6 +25,7 @@ class RuntimeSettings:
     mcp_audience: str | None
     mcp_scope_hmac_secret: str | None
     document_bucket: str | None
+    cors_allowed_origins: tuple[str, ...] = ()
 
     @classmethod
     def from_environment(cls) -> "RuntimeSettings":
@@ -52,6 +53,11 @@ class RuntimeSettings:
             mcp_audience=os.getenv("MCP_AUDIENCE"),
             mcp_scope_hmac_secret=os.getenv("MCP_SCOPE_HMAC_SECRET"),
             document_bucket=os.getenv("DOCUMENT_BUCKET"),
+            cors_allowed_origins=tuple(
+                origin.strip()
+                for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(";")
+                if origin.strip()
+            ),
         )
 
     @property

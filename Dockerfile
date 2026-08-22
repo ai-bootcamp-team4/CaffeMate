@@ -16,6 +16,8 @@ FROM nginx:1.28-alpine AS runtime
 ENV PORT=8080
 
 COPY deploy/nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY deploy/nginx/40-caffemate-runtime-config.sh /docker-entrypoint.d/40-caffemate-runtime-config.sh
+RUN chmod +x /docker-entrypoint.d/40-caffemate-runtime-config.sh
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 8080
