@@ -108,7 +108,7 @@ describe('local model-backed Agent executors', () => {
     expect(generate.mock.calls[1]?.[0].systemInstruction).toContain(PROMPTS['repair.v1'])
     expect(generate.mock.calls[1]?.[0].task.repair_context).toMatchObject({
       validator_errors: expect.arrayContaining([
-        expect.objectContaining({ code: 'RESULT_SCHEMA_INVALID' }),
+        expect.objectContaining({ code: 'RESULT_SCHEMA_MINITEMS' }),
       ]),
     })
   })
