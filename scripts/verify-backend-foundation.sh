@@ -120,6 +120,9 @@ for runtime_sa in "$api_sa" "$worker_sa" "$migrate_sa"; do
     check_service_account_user "$runtime_sa" "$build_sa"
 done
 
+check 'API can read Firebase Authentication users for revocation checks' \
+  check_project_role "$api_sa" roles/firebaseauth.viewer
+
 check 'API can access database password' \
   check_secret_member caffemate-db-password "$api_sa"
 check 'Worker can access database password' \

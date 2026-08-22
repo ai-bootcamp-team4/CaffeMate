@@ -162,6 +162,10 @@ for runtime_sa in "$api_sa" "$worker_sa" "$migrate_sa"; do
   grant_service_account_user "$runtime_sa" "$build_sa"
 done
 
+# verify_id_token(check_revoked=True) reads the Firebase user record to reject
+# disabled users and revoked sessions. Keep this runtime permission read-only.
+grant_project_role "$api_sa" roles/firebaseauth.viewer
+
 create_secret caffemate-db-password
 create_secret caffemate-agent-runtime-user-hmac
 create_secret caffemate-mcp-scope-hmac
