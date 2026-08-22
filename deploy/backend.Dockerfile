@@ -30,6 +30,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY api/app ./api/app
 COPY api/migrations ./api/migrations
+COPY agents/release-manifest.json ./agents/release-manifest.json
+COPY agents/fixtures ./agents/fixtures
 COPY docs/contracts ./docs/contracts
 COPY worker ./worker
 
