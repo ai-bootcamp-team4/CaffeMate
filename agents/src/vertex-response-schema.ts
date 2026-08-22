@@ -189,7 +189,7 @@ function buildEvidencePlanToolActionSchema(allowedTools: readonly string[]): Jso
   if (!properties) throw new Error('VERTEX_TOOL_ACTION_PROPERTIES_UNRESOLVED')
   const conditionals = Array.isArray(toolAction.allOf) ? toolAction.allOf : []
   const allowed = new Set(allowedTools)
-  const branches: JsonObject[] = []
+  const argumentBranches: JsonObject[] = []
 
   for (const conditional of conditionals) {
     const object = asObject(conditional)
@@ -204,33 +204,24 @@ function buildEvidencePlanToolActionSchema(allowedTools: readonly string[]): Jso
     const typedArguments = thenProperties ? asObject(thenProperties.typed_arguments) : null
     if (!typedArguments) throw new Error(`VERTEX_TOOL_ARGUMENT_SCHEMA_UNRESOLVED: ${toolName}`)
 
-    const baseProperties: JsonObject = { ...properties }
-    delete baseProperties.typed_arguments
-    baseProperties.tool_name = { type: 'string', enum: [toolName] }
-    const baseInput: JsonObject = {
-      ...toolAction,
-      properties: baseProperties,
-    }
-    delete baseInput.allOf
-
-    const projected = projectSchema(baseInput, ROLE_SCHEMA_FILE, 0, new Set())
-    const projectedProperties = asObject(projected.properties)
-    if (!projectedProperties) throw new Error(`VERTEX_TOOL_ACTION_PROJECTION_INVALID: ${toolName}`)
-    projectedProperties.typed_arguments = projectSchema(typedArguments, ROLE_SCHEMA_FILE, 0, new Set())
-    branches.push(projected)
+    argumentBranches.push({
+      title: `${toolName} arguments`,
+      ...projectSchema(typedArguments, ROLE_SCHEMA_FILE, 0, new Set()),
+    })
   }
 
-  if (branches.length !== allowed.size) {
-    const resolved = new Set(branches.flatMap((branch) => {
-      const branchProperties = asObject(branch.properties)
-      const toolName = branchProperties ? asObject(branchProperties.tool_name) : null
-      return Array.isArray(toolName?.enum) && typeof toolName.enum[0] === 'string' ? [toolName.enum[0]] : []
-    }))
-    const missing = [...allowed].filter((tool) => !resolved.has(tool))
-    throw new Error(`VERTEX_EVIDENCE_PLAN_TOOL_SCHEMA_UNRESOLVED: ${missing.join(',')}`)
+  if (argumentBranches.length !== allowed.size) {
+    throw new Error('VERTEX_EVIDENCE_PLAN_TOOL_SCHEMA_UNRESOLVED')
   }
 
-  return { anyOf: branches }
+  const baseInput: JsonObject = { ...toolAction, properties: { ...properties } }
+  delete baseInput.allOf
+  const projected = projectSchema(baseInput, ROLE_SCHEMA_FILE, 0, new Set())
+  const projectedProperties = asObject(projected.properties)
+  if (!projectedProperties) throw new Error('VERTEX_TOOL_ACTION_PROJECTION_INVALID')
+  projectedProperties.tool_name = { type: 'string', enum: [...allowedTools] }
+  projectedProperties.typed_arguments = { anyOf: argumentBranches }
+  return projected
 }
 
 function applyEvidencePlanToolActionSchema(projected: JsonObject, task: AgentTask): void {

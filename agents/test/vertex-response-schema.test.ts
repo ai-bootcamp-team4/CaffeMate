@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import fixtureMatrix from '../fixtures/task-matrix.json'
+import { buildAgentTaskResultResponseJsonSchema } from '../src/vertex-model-client'
 import { buildVertexRolePayloadSchema } from '../src/vertex-response-schema'
 import type { AgentTask } from '../src/types'
 
@@ -23,23 +24,60 @@ describe('Vertex role response schema projection', () => {
   it('turns EVIDENCE_PLAN tool actions into an allowed-tool discriminated union', () => {
     const schema = buildVertexRolePayloadSchema(evidencePlanTask()) as ProjectedSchema
     const actionSchema = schema.properties?.claim_plans.items?.properties?.support_actions.items
-    if (!actionSchema?.anyOf) throw new Error('missing projected tool-action union')
+    const toolNames = actionSchema?.properties?.tool_name.enum
+    const argumentBranches = actionSchema?.properties?.typed_arguments.anyOf
+    if (!argumentBranches) throw new Error('missing projected tool argument union')
 
-    expect(actionSchema.anyOf).toHaveLength(2)
-    const branches = Object.fromEntries(actionSchema.anyOf.map((branch) => [
-      String(branch.properties?.tool_name.enum?.[0]),
-      branch,
-    ])) as Record<string, ProjectedSchema>
-    expect(Object.keys(branches).sort()).toEqual(['get_area_profile', 'get_source_health'])
-    expect(branches.get_source_health?.properties?.typed_arguments).toMatchObject({
-      type: 'object',
-      additionalProperties: false,
-      required: expect.arrayContaining(['source_ids', 'as_of']),
-    })
-    expect(branches.get_area_profile?.properties?.typed_arguments).toMatchObject({
-      type: 'object',
-      additionalProperties: false,
-      required: expect.arrayContaining(['administrative_code', 'as_of']),
-    })
+    expect(toolNames).toEqual(['get_area_profile', 'get_source_health'])
+    expect(argumentBranches).toHaveLength(2)
+    expect(argumentBranches).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        title: 'get_source_health arguments',
+        type: 'object',
+        additionalProperties: false,
+        required: expect.arrayContaining(['source_ids', 'as_of']),
+      }),
+      expect.objectContaining({
+        title: 'get_area_profile arguments',
+        type: 'object',
+        additionalProperties: false,
+        required: expect.arrayContaining(['administrative_code', 'as_of']),
+      }),
+    ]))
+  })
+
+  it('keeps the full eight-tool evidence plan below the Vertex schema size boundary', () => {
+    const task = evidencePlanTask()
+    const toolNames = [
+      'get_area_profile',
+      'search_cafe_observations',
+      'search_business_events',
+      'retrieve_official_documents',
+      'get_source_health',
+      'list_franchise_universe',
+      'get_franchise_disclosure',
+      'get_official_procedure',
+    ]
+    const template = task.available_tool_catalog[0]
+    if (!template) throw new Error('missing tool catalog fixture')
+    task.available_tool_catalog = toolNames.map((toolName, index) => ({
+      ...template,
+      tool_name: toolName,
+      tool_version: `1.0.${index}`,
+    }))
+    const payload = task.payload as Record<string, unknown>
+    payload.planning_constraints = {
+      ...(payload.planning_constraints as Record<string, unknown>),
+      allowed_tools: toolNames,
+    }
+
+    const roleSchema = buildVertexRolePayloadSchema(task) as ProjectedSchema
+    const actionSchema = roleSchema.properties?.claim_plans.items
+      ?.properties?.support_actions.items
+    const responseSchema = buildAgentTaskResultResponseJsonSchema(task)
+
+    expect(actionSchema?.properties?.tool_name.enum).toEqual(toolNames)
+    expect(actionSchema?.properties?.typed_arguments.anyOf).toHaveLength(8)
+    expect(JSON.stringify(responseSchema).length).toBeLessThan(16_000)
   })
 })

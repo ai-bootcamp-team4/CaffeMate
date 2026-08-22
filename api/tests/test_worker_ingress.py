@@ -94,8 +94,10 @@ class FakeDeadLetterOperations:
 
 def test_valid_pubsub_push_is_acked_after_worker_applies() -> None:
     worker = FakeWorker()
+    dispatcher = FakeOutboxDispatcher([True])
     app = create_worker_app(
         worker=worker,
+        outbox_dispatcher=dispatcher,
         expected_subscription="projects/test/subscriptions/worker",
     )
 
@@ -108,6 +110,29 @@ def test_valid_pubsub_push_is_acked_after_worker_applies() -> None:
     assert response.status_code == 204
     assert len(worker.deliveries) == 1
     assert worker.deliveries[0].message_id == "message-1"
+    assert dispatcher.calls == 1
+
+
+def test_stage_push_is_retried_when_immediate_next_stage_publish_fails() -> None:
+    class FailingDispatcher:
+        def publish_one(self) -> bool:
+            raise RuntimeError("provider detail must stay private")
+
+    app = create_worker_app(
+        worker=FakeWorker(),
+        outbox_dispatcher=FailingDispatcher(),
+        expected_subscription="projects/test/subscriptions/worker",
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/v1/pubsub/workflow-stages",
+            json=envelope({"stage_run_id": "stage-1", "input_digest": "a" * 64}),
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {"code": "OUTBOX_PUBLISH_RETRY_REQUIRED"}
+    assert "provider detail" not in response.text
 
 
 def test_terminal_and_duplicate_delivery_are_acked_without_reprocessing_signal() -> None:
@@ -117,6 +142,7 @@ def test_terminal_and_duplicate_delivery_are_acked_without_reprocessing_signal()
     ):
         app = create_worker_app(
             worker=FakeWorker(outcome=outcome),
+            outbox_dispatcher=FakeOutboxDispatcher([False]),
             expected_subscription="projects/test/subscriptions/worker",
         )
         with TestClient(app) as client:
@@ -130,6 +156,7 @@ def test_terminal_and_duplicate_delivery_are_acked_without_reprocessing_signal()
 def test_retryable_worker_failure_returns_safe_non_success_response() -> None:
     app = create_worker_app(
         worker=FakeWorker(error=WorkerRetryRequiredError("secret provider response")),
+        outbox_dispatcher=FakeOutboxDispatcher([False]),
         expected_subscription="projects/test/subscriptions/worker",
     )
 
@@ -148,6 +175,7 @@ def test_wrong_subscription_or_digest_is_rejected_before_worker() -> None:
     worker = FakeWorker()
     app = create_worker_app(
         worker=worker,
+        outbox_dispatcher=FakeOutboxDispatcher([False]),
         expected_subscription="projects/expected/subscriptions/worker",
     )
     body = envelope({"stage_run_id": "stage-1", "input_digest": "a" * 64})
