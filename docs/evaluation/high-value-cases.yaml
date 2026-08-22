@@ -527,3 +527,30 @@ cases:
       - 13-stage production canary
       - three managed Agent generation and validation records
     pass_condition: 주소 보조 API 상태와 무관하게 확정 Area State의 FIRST_PROPOSAL이 세 Agent 역할을 실제 실행하고 현재 결과 카드로 끝난다.
+
+  - id: EV-031
+    title: Proposal Agent가 자료 부족을 빈 후보로 오인하지 않음
+    input: 직접 전업 운영 Founder와 등록된 개인카페 seed가 있지만 월세·인테리어·매출 근거가 아직 없는 상태
+    relevant_state:
+      workflow_code: FIRST_PROPOSAL
+      task_type: PROPOSE_INDEPENDENT
+      eligible_seed_count: 1
+      requested_candidate_count: 1
+    trap: Proposal Agent가 근거 부족을 이유로 schema-valid ABSTAIN과 빈 candidate_proposals를 반환해 전체 결과가 NO_REVIEWABLE_CANDIDATES가 된다.
+    expected_behavior:
+      - 등록된 seed에서 최소 개인카페 후보 하나를 생성한다.
+      - 근거 없는 비용·매출·좌석 수를 만들지 않는다.
+      - 미확인 값은 missing_fields와 warning으로 보존한다.
+      - 대응 Claim id가 있으면 후보를 포함한 NEEDS_EVIDENCE를 허용한다.
+      - Runtime 의미 검증은 빈 후보와 중복 seed padding을 repair 대상으로 거절한다.
+      - 후보는 결정론적 계산에서 조건부 검토로 분류되고 Candidate Audit에 전달된다.
+    forbidden_behavior:
+      - 자료가 부족하다는 이유만으로 적격 seed 후보를 삭제한다.
+      - 평균값이나 0으로 누락 비용을 채운다.
+      - 빈 후보를 valid Agent final event로 Control API에 전달한다.
+    required_evidence:
+      - Proposal generation and validation telemetry with candidate_proposal_count
+      - semantic repair test
+      - 13-stage production canary
+      - current conditional result card
+    pass_condition: 첫 Proposal 응답이 후보를 포함해 통과하고 Candidate Audit도 실제 실행되어 FIRST_PROPOSAL이 CURRENT 결과 카드로 끝난다.

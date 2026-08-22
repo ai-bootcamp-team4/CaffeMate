@@ -35,6 +35,12 @@ function resultDecision(result: AgentTaskResult): string | undefined {
   return typeof decision === 'string' ? decision.slice(0, 64) : undefined
 }
 
+function resultCollectionCount(result: AgentTaskResult, key: string): number | undefined {
+  if (!result.payload || typeof result.payload !== 'object' || Array.isArray(result.payload)) return undefined
+  const value = (result.payload as Record<string, unknown>)[key]
+  return Array.isArray(value) ? value.length : undefined
+}
+
 function recordResultValidation(
   task: AgentTask,
   result: AgentTaskResult,
@@ -52,6 +58,12 @@ function recordResultValidation(
     outcome,
     result_status: result.status,
     ...(resultDecision(result) ? { decision: resultDecision(result) } : {}),
+    ...(resultCollectionCount(result, 'candidate_proposals') !== undefined
+      ? { candidate_proposal_count: resultCollectionCount(result, 'candidate_proposals') }
+      : {}),
+    ...(resultCollectionCount(result, 'candidate_audits') !== undefined
+      ? { candidate_audit_count: resultCollectionCount(result, 'candidate_audits') }
+      : {}),
     ...(validatorCodes.length > 0 ? { validator_codes: validatorCodes } : {}),
   }))
 }

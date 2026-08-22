@@ -6,7 +6,7 @@ import { TASK_REGISTRY } from '../src/registry'
 import type { AgentTask, AgentTaskResult, TaskType } from '../src/types'
 
 describe('agent contract fixtures', () => {
-  it('contains one complete and one abstain fixture for every task type', () => {
+  it('contains complete and safe non-complete fixtures for every task type', () => {
     const byTask = new Map<TaskType, Set<string>>()
     for (const fixture of fixtureMatrix.cases) {
       const taskType = fixture.task.task_type as TaskType
@@ -16,9 +16,14 @@ describe('agent contract fixtures', () => {
     }
 
     expect([...byTask.keys()].sort()).toEqual(Object.keys(TASK_REGISTRY).sort())
-    for (const statuses of byTask.values()) {
+    for (const [taskType, statuses] of byTask) {
       expect(statuses.has('COMPLETE')).toBe(true)
-      expect(statuses.has('ABSTAIN')).toBe(true)
+      if (taskType === 'PROPOSE_INDEPENDENT' || taskType === 'PROPOSE_FRANCHISE') {
+        expect(statuses.has('NEEDS_EVIDENCE')).toBe(true)
+        expect(statuses.has('ABSTAIN')).toBe(false)
+      } else {
+        expect(statuses.has('ABSTAIN')).toBe(true)
+      }
     }
   })
 
