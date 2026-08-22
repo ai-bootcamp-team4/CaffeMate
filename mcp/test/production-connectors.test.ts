@@ -83,6 +83,110 @@ describe('production MCP connector composition', () => {
     expect(fetcher).toHaveBeenCalledOnce()
   })
 
+  it('reports configured official RAG source health from the pinned active RagFile and keeps unknown sources unavailable', async () => {
+    const accessToken = vi.fn(async () => 'access-token')
+    const ragFileResource = `${officialCorpus}/ragFiles/${OFFICIAL_RAG_SOURCE.ragFileId}`
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toBe(`https://${region}-aiplatform.googleapis.com/v1beta1/${ragFileResource}`)
+      expect(init?.method).toBe('GET')
+      expect(init?.headers).toMatchObject({ Authorization: 'Bearer access-token' })
+      return Response.json({
+        name: ragFileResource,
+        fileStatus: { state: 'ACTIVE' },
+        gcsSource: { uris: [OFFICIAL_RAG_SOURCE.sourceUri] },
+      })
+    })
+    const connectors = createProductionMcpConnectors({
+      projectId,
+      officialCorpusResource: officialCorpus,
+      accessToken,
+      fetch: fetcher as typeof fetch,
+      now: () => new Date('2026-08-22T01:30:00Z'),
+    })
+
+    const result = await new McpToolRouter(connectors).call('get_source_health', {
+      source_ids: [OFFICIAL_RAG_SOURCE.sourceId, 'unknown-source'],
+      as_of: '2026-08-22',
+    }, scope) as Record<string, unknown>
+
+    expect(result).toMatchObject({
+      status: 'PARTIAL',
+      data: [
+        {
+          source_id: OFFICIAL_RAG_SOURCE.sourceId,
+          status: 'HEALTHY',
+          last_success_at: '2026-08-22T01:30:00.000Z',
+          data_date: OFFICIAL_RAG_SOURCE.sourceDate,
+        },
+        { source_id: 'unknown-source', status: 'UNAVAILABLE', last_success_at: null, data_date: null },
+      ],
+      source_trace: [{
+        source_id: OFFICIAL_RAG_SOURCE.sourceId,
+        source_ref: OFFICIAL_RAG_SOURCE.sourceRef,
+        data_date: OFFICIAL_RAG_SOURCE.sourceDate,
+        retrieved_at: '2026-08-22T01:30:00.000Z',
+        content_digest: OFFICIAL_RAG_SOURCE.contentDigest,
+      }],
+    })
+    expect(accessToken).toHaveBeenCalledOnce()
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
+
+  it('preserves the configured official source data date when the health probe fails', async () => {
+    const connectors = createProductionMcpConnectors({
+      projectId,
+      officialCorpusResource: officialCorpus,
+      accessToken: async () => { throw new Error('adc unavailable') },
+      fetch: vi.fn() as typeof fetch,
+      now: () => new Date('2026-08-22T01:30:00Z'),
+    })
+
+    const result = await new McpToolRouter(connectors).call('get_source_health', {
+      source_ids: [OFFICIAL_RAG_SOURCE.sourceId],
+      as_of: '2026-08-22',
+    }, scope) as Record<string, unknown>
+
+    expect(result).toMatchObject({
+      status: 'PARTIAL',
+      data: [{
+        source_id: OFFICIAL_RAG_SOURCE.sourceId,
+        status: 'UNAVAILABLE',
+        last_success_at: null,
+        data_date: OFFICIAL_RAG_SOURCE.sourceDate,
+      }],
+    })
+  })
+
+  it.each([
+    ['RagFile error state', { fileStatus: { state: 'ERROR' }, gcsSource: { uris: [OFFICIAL_RAG_SOURCE.sourceUri] } }],
+    ['unexpected GCS source', { fileStatus: { state: 'ACTIVE' }, gcsSource: { uris: ['gs://other/source.html'] } }],
+  ])('does not report official RAG healthy for %s', async (_label, partialRagFile) => {
+    const ragFileResource = `${officialCorpus}/ragFiles/${OFFICIAL_RAG_SOURCE.ragFileId}`
+    const connectors = createProductionMcpConnectors({
+      projectId,
+      officialCorpusResource: officialCorpus,
+      accessToken: async () => 'access-token',
+      fetch: vi.fn(async () => Response.json({ name: ragFileResource, ...partialRagFile })) as typeof fetch,
+      now: () => new Date('2026-08-22T01:30:00Z'),
+    })
+
+    const result = await new McpToolRouter(connectors).call('get_source_health', {
+      source_ids: [OFFICIAL_RAG_SOURCE.sourceId],
+      as_of: '2026-08-22',
+    }, scope) as Record<string, unknown>
+
+    expect(result).toMatchObject({
+      status: 'PARTIAL',
+      data: [{
+        source_id: OFFICIAL_RAG_SOURCE.sourceId,
+        status: 'UNAVAILABLE',
+        last_success_at: null,
+        data_date: OFFICIAL_RAG_SOURCE.sourceDate,
+      }],
+      source_trace: [],
+    })
+  })
+
   it('requires an exact Seoul official corpus resource at startup', () => {
     expect(() => createProductionMcpConnectors({
       projectId,
