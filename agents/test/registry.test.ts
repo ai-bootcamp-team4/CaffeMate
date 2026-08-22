@@ -36,11 +36,21 @@ describe('task registry', () => {
     expect(TASK_REGISTRY.EVIDENCE_PLAN.thinkingLevel).toBe('low')
     expect(TASK_REGISTRY.EVIDENCE_ASSESS).toMatchObject({
       thinkingLevel: 'low',
-      maxOutputTokens: 4096,
+      maxOutputTokens: 2048,
       deadlineSeconds: 60,
     })
-    expect(TASK_REGISTRY.PROPOSE_INDEPENDENT.thinkingLevel).toBe('medium')
-    expect(TASK_REGISTRY.CANDIDATE_AUDIT.thinkingLevel).toBe('medium')
+    expect(TASK_REGISTRY.PROPOSE_INDEPENDENT).toMatchObject({
+      thinkingLevel: 'low',
+      maxOutputTokens: 4096,
+    })
+    expect(TASK_REGISTRY.PROPOSE_FRANCHISE).toMatchObject({
+      thinkingLevel: 'low',
+      maxOutputTokens: 4096,
+    })
+    expect(TASK_REGISTRY.CANDIDATE_AUDIT).toMatchObject({
+      thinkingLevel: 'low',
+      maxOutputTokens: 4096,
+    })
   })
 
   it('pins the approved global generation model while keeping runtime and RAG in Seoul', () => {

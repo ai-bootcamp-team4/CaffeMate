@@ -73,13 +73,23 @@ Evidence로 승격하지 않는다. 모델·endpoint·리전을 바꾸는 자동
 
 Agent 호출은 역할별로 최적화한다. Control API는 전체 MCP 저장본에서 의미 판정에 필요한 rerank
 상위 Evidence만 투영하고, Runtime은 task별 사고 수준·출력 토큰·deadline을 release manifest에서
-고정한다. `EVIDENCE_ASSESS`는 bounded 분류 작업이므로 `low` 사고 수준과 최대 4,096 출력 토큰,
-60초 deadline을 사용한다. Proposal과 Candidate Audit은 후보 구성·반례 탐색이 필요하므로
-`medium`을 사용한다. Runtime은 task type, 요청 byte, 지연, 종료 사유와 provider token usage만
+고정한다. `EVIDENCE_ASSESS`는 bounded 분류 작업이므로 `low` 사고 수준과 최대 2,048 출력 토큰,
+60초 deadline을 사용한다. Proposal과 Candidate Audit도 제한된 seed·Evidence·계산 snapshot을
+구조화하는 역할이며, 비용 계산·Gate·순위·계약 검증은 결정론적 코드가 담당한다. 따라서 두 역할은
+`low` 사고 수준과 최대 4,096 출력 토큰을 사용한다. 문서 추출은 긴 문서 block의 의미 연결이
+필요하므로 `medium`을 유지한다. Runtime은 task type, 요청 byte, 지연, 종료 사유와 provider token usage만
 구조화 log로 남기며 사용자 입력·Evidence 본문·프로젝트·세션 식별자는 기록하지 않는다. 모델
 출력의 Schema·echo·의미 검증은 Runtime 내부에서 이뤄지므로, 거절된 첫 출력은 같은 관리형 실행
 안에서 validator error를 사용해 한 번만 수리한다. 두 번째 실패를 반복 생성이나 성공값으로
 바꾸지 않는다.
+
+2026-08-23 운영 기준선에서는 `EVIDENCE_ASSESS`, `PROPOSE_INDEPENDENT`, `CANDIDATE_AUDIT`가
+각각 5.333초, 14.089초, 12.020초에 첫 생성으로 `STOP`하고 전체 계약을 통과했다. 같은 모델과
+계약 fixture를 `low` 사고 수준·4,096 출력 토큰으로 각각 두 번 실행한 비교 실험에서는 Proposal이
+3.749~4.094초, Candidate Audit이 3.335~3.360초에 모두 첫 생성으로 Schema와 의미 검증을 통과했다.
+이는 Agent를 제거하거나 응답을 기다리지 않는 fallback이 아니라, 권위 계산을 하지 않는 typed 역할의
+추론 예산을 실제 관측값에 맞춘 것이다. 배포 canary에서 repair가 발생하거나 결과 계약 통과율이
+낮아지면 해당 역할만 `medium`으로 되돌리는 것이 이 결정의 폐기 조건이다.
 
 ```text
 api/

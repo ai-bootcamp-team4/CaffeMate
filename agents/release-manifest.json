@@ -49,7 +49,7 @@
         "content_digest": "sha256:f44af895c9dd771ba22d3890016928ba8bfaa3ed2306d9cd0a5b5bb6ee9d9c34"
       }
     ],
-    "sealed_evaluation_digest": "sha256:62c7d6b090891abad15b339226001ccf692cf71165f46e378590f34e11d0e714"
+    "sealed_evaluation_digest": "sha256:35f7684bd8b3c1b70bbaf2bbbb694f0a5dc1411e212f5a4b80e8db1a9fce176f"
   },
   "tasks": {
     "INTENT_DELTA": {
@@ -77,7 +77,7 @@
       "output_schema_id": "caffemate.agent.evidence-assess-result.v1",
       "deadline_seconds": 60,
       "thinking_level": "low",
-      "max_output_tokens": 4096
+      "max_output_tokens": 2048
     },
     "PROPOSE_INDEPENDENT": {
       "agent_name": "PROPOSAL_AGENT",
@@ -85,8 +85,8 @@
       "input_schema_id": "caffemate.agent.independent-proposal-input.v1",
       "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
       "deadline_seconds": 60,
-      "thinking_level": "medium",
-      "max_output_tokens": 8192
+      "thinking_level": "low",
+      "max_output_tokens": 4096
     },
     "PROPOSE_FRANCHISE": {
       "agent_name": "PROPOSAL_AGENT",
@@ -94,8 +94,8 @@
       "input_schema_id": "caffemate.agent.franchise-proposal-input.v1",
       "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
       "deadline_seconds": 60,
-      "thinking_level": "medium",
-      "max_output_tokens": 8192
+      "thinking_level": "low",
+      "max_output_tokens": 4096
     },
     "DOCUMENT_EXTRACT": {
       "agent_name": "DOCUMENT_ANALYST",
@@ -112,8 +112,8 @@
       "input_schema_id": "caffemate.agent.candidate-audit-input.v1",
       "output_schema_id": "caffemate.agent.candidate-audit-result.v1",
       "deadline_seconds": 60,
-      "thinking_level": "medium",
-      "max_output_tokens": 6144
+      "thinking_level": "low",
+      "max_output_tokens": 4096
     }
   }
 }

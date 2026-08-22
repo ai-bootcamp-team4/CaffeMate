@@ -54,7 +54,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     outputSchemaId: 'caffemate.agent.evidence-assess-result.v1',
     deadlineSeconds: 60,
     thinkingLevel: 'low',
-    maxOutputTokens: 4096,
+    maxOutputTokens: 2048,
   },
   PROPOSE_INDEPENDENT: {
     agentName: 'PROPOSAL_AGENT',
@@ -62,8 +62,8 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     inputSchemaId: 'caffemate.agent.independent-proposal-input.v1',
     outputSchemaId: 'caffemate.agent.independent-proposal-result.v1',
     deadlineSeconds: 60,
-    thinkingLevel: 'medium',
-    maxOutputTokens: 8192,
+    thinkingLevel: 'low',
+    maxOutputTokens: 4096,
   },
   PROPOSE_FRANCHISE: {
     agentName: 'PROPOSAL_AGENT',
@@ -71,8 +71,8 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     inputSchemaId: 'caffemate.agent.franchise-proposal-input.v1',
     outputSchemaId: 'caffemate.agent.franchise-proposal-result.v1',
     deadlineSeconds: 60,
-    thinkingLevel: 'medium',
-    maxOutputTokens: 8192,
+    thinkingLevel: 'low',
+    maxOutputTokens: 4096,
   },
   DOCUMENT_EXTRACT: {
     agentName: 'DOCUMENT_ANALYST',
@@ -89,7 +89,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     inputSchemaId: 'caffemate.agent.candidate-audit-input.v1',
     outputSchemaId: 'caffemate.agent.candidate-audit-result.v1',
     deadlineSeconds: 60,
-    thinkingLevel: 'medium',
-    maxOutputTokens: 6144,
+    thinkingLevel: 'low',
+    maxOutputTokens: 4096,
   },
 })
