@@ -317,5 +317,5 @@ def test_shared_agent_preflight_uses_a_non_self_referential_verifier_image() -> 
     assert "agent-release-preflight:${source_revision}" in verifier
     assert '--image="$agent_release_preflight_image"' in verifier
     assert "agents/src/control-cli.ts,gcp-preflight,--json" in verifier
-    assert "CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME" in verifier
-    assert "CAFFEMATE_AGENT_RUNTIME_IMAGE_URI" in verifier
+    assert "CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME" not in verifier
+    assert "CAFFEMATE_AGENT_RUNTIME_IMAGE_URI" not in verifier

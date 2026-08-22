@@ -54,8 +54,8 @@ export async function runDefaultGcpPreflight(
     embeddingRegion: GCP_LOCATIONS.embedding,
     approvedModelId: modelId ?? AGENT_MODEL.id,
     runtimePin: {
-      resourceName: process.env.CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME ?? releaseManifest.runtime.resource_name,
-      imageUri: process.env.CAFFEMATE_AGENT_RUNTIME_IMAGE_URI ?? releaseManifest.runtime.image_uri,
+      resourceName: releaseManifest.runtime.resource_name,
+      imageUri: releaseManifest.runtime.image_uri,
       promptBundleDigest: releaseManifest.prompt_bundle_digest,
       agentContractBundleDigest: releaseManifest.agent_contract_bundle_digest,
     },

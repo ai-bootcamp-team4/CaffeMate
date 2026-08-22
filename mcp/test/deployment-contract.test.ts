@@ -8,6 +8,7 @@ const dockerfile = readFileSync(join(process.cwd(), 'deploy/mcp.Dockerfile'), 'u
 const cloudbuild = readFileSync(join(process.cwd(), 'cloudbuild.mcp-image.yaml'), 'utf8')
 const standardVerify = readFileSync(join(process.cwd(), 'scripts/verify-api-worker-runtime.sh'), 'utf8')
 const provenance = readFileSync(join(process.cwd(), 'scripts/build-provenance-helpers.sh'), 'utf8')
+const agentControl = readFileSync(join(process.cwd(), 'agents/src/control.ts'), 'utf8')
 
 describe('private MCP deployment IAM contract', () => {
   it('uses the minimum retrieval role and verifies effective mutation denial', () => {
@@ -69,6 +70,10 @@ describe('private MCP artifact boundary', () => {
     expect(standardVerify).toContain('agent-release-preflight:${source_revision}')
     expect(standardVerify).toContain('--image="$agent_release_preflight_image"')
     expect(standardVerify).not.toContain('--image="$mcp_image" --service-account="$release_verifier_sa"')
+    expect(agentControl).not.toContain('CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME')
+    expect(agentControl).not.toContain('CAFFEMATE_AGENT_RUNTIME_IMAGE_URI')
+    expect(standardVerify).not.toContain('CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME')
+    expect(standardVerify).not.toContain('CAFFEMATE_AGENT_RUNTIME_IMAGE_URI')
     expect(provenance).toContain('/caffemate-backend/agent-release-preflight:')
     expect(provenance).toContain('build-agent-release-preflight-image')
     expect(provenance).toContain('release-preflight')

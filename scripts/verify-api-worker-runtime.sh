@@ -296,7 +296,6 @@ configure_agent_gcp_preflight_job() {
   gcloud run jobs "$action" "$agent_gcp_preflight_job" \
     --project="$project_id" --region="$region" \
     --image="$agent_release_preflight_image" --service-account="$release_verifier_sa" \
-    --set-env-vars="CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME=${agent_runtime_resource_name},CAFFEMATE_AGENT_RUNTIME_IMAGE_URI=${agent_runtime_image}" \
     --command=node \
     --args='--import,tsx,agents/src/control-cli.ts,gcp-preflight,--json' \
     --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=5m \
