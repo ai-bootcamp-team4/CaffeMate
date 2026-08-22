@@ -4,6 +4,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { rootAgent } from '../caffemate-agents/agent'
 import { GCP_LOCATIONS } from './registry'
+import { bindRuntimeStreamAbort } from './runtime-abort'
 import { CAFFEMATE_AGENT_APP_NAME } from './runtime-contract'
 import {
   handleRuntimeClassMethod,
@@ -46,11 +47,12 @@ interface RuntimeEnvironment {
 }
 
 interface RuntimeRequest extends AsyncIterable<unknown> {
-  on(event: 'close', listener: () => void): unknown
+  on(event: 'aborted', listener: () => void): unknown
 }
 
 interface RuntimeResponse {
   readonly headersSent: boolean
+  on(event: 'close', listener: () => void): unknown
   status(code: number): RuntimeResponse
   json(body: unknown): unknown
   setHeader(name: string, value: string): unknown
@@ -140,11 +142,8 @@ export async function startCaffeMateRuntimeServer(): Promise<AdkApiServer> {
       return
     }
 
-    const abortController = new AbortController()
     let responseCompleted = false
-    req.on('close', () => {
-      if (!responseCompleted) abortController.abort()
-    })
+    const abortController = bindRuntimeStreamAbort(req, res, () => responseCompleted)
 
     try {
       const result = await prepareRuntimeStreamMethod(

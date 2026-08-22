@@ -1,6 +1,49 @@
 import { describe, expect, it, vi } from 'vitest'
+import { bindRuntimeStreamAbort } from '../src/runtime-abort'
 import { computeAgentContractBundleDigest, computePromptBundleDigest } from '../src/release-seal'
 import { handleRuntimeClassMethod } from '../src/runtime-session-bridge'
+
+describe('Agent Runtime stream cancellation', () => {
+  it('does not treat a normally consumed request body as a client disconnect', () => {
+    const requestListeners = new Map<string, () => void>()
+    const responseListeners = new Map<string, () => void>()
+    let completed = false
+    const request = {
+      on: vi.fn((event: string, listener: () => void) => requestListeners.set(event, listener)),
+    }
+    const response = {
+      on: vi.fn((event: string, listener: () => void) => responseListeners.set(event, listener)),
+    }
+
+    const controller = bindRuntimeStreamAbort(
+      request as never,
+      response as never,
+      () => completed,
+    )
+
+    expect(requestListeners.has('aborted')).toBe(true)
+    expect(requestListeners.has('close')).toBe(false)
+    expect(controller.signal.aborted).toBe(false)
+
+    completed = true
+    responseListeners.get('close')?.()
+    expect(controller.signal.aborted).toBe(false)
+  })
+
+  it('aborts an unfinished stream when the client disconnects', () => {
+    const requestListeners = new Map<string, () => void>()
+    const responseListeners = new Map<string, () => void>()
+    const controller = bindRuntimeStreamAbort(
+      { on: (event: string, listener: () => void) => requestListeners.set(event, listener) } as never,
+      { on: (event: string, listener: () => void) => responseListeners.set(event, listener) } as never,
+      () => false,
+    )
+
+    requestListeners.get('aborted')?.()
+
+    expect(controller.signal.aborted).toBe(true)
+  })
+})
 
 describe('Agent Runtime managed-session bridge', () => {
   it('creates a managed session for async_create_session', async () => {
