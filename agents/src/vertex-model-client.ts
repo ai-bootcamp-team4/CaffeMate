@@ -27,6 +27,7 @@ export interface VertexAgentModelClientOptions {
 interface SafeGenerationTelemetry {
   event: 'VERTEX_AGENT_GENERATION'
   task_type: AgentTask['task_type']
+  preflight: boolean
   repair_attempt: number
   elapsed_ms: number
   request_bytes: number
@@ -64,6 +65,7 @@ export function safeGenerationTelemetry(input: {
   return {
     event: 'VERTEX_AGENT_GENERATION',
     task_type: input.invocation.taskType,
+    preflight: input.invocation.task.task_id.startsWith('runtime-preflight-'),
     repair_attempt: input.invocation.repairAttempt,
     elapsed_ms: Math.max(0, Math.round(input.elapsedMs)),
     request_bytes: input.requestBytes,

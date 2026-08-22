@@ -90,6 +90,72 @@ def test_unexpected_old_value_is_rejected_instead_of_overwriting_state() -> None
         )
 
 
+def test_duplicate_field_operations_are_rejected() -> None:
+    task = intent_task()
+    first = operation(task)
+    second = deepcopy(first)
+    second["op_id"] = task["payload"]["operation_id_pool"][1]
+
+    with pytest.raises(ContractValidationError, match="duplicate fields"):
+        validate_intent_delta_result(
+            task=task,
+            result=result(task, [first, second]),
+            current_head=evidence_plan_context().lease.head,
+        )
+
+
+def test_blank_free_text_is_rejected_at_the_authority_boundary() -> None:
+    task = intent_task()
+    blank = operation(task)
+    blank.update(
+        field_path="/founder/preferences",
+        kind="ADD",
+        expected_old_value={"kind": "NULL", "value": None},
+        typed_value={"kind": "STRING", "value": "   "},
+        semantic_kind="SOFT_PREFERENCE",
+        unit=None,
+    )
+
+    with pytest.raises(ContractValidationError, match="must be a string"):
+        validate_intent_delta_result(
+            task=task,
+            result=result(task, [blank]),
+            current_head=evidence_plan_context().lease.head,
+        )
+
+
+def test_unchanged_scalar_is_rejected() -> None:
+    task = intent_task()
+    unchanged = operation(task)
+    unchanged["typed_value"] = {"kind": "INTEGER", "value": 50_000_000}
+
+    with pytest.raises(ContractValidationError, match="unchanged"):
+        validate_intent_delta_result(
+            task=task,
+            result=result(task, [unchanged]),
+            current_head=evidence_plan_context().lease.head,
+        )
+
+
+def test_unset_already_null_max_loss_is_rejected() -> None:
+    task = intent_task()
+    unchanged = operation(task)
+    unchanged.update(
+        field_path="/founder/max_loss_krw",
+        kind="UNSET",
+        expected_old_value={"kind": "NULL", "value": None},
+        typed_value={"kind": "NULL", "value": None},
+        unit=None,
+    )
+
+    with pytest.raises(ContractValidationError, match="unchanged"):
+        validate_intent_delta_result(
+            task=task,
+            result=result(task, [unchanged]),
+            current_head=evidence_plan_context().lease.head,
+        )
+
+
 def test_unallowed_field_and_ambiguous_operation_are_rejected() -> None:
     task = intent_task()
     unallowed = operation(task)

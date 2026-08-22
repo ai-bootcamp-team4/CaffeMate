@@ -211,6 +211,8 @@ Interpret only the latest user input as a typed proposal against the supplied cu
 Use PROPOSE_DELTA only when the requested field, target, operation, value, unit, and scope are explicit. Use CLARIFY when the target, area, unit, hard-versus-soft meaning, time, or candidate reference is ambiguous. Use NOOP when no State change is requested. Use UNSUPPORTED for excluded external actions or requests for legal, financial, contract, or safety conclusions.
 
 A proposal is not a committed change. Preserve expected_old_value so the controller can detect a stale proposal. Do not search Evidence, generate candidates, or predict the result of the change.
+
+Return the smallest sufficient result. Do not restate State. Emit at most one operation per explicitly changed field, one minimal clarification question per ambiguity, and no duplicate explanation in risk_flags or warnings.
 ```
 
 `evidence-researcher.v1`:

@@ -22,6 +22,9 @@ _SCALAR_RULES: dict[str, tuple[str, set[str] | None]] = {
     "/founder/max_loss_krw": ("INTEGER", None),
 }
 _COLLECTION_FIELDS = {"/founder/preferences", "/founder/avoidances"}
+_MAX_TARGET_AREA_LENGTH = 256
+_MAX_COLLECTION_ITEM_LENGTH = 64
+_MAX_COLLECTION_ITEMS = 8
 
 
 def affected_feedback_stages(field_paths: set[str]) -> list[str]:
@@ -74,6 +77,9 @@ def validate_intent_delta_result(
     if decision == "PROPOSE_DELTA":
         if not operations or questions:
             raise ContractValidationError("Delta proposal must contain only operations")
+        field_paths = [operation["field_path"] for operation in operations]
+        if len(field_paths) != len(set(field_paths)):
+            raise ContractValidationError("Delta proposal contains duplicate fields")
         for operation in operations:
             _validate_operation(task, operation)
     elif decision == "CLARIFY":
@@ -120,11 +126,20 @@ def _validate_collection_operation(operation: dict[str, Any], current: object) -
     kind = operation["kind"]
     typed = operation["typed_value"]
     expected = operation["expected_old_value"]
-    if typed.get("kind") != "STRING" or not typed.get("value"):
+    if (
+        typed.get("kind") != "STRING"
+        or not isinstance(typed.get("value"), str)
+        or not typed["value"].strip()
+        or len(typed["value"]) > _MAX_COLLECTION_ITEM_LENGTH
+    ):
         raise ContractValidationError("Feedback collection item must be a string")
     item = typed["value"]
     if kind == "ADD":
-        if expected != {"kind": "NULL", "value": None} or item in current:
+        if (
+            expected != {"kind": "NULL", "value": None}
+            or item in current
+            or len(current) >= _MAX_COLLECTION_ITEMS
+        ):
             raise ContractValidationError("Feedback collection add precondition failed")
         return
     if kind == "REMOVE":
@@ -147,6 +162,8 @@ def _validate_scalar_operation(
     if kind == "UNSET" and field_path == "/founder/max_loss_krw":
         if typed != {"kind": "NULL", "value": None}:
             raise ContractValidationError("Feedback unset requires a null value")
+        if current is None:
+            raise ContractValidationError("Feedback scalar value is unchanged")
         return
     if kind != "SET":
         raise ContractValidationError("Feedback scalar only supports set")
@@ -162,6 +179,14 @@ def _validate_scalar_operation(
         raise ContractValidationError("Feedback string value is invalid")
     if choices is not None and value not in choices:
         raise ContractValidationError("Feedback enum value is invalid")
+    if (
+        field_path == "/founder/target_area_input"
+        and isinstance(value, str)
+        and len(value) > _MAX_TARGET_AREA_LENGTH
+    ):
+        raise ContractValidationError("Feedback string value is invalid")
+    if value == current:
+        raise ContractValidationError("Feedback scalar value is unchanged")
 
 
 def _typed_value(value: object) -> dict[str, object]:

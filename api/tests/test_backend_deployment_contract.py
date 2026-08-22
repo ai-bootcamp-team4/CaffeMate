@@ -205,6 +205,15 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "shared Agent GCP release preflight" in verifier
     assert "Control API has project service usage permission" in verifier
     assert "created, executed, validated and deleted an Agent Runtime session" in verifier
+    assert "caffemate-agent-runtime-intent-preflight" in verifier
+    assert "--agent-fixture-id,intent_delta-complete,--repeat,3" in verifier
+    assert 'jsonPayload.preflight=true' in verifier
+    assert 'payload.get("repair_attempt") == 0' in verifier
+    assert 'payload.get("finish_reason") == "STOP"' in verifier
+    assert "expected exactly three INTENT_DELTA generations" in verifier
+    assert "INTENT_DELTA completed three managed Agent Runtime sessions without repair" in verifier
+    cli = (ROOT / "api" / "app" / "cli.py").read_text(encoding="utf-8")
+    assert "Agent Runtime probe operations differ from fixture" in cli
     assert "verify-first-proposal" in verifier
     assert "caffemate-first-proposal-canary" in verifier
     assert "--task-timeout=25m" in verifier

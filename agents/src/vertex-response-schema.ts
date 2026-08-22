@@ -342,7 +342,21 @@ function applyEvidenceAssessBounds(projected: JsonObject, task: AgentTask): void
   conflicts.maxItems = claimCount
 }
 
-const INTENT_VALUE_KINDS = new Set(['NULL', 'STRING', 'INTEGER'])
+const INTENT_ENUM_VALUES: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  '/founder/borrowing_intent': ['YES', 'NO', 'UNDECIDED'],
+  '/founder/cafe_type_preference': ['OPEN_TO_BOTH', 'INDEPENDENT_ONLY', 'FRANCHISE_ONLY'],
+  '/founder/operation_mode': ['DIRECT_FULL_TIME', 'DIRECT_PART_TIME', 'EMPLOYEE_LED', 'UNDECIDED'],
+})
+
+const INTENT_INTEGER_FIELDS = new Set([
+  '/founder/own_funds_krw',
+  '/founder/max_loss_krw',
+])
+
+const INTENT_COLLECTION_FIELDS = new Set([
+  '/founder/preferences',
+  '/founder/avoidances',
+])
 
 function intentPool(task: AgentTask, field: 'allowed_field_paths' | 'operation_id_pool'): string[] {
   const payload = asObject(task.payload)
@@ -353,22 +367,122 @@ function intentPool(task: AgentTask, field: 'allowed_field_paths' | 'operation_i
   return [...new Set(values as string[])]
 }
 
-function compactIntentTypedValue(schema: JsonObject): JsonObject {
-  const variants = Array.isArray(schema.oneOf) ? schema.oneOf : []
-  const selected = variants.filter((rawVariant) => {
-    const variant = asObject(rawVariant)
-    const properties = variant ? asObject(variant.properties) : null
-    const kind = properties ? asObject(properties.kind) : null
-    const values = kind?.enum
-    return Array.isArray(values)
-      && values.length === 1
-      && typeof values[0] === 'string'
-      && INTENT_VALUE_KINDS.has(values[0])
-  })
-  if (selected.length !== INTENT_VALUE_KINDS.size) {
-    throw new Error('VERTEX_INTENT_TYPED_VALUE_SCHEMA_UNRESOLVED')
+function intentTypedValueSchema(kind: 'NULL' | 'STRING' | 'INTEGER', valueSchema: JsonObject): JsonObject {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['kind', 'value'],
+    properties: {
+      kind: { enum: [kind] },
+      value: valueSchema,
+    },
   }
-  return { oneOf: selected }
+}
+
+function exactIntentTypedValue(value: unknown): JsonObject {
+  if (value === null) return intentTypedValueSchema('NULL', { type: 'null' })
+  if (typeof value === 'string') return intentTypedValueSchema('STRING', { enum: [value] })
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    return intentTypedValueSchema('INTEGER', { enum: [value] })
+  }
+  throw new Error('VERTEX_INTENT_STATE_VALUE_UNSUPPORTED')
+}
+
+function intentOperationBranch(
+  fieldPath: string,
+  kind: 'SET' | 'UNSET' | 'ADD' | 'REMOVE',
+  expectedOldValue: JsonObject,
+  typedValue: JsonObject,
+): JsonObject {
+  return {
+    type: 'object',
+    properties: {
+      field_path: { enum: [fieldPath] },
+      kind: { enum: [kind] },
+      expected_old_value: expectedOldValue,
+      typed_value: typedValue,
+      unit: { type: 'null' },
+    },
+  }
+}
+
+function intentOperationBranches(task: AgentTask, fieldPaths: readonly string[]): JsonObject[] {
+  const payload = asObject(task.payload)
+  const state = payload ? asObject(payload.current_state_projection) : null
+  const founder = state ? asObject(state.founder) : null
+  if (!founder) throw new Error('VERTEX_INTENT_STATE_PROJECTION_INVALID')
+
+  const branches: JsonObject[] = []
+  for (const fieldPath of fieldPaths) {
+    const fieldName = fieldPath.split('/').at(-1)
+    if (!fieldName || !(fieldName in founder)) {
+      throw new Error(`VERTEX_INTENT_STATE_FIELD_MISSING: ${fieldPath}`)
+    }
+    const currentValue = founder[fieldName]
+
+    if (INTENT_COLLECTION_FIELDS.has(fieldPath)) {
+      if (!Array.isArray(currentValue) || currentValue.some((value) => typeof value !== 'string')) {
+        throw new Error(`VERTEX_INTENT_COLLECTION_STATE_INVALID: ${fieldPath}`)
+      }
+      branches.push(intentOperationBranch(
+        fieldPath,
+        'ADD',
+        exactIntentTypedValue(null),
+        // responseJsonSchema does not support minLength/pattern. The strict
+        // semantic validator remains authoritative for non-blank free text.
+        intentTypedValueSchema('STRING', { type: 'string' }),
+      ))
+      const removableItems = [...new Set(currentValue as string[])]
+      if (removableItems.length > 0) {
+        const removableValue = intentTypedValueSchema('STRING', { enum: removableItems })
+        branches.push(intentOperationBranch(
+          fieldPath,
+          'REMOVE',
+          removableValue,
+          removableValue,
+        ))
+      }
+      continue
+    }
+
+    const expected = exactIntentTypedValue(currentValue)
+    if (fieldPath === '/founder/max_loss_krw') {
+      branches.push(intentOperationBranch(
+        fieldPath,
+        'SET',
+        expected,
+        intentTypedValueSchema('INTEGER', { type: 'integer', minimum: 0 }),
+      ))
+      if (currentValue !== null) {
+        branches.push(intentOperationBranch(
+          fieldPath,
+          'UNSET',
+          expected,
+          exactIntentTypedValue(null),
+        ))
+      }
+      continue
+    }
+
+    if (INTENT_INTEGER_FIELDS.has(fieldPath)) {
+      branches.push(intentOperationBranch(
+        fieldPath,
+        'SET',
+        expected,
+        intentTypedValueSchema('INTEGER', { type: 'integer', minimum: 0 }),
+      ))
+      continue
+    }
+
+    const allowedValues = INTENT_ENUM_VALUES[fieldPath]
+    branches.push(intentOperationBranch(
+      fieldPath,
+      'SET',
+      expected,
+      intentTypedValueSchema('STRING', allowedValues ? { enum: [...allowedValues] } : { type: 'string' }),
+    ))
+  }
+  return branches
 }
 
 function applyIntentBounds(projected: JsonObject, task: AgentTask): void {
@@ -376,7 +490,7 @@ function applyIntentBounds(projected: JsonObject, task: AgentTask): void {
   const operations = properties ? asObject(properties.operations) : null
   const operation = operations ? asObject(operations.items) : null
   const operationProperties = operation ? asObject(operation.properties) : null
-  if (!properties || !operations || !operationProperties) {
+  if (!properties || !operations || !operation || !operationProperties) {
     throw new Error('VERTEX_INTENT_SCHEMA_UNRESOLVED')
   }
 
@@ -384,17 +498,15 @@ function applyIntentBounds(projected: JsonObject, task: AgentTask): void {
   const operationIds = intentPool(task, 'operation_id_pool')
   operations.maxItems = Math.min(fieldPaths.length, operationIds.length)
   operationProperties.op_id = { type: 'string', enum: operationIds }
-  operationProperties.field_path = { type: 'string', enum: fieldPaths }
-  operationProperties.kind = { enum: ['SET', 'UNSET', 'ADD', 'REMOVE'] }
-
-  const expectedOldValue = asObject(operationProperties.expected_old_value)
-  const typedValue = asObject(operationProperties.typed_value)
-  if (!expectedOldValue || !typedValue) {
-    throw new Error('VERTEX_INTENT_TYPED_VALUE_SCHEMA_UNRESOLVED')
-  }
-  operationProperties.expected_old_value = compactIntentTypedValue(expectedOldValue)
-  operationProperties.typed_value = compactIntentTypedValue(typedValue)
+  // Field-specific branches below are the generation contract. Removing the
+  // projected broad value unions keeps Vertex's schema small and prevents it
+  // from selecting an operation or value kind invalid for the chosen field.
+  operationProperties.field_path = {}
+  operationProperties.kind = {}
+  operationProperties.expected_old_value = {}
+  operationProperties.typed_value = {}
   operationProperties.unit = { type: 'null' }
+  operation.anyOf = intentOperationBranches(task, fieldPaths)
 
   const ambiguityCodes = asObject(operationProperties.ambiguity_codes)
   const clarifyingQuestions = asObject(properties.clarifying_questions)

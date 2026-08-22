@@ -28,7 +28,7 @@
         "input_schema_id": "caffemate.agent.intent-input.v1",
         "output_schema_id": "caffemate.agent.intent-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:20f0e9bd76de79b3e47b592a95d568d0d46880f020b2bc44b7b493da139ff150",
+        "input_digest": "sha256:b613d7e8bba079c2f89b143098791a84c116e153b484ee59f60665bc291552f5",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -64,7 +64,7 @@
             "active_case_id": null,
             "venture_cases": []
           },
-          "latest_user_input": "대출은 받지 않겠습니다.",
+          "latest_user_input": "대출을 받을 수 있습니다.",
           "allowed_field_paths": [
             "/founder/borrowing_intent"
           ],
@@ -93,14 +93,37 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:20f0e9bd76de79b3e47b592a95d568d0d46880f020b2bc44b7b493da139ff150",
+        "input_digest": "sha256:b613d7e8bba079c2f89b143098791a84c116e153b484ee59f60665bc291552f5",
         "output_schema_id": "caffemate.agent.intent-result.v1",
         "status": "COMPLETE",
         "payload": {
-          "decision": "NOOP",
-          "operations": [],
+          "decision": "PROPOSE_DELTA",
+          "operations": [
+            {
+              "op_id": "op-1",
+              "kind": "SET",
+              "field_path": "/founder/borrowing_intent",
+              "expected_old_value": {
+                "kind": "STRING",
+                "value": "NO"
+              },
+              "typed_value": {
+                "kind": "STRING",
+                "value": "YES"
+              },
+              "unit": null,
+              "semantic_kind": "HARD_CONSTRAINT",
+              "source_span": {
+                "start": 0,
+                "end": 14
+              },
+              "ambiguity_codes": []
+            }
+          ],
           "clarifying_questions": [],
-          "affected_workflow_codes": [],
+          "affected_workflow_codes": [
+            "FIRST_PROPOSAL"
+          ],
           "risk_flags": []
         },
         "evidence_refs": [],

@@ -17,6 +17,7 @@ interface ProjectedSchema {
   anyOf?: ProjectedSchema[]
   oneOf?: ProjectedSchema[]
   maxItems?: number
+  minimum?: number
 }
 
 function intentTask(): AgentTask {
@@ -62,13 +63,21 @@ describe('Vertex role response schema projection', () => {
 
     expect(roleSchema.properties?.operations.maxItems).toBe(2)
     expect(operation.properties.op_id.enum).toEqual(['op-1', 'op-2', 'op-3'])
-    expect(operation.properties.field_path.enum).toEqual([
-      '/founder/borrowing_intent',
-      '/founder/own_funds_krw',
-    ])
-    expect(operation.properties.kind.enum).toEqual(['SET', 'UNSET', 'ADD', 'REMOVE'])
-    expect(operation.properties.expected_old_value.oneOf).toHaveLength(3)
-    expect(operation.properties.typed_value.oneOf).toHaveLength(3)
+    expect(operation.properties.field_path).toEqual({})
+    expect(operation.anyOf).toHaveLength(2)
+    const borrowing = operation.anyOf?.find((branch) => (
+      branch.properties?.field_path.enum?.[0] === '/founder/borrowing_intent'
+    ))
+    const ownFunds = operation.anyOf?.find((branch) => (
+      branch.properties?.field_path.enum?.[0] === '/founder/own_funds_krw'
+    ))
+    expect(borrowing?.properties?.kind.enum).toEqual(['SET'])
+    expect(borrowing?.properties?.expected_old_value.properties?.value.enum).toEqual(['NO'])
+    expect(borrowing?.properties?.typed_value.properties?.value.enum).toEqual(['YES', 'NO', 'UNDECIDED'])
+    expect(ownFunds?.properties?.kind.enum).toEqual(['SET'])
+    expect(ownFunds?.properties?.expected_old_value.properties?.value.enum).toEqual([100_000_000])
+    expect(ownFunds?.properties?.typed_value.properties?.value.type).toBe('integer')
+    expect(ownFunds?.properties?.typed_value.properties?.value.minimum).toBe(0)
     expect(operation.properties.unit.type).toBe('null')
     expect(roleSchema.properties?.clarifying_questions.maxItems).toBe(3)
     expect(roleSchema.properties?.affected_workflow_codes.maxItems).toBe(1)
@@ -78,7 +87,64 @@ describe('Vertex role response schema projection', () => {
     expect(responseSchema.properties?.missing_claim_ids.maxItems).toBe(0)
     expect(responseSchema.properties?.reason_codes.maxItems).toBe(5)
     expect(responseSchema.properties?.warnings.maxItems).toBe(5)
-    expect(JSON.stringify(responseSchema).length).toBeLessThan(5_000)
+    expect(JSON.stringify(responseSchema).length).toBeLessThan(6_000)
+  })
+
+  it('uses only field-valid SET, UNSET, ADD and REMOVE intent branches', () => {
+    const task = intentTask()
+    const payload = task.payload as Record<string, unknown>
+    const projection = payload.current_state_projection as { founder: Record<string, unknown> }
+    projection.founder.max_loss_krw = 25_000_000
+    projection.founder.preferences = Array.from(
+      { length: 8 },
+      (_, index) => `${index}${'😀'.repeat(63)}`,
+    )
+    projection.founder.avoidances = Array.from(
+      { length: 8 },
+      (_, index) => `${index}${'🫠'.repeat(63)}`,
+    )
+    projection.founder.target_area_input = '🏙️'.repeat(128)
+    payload.allowed_field_paths = [
+      '/founder/target_area_input',
+      '/founder/own_funds_krw',
+      '/founder/borrowing_intent',
+      '/founder/cafe_type_preference',
+      '/founder/operation_mode',
+      '/founder/max_loss_krw',
+      '/founder/preferences',
+      '/founder/avoidances',
+    ]
+    payload.operation_id_pool = Array.from({ length: 20 }, (_, index) => `op-${index + 1}`)
+
+    const responseSchema = buildAgentTaskResultResponseJsonSchema(task) as ProjectedSchema
+    const operation = responseSchema.properties?.payload.anyOf?.[0]
+      ?.properties?.operations.items
+    const branches = operation?.anyOf ?? []
+    const branch = (field: string, kind: string) => branches.find((item) => (
+      item.properties?.field_path.enum?.[0] === field
+      && item.properties?.kind.enum?.[0] === kind
+    ))
+
+    expect(branch('/founder/max_loss_krw', 'SET')?.properties?.typed_value.properties?.value.minimum).toBe(0)
+    expect(branch('/founder/max_loss_krw', 'UNSET')?.properties?.typed_value.properties?.value.type).toBe('null')
+    expect(branch('/founder/preferences', 'ADD')?.properties?.expected_old_value.properties?.value.type).toBe('null')
+    expect(branch('/founder/preferences', 'REMOVE')?.properties?.typed_value.properties?.value.enum).toHaveLength(8)
+    expect(branch('/founder/avoidances', 'REMOVE')?.properties?.typed_value.properties?.value.enum).toHaveLength(8)
+    expect(branches.some((item) => item.properties?.kind.enum?.[0] === 'UNSET'
+      && item.properties?.field_path.enum?.[0] !== '/founder/max_loss_krw')).toBe(false)
+    expect(new TextEncoder().encode(JSON.stringify(responseSchema)).byteLength).toBeLessThan(20_000)
+  })
+
+  it('does not offer a no-op max-loss UNSET branch when State is already null', () => {
+    const task = intentTask()
+    const payload = task.payload as Record<string, unknown>
+    const projection = payload.current_state_projection as { founder: Record<string, unknown> }
+    projection.founder.max_loss_krw = null
+    payload.allowed_field_paths = ['/founder/max_loss_krw']
+
+    const schema = buildVertexRolePayloadSchema(task) as ProjectedSchema
+    const branches = schema.properties?.operations.items?.anyOf ?? []
+    expect(branches.some((branch) => branch.properties?.kind.enum?.[0] === 'UNSET')).toBe(false)
   })
 
   it('keeps one compact EVIDENCE_PLAN action shape with allowed tool and argument unions', () => {

@@ -568,7 +568,7 @@ Evidence Freeze에 전달한다.
 다시 실행하거나 다른 모델·endpoint·리전으로 전환하지 않는다.
 
 Runtime의 안전한 generation telemetry에는 task type, 요청 byte, 사고 수준, 출력 토큰 상한, 지연,
-HTTP status, finish reason, repair attempt와 provider token count만 포함한다. 사용자 입력, Evidence
+HTTP status, finish reason, repair attempt, preflight 여부와 provider token count만 포함한다. 사용자 입력, Evidence
 내용, task·project·workflow·session 식별자와 credential은 기록하지 않는다.
 
 Runtime dispatcher는 모델 출력을 외부로 보내기 전에 전체 Schema·echo·의미 검증을 수행한다.

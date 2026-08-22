@@ -309,8 +309,9 @@ class FirstProposalAgentFixture:
 
 
 class FeedbackAgentFixture:
-    def __init__(self) -> None:
+    def __init__(self, target_funds: int = 40_000_000) -> None:
         self.tasks: list[dict[str, Any]] = []
+        self.target_funds = target_funds
 
     def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
         self.tasks.append(task)
@@ -342,7 +343,7 @@ class FeedbackAgentFixture:
                             "kind": "INTEGER",
                             "value": current_funds,
                         },
-                        "typed_value": {"kind": "INTEGER", "value": 40_000_000},
+                        "typed_value": {"kind": "INTEGER", "value": self.target_funds},
                         "unit": "KRW",
                         "semantic_kind": "HARD_CONSTRAINT",
                         "source_span": {"start": 0, "end": 17},
@@ -1698,7 +1699,7 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
         PostgresFeedbackRepository(postgres_engine),
         ProjectService(repository),
         ResultService(PostgresResultRepository(postgres_engine)),
-        FeedbackAgentFixture(),
+        FeedbackAgentFixture(target_funds=30_000_000),
         new_id=lambda: "feedback-preview-cancel",
     )
     cancellable = cancelling_feedback.create_preview(
@@ -1744,6 +1745,9 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
 
     class HeadChangingFeedbackRuntime(FeedbackAgentFixture):
         replacement: WorkflowRun | None = None
+
+        def __init__(self) -> None:
+            super().__init__(target_funds=30_000_000)
 
         def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
             self.replacement = workflows.start(

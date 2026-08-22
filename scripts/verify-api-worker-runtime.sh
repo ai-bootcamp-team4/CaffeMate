@@ -242,6 +242,55 @@ gcloud run jobs execute "$agent_preflight_job" --project="$project_id" --region=
   --wait --quiet >/dev/null
 printf '%s\n' 'PASS Control API created, executed, validated and deleted an Agent Runtime session'
 
+intent_preflight_job='caffemate-agent-runtime-intent-preflight'
+configure_intent_preflight_job() {
+  action=$1
+  gcloud run jobs "$action" "$intent_preflight_job" --project="$project_id" --region="$region" \
+    --image="$api_image" --service-account="$api_sa" \
+    --set-env-vars="AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${configured_agent_resource}" \
+    --set-secrets='AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest' \
+    --command=caffemate-api \
+    --args=verify-agent-runtime,--agent-fixture-id,intent_delta-complete,--repeat,3 \
+    --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=5m \
+    --cpu=1 --memory=512Mi \
+    --labels="source-revision=${source_revision},managed-by=caffemate-verify" \
+    --quiet >/dev/null
+}
+if gcloud run jobs describe "$intent_preflight_job" --project="$project_id" --region="$region" >/dev/null 2>&1; then
+  configure_intent_preflight_job update
+else
+  configure_intent_preflight_job create
+fi
+intent_probe_started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+gcloud run jobs execute "$intent_preflight_job" --project="$project_id" --region="$region" \
+  --wait --quiet >/dev/null
+intent_generation_logs='[]'
+intent_log_attempt=0
+while [ "$intent_log_attempt" -lt 12 ]; do
+  intent_generation_logs=$(gcloud logging read \
+    "timestamp>=\"${intent_probe_started_at}\" AND jsonPayload.event=\"VERTEX_AGENT_GENERATION\" AND jsonPayload.task_type=\"INTENT_DELTA\" AND jsonPayload.preflight=true" \
+    --project="$project_id" --freshness=10m --limit=20 --format=json)
+  intent_generation_count=$(printf '%s' "$intent_generation_logs" | python3 -c \
+    'import json,sys; print(len(json.load(sys.stdin)))')
+  [ "$intent_generation_count" -ge 3 ] && break
+  intent_log_attempt=$((intent_log_attempt + 1))
+  sleep 5
+done
+INTENT_GENERATION_LOGS="$intent_generation_logs" python3 - <<'PY'
+import json
+import os
+
+rows = json.loads(os.environ["INTENT_GENERATION_LOGS"])
+assert len(rows) == 3, f"expected exactly three INTENT_DELTA generations, got {len(rows)}"
+for row in rows:
+    payload = row.get("jsonPayload", {})
+    assert payload.get("http_status") == 200, payload
+    assert payload.get("finish_reason") == "STOP", payload
+    assert payload.get("repair_attempt") == 0, payload
+PY
+unset intent_generation_logs
+printf '%s\n' 'PASS INTENT_DELTA completed three managed Agent Runtime sessions without repair'
+
 mcp_release_service_name=$(python3 -c \
   'import json; print(json.load(open("agents/release-manifest.json"))["mcp"]["runtime"]["service_name"])')
 mcp_release_region=$(python3 -c \

@@ -205,6 +205,37 @@ def main() -> None:
             )
             if expected_decision is not None and result_decision != expected_decision:
                 raise RuntimeError("Agent Runtime probe decision differs from fixture")
+            if expected_decision == "PROPOSE_DELTA":
+                if not isinstance(result_payload, dict):
+                    raise RuntimeError("Agent Runtime probe payload is missing")
+                expected_operations = expected_payload.get("operations")
+                result_operations = result_payload.get("operations")
+                if not isinstance(expected_operations, list) or not isinstance(
+                    result_operations, list
+                ):
+                    raise RuntimeError("Agent Runtime probe operations are missing")
+                core_fields = (
+                    "field_path",
+                    "kind",
+                    "expected_old_value",
+                    "typed_value",
+                )
+                expected_core = [
+                    {field: operation[field] for field in core_fields}
+                    for operation in expected_operations
+                    if isinstance(operation, dict)
+                ]
+                result_core = [
+                    {field: operation[field] for field in core_fields}
+                    for operation in result_operations
+                    if isinstance(operation, dict)
+                ]
+                if len(expected_core) != len(expected_operations) or len(
+                    result_core
+                ) != len(result_operations):
+                    raise RuntimeError("Agent Runtime probe operation shape is invalid")
+                if result_core != expected_core:
+                    raise RuntimeError("Agent Runtime probe operations differ from fixture")
             summaries.append(
                 {
                     "run": run_number,
