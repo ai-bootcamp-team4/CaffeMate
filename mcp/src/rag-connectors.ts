@@ -52,6 +52,11 @@ function resultEnvelope(
   observedAt: string,
 ) {
   const found = hits.length > 0
+  const sources = new Map<string, NonNullable<RagHit['source']>>()
+  for (const hit of hits) {
+    if (!hit.source) continue
+    sources.set(`${hit.source.sourceId}\n${hit.source.sourceRef}\n${hit.source.contentDigest}`, hit.source)
+  }
   return {
     schema_version: '1.0.0',
     request_id: scope.requestId,
@@ -62,7 +67,13 @@ function resultEnvelope(
     evidence_records: [],
     missing_fields: found ? [] : ['document_hits'],
     conflicts: [],
-    source_trace: [],
+    source_trace: [...sources.values()].map((source) => ({
+      source_id: source.sourceId,
+      source_ref: source.sourceRef,
+      data_date: source.dataDate,
+      retrieved_at: observedAt,
+      content_digest: source.contentDigest,
+    })),
     error_codes: [],
     observed_at: observedAt,
     data: hits.map(documentHit),

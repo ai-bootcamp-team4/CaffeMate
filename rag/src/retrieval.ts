@@ -7,6 +7,12 @@ export interface RagHit {
   excerpt: string
   sourceDate: string | null
   evidenceId: string
+  source?: {
+    sourceId: string
+    sourceRef: string
+    dataDate: string | null
+    contentDigest: string
+  }
 }
 
 export interface RagBackendRequest {

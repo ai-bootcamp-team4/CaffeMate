@@ -55,11 +55,29 @@ try {
     throw new Error(`MCP_RESOLVE_AREA_UNSAFE_OUTCOME status=${structured?.status ?? 'MISSING'} errors=${structured?.error_codes?.join(',') ?? ''} missing=${structured?.missing_fields?.join(',') ?? ''}`)
   }
 
+  const officialResult = await client.callTool({
+    name: 'retrieve_official_documents',
+    arguments: {
+      query: '커피전문점 영업신고',
+      source_families: ['GOVERNMENT_GUIDE'],
+      as_of: '2026-07-15',
+      limit: 3,
+    },
+  })
+  const official = officialResult.structuredContent as {
+    status?: string
+    data?: Array<{ document_revision_id?: string }>
+  } | undefined
+  if (official?.status !== 'OK'
+    || !official.data?.some((row) => row.document_revision_id === 'easylaw-csmSeq-706@2026-07-15')) {
+    throw new Error('MCP_OFFICIAL_RAG_UNSAFE_OUTCOME')
+  }
+
   const badHeaders = new Headers({ Authorization: authorization })
   badHeaders.set('X-CaffeMate-Scope-Token', 'invalid')
   const badScope = await fetch(`${baseUrl}/mcp`, { method: 'POST', headers: badHeaders, body: '{}' })
   if (badScope.status !== 403) throw new Error(`MCP_BAD_SCOPE_NOT_REJECTED_${badScope.status}`)
-  console.log(`MCP_SMOKE_OK tools=${names.length} resolve_area=${structured.status} invalid_scope=403`)
+  console.log(`MCP_SMOKE_OK tools=${names.length} resolve_area=${structured.status} official_rag=${official.status} invalid_scope=403`)
 } finally {
   await client.close().catch(() => undefined)
 }
