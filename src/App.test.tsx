@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type { AuthGateway, AuthSession } from './auth'
-import type { ControlApiClient, HeadFence, Project, ResultView, WorkflowProgress } from './apiClient'
+import type { AreaSearchResult, ControlApiClient, HeadFence, Project, ResultView, WorkflowProgress } from './apiClient'
 
 afterEach(cleanup)
 
@@ -76,6 +76,24 @@ function setup() {
   const client: ControlApiClient = {
     createProject: vi.fn(async () => ({ ...project, state: null })),
     listProjects: vi.fn(async () => []),
+    searchAreas: vi.fn(async (_projectId, query): Promise<AreaSearchResult> => ({
+      query,
+      status: 'OK',
+      completeness: 'UNVERIFIED',
+      missing_fields: [],
+      source_trace: [],
+      candidates: [{
+        area_id: 'legal-dong:4111710300',
+        scope_type: 'LEGAL_DONG',
+        display_name: '경기도 수원시 영통구 원천동',
+        legal_dong_code: '4111710300',
+        administrative_dong_codes: [],
+        mapping_status: 'UNVERIFIED',
+        source_revision: 'JUSO_LIVE_UNVERSIONED',
+        boundary_version: null,
+        selection_token: 'signed-area-selection',
+      }],
+    })),
     confirmOnboarding: vi.fn(async () => project),
     startFirstProposal: vi.fn(async () => workflow),
     getWorkflow: vi.fn(async () => progress),
@@ -97,6 +115,7 @@ async function enterOnboarding() {
 async function completeOnboarding() {
   await enterOnboarding()
   fireEvent.change(screen.getByLabelText('희망 지역'), { target: { value: '수원 원천동' } })
+  fireEvent.click(await screen.findByRole('option', { name: /경기도 수원시 영통구 원천동/ }))
   fireEvent.click(screen.getByRole('button', { name: '다음' }))
   fireEvent.change(screen.getByLabelText('현재 자기자금'), { target: { value: '8000' } })
   fireEvent.click(screen.getByRole('radio', { name: /아직 미정/ }))
@@ -121,6 +140,7 @@ describe('CaffeMate Control API integration', () => {
     const { client } = setup()
     await completeOnboarding()
     expect(client.confirmOnboarding).toHaveBeenCalledOnce()
+    expect(client.confirmOnboarding).toHaveBeenCalledWith('project-1', expect.any(Object), 'signed-area-selection')
     expect(client.startFirstProposal).toHaveBeenCalledWith('project-1')
     expect(client.getWorkflow).toHaveBeenCalledWith('project-1', 'workflow-1')
     expect(screen.getAllByText('출점 가능 여부 확인이 필요한 조건부 후보입니다.').length).toBeGreaterThan(0)

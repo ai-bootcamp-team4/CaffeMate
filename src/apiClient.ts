@@ -24,6 +24,11 @@ export interface Project {
     founder: Record<string, unknown>
     area: {
       resolution_status: string
+      area_id?: string | null
+      scope_type?: 'LEGAL_DONG' | 'ADMINISTRATIVE_DONG' | 'COMPOSITE' | null
+      legal_dong_code?: string | null
+      administrative_dong_codes?: string[]
+      mapping_status?: 'VERIFIED' | 'UNVERIFIED' | null
       display_name: string | null
       coverage_profile: string
       evidence_ids: string[]
@@ -31,6 +36,27 @@ export interface Project {
     }
     updated_at: string
   } | null
+}
+
+export interface AreaSearchCandidate {
+  area_id: string
+  scope_type: 'LEGAL_DONG' | 'ADMINISTRATIVE_DONG' | 'COMPOSITE'
+  display_name: string
+  legal_dong_code: string | null
+  administrative_dong_codes: string[]
+  mapping_status: 'VERIFIED' | 'UNVERIFIED'
+  source_revision: string
+  boundary_version: string | null
+  selection_token: string
+}
+
+export interface AreaSearchResult {
+  query: string
+  status: string
+  completeness: 'COMPLETE' | 'TRUNCATED' | 'UNVERIFIED'
+  candidates: AreaSearchCandidate[]
+  missing_fields: string[]
+  source_trace: Array<Record<string, unknown>>
 }
 
 export interface WorkflowRun {
@@ -143,7 +169,8 @@ export interface CandidateSelection {
 export interface ControlApiClient {
   createProject(): Promise<Project>
   listProjects(): Promise<Project[]>
-  confirmOnboarding(projectId: string, values: OnboardingValues): Promise<Project>
+  searchAreas(projectId: string, query: string): Promise<AreaSearchResult>
+  confirmOnboarding(projectId: string, values: OnboardingValues, areaSelectionToken: string): Promise<Project>
   startFirstProposal(projectId: string): Promise<WorkflowRun>
   getWorkflow(projectId: string, workflowRunId: string): Promise<WorkflowProgress>
   getResult(projectId: string): Promise<ResultView>
@@ -193,9 +220,14 @@ export function createControlApiClient(
   return {
     createProject: () => request('/v1/projects', { method: 'POST', body: '{}' }, true),
     listProjects: () => request('/v1/projects'),
-    confirmOnboarding: (projectId, values) => request(`/v1/projects/${projectId}/onboarding/confirm`, {
+    searchAreas: (projectId, query) => request(`/v1/projects/${projectId}/areas:search`, {
+      method: 'POST',
+      body: JSON.stringify({ query, limit: 10 }),
+    }),
+    confirmOnboarding: (projectId, values, areaSelectionToken) => request(`/v1/projects/${projectId}/onboarding/confirm`, {
       method: 'POST',
       body: JSON.stringify({
+        area_selection_token: areaSelectionToken,
         founder: {
           target_area_input: values.targetAreaInput.trim(),
           own_funds_krw: Number(values.ownFundsKrw),

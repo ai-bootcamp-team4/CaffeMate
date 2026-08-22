@@ -75,6 +75,21 @@ JSON-RPC request id와 scope를 유지한다. 기본 지연은 250ms·750ms이�
 Workflow·tool·typed arguments에서 비식별 trace를 만들어 모든 물리 시도에 동일하게 전달한다.
 `PARTIAL`, `STALE`, `NOT_FOUND`는 전송 성공과 별도의 domain 상태로 그대로 보존한다.
 
+## 온보딩 지역 선택
+
+`POST /v1/projects/{project_id}/areas:search`는 프로젝트 소유권을 확인한 Control API가 private
+MCP의 `resolve_area`를 대신 호출한다. 응답 후보는 `AreaIdentity`와 15분짜리
+`selection_token`을 포함한다. 주소 API의 10자리 `admCd`는 법정동 코드로 저장하며, 별도 근거가
+없는 행정동 코드는 만들지 않는다. 검색 첫 페이지의 완전성도 확인되지 않았으므로
+`completeness=UNVERIFIED`로 반환한다.
+
+프론트엔드는 사용자가 후보 하나를 명시적으로 선택한 뒤 토큰을
+`POST /v1/projects/{project_id}/onboarding/confirm`의 `area_selection_token`에 넣는다. 서버는
+프로젝트·정규화 검색어·만료·서명을 다시 검증하고 구조화된 지역을 Founder 입력과 같은 Event에
+저장한다. 이후 `AREA_RESOLUTION`은 확정 State를 재검색하지 않는다. 입력 문자열만 보낸 요청은
+지역 검색이 구성되지 않은 개발·회귀 환경의 기존 경로만 유지하며, 배포 프론트엔드에서는 사용할
+수 없다.
+
 ## Workflow 진행 조회
 
 프론트엔드는 `GET /v1/projects/{project_id}/workflows/{workflow_run_id}`를 polling한다.

@@ -1,5 +1,5 @@
 from app.domain.events import ConfirmOnboardingCommand
-from app.domain.models import FounderState, Project
+from app.domain.models import AreaState, FounderState, Project
 from app.projects.repository import ProjectRepository
 
 
@@ -23,6 +23,7 @@ class ProjectService:
         user_id: str,
         idempotency_key: str,
         founder: FounderState,
+        area: AreaState | None = None,
     ) -> Project:
         return self._repository.confirm_onboarding(
             ConfirmOnboardingCommand(
@@ -30,5 +31,6 @@ class ProjectService:
                 user_id=user_id,
                 idempotency_key=idempotency_key,
                 founder=founder,
+                area=area,
             )
         )
