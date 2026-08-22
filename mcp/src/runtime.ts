@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
-import { createApplicationDefaultGoogleCloudContext } from '../../agents/src/gcp-auth'
+import { createApplicationDefaultGoogleCloudContext } from './gcp-auth'
 import { createProductionAuthorizer } from './auth'
 import { createProductionMcpConnectors } from './production-connectors'
 import { createCaffeMateMcpHttpHandler } from './server'

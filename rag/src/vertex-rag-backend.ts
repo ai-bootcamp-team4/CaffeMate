@@ -1,5 +1,4 @@
-import { GCP_LOCATIONS } from '../../agents/src/registry'
-import { RAG_RANKER } from './config'
+import { RAG_RANKER, RAG_REGION } from './config'
 import type { RagBackend, RagBackendRequest, RagHit } from './retrieval'
 
 export class VertexRagError extends Error {
@@ -23,7 +22,7 @@ export interface VertexRagContext {
 
 export interface VertexRagBackendOptions {
   projectId: string
-  region: typeof GCP_LOCATIONS.rag
+  region: typeof RAG_REGION
   accessToken: () => Promise<string>
   mapContext: (context: VertexRagContext, request: RagBackendRequest) => RagHit | null
   fetchImpl?: typeof fetch
@@ -131,8 +130,8 @@ function metadataFilterFor(request: RagBackendRequest): string | undefined {
 
 export function createVertexRagBackend(options: VertexRagBackendOptions): RagBackend {
   if (!options.projectId) throw new VertexRagError('RAG_PROJECT_REQUIRED', 'GCP project id is required')
-  if (options.region !== GCP_LOCATIONS.rag) {
-    throw new VertexRagError('RAG_REGION_NOT_ALLOWED', `RAG retrieval is pinned to ${GCP_LOCATIONS.rag}`)
+  if (options.region !== RAG_REGION) {
+    throw new VertexRagError('RAG_REGION_NOT_ALLOWED', `RAG retrieval is pinned to ${RAG_REGION}`)
   }
   const fetchImpl = options.fetchImpl ?? fetch
   const timeoutMs = options.timeoutMs ?? DEFAULT_RAG_TIMEOUT_MS
