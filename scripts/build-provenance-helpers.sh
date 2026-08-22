@@ -7,18 +7,22 @@ verified_build_id_for_image() {
   expected_build_sa=$4
   expected_repository=${5:-https://github.com/ai-bootcamp-team4/CaffeMate.git}
 
-  builds=$(gcloud builds list \
+  builds_file=$(mktemp "${TMPDIR:-/tmp}/caffemate-builds.XXXXXX")
+  if ! gcloud builds list \
     --project="$project_id" \
     --region="$region" \
     --filter='status=SUCCESS' \
     --limit=200 \
-    --format=json)
-  BUILDS_JSON="$builds" \
-  EXPECTED_IMAGE="$expected_image" \
-  EXPECTED_DIGEST="$expected_digest" \
-  EXPECTED_REVISION="$expected_revision" \
-  EXPECTED_BUILD_SA="$expected_build_sa" \
-  EXPECTED_REPOSITORY="$expected_repository" \
+    --format=json >"$builds_file"; then
+    rm -f "$builds_file"
+    return 1
+  fi
+  if BUILDS_FILE="$builds_file" \
+    EXPECTED_IMAGE="$expected_image" \
+    EXPECTED_DIGEST="$expected_digest" \
+    EXPECTED_REVISION="$expected_revision" \
+    EXPECTED_BUILD_SA="$expected_build_sa" \
+    EXPECTED_REPOSITORY="$expected_repository" \
     python3 - <<'PY'
 import json
 import os
@@ -144,7 +148,10 @@ def mcp_build_shape_is_exact(steps, selected_image):
 
 
 matches = []
-for build in json.loads(os.environ["BUILDS_JSON"]):
+with open(os.environ["BUILDS_FILE"], encoding="utf-8") as builds_handle:
+    builds = json.load(builds_handle)
+
+for build in builds:
     if build.get("substitutions", {}).get("_SOURCE_REVISION") != os.environ["EXPECTED_REVISION"]:
         continue
     if build.get("serviceAccount") != os.environ["EXPECTED_BUILD_SA"]:
@@ -200,4 +207,11 @@ if not matches or not matches[0]:
     raise SystemExit(1)
 print(matches[0])
 PY
+  then
+    provenance_status=0
+  else
+    provenance_status=$?
+  fi
+  rm -f "$builds_file"
+  return "$provenance_status"
 }

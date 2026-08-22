@@ -1,3 +1,6 @@
+import json
+import os
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -321,3 +324,91 @@ def test_shared_agent_preflight_uses_a_non_self_referential_verifier_image() -> 
     assert "agents/src/control-cli.ts,gcp-preflight,--json" in verifier
     assert "CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME" not in verifier
     assert "CAFFEMATE_AGENT_RUNTIME_IMAGE_URI" not in verifier
+
+
+def test_build_provenance_handles_large_realistic_cloudbuild_payload(tmp_path: Path) -> None:
+    revision = "d" * 40
+    digest = "sha256:" + "a" * 64
+    project_id = "proj-aj20-211200020328"
+    region = "asia-northeast3"
+    image = (
+        f"{region}-docker.pkg.dev/{project_id}/caffemate-agents/"
+        f"caffemate-agent-runtime:{revision}"
+    )
+    build_sa = (
+        f"projects/{project_id}/serviceAccounts/"
+        f"caffemate-backend-build@{project_id}.iam.gserviceaccount.com"
+    )
+    repository = "https://github.com/ai-bootcamp-team4/CaffeMate.git"
+    checkout_script = "\n".join(
+        [
+            "git init /workspace/source",
+            f"git -C /workspace/source remote add origin '{repository}'",
+            f"git -C /workspace/source fetch --depth=1 origin '{revision}'",
+            "git -C /workspace/source checkout --detach FETCH_HEAD",
+            f'test "$(git -C /workspace/source rev-parse HEAD)" = \'{revision}\'',
+        ]
+    )
+    payload = [
+        {
+            "id": "large-build-id",
+            "substitutions": {"_SOURCE_REVISION": revision},
+            "serviceAccount": build_sa,
+            "options": {},
+            "steps": [
+                {
+                    "id": "checkout-reviewed-source",
+                    "name": "gcr.io/cloud-builders/git",
+                    "entrypoint": "sh",
+                    "args": ["-ceu", checkout_script],
+                },
+                {
+                    "id": "build-agent-runtime-image",
+                    "name": "gcr.io/cloud-builders/docker",
+                    "args": [
+                        "build",
+                        "--file",
+                        "/workspace/source/agents/Dockerfile.runtime",
+                        "--tag",
+                        image,
+                        "/workspace/source",
+                    ],
+                },
+            ],
+            "results": {"images": [{"name": image, "digest": digest}]},
+            "largeLogMetadata": "x" * 500_000,
+        }
+    ]
+    builds_file = tmp_path / "builds.json"
+    builds_file.write_text(json.dumps(payload), encoding="utf-8")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_gcloud = fake_bin / "gcloud"
+    fake_gcloud.write_text(
+        '#!/bin/sh\ncat "$FAKE_BUILDS_JSON_FILE"\n',
+        encoding="utf-8",
+    )
+    fake_gcloud.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["FAKE_BUILDS_JSON_FILE"] = str(builds_file)
+    command = f"""
+project_id={project_id}
+region={region}
+. ./scripts/build-provenance-helpers.sh
+verified_build_id_for_image \\
+  '{image}' \\
+  '{digest}' \\
+  '{revision}' \\
+  '{build_sa}'
+"""
+    result = subprocess.run(
+        ["sh", "-c", command],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "large-build-id"
