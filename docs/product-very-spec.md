@@ -159,12 +159,12 @@ BUILDING → EVALUATING → SHADOW → ACTIVE
 
 | Agent | Output 한도 | Deadline |
 |---|---:|---:|
-| Intent Interpreter | 2,048 | 15초 |
-| Evidence Researcher PLAN | 4,096 | 20초 |
+| Intent Interpreter | 4,096 | 30초 |
+| Evidence Researcher PLAN | 4,096 | 30초 |
 | Evidence Researcher ASSESS | 8,192 | 30초 |
 | Proposal Agent | 8,192 | 30초 |
 | Document Analyst | 8,192 | batch당 60초 |
-| Typed Candidate Auditor | 6,144 | 20초 |
+| Typed Candidate Auditor | 6,144 | 60초 |
 
 Transport retry는 408·429·5xx·network failure에 한해 최대 2회다. JSON/schema 오류는 repair prompt로 한 번만 고친다. Safety block, 400, 401, 403, anchor·ACL 오류는 retry하지 않는다.
 
