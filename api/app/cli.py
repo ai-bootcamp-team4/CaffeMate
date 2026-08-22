@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import copy
 import json
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -15,8 +16,21 @@ from app.mcp.client import GoogleIdentityTokenProvider
 from app.mcp.preflight import McpManifestPreflight
 from app.mcp.scope import ScopeTokenSigner
 from app.migrations import apply_migrations, verify_migrations
+from app.projects.postgres_repository import PostgresProjectRepository
+from app.projects.service import ProjectService
+from app.results.postgres_repository import PostgresResultRepository
+from app.results.service import ResultService
 from app.settings import RuntimeSettings
+from app.verification.first_proposal import (
+    FirstProposalCanary,
+    FirstProposalCanaryError,
+    PostgresFirstProposalCanaryCleaner,
+)
+from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import HeadFence
+from app.workflows.postgres_repository import PostgresWorkflowRepository
+from app.workflows.service import WorkflowService
+from app.workflows.start_guard import FirstProposalStartGuard, McpManifestStartGate
 
 
 class _StrictAgentCleanupSink:
@@ -70,8 +84,11 @@ def main() -> None:
             "verify-migrations",
             "verify-mcp-preflight",
             "verify-agent-runtime",
+            "verify-first-proposal",
         ],
     )
+    parser.add_argument("--timeout-seconds", type=float, default=1200.0)
+    parser.add_argument("--poll-interval-seconds", type=float, default=5.0)
     arguments = parser.parse_args()
 
     if arguments.command == "migrate":
@@ -154,3 +171,62 @@ def main() -> None:
                 sort_keys=True,
             )
         )
+    elif arguments.command == "verify-first-proposal":
+        settings = RuntimeSettings.from_environment()
+        if (
+            not settings.has_mcp_configuration
+            or not settings.policy_snapshot_id
+        ):
+            parser.error("database, MCP and policy snapshot configuration required")
+        handle = create_database_handle(settings)
+        if handle is None:
+            parser.error("database configuration required")
+        seed_registry = IndependentSeedRegistry.load_default()
+        preflight = McpManifestPreflight(
+            base_url=cast(str, settings.mcp_base_url),
+            audience=cast(str, settings.mcp_audience),
+            identity_provider=GoogleIdentityTokenProvider(),
+            scope_signer=ScopeTokenSigner(
+                secret=cast(str, settings.mcp_scope_hmac_secret),
+                issuer="caffemate-control-api",
+                audience="caffemate-mcp",
+            ),
+        )
+        projects = ProjectService(PostgresProjectRepository(handle.engine))
+        workflows = WorkflowService(
+            PostgresWorkflowRepository(
+                handle.engine,
+                policy_snapshot_id=settings.policy_snapshot_id,
+                seed_registry_id=seed_registry.registry_id,
+            ),
+            start_guard=FirstProposalStartGuard(
+                list(FirstProposalStage),
+                manifest_gate=McpManifestStartGate(
+                    preflight,
+                    policy_snapshot_id=settings.policy_snapshot_id,
+                    seed_registry_id=seed_registry.registry_id,
+                ),
+            ),
+        )
+        try:
+            canary_report = FirstProposalCanary(
+                projects=projects,
+                workflows=workflows,
+                results=ResultService(PostgresResultRepository(handle.engine)),
+                cleaner=PostgresFirstProposalCanaryCleaner(handle.engine),
+            ).run(
+                timeout_seconds=arguments.timeout_seconds,
+                poll_interval_seconds=arguments.poll_interval_seconds,
+            )
+        except FirstProposalCanaryError as error:
+            print(
+                json.dumps(
+                    {"status": "failed", "code": error.code, **error.details},
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from error
+        finally:
+            handle.close()
+        print(json.dumps(canary_report.as_dict(), sort_keys=True))

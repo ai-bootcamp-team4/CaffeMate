@@ -158,6 +158,88 @@ gcloud run jobs execute "$preflight_job" --project="$project_id" --region="$regi
   --wait --quiet >/dev/null
 printf '%s\n' 'PASS Control API SDK manifest preflight against deployed MCP'
 
+configured_instance=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; env={row["name"]:row.get("value") for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"]}; print(env["INSTANCE_CONNECTION_NAME"])')
+configured_db_user=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; env={row["name"]:row.get("value") for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"]}; print(env["DB_USER"])')
+configured_db_name=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; env={row["name"]:row.get("value") for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"]}; print(env["DB_NAME"])')
+configured_db_ip_type=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; env={row["name"]:row.get("value") for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"]}; print(env["CLOUD_SQL_IP_TYPE"])')
+configured_policy=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; env={row["name"]:row.get("value") for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"]}; print(env["CAFFEMATE_POLICY_SNAPSHOT_ID"])')
+
+first_proposal_job='caffemate-first-proposal-canary'
+configure_first_proposal_job() {
+  action=$1
+  gcloud run jobs "$action" "$first_proposal_job" \
+    --project="$project_id" --region="$region" \
+    --image="$api_image" --service-account="$api_sa" \
+    --set-cloudsql-instances="$configured_instance" \
+    --set-env-vars="INSTANCE_CONNECTION_NAME=${configured_instance},DB_USER=${configured_db_user},DB_NAME=${configured_db_name},CLOUD_SQL_IP_TYPE=${configured_db_ip_type},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},CAFFEMATE_POLICY_SNAPSHOT_ID=${configured_policy}" \
+    --set-secrets='DB_PASS=caffemate-db-password:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
+    --command=caffemate-api \
+    --args='verify-first-proposal,--timeout-seconds=1200,--poll-interval-seconds=3' \
+    --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=25m \
+    --cpu=1 --memory=512Mi \
+    --labels="source-revision=${source_revision},managed-by=caffemate-verify" \
+    --quiet >/dev/null
+}
+if gcloud run jobs describe "$first_proposal_job" \
+  --project="$project_id" --region="$region" >/dev/null 2>&1; then
+  configure_first_proposal_job update
+else
+  configure_first_proposal_job create
+fi
+
+canary_started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+canary_status_file=$(mktemp)
+canary_wait_log=$(mktemp)
+cleanup_canary_files() {
+  rm -f "$canary_status_file" "$canary_wait_log"
+}
+trap cleanup_canary_files EXIT HUP INT TERM
+(
+  if gcloud run jobs execute "$first_proposal_job" \
+    --project="$project_id" --region="$region" --wait --quiet >"$canary_wait_log" 2>&1; then
+    printf '0\n' >"$canary_status_file"
+  else
+    printf '%s\n' "$?" >"$canary_status_file"
+  fi
+) &
+canary_wait_pid=$!
+canary_attempt=0
+while [ ! -s "$canary_status_file" ] && [ "$canary_attempt" -lt 240 ]; do
+  gcloud scheduler jobs run caffemate-outbox-drain \
+    --project="$project_id" --location="$region" --quiet >/dev/null
+  canary_attempt=$((canary_attempt + 1))
+  sleep 5
+done
+wait "$canary_wait_pid" || true
+canary_exit=$(cat "$canary_status_file")
+if [ "$canary_exit" != '0' ]; then
+  sed -n '1,120p' "$canary_wait_log" >&2
+  printf '%s\n' 'FAIL FIRST_PROPOSAL canary Cloud Run Job' >&2
+  exit 1
+fi
+canary_report=$(gcloud logging read \
+  "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${first_proposal_job}\" AND timestamp>=\"${canary_started_at}\" AND textPayload:\"\\\"status\\\": \\\"verified\\\"\"" \
+  --project="$project_id" --limit=1 --order=desc --format='value(textPayload)')
+CANARY_REPORT="$canary_report" python3 - <<'PY'
+import json
+import os
+
+report = json.loads(os.environ["CANARY_REPORT"])
+assert report["status"] == "verified"
+assert report["workflow_status"] == "SUCCEEDED"
+assert report["stage_count"] == 13
+assert report["candidate_count"] >= 1
+assert report["result_freshness"] == "CURRENT"
+print("PASS FIRST_PROPOSAL traversed all 13 production stages to a current result card")
+PY
+cleanup_canary_files
+trap - EXIT HUP INT TERM
+
 api_public=$(gcloud run services get-iam-policy caffemate-api \
   --project="$project_id" --region="$region" \
   --flatten='bindings[].members' \
