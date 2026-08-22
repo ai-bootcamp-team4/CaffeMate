@@ -1,12 +1,29 @@
+substitutions:
+  _IMAGE: unset
+  _SOURCE_REVISION: unset
+  _REPOSITORY_URL: https://github.com/ai-bootcamp-team4/CaffeMate.git
+
 steps:
-  - name: gcr.io/cloud-builders/docker
+  - id: checkout-reviewed-source
+    name: gcr.io/cloud-builders/git
+    entrypoint: sh
+    args:
+      - -ceu
+      - |
+        git init /workspace/source
+        git -C /workspace/source remote add origin '${_REPOSITORY_URL}'
+        git -C /workspace/source fetch --depth=1 origin '${_SOURCE_REVISION}'
+        git -C /workspace/source checkout --detach FETCH_HEAD
+        test "$(git -C /workspace/source rev-parse HEAD)" = '${_SOURCE_REVISION}'
+  - id: build-agent-runtime-image
+    name: gcr.io/cloud-builders/docker
     args:
       - build
       - --file
-      - agents/Dockerfile.runtime
+      - /workspace/source/agents/Dockerfile.runtime
       - --tag
       - ${_IMAGE}
-      - .
+      - /workspace/source
 
 images:
   - ${_IMAGE}

@@ -10,27 +10,47 @@ api_sa="caffemate-api-runtime@${project_id}.iam.gserviceaccount.com"
 worker_sa="caffemate-worker-runtime@${project_id}.iam.gserviceaccount.com"
 mcp_sa="caffemate-mcp-runtime@${project_id}.iam.gserviceaccount.com"
 verify_job=${CAFFEMATE_MCP_VERIFY_JOB:-caffemate-mcp-verify}
+build_sa="projects/${project_id}/serviceAccounts/caffemate-backend-build@${project_id}.iam.gserviceaccount.com"
+
+. "$(dirname "$0")/build-provenance-helpers.sh"
+. "$(dirname "$0")/effective-iam-helpers.sh"
 
 [ -n "$project_id" ] && [ "${#source_revision}" -eq 40 ] && [ -n "$official_rag_corpus_resource" ] || { printf '%s\n' 'project, full source revision and official RAG corpus resource are required' >&2; exit 2; }
 service_json=$(mktemp)
 policy_json=$(mktemp)
 project_policy_json=$(mktemp)
-trap 'rm -f "$service_json" "$policy_json" "$project_policy_json"' EXIT
+retriever_role_json=$(mktemp)
+trap 'rm -f "$service_json" "$policy_json" "$project_policy_json" "$retriever_role_json"' EXIT
 gcloud run services describe "$service_name" --project="$project_id" --region="$region" --format=json >"$service_json"
 gcloud run services get-iam-policy "$service_name" --project="$project_id" --region="$region" --format=json >"$policy_json"
 gcloud projects get-iam-policy "$project_id" --format=json >"$project_policy_json"
+gcloud iam roles describe caffemateMcpRetriever \
+  --project="$project_id" --format=json >"$retriever_role_json"
 
-python3 - "$service_json" "$policy_json" "$project_policy_json" "$source_revision" "$api_sa" "$mcp_sa" "$project_id" "$official_rag_corpus_resource" <<'PY'
+tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-backend/mcp:${source_revision}"
+tagged_digest=$(gcloud artifacts docker images describe "$tagged_image" \
+  --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
+case "$tagged_digest" in
+  "${region}-docker.pkg.dev/${project_id}/caffemate-backend/mcp@sha256:"*) ;;
+  *) printf '%s\n' 'tagged MCP image digest is unavailable' >&2; exit 1 ;;
+esac
+digest=${tagged_digest##*@}
+build_id=$(verified_build_id_for_image \
+  "$tagged_image" "$digest" "$source_revision" "$build_sa")
+
+python3 - "$service_json" "$policy_json" "$project_policy_json" "$retriever_role_json" "$source_revision" "$api_sa" "$mcp_sa" "$project_id" "$official_rag_corpus_resource" "$tagged_digest" "$build_id" <<'PY'
 import json, sys
 service = json.load(open(sys.argv[1]))
 policy = json.load(open(sys.argv[2]))
 project_policy = json.load(open(sys.argv[3]))
-revision, api_sa, mcp_sa, project_id, corpus = sys.argv[4:]
+retriever_role_definition = json.load(open(sys.argv[4]))
+revision, api_sa, mcp_sa, project_id, corpus, tagged_digest, build_id = sys.argv[5:]
 template = service["spec"]["template"]
 assert template["metadata"]["labels"]["source-revision"] == revision
+assert template["metadata"]["labels"]["build-id"] == build_id
 assert template["spec"]["serviceAccountName"] == mcp_sa
 image = template["spec"]["containers"][0]["image"]
-assert "@sha256:" in image
+assert image == tagged_digest
 env = {row["name"]: row.get("value") for row in template["spec"]["containers"][0].get("env", [])}
 assert env["CAFFEMATE_GCP_PROJECT_ID"] == project_id
 assert env["RAG_OFFICIAL_CORPUS_RESOURCE"] == corpus
@@ -38,12 +58,52 @@ members = {m for b in policy.get("bindings", []) if b["role"] == "roles/run.invo
 assert "allUsers" not in members
 assert f"serviceAccount:{api_sa}" in members
 assert all(m == f"serviceAccount:{api_sa}" for m in members)
-vertex_members = {m for b in project_policy.get("bindings", []) if b["role"] == "roles/aiplatform.user" for m in b.get("members", [])}
-assert f"serviceAccount:{mcp_sa}" in vertex_members
-ranking_members = {m for b in project_policy.get("bindings", []) if b["role"] == "roles/discoveryengine.viewer" for m in b.get("members", [])}
-assert f"serviceAccount:{mcp_sa}" in ranking_members
+member = f"serviceAccount:{mcp_sa}"
+retriever_role = f"projects/{project_id}/roles/caffemateMcpRetriever"
+assert set(retriever_role_definition["includedPermissions"]) == {
+    "aiplatform.ragCorpora.query",
+    "discoveryengine.rankingConfigs.rank",
+}
+assert any(b["role"] == retriever_role and member in b.get("members", []) for b in project_policy.get("bindings", []))
+direct_roles = {
+    b["role"] for b in project_policy.get("bindings", []) if member in b.get("members", [])
+}
+assert direct_roles == {retriever_role, "roles/serviceusage.serviceUsageConsumer"}, direct_roles
+assert not any(
+    b["role"] in {"roles/aiplatform.user", "roles/discoveryengine.viewer"}
+    and member in b.get("members", [])
+    for b in project_policy.get("bindings", [])
+)
 print("MCP_DEPLOYMENT_CONTRACT_OK")
 PY
+
+location_full_resource="//aiplatform.googleapis.com/projects/${project_id}/locations/${region}"
+corpus_full_resource="//aiplatform.googleapis.com/${official_rag_corpus_resource}"
+runtime_resource=$(python3 - <<'PY'
+import json
+print(json.load(open("agents/release-manifest.json"))["runtime"]["resource_name"])
+PY
+)
+runtime_full_resource="//aiplatform.googleapis.com/${runtime_resource}"
+access_token=$(gcloud auth print-access-token)
+rag_files=$(curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
+  --header "Authorization: Bearer ${access_token}" \
+  "https://${region}-aiplatform.googleapis.com/v1/${official_rag_corpus_resource}/ragFiles?pageSize=100")
+rag_file_resource=$(printf '%s' "$rag_files" | python3 -c \
+  'import json,sys; rows=json.load(sys.stdin).get("ragFiles", []); assert rows and rows[0].get("name"); print(rows[0]["name"])')
+rag_file_full_resource="//aiplatform.googleapis.com/${rag_file_resource}"
+assert_service_account_permissions_denied \
+  "$mcp_sa" "$location_full_resource" \
+  'aiplatform.reasoningEngines.create,aiplatform.ragCorpora.create'
+assert_service_account_permissions_denied \
+  "$mcp_sa" "$runtime_full_resource" \
+  'aiplatform.reasoningEngines.update,aiplatform.reasoningEngines.delete'
+assert_service_account_permissions_denied \
+  "$mcp_sa" "$corpus_full_resource" \
+  'aiplatform.ragCorpora.update,aiplatform.ragCorpora.delete'
+assert_service_account_permissions_denied \
+  "$mcp_sa" "$rag_file_full_resource" 'aiplatform.ragFiles.delete'
+printf '%s\n' 'PASS Policy Troubleshooter confirms MCP has no prohibited effective mutation permission'
 
 mcp_url=$(gcloud run services describe "$service_name" --project="$project_id" --region="$region" --format='value(status.url)')
 unauth_status=$(curl -sS -o /dev/null -w '%{http_code}' "${mcp_url}/healthz")

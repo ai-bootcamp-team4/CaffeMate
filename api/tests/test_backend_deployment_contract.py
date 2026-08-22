@@ -160,8 +160,10 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id}" in deploy
     assert '"${agent_runtime_url}:getIamPolicy"' in deploy
     assert '"${agent_runtime_url}:setIamPolicy"' in deploy
-    assert "roles/aiplatform.user" in deploy
-    assert "roles/aiplatform.expressUser" in deploy
+    assert "caffemateAgentRuntimeInvoker" in deploy
+    assert "caffemateAgentSessionManager" in deploy
+    assert "caffemateReleaseVerifier" in deploy
+    assert "remove_project_role_binding" in deploy
     assert "roles/serviceusage.serviceUsageConsumer" in deploy
     assert 'member="serviceAccount:${api_sa}"' in deploy
     assert 'agent_runtime_identity="principal://${agent_runtime_identity}"' in deploy
@@ -182,7 +184,12 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "Control API SDK manifest preflight against deployed MCP" in verifier
     assert "verify-agent-runtime" in verifier
     assert "resource-scoped Agent Runtime query IAM" in verifier
-    assert "Agent Runtime identity has model and service usage permissions" in verifier
+    assert (
+        "Agent Runtime identity uses only managed non-mutating default project access"
+        in verifier
+    )
+    assert "Policy Troubleshooter confirms Control API invoke-only effective access" in verifier
+    assert "shared Agent GCP release preflight" in verifier
     assert "Control API has project service usage permission" in verifier
     assert "created, executed, validated and deleted an Agent Runtime session" in verifier
     assert "verify-first-proposal" in verifier
@@ -194,3 +201,80 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert 'report["result_freshness"] == "CURRENT"' in verifier
     assert "Worker has public invoker policy" in verifier
     assert "Scheduler reached internal Worker with HTTP 200" in verifier
+
+
+def test_agent_runtime_release_is_source_and_digest_bound() -> None:
+    deploy = (ROOT / "scripts" / "deploy-agent-runtime.sh").read_text(encoding="utf-8")
+    build = (ROOT / "scripts" / "build-agent-runtime-release.sh").read_text(
+        encoding="utf-8"
+    )
+    approve = (ROOT / "scripts" / "approve-agent-runtime-release.sh").read_text(
+        encoding="utf-8"
+    )
+    cloudbuild = (ROOT / "agents" / "cloudbuild.runtime.yaml").read_text(
+        encoding="utf-8"
+    )
+    verifier = (ROOT / "scripts" / "verify-agent-runtime-deployment.sh").read_text(
+        encoding="utf-8"
+    )
+    provenance = (ROOT / "scripts" / "build-provenance-helpers.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert '"$(git rev-parse HEAD)" = "$source_revision"' in deploy
+    assert "git status --porcelain" in deploy
+    assert "agents/cloudbuild.runtime.yaml" in build
+    assert "checkout-reviewed-source" in cloudbuild
+    assert "build-agent-runtime-image" in cloudbuild
+    assert "fetch --depth=1 origin '${_SOURCE_REVISION}'" in cloudbuild
+    assert "/workspace/source/agents/Dockerfile.runtime" in cloudbuild
+    assert "image_summary.fully_qualified_digest" in deploy
+    assert "approved-${source_revision}" in approve
+    assert "approved-${source_revision}" in deploy
+    assert "approval tag already points at a different digest" in approve
+    assert "updateMask=description,labels,spec.classMethods" in deploy
+    assert "pinned Agent Runtime GET failed with HTTP" in deploy
+    assert "bootstrap must create and approve a new manifest resource" in deploy
+    assert "verified_build_id_for_image" in deploy
+    assert "_SOURCE_REVISION=${source_revision}" in build
+    assert "verify-agent-runtime-deployment.sh" in deploy
+    assert "build-id" in verifier
+    assert "classMethods" in verifier
+    assert "effectiveIdentity" in verifier
+    assert "git-sha" in verifier
+    assert 'checkout is None or checkout_index != 0' in provenance
+    assert 'checkout_args[1].strip() != expected_checkout_script' in provenance
+    assert 'build_index != 1' in provenance
+    assert 'if args != expected_args' in provenance
+    assert 'if len(steps) != 2' in provenance
+
+
+def test_mcp_build_provenance_uses_only_reviewed_checkout() -> None:
+    cloudbuild = (ROOT / "cloudbuild.mcp-image.yaml").read_text(encoding="utf-8")
+    provenance = (ROOT / "scripts" / "build-provenance-helpers.sh").read_text(
+        encoding="utf-8"
+    )
+
+    ordered_steps = ["checkout-reviewed-source", "build-mcp-image", "push-mcp-image"]
+    assert [cloudbuild.index(step) for step in ordered_steps] == sorted(
+        cloudbuild.index(step) for step in ordered_steps
+    )
+    assert "/workspace/source/deploy/mcp.Dockerfile" in cloudbuild
+    assert cloudbuild.count("/workspace/source") >= 2
+    assert 'build_step.get("name") != "gcr.io/cloud-builders/docker"' in provenance
+    assert 'build_step_id = "build-mcp-image"' in provenance
+    assert 'if len(steps) != 3' in provenance
+    assert 'push_step.get("args") != ["push", expected_image]' in provenance
+
+
+def test_shared_agent_preflight_dependencies_are_in_mcp_image() -> None:
+    dockerfile = (ROOT / "deploy" / "mcp.Dockerfile").read_text(encoding="utf-8")
+    verifier = (ROOT / "scripts" / "verify-api-worker-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "agents/release-manifest.json ./agents/release-manifest.json" in dockerfile
+    assert "agents/fixtures ./agents/fixtures" in dockerfile
+    assert "agents/src/control-cli.ts,gcp-preflight,--json" in verifier
+    assert "CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME" in verifier
+    assert "CAFFEMATE_AGENT_RUNTIME_IMAGE_URI" in verifier

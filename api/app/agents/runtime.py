@@ -1,12 +1,13 @@
+import asyncio
 import hashlib
 import hmac
 import json
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 from uuid import uuid4
 
 import google.auth
@@ -21,6 +22,10 @@ from app.contracts.schema_registry import AgentContractValidator, ContractRegist
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 
 CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+SESSION_CREATE_TIMEOUT_SECONDS = 10.0
+SESSION_DELETE_TIMEOUT_SECONDS = 10.0
+STREAM_CLEANUP_RESERVE_SECONDS = 2.0
+T = TypeVar("T")
 
 
 class AccessTokenProvider(Protocol):
@@ -74,6 +79,10 @@ class _RepairableResultError(Exception):
         self.invocation_id: str | None = None
 
 
+class _HardRuntimeDeadlineError(AgentRuntimeError):
+    pass
+
+
 class PostgresAgentCleanupSink:
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
@@ -123,7 +132,8 @@ class AgentRuntimeHttpClient:
         access_tokens: AccessTokenProvider,
         cleanup_sink: AgentCleanupSink,
         location: str = "asia-northeast3",
-        client: httpx.Client | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+        async_client_factory: Callable[[], httpx.AsyncClient] | None = None,
         contracts: AgentContractValidator | None = None,
         now: Callable[[], datetime] | None = None,
         sleep: Callable[[float], None] | None = None,
@@ -144,7 +154,15 @@ class AgentRuntimeHttpClient:
         self._secret = user_hmac_secret.encode()
         self._access_tokens = access_tokens
         self._cleanup_sink = cleanup_sink
-        self._client = client or httpx.Client(timeout=30.0, follow_redirects=False)
+        if transport is not None and async_client_factory is not None:
+            raise ValueError("Provide transport or async_client_factory, not both")
+        self._async_client_factory = async_client_factory or (
+            lambda: httpx.AsyncClient(
+                timeout=30.0,
+                follow_redirects=False,
+                transport=transport,
+            )
+        )
         self._contracts = contracts or ContractRegistry()
         self._now = now or (lambda: datetime.now(UTC))
         self._sleep = sleep or time.sleep
@@ -196,15 +214,24 @@ class AgentRuntimeHttpClient:
     def _invoke_once(self, task: dict[str, Any]) -> dict[str, Any]:
         self._ensure_before_deadline(task)
         user_id = self._runtime_user_id(task["venture_project_id"])
-        session_id: str | None = None
+        session_id = self._runtime_session_id(task["invocation_id"])
+        session_create_attempted = False
+        session_cleanup_required = False
         primary_error: Exception | None = None
         try:
-            session_id = self._create_session(user_id, timeout=self._request_timeout(task))
+            create_timeout = self._session_create_timeout(task)
+            session_create_attempted = True
+            session_id = self._create_session(
+                user_id,
+                session_id=session_id,
+                timeout=create_timeout,
+            )
+            session_cleanup_required = True
             events = self._stream_query(
                 user_id=user_id,
                 session_id=session_id,
                 task=task,
-                timeout=self._request_timeout(task),
+                timeout=self._stream_timeout(task),
             )
             self._ensure_before_deadline(task)
             response_text = self._select_final_text(events, expected_author=task["agent_name"])
@@ -213,27 +240,39 @@ class AgentRuntimeHttpClient:
             return result
         except Exception as error:
             primary_error = error
+            if session_create_attempted and isinstance(
+                error,
+                (_HardRuntimeDeadlineError, _RetryableTransportError),
+            ):
+                session_cleanup_required = True
             raise
         finally:
-            if session_id is not None:
-                try:
-                    self._delete_session(
+            if session_cleanup_required:
+                if isinstance(primary_error, _HardRuntimeDeadlineError):
+                    self._cleanup_sink.enqueue_session_delete(
+                        runtime_resource=self._resource,
                         user_id=user_id,
                         session_id=session_id,
-                        timeout=self._request_timeout(task),
                     )
-                except Exception:
+                else:
                     try:
-                        self._cleanup_sink.enqueue_session_delete(
-                            runtime_resource=self._resource,
+                        self._delete_session(
                             user_id=user_id,
                             session_id=session_id,
+                            timeout=self._session_delete_timeout(task),
                         )
-                    except Exception as enqueue_error:
-                        if primary_error is None:
-                            raise AgentRuntimeError(
-                                "RUNTIME_CLEANUP_ENQUEUE_FAILED"
-                            ) from enqueue_error
+                    except Exception:
+                        try:
+                            self._cleanup_sink.enqueue_session_delete(
+                                runtime_resource=self._resource,
+                                user_id=user_id,
+                                session_id=session_id,
+                            )
+                        except Exception as enqueue_error:
+                            if primary_error is None:
+                                raise AgentRuntimeError(
+                                    "RUNTIME_CLEANUP_ENQUEUE_FAILED"
+                                ) from enqueue_error
 
     def _parse_and_validate_result(self, response_text: str) -> dict[str, Any]:
         try:
@@ -314,17 +353,39 @@ class AgentRuntimeHttpClient:
         self._contracts.validate_agent_task(repair_task)
         return repair_task
 
-    def _create_session(self, user_id: str, *, timeout: float) -> str:
-        response = self._post_json(
-            f"{self._base_url}:query",
-            {"class_method": "async_create_session", "input": {"user_id": user_id}},
+    def _create_session(self, user_id: str, *, session_id: str, timeout: float) -> str:
+        return self._run_with_hard_timeout(
+            lambda client: self._create_session_transport(
+                client,
+                user_id,
+                session_id=session_id,
+                request_timeout=timeout,
+            ),
             timeout=timeout,
         )
+
+    async def _create_session_transport(
+        self,
+        client: httpx.AsyncClient,
+        user_id: str,
+        *,
+        session_id: str,
+        request_timeout: float,
+    ) -> str:
+        response = await self._post_json(
+            client,
+            f"{self._base_url}:query",
+            {
+                "class_method": "async_create_session",
+                "input": {"user_id": user_id, "session_id": session_id},
+            },
+            request_timeout=request_timeout,
+        )
         output = response.get("output", response)
-        session_id = output.get("id") if isinstance(output, dict) else None
-        if not isinstance(session_id, str) or not session_id:
+        returned_session_id = output.get("id") if isinstance(output, dict) else None
+        if returned_session_id != session_id:
             raise AgentRuntimeError("RUNTIME_SESSION_CREATE_INVALID")
-        return session_id
+        return returned_session_id
 
     def _stream_query(
         self,
@@ -333,6 +394,26 @@ class AgentRuntimeHttpClient:
         session_id: str,
         task: dict[str, Any],
         timeout: float,
+    ) -> list[dict[str, Any]]:
+        return self._run_with_hard_timeout(
+            lambda client: self._stream_query_transport(
+                client,
+                user_id=user_id,
+                session_id=session_id,
+                task=task,
+                request_timeout=timeout,
+            ),
+            timeout=timeout,
+        )
+
+    async def _stream_query_transport(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        user_id: str,
+        session_id: str,
+        task: dict[str, Any],
+        request_timeout: float,
     ) -> list[dict[str, Any]]:
         body = {
             "class_method": "async_stream_query",
@@ -343,24 +424,31 @@ class AgentRuntimeHttpClient:
             },
         }
         try:
-            with self._client.stream(
+            async with client.stream(
                 "POST",
                 f"{self._base_url}:streamQuery?alt=sse",
                 headers=self._headers(),
                 json=body,
-                timeout=timeout,
+                timeout=request_timeout,
             ) as response:
                 response.raise_for_status()
                 events = []
-                for line in response.iter_lines():
+                async for line in response.aiter_lines():
+                    self._ensure_stream_budget(task)
                     if not line:
                         continue
                     encoded = line[5:].strip() if line.startswith("data:") else line
                     value = json.loads(encoded)
                     if not isinstance(value, dict):
-                        continue
-                    output = value.get("output")
-                    events.append(output if isinstance(output, dict) else value)
+                        raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID")
+                    if "output" in value:
+                        if set(value) != {"output"} or not isinstance(value["output"], dict):
+                            raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID")
+                        events.append(value["output"])
+                    elif self._is_direct_runtime_event(value):
+                        events.append(value)
+                    else:
+                        raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID")
         except json.JSONDecodeError as error:
             raise AgentRuntimeError("RUNTIME_STREAM_PROTOCOL_INVALID") from error
         except httpx.HTTPStatusError as error:
@@ -372,22 +460,64 @@ class AgentRuntimeHttpClient:
         return events
 
     def _delete_session(self, *, user_id: str, session_id: str, timeout: float) -> None:
-        self._post_json(
+        self._run_with_hard_timeout(
+            lambda client: self._delete_session_transport(
+                client,
+                user_id=user_id,
+                session_id=session_id,
+                request_timeout=timeout,
+            ),
+            timeout=timeout,
+        )
+
+    async def _delete_session_transport(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        user_id: str,
+        session_id: str,
+        request_timeout: float,
+    ) -> None:
+        await self._post_json(
+            client,
             f"{self._base_url}:query",
             {
                 "class_method": "async_delete_session",
                 "input": {"user_id": user_id, "session_id": session_id},
             },
-            timeout=timeout,
+            request_timeout=request_timeout,
         )
 
-    def _post_json(self, url: str, body: dict[str, Any], *, timeout: float) -> dict[str, Any]:
+    def _run_with_hard_timeout(
+        self,
+        action: Callable[[httpx.AsyncClient], Awaitable[T]],
+        *,
+        timeout: float,
+    ) -> T:
+        async def invoke() -> T:
+            async with self._async_client_factory() as client:
+                async with asyncio.timeout(timeout):
+                    return await action(client)
+
         try:
-            response = self._client.post(
+            return asyncio.run(invoke())
+        except TimeoutError as error:
+            raise _HardRuntimeDeadlineError("RUNTIME_TIMED_OUT") from error
+
+    async def _post_json(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        body: dict[str, Any],
+        *,
+        request_timeout: float,
+    ) -> dict[str, Any]:
+        try:
+            response = await client.post(
                 url,
                 headers=self._headers(),
                 json=body,
-                timeout=timeout,
+                timeout=request_timeout,
             )
             response.raise_for_status()
             value = response.json()
@@ -413,6 +543,18 @@ class AgentRuntimeHttpClient:
         digest = hmac.new(self._secret, venture_project_id.encode(), hashlib.sha256).hexdigest()
         return f"p-{digest}"
 
+    def _runtime_session_id(self, invocation_id: str) -> str:
+        digest = hashlib.sha256(invocation_id.encode()).hexdigest()
+        return f"caffemate-{digest[:48]}"
+
+    @staticmethod
+    def _is_direct_runtime_event(value: dict[str, Any]) -> bool:
+        return bool(
+            {"author", "content"} <= set(value)
+            or "error_code" in value
+            or "errorCode" in value
+        )
+
     @staticmethod
     def _select_final_text(
         events: list[dict[str, Any]],
@@ -422,20 +564,26 @@ class AgentRuntimeHttpClient:
         candidates: list[str] = []
         for event in events:
             observed_error = event.get("error_code", event.get("errorCode"))
-            if observed_error == "SAFETY_BLOCKED":
-                raise AgentRuntimeError("SAFETY_BLOCKED")
-            if event.get("author") != expected_author or event.get("partial") is True:
-                continue
+            if observed_error is not None:
+                if observed_error == "SAFETY_BLOCKED":
+                    raise AgentRuntimeError("SAFETY_BLOCKED")
+                raise AgentRuntimeError("RUNTIME_PROTOCOL_INVALID")
+            if event.get("author") != expected_author:
+                raise AgentRuntimeError("RUNTIME_PROTOCOL_INVALID")
             content = event.get("content")
             parts = content.get("parts") if isinstance(content, dict) else None
-            if not isinstance(parts, list) or len(parts) != 1:
+            if event.get("partial") is True:
+                if not isinstance(parts, list) or not parts:
+                    raise AgentRuntimeError("RUNTIME_PROTOCOL_INVALID")
                 continue
+            if not isinstance(parts, list) or len(parts) != 1:
+                raise AgentRuntimeError("RUNTIME_PROTOCOL_INVALID")
             part = parts[0]
             if not isinstance(part, dict) or set(part) != {"text"}:
-                continue
+                raise AgentRuntimeError("RUNTIME_PROTOCOL_INVALID")
             value = part.get("text")
             if not isinstance(value, str) or not value.strip() or "```" in value:
-                continue
+                raise AgentRuntimeError("RUNTIME_PROTOCOL_INVALID")
             candidates.append(value)
         if len(candidates) != 1:
             raise AgentRuntimeError("RUNTIME_PROTOCOL_INVALID")
@@ -486,11 +634,28 @@ class AgentRuntimeHttpClient:
             now = now.replace(tzinfo=UTC)
         return (deadline - now).total_seconds()
 
-    def _request_timeout(self, task: dict[str, Any]) -> float:
+    def _session_create_timeout(self, task: dict[str, Any]) -> float:
+        remaining = self._remaining_seconds(task)
+        available = remaining - STREAM_CLEANUP_RESERVE_SECONDS
+        if available <= 0:
+            raise AgentRuntimeError("RUNTIME_TIMED_OUT")
+        return min(SESSION_CREATE_TIMEOUT_SECONDS, available)
+
+    def _stream_timeout(self, task: dict[str, Any]) -> float:
+        available = self._remaining_seconds(task) - STREAM_CLEANUP_RESERVE_SECONDS
+        if available <= 0:
+            raise AgentRuntimeError("RUNTIME_TIMED_OUT")
+        return available
+
+    def _ensure_stream_budget(self, task: dict[str, Any]) -> None:
+        if self._remaining_seconds(task) <= STREAM_CLEANUP_RESERVE_SECONDS:
+            raise AgentRuntimeError("RUNTIME_TIMED_OUT")
+
+    def _session_delete_timeout(self, task: dict[str, Any]) -> float:
         remaining = self._remaining_seconds(task)
         if remaining <= 0:
             raise AgentRuntimeError("RUNTIME_TIMED_OUT")
-        return min(30.0, remaining)
+        return min(SESSION_DELETE_TIMEOUT_SECONDS, remaining)
 
     def _retry_after_seconds(self, response: httpx.Response) -> float | None:
         value = response.headers.get("Retry-After")

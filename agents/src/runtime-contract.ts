@@ -8,9 +8,10 @@ export const AGENT_RUNTIME_CLASS_METHODS = Object.freeze([
       type: 'object',
       properties: {
         user_id: { type: 'string' },
+        session_id: { type: 'string' },
         state: { type: 'object', nullable: true },
       },
-      required: ['user_id'],
+      required: ['user_id', 'session_id'],
     },
     api_mode: 'async',
   },

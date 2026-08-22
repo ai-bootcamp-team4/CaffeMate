@@ -80,6 +80,28 @@ API와 Worker runtime은 migration이 검증된 같은 digest를 사용한다. A
 공개 호출을 허용하고 모든 업무 endpoint는 Firebase ID token을 다시 검사한다. Worker는 internal
 ingress를 유지하며 Pub/Sub push, Scheduler와 Worker identity만 invoker다.
 
+Agent Runtime release는 임의의 로컬 작업 트리를 배포하지 않는다. 요청한 full commit SHA가
+깨끗한 현재 checkout 및 `origin/main`과 일치해야 한다. Cloud Build는 로컬 업로드를 빌드하지
+않고 GitHub의 해당 commit을 직접 checkout한다. build-only 단계가 source SHA, build id와 digest를
+만들고, 별도 승인 단계가 같은 digest에 `approved-<SHA>` tag를 붙인다. release 단계는 이 승인
+산출물만 소비하므로 새 digest를 저장소 manifest에 다시 commit하는 순환이 없다. 갱신 뒤에는
+Runtime resource, container digest, class method, source·build label과 effective identity를 다시
+읽는다. 고정 Runtime이 없으면 release script가 임의의 새 resource를 만들지 않는다. 먼저
+bootstrap으로 생성된 resource id를 인간이 manifest에 승인한 뒤 release를 실행한다.
+
+```bash
+revision=$(git rev-parse HEAD)
+CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
+CAFFEMATE_SOURCE_REVISION="$revision" \
+  ./scripts/build-agent-runtime-release.sh
+CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
+CAFFEMATE_SOURCE_REVISION="$revision" \
+  ./scripts/approve-agent-runtime-release.sh
+CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
+CAFFEMATE_SOURCE_REVISION="$revision" \
+  ./scripts/deploy-agent-runtime.sh
+```
+
 ```bash
 revision=$(git rev-parse HEAD)
 CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
@@ -97,12 +119,18 @@ token으로 다시 검증한다. `allUsers` Cloud Run Invoker가 필요하면 �
 
 배포 스크립트는 `CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID`가 가리키는 서울 Runtime을 먼저
 조회하고, API service account에 해당 Runtime resource 범위의 `roles/aiplatform.user`를
-부여한다. Runtime의 관리형 Agent identity에는 모델 실행용 `roles/aiplatform.expressUser`와
-할당량 사용용 `roles/serviceusage.serviceUsageConsumer`만 부여한 뒤 API에 project id와
-resource id를 주입한다. API service account에도 Runtime 호출 시 프로젝트 할당량을 사용할 수
-있도록 `roles/serviceusage.serviceUsageConsumer`를 부여한다. 검증 스크립트는 API image와 같은 service account를 쓰는 일회성
+부여하지 않는다. Control API에는 고정 Runtime의 `query`만 포함하는 custom role을 resource
+범위로 부여한다. Runtime 관리형 identity에는 GCP가 관리하는 비변경성 기본 실행 권한과 고정
+Runtime 범위의 session 수명주기 권한만 남긴다. `agentContextEditor`, `expressUser`와 직접
+프로젝트 권한은 제거한다. MCP identity도 RAG query와 rerank만 허용한다. 검증 스크립트는
+custom role의 실제 permission 목록, broad predefined role 제거와 Policy Troubleshooter의
+금지 변경 권한 판정을 모두 읽어 확인한다.
+
+검증 스크립트는 API image와 같은 service account를 쓰는 일회성
 Cloud Run Job으로 실제 session 생성, Agent 실행, typed final event 검증과 session 삭제를
-모두 통과시킨다. 단순 resource 조회는 실행 가능성의 증거로 취급하지 않는다.
+모두 통과시킨다. 이어 producer와 같은 Agent GCP preflight를 별도 최소 권한 verifier identity로
+실행해 RAG corpus/file, embedding, retrieval, reranker, generation model과 pinned Runtime을 함께
+검사한다. 단순 resource 조회는 실행 가능성의 증거로 취급하지 않는다.
 
 Worker ingress는 `internal`이다. 같은 project의 Pub/Sub subscription과 Cloud Scheduler는
 default `run.app` URL로 내부 호출할 수 있다. 각 호출 identity에는 Worker service의

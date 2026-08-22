@@ -46,8 +46,8 @@ async function defaultGcpPreflight(modelId?: string): Promise<GcpPreflightResult
     embeddingRegion: GCP_LOCATIONS.embedding,
     approvedModelId: modelId ?? AGENT_MODEL.id,
     runtimePin: {
-      resourceName: releaseManifest.runtime.resource_name,
-      imageUri: releaseManifest.runtime.image_uri,
+      resourceName: process.env.CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME ?? releaseManifest.runtime.resource_name,
+      imageUri: process.env.CAFFEMATE_AGENT_RUNTIME_IMAGE_URI ?? releaseManifest.runtime.image_uri,
     },
     accessToken: cloud.accessToken,
   })

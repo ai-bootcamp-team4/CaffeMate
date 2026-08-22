@@ -7,9 +7,13 @@ const verify = readFileSync(join(process.cwd(), 'scripts/verify-private-mcp.sh')
 
 describe('private MCP deployment IAM contract', () => {
   it('grants and verifies both Vertex RAG and ranking read permissions for the runtime identity', () => {
-    expect(deploy).toContain("--role='roles/aiplatform.user'")
-    expect(deploy).toContain("--role='roles/discoveryengine.viewer'")
-    expect(verify).toContain('roles/aiplatform.user')
-    expect(verify).toContain('roles/discoveryengine.viewer')
+    expect(deploy).toContain('caffemateMcpRetriever')
+    expect(deploy).toContain('aiplatform.ragCorpora.query,discoveryengine.rankingConfigs.rank')
+    expect(deploy).toContain("remove_project_role_binding \"serviceAccount:${runtime_sa}\" 'roles/aiplatform.user'")
+    expect(deploy).toContain("remove_project_role_binding \"serviceAccount:${runtime_sa}\" 'roles/discoveryengine.viewer'")
+    expect(verify).toContain('caffemateMcpRetriever')
+    expect(deploy).toContain('_SOURCE_REVISION=${source_revision}')
+    expect(verify).toContain('verified_build_id_for_image')
+    expect(verify).toContain('Policy Troubleshooter confirms MCP has no prohibited effective mutation permission')
   })
 })
