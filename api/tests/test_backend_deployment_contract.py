@@ -289,6 +289,12 @@ def test_agent_runtime_release_is_source_and_digest_bound() -> None:
 
 def test_mcp_build_provenance_uses_only_reviewed_checkout() -> None:
     cloudbuild = (ROOT / "cloudbuild.mcp-image.yaml").read_text(encoding="utf-8")
+    build_preflight = (ROOT / "scripts" / "build-agent-gcp-preflight.sh").read_text(
+        encoding="utf-8"
+    )
+    deploy = (ROOT / "scripts" / "deploy-private-mcp.sh").read_text(
+        encoding="utf-8"
+    )
     provenance = (ROOT / "scripts" / "build-provenance-helpers.sh").read_text(
         encoding="utf-8"
     )
@@ -318,6 +324,16 @@ def test_mcp_build_provenance_uses_only_reviewed_checkout() -> None:
     assert '"build-agent-release-preflight-image"' in provenance
     assert '"push-agent-release-preflight-image"' in provenance
     assert '"release-preflight"' in provenance
+    assert '"$(git rev-parse HEAD)" != "$source_revision"' in build_preflight
+    assert "git status --porcelain" in build_preflight
+    assert "git ls-remote origin refs/heads/main" in build_preflight
+    assert "gcloud builds submit --no-source" in build_preflight
+    assert "--config=cloudbuild.mcp-image.yaml" in build_preflight
+    assert "verified_build_id_for_image" in build_preflight
+    assert "immutable source tag exists without trusted provenance" in build_preflight
+    assert "gcloud run deploy" not in build_preflight
+    assert "build-agent-gcp-preflight.sh" in deploy
+    assert "gcloud builds submit" not in deploy
 
 
 def test_effective_iam_verification_runs_as_the_deployed_identities() -> None:
