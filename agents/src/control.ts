@@ -62,6 +62,13 @@ async function defaultGcpPreflight(modelId?: string): Promise<GcpPreflightResult
       ragFileResourceNames: releaseManifest.index_generation.source_revisions.map((source) => source.rag_file_resource_name),
       embeddingModelId: releaseManifest.index_generation.embedding_model_id,
       rerankerId: releaseManifest.index_generation.reranker_id,
+      sourceRevisions: releaseManifest.index_generation.source_revisions.map((source) => ({
+        sourceFamily: source.source_family,
+        sourceDate: source.source_date,
+        sourceUri: source.source_uri,
+        gcsObjectGeneration: source.gcs_object_generation,
+        ragFileResourceName: source.rag_file_resource_name,
+      })),
     },
     accessToken: cloud.accessToken,
   })

@@ -9,7 +9,12 @@ const EMBEDDING_REGION = 'asia-northeast3'
 const MODEL_ID = 'gemini-3.7-flash'
 const RAG_CORPUS_RESOURCE = `projects/${PROJECT_ID}/locations/${RAG_REGION}/ragCorpora/5148740273991319552`
 const RAG_FILE_RESOURCE = `${RAG_CORPUS_RESOURCE}/ragFiles/5769839172015160639`
+const RAG_SOURCE_URI = 'gs://proj-aj20-211200020328-caffemate-grounding/official/easylaw/coffee-business-registration/2026-08-22/source.html'
+const RAG_SOURCE_GENERATION = '1787329995006379'
+const INVALID_RANKER_ID = 'caffemate-invalid-ranker-negative-control'
 const SECOND_RAG_FILE_RESOURCE = `${RAG_CORPUS_RESOURCE}/ragFiles/5769839172015160640`
+const SECOND_RAG_SOURCE_URI = 'gs://proj-aj20-211200020328-caffemate-grounding/official/easylaw/coffee-business-registration/2026-08-22/source-2.html'
+const SECOND_RAG_SOURCE_GENERATION = '1787329995006380'
 const RUNTIME_PROJECT_NUMBER = '424808310695'
 const RUNTIME_RESOURCE = `projects/${PROJECT_ID}/locations/${RUNTIME_REGION}/reasoningEngines/777`
 const RUNTIME_CANONICAL_RESOURCE = `projects/${RUNTIME_PROJECT_NUMBER}/locations/${RUNTIME_REGION}/reasoningEngines/777`
@@ -45,18 +50,29 @@ function successfulFetch() {
     if (url.includes('text-multilingual-embedding-002:predict')) {
       return Response.json({ predictions: [{ embeddings: { values: [0.1, 0.2] } }] })
     }
+    if (url.includes('storage.googleapis.com/storage/v1/b/')) {
+      return Response.json({
+        bucket: 'proj-aj20-211200020328-caffemate-grounding',
+        name: 'official/easylaw/coffee-business-registration/2026-08-22/source.html',
+        generation: RAG_SOURCE_GENERATION,
+      })
+    }
     if (url.endsWith(':retrieveContexts')) {
       const body = JSON.parse(String(init?.body)) as {
         query?: { ragRetrievalConfig?: { ranking?: { rankService?: { modelName?: string } } } }
       }
       const rankerModel = body.query?.ragRetrievalConfig?.ranking?.rankService?.modelName
+      if (rankerModel === INVALID_RANKER_ID) {
+        return Response.json({ error: { message: 'invalid ranker' } }, { status: 400 })
+      }
       if (rankerModel) expect(rankerModel).toBe('semantic-ranker-default-004')
       return Response.json({
         contexts: {
           contexts: [{
-            sourceUri: 'gs://caffemate-official/source.html',
+            sourceUri: RAG_SOURCE_URI,
             sourceDisplayName: 'source.html',
             text: '영업신고',
+            chunk: { fileId: '5769839172015160639', chunkId: 'chunk-1' },
             score: 0.1,
           }],
         },
@@ -123,6 +139,13 @@ function options(fetchImpl = successfulFetch()) {
       ragFileResourceNames: [RAG_FILE_RESOURCE],
       embeddingModelId: 'text-multilingual-embedding-002',
       rerankerId: 'semantic-ranker-default-004',
+      sourceRevisions: [{
+        sourceFamily: 'GOVERNMENT_GUIDE',
+        sourceDate: '2026-07-15',
+        sourceUri: RAG_SOURCE_URI,
+        gcsObjectGeneration: RAG_SOURCE_GENERATION,
+        ragFileResourceName: RAG_FILE_RESOURCE,
+      }],
     },
     accessToken: async () => 'adc-token',
     fetchImpl,
@@ -169,7 +192,99 @@ describe('GCP deployment preflight', () => {
     expect(urls).toContain(`https://${RAG_REGION}-aiplatform.googleapis.com/v1/${RAG_CORPUS_RESOURCE}`)
     expect(urls.filter((url) => url.includes('/ragCorpora/') || url.endsWith(':retrieveContexts')).every((url) => url.includes(RAG_REGION))).toBe(true)
     expect(urls.some((url) => url.includes('/ragCorpora?'))).toBe(false)
-    expect(urls.some((url) => url.includes('discoveryengine.googleapis.com'))).toBe(false)
+    expect(urls.filter((url) => url.endsWith(':retrieveContexts')).every((url) => url.includes('/v1beta1/'))).toBe(true)
+  })
+
+  it('exercises the production metadata filter on strict v1beta1 retrieval', async () => {
+    const fetchImpl = successfulFetch()
+    const result = await runGcpPreflight(options(fetchImpl))
+    expect(result.ok).toBe(true)
+
+    const retrievalCall = fetchImpl.mock.calls.find(([, init]) => {
+      if (!init?.body) return false
+      const body = JSON.parse(String(init.body)) as { query?: { ragRetrievalConfig?: { ranking?: unknown } } }
+      return body.query?.ragRetrievalConfig !== undefined && body.query.ragRetrievalConfig.ranking === undefined
+    })
+    expect(retrievalCall).toBeDefined()
+    expect(String(retrievalCall?.[0])).toContain('/v1beta1/')
+    expect(JSON.parse(String(retrievalCall?.[1]?.body))).toMatchObject({
+      query: {
+        ragRetrievalConfig: {
+          topK: 1,
+          filter: {
+            metadataFilter: 'source_family == "GOVERNMENT_GUIDE" && published_or_data_date <= "2026-07-15"',
+          },
+        },
+      },
+    })
+  })
+
+  it('fails closed when base retrieval returns malformed HTTP 2xx', async () => {
+    const fetchImpl = successfulFetch()
+    const base = fetchImpl.getMockImplementation()
+    fetchImpl.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).endsWith(':retrieveContexts')) {
+        const body = JSON.parse(String(init?.body)) as { query?: { ragRetrievalConfig?: { ranking?: unknown } } }
+        if (body.query?.ragRetrievalConfig?.ranking === undefined) return Response.json({ unexpected: 'schema drift' })
+      }
+      if (!base) throw new Error('missing base fetch implementation')
+      return base(input, init)
+    })
+
+    const result = await runGcpPreflight(options(fetchImpl))
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'rag-retrieval',
+      ok: false,
+      code: 'RAG_RETRIEVAL_RESPONSE_INVALID',
+    }))
+  })
+
+  it('fails reranker verification when an intentionally invalid ranker is also accepted', async () => {
+    const fetchImpl = successfulFetch()
+    const base = fetchImpl.getMockImplementation()
+    fetchImpl.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).endsWith(':retrieveContexts')) {
+        const body = JSON.parse(String(init?.body)) as { query?: { ragRetrievalConfig?: { ranking?: { rankService?: { modelName?: string } } } } }
+        if (body.query?.ragRetrievalConfig?.ranking?.rankService?.modelName === INVALID_RANKER_ID) {
+          return Response.json({ contexts: { contexts: [{ sourceUri: RAG_SOURCE_URI, sourceDisplayName: 'source.html', text: '영업신고', chunk: { fileId: '5769839172015160639', chunkId: 'chunk-1' }, score: 0.1 }] } })
+        }
+      }
+      if (!base) throw new Error('missing base fetch implementation')
+      return base(input, init)
+    })
+
+    const result = await runGcpPreflight(options(fetchImpl))
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'reranker',
+      ok: false,
+      code: 'RERANKER_INVALID_MODEL_ACCEPTED',
+    }))
+  })
+
+  it('fails when the pinned GCS source object generation has drifted', async () => {
+    const fetchImpl = successfulFetch()
+    const base = fetchImpl.getMockImplementation()
+    fetchImpl.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).includes('storage.googleapis.com/storage/v1/b/')) {
+        return Response.json({
+          bucket: 'proj-aj20-211200020328-caffemate-grounding',
+          name: 'official/easylaw/coffee-business-registration/2026-08-22/source.html',
+          generation: '999',
+        })
+      }
+      if (!base) throw new Error('missing base fetch implementation')
+      return base(input, init)
+    })
+
+    const result = await runGcpPreflight(options(fetchImpl))
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'rag-source-objects',
+      ok: false,
+      code: 'RAG_SOURCE_GENERATION_MISMATCH',
+    }))
   })
 
   it('consumes every RAG file list page before comparing the ACTIVE IndexGeneration file set', async () => {
@@ -190,6 +305,13 @@ describe('GCP deployment preflight', () => {
           ragFiles: [{ name: SECOND_RAG_FILE_RESOURCE, fileStatus: { state: 'ACTIVE' } }],
         })
       }
+      if (url.includes('storage.googleapis.com/storage/v1/b/') && url.includes(encodeURIComponent('official/easylaw/coffee-business-registration/2026-08-22/source-2.html'))) {
+        return Response.json({
+          bucket: 'proj-aj20-211200020328-caffemate-grounding',
+          name: 'official/easylaw/coffee-business-registration/2026-08-22/source-2.html',
+          generation: SECOND_RAG_SOURCE_GENERATION,
+        })
+      }
       if (!baseImplementation) throw new Error('missing base fetch implementation')
       return baseImplementation(input, init)
     })
@@ -199,6 +321,16 @@ describe('GCP deployment preflight', () => {
       ragPin: {
         ...options(fetchImpl).ragPin,
         ragFileResourceNames: [RAG_FILE_RESOURCE, SECOND_RAG_FILE_RESOURCE],
+        sourceRevisions: [
+          ...options(fetchImpl).ragPin.sourceRevisions,
+          {
+            sourceFamily: 'GOVERNMENT_GUIDE',
+            sourceDate: '2026-07-15',
+            sourceUri: SECOND_RAG_SOURCE_URI,
+            gcsObjectGeneration: SECOND_RAG_SOURCE_GENERATION,
+            ragFileResourceName: SECOND_RAG_FILE_RESOURCE,
+          },
+        ],
       },
     })
 

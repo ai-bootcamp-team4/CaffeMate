@@ -34,6 +34,10 @@
     "source_revisions": [
       {
         "document_revision_id": "easylaw-csmSeq-706@2026-07-15",
+        "source_family": "GOVERNMENT_GUIDE",
+        "source_date": "2026-07-15",
+        "source_uri": "gs://proj-aj20-211200020328-caffemate-grounding/official/easylaw/coffee-business-registration/2026-08-22/source.html",
+        "gcs_object_generation": "1787329995006379",
         "rag_file_resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552/ragFiles/5769839172015160639",
         "content_digest": "sha256:f44af895c9dd771ba22d3890016928ba8bfaa3ed2306d9cd0a5b5bb6ee9d9c34"
       }

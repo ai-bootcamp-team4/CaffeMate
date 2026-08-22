@@ -49,7 +49,7 @@ function corpusResource(projectId: string, region: string, corpusId: string): st
   return `${expectedPrefix}${corpusId}`
 }
 
-function normalizeContext(raw: unknown): VertexRagContext {
+export function normalizeVertexRagContext(raw: unknown): VertexRagContext {
   const value = record(raw)
   if (
     !value
@@ -73,7 +73,7 @@ function normalizeContext(raw: unknown): VertexRagContext {
   }
 }
 
-function parseContexts(payload: unknown): unknown[] {
+function rawVertexRagContexts(payload: unknown): unknown[] {
   const root = record(payload)
   const envelope = root ? record(root.contexts) : null
   if (!envelope || !Array.isArray(envelope.contexts)) {
@@ -83,6 +83,49 @@ function parseContexts(payload: unknown): unknown[] {
     )
   }
   return envelope.contexts
+}
+
+export interface VertexRagRequestSpec {
+  ragCorpus: string
+  ragFileIds?: readonly string[]
+  query: string
+  topK: number
+  rankerId?: string
+  metadataFilter?: string
+}
+
+export function vertexRagEndpoint(projectId: string, region: string): string {
+  return `https://${region}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${region}:retrieveContexts`
+}
+
+export function buildVertexRagRequest(spec: VertexRagRequestSpec): Record<string, unknown> {
+  const ragResource: { ragCorpus: string; ragFileIds?: string[] } = { ragCorpus: spec.ragCorpus }
+  if (spec.ragFileIds?.length) ragResource.ragFileIds = [...spec.ragFileIds]
+  return {
+    vertexRagStore: { ragResources: [ragResource] },
+    query: {
+      text: spec.query,
+      ragRetrievalConfig: {
+        topK: spec.topK,
+        ...(spec.rankerId ? { ranking: { rankService: { modelName: spec.rankerId } } } : {}),
+        ...(spec.metadataFilter ? { filter: { metadataFilter: spec.metadataFilter } } : {}),
+      },
+    },
+  }
+}
+
+export function buildOfficialMetadataFilter(sourceFamilies: readonly string[], asOf: string): string | undefined {
+  const clauses: string[] = []
+  if (sourceFamilies.length) {
+    const familyClauses = sourceFamilies.map((family) => `source_family == ${JSON.stringify(family)}`)
+    clauses.push(familyClauses.length === 1 ? familyClauses[0] : `(${familyClauses.join(' || ')})`)
+  }
+  if (asOf) clauses.push(`published_or_data_date <= ${JSON.stringify(asOf)}`)
+  return clauses.length ? clauses.join(' && ') : undefined
+}
+
+export function parseVertexRagContexts(payload: unknown): VertexRagContext[] {
+  return rawVertexRagContexts(payload).map(normalizeVertexRagContext)
 }
 
 function createRetrievalSignal(timeoutMs: number, callerSignal?: AbortSignal): {
@@ -133,13 +176,7 @@ async function awaitWithSignal<T>(operation: Promise<T>, signal: AbortSignal): P
 function metadataFilterFor(request: RagBackendRequest): string | undefined {
   const clauses: string[] = []
   if (request.corpusKind === 'OFFICIAL') {
-    if (request.sourceFamilies?.length) {
-      const familyClauses = request.sourceFamilies.map((family) => `source_family == ${JSON.stringify(family)}`)
-      clauses.push(familyClauses.length === 1 ? familyClauses[0] : `(${familyClauses.join(' || ')})`)
-    }
-    if (request.asOf) {
-      clauses.push(`published_or_data_date <= ${JSON.stringify(request.asOf)}`)
-    }
+    return buildOfficialMetadataFilter(request.sourceFamilies ?? [], request.asOf ?? '')
   } else if (request.documentType) {
     clauses.push(`document_type == ${JSON.stringify(request.documentType)}`)
   }
@@ -170,9 +207,7 @@ export function createVertexRagBackend(options: VertexRagBackendOptions): RagBac
       if (!token) throw new VertexRagError('RAG_AUTH_TOKEN_MISSING', 'ADC did not return an access token')
 
       const resource = corpusResource(options.projectId, options.region, request.corpusId)
-      const endpoint = `https://${options.region}-aiplatform.googleapis.com/v1beta1/projects/${options.projectId}/locations/${options.region}:retrieveContexts`
-      const ragResource: { ragCorpus: string; ragFileIds?: string[] } = { ragCorpus: resource }
-      if (request.ragFileIds?.length) ragResource.ragFileIds = [...request.ragFileIds]
+      const endpoint = vertexRagEndpoint(options.projectId, options.region)
       const metadataFilter = metadataFilterFor(request)
 
       const response = await fetchImpl(endpoint, {
@@ -181,19 +216,14 @@ export function createVertexRagBackend(options: VertexRagBackendOptions): RagBac
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          vertexRagStore: { ragResources: [ragResource] },
-          query: {
-            text: request.query,
-            ragRetrievalConfig: {
-              topK: request.limit,
-              ranking: {
-                rankService: { modelName: RAG_RANKER.id },
-              },
-              ...(metadataFilter ? { filter: { metadataFilter } } : {}),
-            },
-          },
-        }),
+        body: JSON.stringify(buildVertexRagRequest({
+          ragCorpus: resource,
+          ragFileIds: request.ragFileIds,
+          query: request.query,
+          topK: request.limit,
+          rankerId: RAG_RANKER.id,
+          ...(metadataFilter ? { metadataFilter } : {}),
+        })),
         signal: retrievalSignal.signal,
       })
       if (!response.ok) {
@@ -213,7 +243,7 @@ export function createVertexRagBackend(options: VertexRagBackendOptions): RagBac
         throw new VertexRagError('RAG_PROVIDER_PROTOCOL_ERROR', `Vertex retrieveContexts returned invalid JSON: ${String(error)}`)
       }
 
-      const contexts = parseContexts(payload)
+      const contexts = parseVertexRagContexts(payload)
       if (contexts.length > request.limit) {
         throw new VertexRagError(
           'RAG_RESULT_LIMIT_EXCEEDED',
@@ -221,7 +251,7 @@ export function createVertexRagBackend(options: VertexRagBackendOptions): RagBac
         )
       }
       return contexts.map((raw) => {
-        const context = normalizeContext(raw)
+        const context = raw
         const mapped = options.mapContext(context, request)
         if (!mapped) {
           throw new VertexRagError(

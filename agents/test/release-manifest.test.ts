@@ -55,6 +55,10 @@ describe('local agent release manifest', () => {
       reranker_id: RAG_RANKER.id,
       source_revisions: [{
         document_revision_id: OFFICIAL_RAG_SOURCE.documentRevisionId,
+        source_family: OFFICIAL_RAG_SOURCE.sourceFamily,
+        source_date: OFFICIAL_RAG_SOURCE.sourceDate,
+        source_uri: OFFICIAL_RAG_SOURCE.sourceUri,
+        gcs_object_generation: OFFICIAL_RAG_SOURCE.gcsGeneration,
         rag_file_resource_name: `projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552/ragFiles/${OFFICIAL_RAG_SOURCE.ragFileId}`,
         content_digest: OFFICIAL_RAG_SOURCE.contentDigest,
       }],

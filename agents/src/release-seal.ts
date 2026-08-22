@@ -21,6 +21,10 @@ export interface ReleaseTaskPin {
 
 export interface ReleaseSourceRevisionPin {
   document_revision_id: string
+  source_family: string
+  source_date: string
+  source_uri: string
+  gcs_object_generation: string
   rag_file_resource_name: string
   content_digest: string
 }
@@ -77,6 +81,9 @@ export interface RuntimeReleaseIdentity {
 
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/
 const CORPUS_RESOURCE = /^projects\/[^/]+\/locations\/[^/]+\/ragCorpora\/[^/]+$/
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+const GCS_URI = /^gs:\/\/[^/]+\/.+$/
+const GCS_GENERATION = /^[1-9][0-9]*$/
 
 const AGENT_CONTRACT_BUNDLE = Object.freeze({
   commonTypesSchema,
@@ -164,7 +171,12 @@ function verifyIndexGenerationPin(pin: ReleaseIndexGenerationPin, issues: Releas
   const revisionIds = new Set<string>()
   const ragFiles = new Set<string>()
   for (const source of pin.source_revisions) {
-    if (!source.document_revision_id || !SHA256_DIGEST.test(source.content_digest)) {
+    if (!source.document_revision_id
+      || !source.source_family
+      || !ISO_DATE.test(source.source_date)
+      || !GCS_URI.test(source.source_uri)
+      || !GCS_GENERATION.test(source.gcs_object_generation)
+      || !SHA256_DIGEST.test(source.content_digest)) {
       issue(issues, 'RELEASE_INDEX_SOURCE_INVALID', source.document_revision_id || 'missing document revision id')
     }
     if (!source.rag_file_resource_name.startsWith(`${pin.corpus_resource_name}/ragFiles/`)) {

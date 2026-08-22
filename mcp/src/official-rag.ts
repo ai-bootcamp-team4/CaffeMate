@@ -9,6 +9,7 @@ export const OFFICIAL_RAG_SOURCE = Object.freeze({
   sourceDate: '2026-07-15',
   sourceRef: 'http://easylaw.go.kr/CSP/CnpClsMain.laf?popMenu=ov&csmSeq=706&ccfNo=3&cciNo=2&cnpClsNo=1',
   sourceUri: 'gs://proj-aj20-211200020328-caffemate-grounding/official/easylaw/coffee-business-registration/2026-08-22/source.html',
+  gcsGeneration: '1787329995006379',
   ragFileId: '5769839172015160639',
   contentDigest: 'sha256:f44af895c9dd771ba22d3890016928ba8bfaa3ed2306d9cd0a5b5bb6ee9d9c34',
 } as const)

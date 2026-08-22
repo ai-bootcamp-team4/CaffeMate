@@ -1,3 +1,9 @@
+import {
+  buildOfficialMetadataFilter,
+  buildVertexRagRequest,
+  parseVertexRagContexts,
+  vertexRagEndpoint,
+} from '../../rag/src/vertex-rag-backend'
 import { GCP_LOCATIONS, TASK_REGISTRY } from './registry'
 import { AGENT_RUNTIME_CLASS_METHODS } from './runtime-contract'
 import {
@@ -7,6 +13,7 @@ import {
 } from './vertex-generation-contract'
 
 const RUNTIME_DISPLAY_NAME = 'caffemate-agents'
+const INVALID_RANKER_CONTROL_ID = 'caffemate-invalid-ranker-negative-control'
 const GENERATION_PREFLIGHT_MAX_OUTPUT_TOKENS = Math.max(
   ...Object.values(TASK_REGISTRY).map((registration) => registration.maxOutputTokens),
 )
@@ -31,6 +38,7 @@ export interface GcpPreflightCheck {
     | 'auth'
     | 'rag-corpus'
     | 'rag-files'
+    | 'rag-source-objects'
     | 'embedding'
     | 'rag-retrieval'
     | 'reranker'
@@ -65,11 +73,20 @@ export interface GcpRuntimePin {
   agentContractBundleDigest: string
 }
 
+export interface GcpRagSourcePin {
+  sourceFamily: string
+  sourceDate: string
+  sourceUri: string
+  gcsObjectGeneration: string
+  ragFileResourceName: string
+}
+
 export interface GcpRagPin {
   corpusResourceName: string
   ragFileResourceNames: readonly string[]
   embeddingModelId: string
   rerankerId: string
+  sourceRevisions: readonly GcpRagSourcePin[]
 }
 
 export interface GcpPreflightOptions {
@@ -131,6 +148,17 @@ interface RagCorpusIdentity {
   corpusId: string
 }
 
+interface GcsObjectIdentity {
+  bucket: string
+  objectName: string
+}
+
+interface GcsObjectMetadata {
+  bucket?: string
+  name?: string
+  generation?: string
+}
+
 function ragCorpusIdentity(resourceName: string): RagCorpusIdentity | null {
   const match = /^projects\/([^/]+)\/locations\/([^/]+)\/ragCorpora\/([^/]+)$/.exec(resourceName)
   if (!match) return null
@@ -143,6 +171,28 @@ function ragFileId(resourceName: string, corpusResourceName: string): string | n
   if (!resourceName.startsWith(`${corpusResourceName}/ragFiles/`)) return null
   const fileId = resourceName.slice(`${corpusResourceName}/ragFiles/`.length)
   return fileId && !fileId.includes('/') ? fileId : null
+}
+
+function gcsObjectIdentity(sourceUri: string): GcsObjectIdentity | null {
+  const match = /^gs:\/\/([^/]+)\/(.+)$/.exec(sourceUri)
+  if (!match) return null
+  const [, bucket, objectName] = match
+  if (!bucket || !objectName) return null
+  return { bucket, objectName }
+}
+
+function ragFileChunkId(context: { chunk?: unknown }): string | null {
+  if (!context.chunk || typeof context.chunk !== 'object' || Array.isArray(context.chunk)) return null
+  const value = context.chunk as Record<string, unknown>
+  return typeof value.fileId === 'string' && value.fileId ? value.fileId : null
+}
+
+function contextMatchesSourcePin(
+  context: { sourceUri: string; chunk?: unknown },
+  source: GcpRagSourcePin,
+): boolean {
+  return context.sourceUri === source.sourceUri
+    && ragFileChunkId(context) === source.ragFileResourceName.split('/').at(-1)
 }
 
 function reasoningEngineIdentity(resourceName: string): ReasoningEngineIdentity | null {
@@ -215,6 +265,22 @@ function assertLocations(options: GcpPreflightOptions): void {
     || options.ragPin.ragFileResourceNames.some((resource) => ragFileId(resource, options.ragPin.corpusResourceName) === null)) {
     throw new GcpPreflightError('GCP_RAG_FILE_PIN_INVALID', 'release RAG files must belong to the pinned corpus')
   }
+  if (options.ragPin.sourceRevisions.length === 0
+    || options.ragPin.sourceRevisions.some((source) => {
+      const object = gcsObjectIdentity(source.sourceUri)
+      return !source.sourceFamily
+        || !/^\d{4}-\d{2}-\d{2}$/.test(source.sourceDate)
+        || !object
+        || !/^[1-9][0-9]*$/.test(source.gcsObjectGeneration)
+        || ragFileId(source.ragFileResourceName, options.ragPin.corpusResourceName) === null
+    })) {
+    throw new GcpPreflightError('GCP_RAG_SOURCE_PIN_INVALID', 'release RAG source revisions must pin family/date/GCS generation/RagFile')
+  }
+  const sourceRagFiles = new Set(options.ragPin.sourceRevisions.map((source) => source.ragFileResourceName))
+  if (sourceRagFiles.size !== options.ragPin.ragFileResourceNames.length
+    || options.ragPin.ragFileResourceNames.some((resource) => !sourceRagFiles.has(resource))) {
+    throw new GcpPreflightError('GCP_RAG_SOURCE_PIN_INVALID', 'source revision RagFiles must equal the pinned active file set')
+  }
 
   const runtime = reasoningEngineIdentity(options.runtimePin.resourceName)
   if (!runtime || runtime.project !== options.projectId || runtime.location !== options.runtimeRegion) {
@@ -273,6 +339,52 @@ async function listAllRagFiles(
     }
     seenPageTokens.add(payload.nextPageToken)
     pageToken = payload.nextPageToken
+  }
+}
+
+async function verifyPinnedSourceObjects(
+  fetchImpl: typeof fetch,
+  token: string,
+  sources: readonly GcpRagSourcePin[],
+): Promise<GcpPreflightCheck> {
+  for (const source of sources) {
+    const identity = gcsObjectIdentity(source.sourceUri)
+    if (!identity) return fail('rag-source-objects', 'RAG_SOURCE_URI_INVALID', source.sourceUri)
+    const url = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(identity.bucket)}/o/${encodeURIComponent(identity.objectName)}`
+    const response = await request(fetchImpl, token, url)
+    if (!response.ok) {
+      return fail('rag-source-objects', 'RAG_SOURCE_OBJECT_GET_FAILED', `HTTP ${response.status} ${source.sourceUri}`)
+    }
+    const metadata = await response.json() as GcsObjectMetadata
+    if (metadata.bucket !== identity.bucket || metadata.name !== identity.objectName) {
+      return fail('rag-source-objects', 'RAG_SOURCE_OBJECT_MISMATCH', source.sourceUri)
+    }
+    if (metadata.generation !== source.gcsObjectGeneration) {
+      return fail(
+        'rag-source-objects',
+        'RAG_SOURCE_GENERATION_MISMATCH',
+        `${source.sourceUri} expected ${source.gcsObjectGeneration} found ${metadata.generation ?? 'MISSING'}`,
+      )
+    }
+  }
+  return pass('rag-source-objects', 'RAG_SOURCE_OBJECTS_OK', String(sources.length))
+}
+
+function parsePreflightContexts(
+  payload: unknown,
+  source: GcpRagSourcePin,
+  limit: number,
+): { ok: true; count: number } | { ok: false; detail: string } {
+  try {
+    const contexts = parseVertexRagContexts(payload)
+    if (contexts.length === 0) return { ok: false, detail: 'no contexts returned' }
+    if (contexts.length > limit) return { ok: false, detail: `returned ${contexts.length} contexts for topK ${limit}` }
+    if (contexts.some((context) => !contextMatchesSourcePin(context, source))) {
+      return { ok: false, detail: 'context escaped the pinned source URI or RagFile' }
+    }
+    return { ok: true, count: contexts.length }
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message : String(error) }
   }
 }
 
@@ -364,6 +476,12 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
     }
   }
 
+  if (!ragFileResources) {
+    checks.push(fail('rag-source-objects', 'RAG_SOURCE_OBJECTS_BLOCKED_BY_FILES'))
+  } else {
+    checks.push(await verifyPinnedSourceObjects(fetchImpl, token, options.ragPin.sourceRevisions))
+  }
+
   const embeddingEndpoint = `${embeddingBase}/publishers/google/models/${options.ragPin.embeddingModelId}:predict`
   const embeddingResponse = await request(fetchImpl, token, embeddingEndpoint, {
     method: 'POST',
@@ -384,51 +502,77 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
       : fail('embedding', 'EMBEDDING_RESPONSE_INVALID'))
   }
 
-  if (!ragCorpusResource) {
+  const preflightSource = options.ragPin.sourceRevisions[0]
+  const retrievalEndpoint = vertexRagEndpoint(options.projectId, options.ragRegion)
+  const metadataFilter = preflightSource
+    ? buildOfficialMetadataFilter([preflightSource.sourceFamily], preflightSource.sourceDate)
+    : undefined
+
+  if (!ragCorpusResource || !preflightSource) {
     checks.push(fail('rag-retrieval', 'RAG_RETRIEVAL_BLOCKED_BY_CORPUS'))
   } else {
-    const retrievalResponse = await request(fetchImpl, token, `${ragBase}:retrieveContexts`, {
+    const retrievalResponse = await request(fetchImpl, token, retrievalEndpoint, {
       method: 'POST',
-      body: JSON.stringify({
-        vertexRagStore: { ragResources: [{ ragCorpus: ragCorpusResource }] },
-        query: { text: 'caffemate preflight', ragRetrievalConfig: { topK: 1 } },
-      }),
+      body: JSON.stringify(buildVertexRagRequest({
+        ragCorpus: ragCorpusResource,
+        query: '커피전문점 영업신고',
+        topK: 1,
+        ...(metadataFilter ? { metadataFilter } : {}),
+      })),
     })
-    checks.push(retrievalResponse.ok
-      ? pass('rag-retrieval', 'RAG_RETRIEVAL_OK')
-      : fail('rag-retrieval', 'RAG_RETRIEVAL_FAILED', `HTTP ${retrievalResponse.status}`))
+    if (!retrievalResponse.ok) {
+      checks.push(fail('rag-retrieval', 'RAG_RETRIEVAL_FAILED', `HTTP ${retrievalResponse.status}`))
+    } else {
+      const parsed = parsePreflightContexts(await retrievalResponse.json(), preflightSource, 1)
+      checks.push(parsed.ok
+        ? pass('rag-retrieval', 'RAG_RETRIEVAL_OK', String(parsed.count))
+        : fail('rag-retrieval', 'RAG_RETRIEVAL_RESPONSE_INVALID', parsed.detail))
+    }
   }
 
-  if (!ragCorpusResource) {
+  if (!ragCorpusResource || !preflightSource) {
     checks.push(fail('reranker', 'RERANKER_BLOCKED_BY_CORPUS'))
   } else if (activeRagFileCount === 0) {
     checks.push(fail('reranker', 'RERANKER_BLOCKED_BY_EMPTY_CORPUS'))
   } else {
-    const rerankerResponse = await request(fetchImpl, token, `${ragBase}:retrieveContexts`, {
+    const rerankerRequest = (rankerId: string) => buildVertexRagRequest({
+      ragCorpus: ragCorpusResource,
+      query: '커피전문점 영업신고',
+      topK: 2,
+      rankerId,
+      ...(metadataFilter ? { metadataFilter } : {}),
+    })
+    const rerankerResponse = await request(fetchImpl, token, retrievalEndpoint, {
       method: 'POST',
-      body: JSON.stringify({
-        vertexRagStore: { ragResources: [{ ragCorpus: ragCorpusResource }] },
-        query: {
-          text: '커피전문점 영업신고',
-          ragRetrievalConfig: {
-            topK: 2,
-            ranking: {
-              rankService: { modelName: options.ragPin.rerankerId },
-            },
-          },
-        },
-      }),
+      body: JSON.stringify(rerankerRequest(options.ragPin.rerankerId)),
     })
     if (!rerankerResponse.ok) {
       checks.push(fail('reranker', 'RERANKER_PREFLIGHT_FAILED', `HTTP ${rerankerResponse.status}`))
     } else {
-      const rerankerPayload = await rerankerResponse.json() as {
-        contexts?: { contexts?: unknown[] }
+      const parsed = parsePreflightContexts(await rerankerResponse.json(), preflightSource, 2)
+      if (!parsed.ok) {
+        checks.push(fail('reranker', 'RERANKER_RESPONSE_INVALID', parsed.detail))
+      } else {
+        const invalidControl = await request(fetchImpl, token, retrievalEndpoint, {
+          method: 'POST',
+          body: JSON.stringify(rerankerRequest(INVALID_RANKER_CONTROL_ID)),
+        })
+        if (invalidControl.ok) {
+          checks.push(fail(
+            'reranker',
+            'RERANKER_INVALID_MODEL_ACCEPTED',
+            'invalid negative-control ranker returned HTTP 2xx',
+          ))
+        } else if (invalidControl.status !== 400) {
+          checks.push(fail(
+            'reranker',
+            'RERANKER_CONTROL_INCONCLUSIVE',
+            `invalid negative-control ranker returned HTTP ${invalidControl.status}`,
+          ))
+        } else {
+          checks.push(pass('reranker', 'RERANKER_PREFLIGHT_OK', options.ragPin.rerankerId))
+        }
       }
-      const contexts = rerankerPayload.contexts?.contexts
-      checks.push(Array.isArray(contexts) && contexts.length > 0
-        ? pass('reranker', 'RERANKER_PREFLIGHT_OK', options.ragPin.rerankerId)
-        : fail('reranker', 'RERANKER_RESPONSE_INVALID'))
     }
   }
 

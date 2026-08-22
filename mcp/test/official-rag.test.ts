@@ -11,6 +11,10 @@ const request = {
 }
 
 describe('official RAG source mapping', () => {
+  it('pins the imported GCS object generation as part of the source revision identity', () => {
+    expect(OFFICIAL_RAG_SOURCE.gcsGeneration).toBe('1787329995006379')
+  })
+
   it('maps only the pinned GCS source and exact RAG file/chunk identity', () => {
     const mapped = mapOfficialRagContext({
       sourceUri: OFFICIAL_RAG_SOURCE.sourceUri,
