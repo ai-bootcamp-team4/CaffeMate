@@ -48,11 +48,11 @@ try {
     throw new Error('MCP_MANIFEST_MISMATCH')
   }
   const result = await client.callTool({
-    name: 'resolve_area', arguments: { query: '수원 아주대학교', country_code: 'KR', limit: 5 },
+    name: 'resolve_area', arguments: { query: '경기도 수원시 영통구 월드컵로 206', country_code: 'KR', limit: 5 },
   })
-  const structured = result.structuredContent as { status?: string } | undefined
-  if (!structured || !['OK', 'PARTIAL', 'NOT_FOUND'].includes(structured.status ?? '')) {
-    throw new Error('MCP_RESOLVE_AREA_UNSAFE_OUTCOME')
+  const structured = result.structuredContent as { status?: string; error_codes?: string[]; missing_fields?: string[] } | undefined
+  if (!structured || structured.status !== 'OK') {
+    throw new Error(`MCP_RESOLVE_AREA_UNSAFE_OUTCOME status=${structured?.status ?? 'MISSING'} errors=${structured?.error_codes?.join(',') ?? ''} missing=${structured?.missing_fields?.join(',') ?? ''}`)
   }
 
   const badHeaders = new Headers({ Authorization: authorization })

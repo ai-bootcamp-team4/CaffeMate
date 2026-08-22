@@ -376,7 +376,7 @@ cancel command도 durable Event로 기록하고 generation을 증가시킨다. �
 - 사용하지 않는 기능: write tool, prompts, sampling, elicitation, persistent MCP session, Tasks extension
 - implementation: MCP server는 공식 TypeScript SDK v2의 `createMcpHandler(..., { legacy: 'reject' })`, FastAPI Control API는 공식 Python SDK v2 client를 사용한다. 양쪽 package version을 lockfile·release manifest에 pin하며 hand-written transport와 2025 fallback은 허용하지 않는다.
 
-첫 배포의 실제 connector 범위는 `resolve_area`와 `get_source_health`다. `resolve_area`는 행정안전부 도로명주소 검색 API를 호출하며 `JUSO_API_KEY`가 없으면 임의 후보를 만들지 않고 `PARTIAL`과 `SOURCE_CREDENTIAL_MISSING`을 반환한다. `get_source_health`는 공식 안내 endpoint의 실제 도달성과 검색 credential 구성을 분리하여 `HEALTHY`, `DEGRADED`, `UNAVAILABLE`로 반환한다. 나머지 여덟 tool은 manifest에는 고정하되 connector가 연결되기 전까지 호출 시 `MCP_CONNECTOR_UNAVAILABLE`로 실패한다.
+첫 배포의 실제 connector 범위는 `resolve_area`와 `get_source_health`다. `resolve_area`는 행정안전부 도로명주소 검색 API를 호출하며 `JUSO_API_KEY`가 없으면 임의 후보를 만들지 않고 `PARTIAL`과 `SOURCE_CREDENTIAL_MISSING`을 반환한다. 공식 응답이 경계 revision과 데이터 기준일을 제공하지 않으므로 `boundary_version`은 `JUSO_LIVE_UNVERSIONED`, `source_trace.data_date`는 `null`로 반환하고 응답 digest를 남긴다. `get_source_health`는 실제 검색 probe가 성공하고 공식 오류 코드가 정상일 때만 `HEALTHY`로 반환한다. 나머지 여덟 tool은 manifest에는 고정하되 connector가 연결되기 전까지 호출 시 `MCP_CONNECTOR_UNAVAILABLE`로 실패한다.
 
 배포 단위는 `caffemate-mcp` Cloud Run service다. 서비스는 unauthenticated invoker를 허용하지 않고 `caffemate-api-runtime`만 `roles/run.invoker`를 가진다. application boundary에서도 같은 service identity의 Google ID token, service URL audience, 최대 300초의 HMAC scope token을 모두 검증한다. Control API는 `MCP_BASE_URL`, `MCP_AUDIENCE`, `MCP_SCOPE_HMAC_SECRET` 세 설정이 모두 있을 때만 MCP client를 구성한다.
 

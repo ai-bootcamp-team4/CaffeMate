@@ -32,7 +32,7 @@ function base(scope: McpScopeContext, toolName: string, now: Date) {
 
 function sourceTrace(now: Date, content: string) {
   return [{
-    source_id: JUSO_SOURCE_ID, source_ref: JUSO_SOURCE_REF, data_date: now.toISOString().slice(0, 10),
+    source_id: JUSO_SOURCE_ID, source_ref: JUSO_SOURCE_REF, data_date: null,
     retrieved_at: now.toISOString(), content_digest: digest(content),
   }]
 }
@@ -79,7 +79,7 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
       if (!display) continue
       unique.set(row.admCd, {
         administrative_code: row.admCd, display_name: display,
-        boundary_version: now.toISOString().slice(0, 10),
+        boundary_version: 'JUSO_LIVE_UNVERSIONED',
         match_kind: display === input.query ? 'EXACT' : display.includes(input.query) ? 'CONTAINS' : 'AMBIGUOUS',
       })
     }
@@ -93,13 +93,30 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
   const getSourceHealth: McpConnector = async (rawInput, scope) => {
     const now = clock()
     const input = rawInput as { source_ids: string[] }
-    let guideBody = ''
+    let probeBody = ''
     let reachable = false
+    let credentialValid = false
     if (input.source_ids.includes(JUSO_SOURCE_ID)) {
       try {
-        const response = await fetcher(JUSO_GUIDE_REF, { headers: { Accept: 'text/html' }, signal: AbortSignal.timeout(5000) })
-        guideBody = await response.text()
+        const probeUrl = options.jusoApiKey
+          ? new URL(JUSO_SOURCE_REF)
+          : new URL(JUSO_GUIDE_REF)
+        if (options.jusoApiKey) {
+          probeUrl.search = new URLSearchParams({
+            confmKey: options.jusoApiKey, currentPage: '1', countPerPage: '1',
+            keyword: '세종대로 110', resultType: 'json',
+          }).toString()
+        }
+        const response = await fetcher(probeUrl, {
+          headers: { Accept: options.jusoApiKey ? 'application/json' : 'text/html' },
+          signal: AbortSignal.timeout(5000),
+        })
+        probeBody = await response.text()
         reachable = response.ok
+        if (reachable && options.jusoApiKey) {
+          const parsed = JSON.parse(probeBody) as JusoResult
+          credentialValid = parsed.results?.common?.errorCode === '0'
+        }
       } catch {
         reachable = false
       }
@@ -107,18 +124,17 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
     const data = input.source_ids.map((sourceId) => {
       if (sourceId !== JUSO_SOURCE_ID) return { source_id: sourceId, status: 'UNAVAILABLE', last_success_at: null, data_date: null }
       if (!reachable) return { source_id: sourceId, status: 'UNAVAILABLE', last_success_at: null, data_date: null }
-      return {
-        source_id: sourceId, status: options.jusoApiKey ? 'HEALTHY' : 'DEGRADED',
-        last_success_at: now.toISOString(), data_date: null,
-      }
+      if (!options.jusoApiKey) return { source_id: sourceId, status: 'DEGRADED', last_success_at: now.toISOString(), data_date: null }
+      if (!credentialValid) return { source_id: sourceId, status: 'UNAVAILABLE', last_success_at: null, data_date: null }
+      return { source_id: sourceId, status: 'HEALTHY', last_success_at: now.toISOString(), data_date: null }
     })
     const fullyHealthy = data.length > 0 && data.every((row) => row.status === 'HEALTHY')
     return {
       ...base(scope, 'get_source_health', now), status: fullyHealthy ? 'OK' : 'PARTIAL', data,
       missing_fields: fullyHealthy ? [] : ['healthy_source'],
       source_trace: reachable ? [{
-        source_id: JUSO_SOURCE_ID, source_ref: JUSO_GUIDE_REF, data_date: null,
-        retrieved_at: now.toISOString(), content_digest: digest(guideBody),
+        source_id: JUSO_SOURCE_ID, source_ref: options.jusoApiKey ? JUSO_SOURCE_REF : JUSO_GUIDE_REF, data_date: null,
+        retrieved_at: now.toISOString(), content_digest: digest(probeBody),
       }] : [],
       error_codes: fullyHealthy ? [] : ['SOURCE_DEGRADED'],
     }
