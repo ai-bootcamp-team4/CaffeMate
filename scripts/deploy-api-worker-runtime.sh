@@ -82,7 +82,7 @@ agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
   --header "Authorization: Bearer ${access_token}" \
   --header 'Content-Type: application/json' \
   "${agent_runtime_url}:getIamPolicy" \
-  --data='{}')
+  --data '{}')
 agent_runtime_policy=$(AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'
 import json
 import os
@@ -106,7 +106,7 @@ agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
   --header "Authorization: Bearer ${access_token}" \
   --header 'Content-Type: application/json' \
   "${agent_runtime_url}:setIamPolicy" \
-  --data="$agent_runtime_policy")
+  --data "$agent_runtime_policy")
 AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'
 import json
 import os

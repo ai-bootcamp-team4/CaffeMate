@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_backend_cloudbuild_preserves_order_and_security_boundaries() -> None:
     config = (ROOT / "cloudbuild.backend.yaml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "deploy" / "backend.Dockerfile").read_text(encoding="utf-8")
     ordered_steps = [
         "- id: build-backend-image",
         "- id: push-backend-image",
@@ -28,6 +29,8 @@ def test_backend_cloudbuild_preserves_order_and_security_boundaries() -> None:
     assert "worker.main:app,--host,0.0.0.0,--port,8080" in config
     assert "--allow-unauthenticated" not in config
     assert "set-iam-policy" not in config
+    assert "COPY agents/release-manifest.json ./agents/release-manifest.json" in dockerfile
+    assert "COPY agents/fixtures ./agents/fixtures" in dockerfile
 
 
 def test_backend_deployment_contract_requires_operational_readback() -> None:
@@ -160,6 +163,8 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert 'agent_runtime_identity="principal://${agent_runtime_identity}"' in verifier
     assert "--header=" not in deploy
     assert "--header=" not in verifier
+    assert "--data=" not in deploy
+    assert "--data=" not in verifier
     assert "MCP_SCOPE_HMAC_SECRET" not in deploy.split("gcloud run deploy caffemate-worker", 1)[1]
     assert "API unauthenticated business request returned HTTP 401" in verifier
     assert '"${api_url}/health"' in verifier
