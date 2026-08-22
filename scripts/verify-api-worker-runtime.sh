@@ -58,6 +58,11 @@ agent_runtime_json=$(curl --fail --silent --show-error \
   "$agent_runtime_url")
 agent_runtime_identity=$(printf '%s' "$agent_runtime_json" | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["spec"]["effectiveIdentity"])')
+case "$agent_runtime_identity" in
+  principal://agents.*) ;;
+  agents.*) agent_runtime_identity="principal://${agent_runtime_identity}" ;;
+  *) printf '%s\n' 'FAIL Agent Runtime effective identity is unavailable' >&2; exit 1 ;;
+esac
 project_policy=$(gcloud projects get-iam-policy "$project_id" --format=json)
 PROJECT_POLICY="$project_policy" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" python3 - <<'PY'
 import json

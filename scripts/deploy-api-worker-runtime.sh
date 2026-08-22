@@ -66,6 +66,7 @@ agent_runtime_identity=$(printf '%s' "$agent_runtime_json" | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["spec"]["effectiveIdentity"])')
 case "$agent_runtime_identity" in
   principal://agents.*) ;;
+  agents.*) agent_runtime_identity="principal://${agent_runtime_identity}" ;;
   *) printf '%s\n' 'Agent Runtime effective identity is unavailable' >&2; exit 1 ;;
 esac
 
