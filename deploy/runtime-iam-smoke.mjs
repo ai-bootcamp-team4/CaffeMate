@@ -6,6 +6,7 @@ if (!projectId) {
 }
 
 const required = [
+  'aiplatform.endpoints.predict',
   'aiplatform.ragCorpora.get',
   'aiplatform.ragCorpora.query',
   'discoveryengine.rankingConfigs.rank',
