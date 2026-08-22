@@ -77,11 +77,39 @@ try {
     })}`)
   }
 
+  const healthResult = await client.callTool({
+    name: 'get_source_health',
+    arguments: {
+      source_ids: ['mois-juso-address-search', 'easylaw-csmSeq-706'],
+      as_of: '2026-07-15',
+    },
+  })
+  const health = healthResult.structuredContent as {
+    status?: string
+    data?: Array<{ source_id?: string; status?: string }>
+    error_codes?: string[]
+  } | undefined
+  const healthySources = new Set(
+    health?.data
+      ?.filter((row) => row.status === 'HEALTHY')
+      .map((row) => row.source_id),
+  )
+  if (health?.status !== 'OK'
+    || !healthySources.has('mois-juso-address-search')
+    || !healthySources.has('easylaw-csmSeq-706')) {
+    throw new Error(`MCP_SOURCE_HEALTH_UNSAFE_OUTCOME ${JSON.stringify({
+      isError: healthResult.isError,
+      status: health?.status,
+      data: health?.data,
+      error_codes: health?.error_codes,
+    })}`)
+  }
+
   const badHeaders = new Headers({ Authorization: authorization })
   badHeaders.set('X-CaffeMate-Scope-Token', 'invalid')
   const badScope = await fetch(`${baseUrl}/mcp`, { method: 'POST', headers: badHeaders, body: '{}' })
   if (badScope.status !== 403) throw new Error(`MCP_BAD_SCOPE_NOT_REJECTED_${badScope.status}`)
-  console.log(`MCP_SMOKE_OK tools=${names.length} resolve_area=${structured.status} official_rag=${official.status} invalid_scope=403`)
+  console.log(`MCP_SMOKE_OK tools=${names.length} resolve_area=${structured.status} official_rag=${official.status} source_health=${health.status} invalid_scope=403`)
 } finally {
   await client.close().catch(() => undefined)
 }
