@@ -48,7 +48,7 @@ Worker stage ingress에는 `PUBSUB_SUBSCRIPTION`, `CONTROL_API_URL`,
 `POST /internal/v1/outbox:publish`에는 `WORKFLOW_STAGE_TOPIC_RESOURCE`도 필요하다. 두
 endpoint는 public API가 아니며 private Cloud Run IAM 호출만 허용해야 한다.
 
-Worker는 Stage 처리 중 15초마다 lease heartbeat를 compare-and-swap으로 갱신하고 lease를 45초로
+Worker는 Stage 처리 중 15초마다 lease heartbeat를 compare-and-swap으로 갱신하고 lease를 90초로
 연장한다. heartbeat가 취소, stale head, 만료 또는 다른 Worker의 lease를 관측하면 늦은 결과를
 checkpoint하거나 failure로 덮지 않고 즉시 폐기한다. 한 Stage의 Worker 처리 시간은 기본 120초로
 제한하며 초과 시 `STAGE_TIMEOUT`으로 기록한다. timeout 뒤 백그라운드 호출이 늦게 반환해도

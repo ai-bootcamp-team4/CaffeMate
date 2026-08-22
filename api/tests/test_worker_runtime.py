@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import rfc8785
+from worker.errors import StageExecutionError
 from worker.pubsub import (
     GooglePubSubPublisher,
     InvalidPubSubEnvelopeError,
@@ -238,6 +239,23 @@ def test_worker_nacks_retryable_failure_after_releasing_lease() -> None:
         StageFailure(code="STAGE_PROCESSING_ERROR", retryable=True)
     ]
     assert execution.checkpoints == 0
+
+
+def test_worker_preserves_terminal_stage_execution_failure() -> None:
+    execution = FakeExecution(
+        stage_lease(),
+        failure_outcome=FailureOutcome.TERMINAL_FAILED,
+    )
+    worker = DurableWorker(
+        execution,
+        FailingProcessor(StageExecutionError("RUNTIME_FORBIDDEN", retryable=False)),
+        worker_id="worker-1",
+    )
+
+    assert worker.handle(delivery()) == DeliveryOutcome.TERMINAL_FAILED
+    assert execution.failures == [
+        StageFailure(code="RUNTIME_FORBIDDEN", retryable=False)
+    ]
 
 
 def test_worker_acks_terminal_failure_and_classifies_timeout() -> None:

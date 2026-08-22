@@ -31,7 +31,7 @@ from app.workflows.models import (
     StageLease,
 )
 
-LEASE_SECONDS = 45
+LEASE_SECONDS = 90
 MAX_STAGE_ATTEMPTS = 3
 
 

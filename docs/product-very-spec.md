@@ -484,7 +484,7 @@ index_generation_id
 seed_registry_id
 ```
 
-`workflow_run_id`, `stage_run_id`, `task_id`, `input_digest`는 실행 식별자이며 full head의 권위 version 차원이 아니다. Heartbeat 15초, lease 45초다. 두 번 누락하면 worker가 lease를 회수한다. timeout·cancel 뒤 결과는 head가 같아도 무조건 폐기한다. 그 외 결과도 full head 여덟 차원이 모두 current와 같을 때만 checkpoint한다.
+`workflow_run_id`, `stage_run_id`, `task_id`, `input_digest`는 실행 식별자이며 full head의 권위 version 차원이 아니다. Heartbeat 15초, lease 90초다. 연속 heartbeat가 누락되어 lease가 만료되면 worker가 회수한다. timeout·cancel 뒤 결과는 head가 같아도 무조건 폐기한다. 그 외 결과도 full head 여덟 차원이 모두 current와 같을 때만 checkpoint한다.
 
 공개 command는 Cloud SQL의 `workflow_run + stage_run + idempotency + outbox` transaction이 commit된 뒤에만 `202`를 반환한다. `caffemate-worker`가 FIRST_PROPOSAL을 포함한 모든 durable DAG stage의 유일한 lease owner이며 Pub/Sub redelivery를 `(workflow_run_id, stage_run_id, input_digest)` unique key와 compare-and-swap으로 흡수한다. API process의 응답 후 background task에는 의존하지 않는다.
 

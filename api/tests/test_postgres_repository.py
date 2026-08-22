@@ -68,7 +68,7 @@ from app.workflows.evidence_assess import EvidenceAssessStageHandler
 from app.workflows.evidence_freeze import EvidenceFreezeStageHandler
 from app.workflows.evidence_plan import EvidencePlanStageHandler
 from app.workflows.evidence_retrieval import EvidenceRetrievalStageHandler
-from app.workflows.execution_repository import PostgresStageExecutionRepository
+from app.workflows.execution_repository import LEASE_SECONDS, PostgresStageExecutionRepository
 from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import (
     CheckpointOutcome,
@@ -2846,7 +2846,7 @@ def test_expired_stage_lease_is_reclaimed_and_old_worker_cannot_checkpoint(
         )
         is None
     )
-    clock[0] += timedelta(seconds=46)
+    clock[0] += timedelta(seconds=LEASE_SECONDS + 1)
     new = execution.claim(
         stage_run_id=stage_id, worker_id="worker-2", expected_input_digest=input_digest
     )
@@ -3026,7 +3026,7 @@ def test_internal_stage_authorization_requires_exact_live_lease(
 
     assert execution.authorize(lease)
     assert not execution.authorize(lease.model_copy(update={"lease_token": "forged-token"}))
-    clock[0] += timedelta(seconds=46)
+    clock[0] += timedelta(seconds=LEASE_SECONDS + 1)
     assert not execution.authorize(lease)
 
 
@@ -3071,7 +3071,7 @@ def test_expired_result_is_late_and_heartbeat_extends_current_lease(
     assert lease is not None
     clock[0] += timedelta(seconds=15)
     assert execution.heartbeat(stage_run_id=stage_id, lease_token=lease.lease_token)
-    clock[0] += timedelta(seconds=46)
+    clock[0] += timedelta(seconds=LEASE_SECONDS + 1)
     assert not execution.heartbeat(stage_run_id=stage_id, lease_token=lease.lease_token)
     assert (
         execution.checkpoint(

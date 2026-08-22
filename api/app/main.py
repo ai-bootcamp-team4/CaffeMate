@@ -6,11 +6,12 @@ from fastapi import Depends, FastAPI, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google.api_core.exceptions import GoogleAPICallError
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from worker.outbox import OutboxPublisher, PostgresOutboxRepository
 from worker.pubsub import GooglePubSubPublisher
 
 from app.agents.runtime import (
+    AgentRuntimeError,
     AgentRuntimeHttpClient,
     GoogleAccessTokenProvider,
     PostgresAgentCleanupSink,
@@ -91,7 +92,7 @@ from app.feedback.service import (
     FeedbackService,
     UnavailableFeedbackService,
 )
-from app.mcp.client import GoogleIdentityTokenProvider, McpHttpClient
+from app.mcp.client import GoogleIdentityTokenProvider, McpClientError, McpHttpClient
 from app.mcp.preflight import McpManifestPreflight
 from app.mcp.scope import ScopeTokenSigner
 from app.projects.postgres_repository import PostgresProjectRepository
@@ -171,6 +172,12 @@ class ConfirmOnboardingRequest(BaseModel):
 class StageExecuteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     lease: StageLease
+
+
+class StageExecuteFailureResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{0,63}$")
+    retryable: bool
 
 
 class StageExecuteResponse(BaseModel):
@@ -537,18 +544,67 @@ def create_app(
         stage_run_id: str,
         request: StageExecuteRequest,
         authorization: Annotated[str | None, Header()] = None,
-    ) -> StageExecuteResponse:
+    ) -> StageExecuteResponse | JSONResponse:
         if authorization is None:
             raise UnauthenticatedError("Worker service identity token is required")
         scheme, separator, token = authorization.partition(" ")
         if scheme.lower() != "bearer" or not separator or not token.strip():
             raise UnauthenticatedError("Worker service identity token is required")
         worker_verifier.verify(token.strip())
-        result = internal_stages.execute(
-            workflow_run_id=workflow_run_id,
-            stage_run_id=stage_run_id,
-            lease=request.lease,
-        )
+        try:
+            result = internal_stages.execute(
+                workflow_run_id=workflow_run_id,
+                stage_run_id=stage_run_id,
+                lease=request.lease,
+            )
+        except AgentRuntimeError as error:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content=StageExecuteFailureResponse(
+                    code=error.runtime_code,
+                    retryable=False,
+                ).model_dump(mode="json"),
+            )
+        except McpClientError as error:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content=StageExecuteFailureResponse(
+                    code=error.mcp_code,
+                    retryable=False,
+                ).model_dump(mode="json"),
+            )
+        except ContractValidationError:
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                content=StageExecuteFailureResponse(
+                    code="CONTRACT_VALIDATION_FAILED",
+                    retryable=False,
+                ).model_dump(mode="json"),
+            )
+        except StageLeaseRejectedError:
+            return JSONResponse(
+                status_code=status.HTTP_409_CONFLICT,
+                content=StageExecuteFailureResponse(
+                    code="STAGE_LEASE_REJECTED",
+                    retryable=False,
+                ).model_dump(mode="json"),
+            )
+        except PersistenceUnavailableError:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content=StageExecuteFailureResponse(
+                    code="PERSISTENCE_UNAVAILABLE",
+                    retryable=True,
+                ).model_dump(mode="json"),
+            )
+        except ExternalExecutionUnavailableError:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content=StageExecuteFailureResponse(
+                    code="EXTERNAL_EXECUTION_UNAVAILABLE",
+                    retryable=False,
+                ).model_dump(mode="json"),
+            )
         return StageExecuteResponse(result=result)
 
     @app.post(
