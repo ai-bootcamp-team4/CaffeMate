@@ -105,6 +105,20 @@ stream 종료와 계약 검증을 모두 기다린다. 이 방식은 역할 격�
 Agent를 고정 `ABSTAIN`으로 대체하지 않고 입력 투영, 출력 Schema, prompt, 런타임 전송 경계를
 먼저 고친다.
 
+2026-08-23 운영 전환 후 같은 조건의 13단계 canary는 47.917초에 `SUCCEEDED`와 `CURRENT`
+결과 카드 1건을 만들었다. 변경 전 54.611초보다 6.694초, 약 12% 짧다. Evidence Assess,
+Independent Proposal, Candidate Audit의 생성 시간은 각각 6.414초, 7.813초, 7.281초였고 세
+호출 모두 첫 응답에서 `HTTP 200`, `STOP`, `repair_attempt=0`, `VALID`였다. Proposal은 후보
+1건, 독립 Critic은 감사 1건을 반환했다. 따라서 개선은 Agent 생략이나 timeout 성공 처리에서
+나온 것이 아니라 외부 Runtime 왕복을 호출당 세 번에서 한 번으로 줄인 결과다.
+
+같은 구간의 Worker 요청 시간은 세 Agent 단계가 약 10.1초, 11.1초, 11.2초였고 모델 생성 외
+관리형 session 생성·삭제, 전송과 계약 검증이 호출당 약 3.3~4.0초를 차지했다. 전체 Stage 사이
+메시지 공백은 약 3~4초였으며 Evidence Retrieval 단계는 약 7.6초였다. 그러므로 다음 성능 작업의
+우선순위는 무작정 Agent 수를 줄이는 것이 아니라 Retrieval 계층과 관리형 session 비용의 별도
+측정이다. Proposal과 Critic의 독립 세션을 합치거나 managed Runtime을 우회하면 이 설계 결정을
+폐기할 정도의 품질·평가 이득이 먼저 증명되어야 한다.
+
 Agent Runtime 검증용 13단계 canary는 실제 UI 계약처럼 이미 선택된 법정동 `AreaState`에서
 시작한다. 주소 공급자 장애 때문에 Agent가 한 번도 실행되지 않은 실패를 Agent 지연으로 집계하지
 않는다. 주소 검색 자체는 별도 MCP 검증에서 버전이 붙은 전국 법정동 자료의 무네트워크 조회와
