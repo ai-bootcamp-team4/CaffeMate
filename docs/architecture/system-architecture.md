@@ -83,13 +83,18 @@ Agent 호출은 역할별로 최적화한다. Control API는 전체 MCP 저장�
 안에서 validator error를 사용해 한 번만 수리한다. 두 번째 실패를 반복 생성이나 성공값으로
 바꾸지 않는다.
 
-2026-08-23 운영 기준선에서는 `EVIDENCE_ASSESS`, `PROPOSE_INDEPENDENT`, `CANDIDATE_AUDIT`가
-각각 5.333초, 14.089초, 12.020초에 첫 생성으로 `STOP`하고 전체 계약을 통과했다. 같은 모델과
-계약 fixture를 `low` 사고 수준·4,096 출력 토큰으로 각각 두 번 실행한 비교 실험에서는 Proposal이
-3.749~4.094초, Candidate Audit이 3.335~3.360초에 모두 첫 생성으로 Schema와 의미 검증을 통과했다.
-이는 Agent를 제거하거나 응답을 기다리지 않는 fallback이 아니라, 권위 계산을 하지 않는 typed 역할의
-추론 예산을 실제 관측값에 맞춘 것이다. 배포 canary에서 repair가 발생하거나 결과 계약 통과율이
-낮아지면 해당 역할만 `medium`으로 되돌리는 것이 이 결정의 폐기 조건이다.
+2026-08-23 현재 배포를 연속 두 번 검증한 운영 기준선에서
+`EVIDENCE_ASSESS`, `PROPOSE_INDEPENDENT`, `CANDIDATE_AUDIT`의 모델 생성 시간은 각각
+5.383초·5.218초·6.245초와 5.341초·4.841초·8.736초였다. 여섯 생성 모두 첫 응답으로
+`STOP`, `repair_attempt=0`, HTTP 200을 기록했고 Schema·echo·의미 검증 결과는 `VALID`였다.
+두 FIRST_PROPOSAL 실행도 13단계를 모두 통과해 `SUCCEEDED`, `CURRENT` 결과 카드를 만들었다.
+두 번째 Cloud Run canary 실행의 66.33초에는 Job 시작과 3초 polling 간격이 포함된다.
+
+이는 Agent를 제거하거나 응답을 기다리지 않는 fallback이 아니다. 결정론적 Evidence Plan과 MCP
+물리 조회가 먼저 필요한 근거를 좁히고, Agent는 의미 판정·typed 제안·독립 감사에만 제한된다.
+Control API는 각 관리형 세션을 생성하고 final event를 끝까지 기다린 뒤 계약을 검증하고 세션을
+삭제한다. repair가 발생하거나 운영 계약 통과율이 낮아지면 해당 역할의 prompt·입력 투영을 먼저
+교정하고, 필요한 역할만 `medium`으로 되돌리는 것이 현재 최적화 결정의 폐기 조건이다.
 
 Agent Runtime 검증용 13단계 canary는 실제 UI 계약처럼 이미 선택된 법정동 `AreaState`에서
 시작한다. 주소 공급자 장애 때문에 Agent가 한 번도 실행되지 않은 실패를 Agent 지연으로 집계하지
