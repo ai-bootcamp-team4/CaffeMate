@@ -370,9 +370,52 @@ function validateDocumentExtract(taskPayload: JsonObject, resultPayload: JsonObj
 }
 
 function validateCandidateAudit(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
-  const candidateIds = new Set(array(taskPayload.candidates).map((raw) => object(raw).candidate_id).filter((id): id is string => typeof id === 'string'))
-  for (const [index, rawAudit] of array(resultPayload.candidate_audits).entries()) {
-    requirePoolMember(issues, candidateIds, object(rawAudit).candidate_id, `/payload/candidate_audits/${index}/candidate_id`)
+  const expectedCandidateIds = array(taskPayload.candidates)
+    .map((raw) => object(raw).candidate_id)
+    .filter((id): id is string => typeof id === 'string')
+  const candidateIds = new Set(expectedCandidateIds)
+  const audits = array(resultPayload.candidate_audits)
+  const producedCandidateIds: string[] = []
+  for (const [index, rawAudit] of audits.entries()) {
+    const audit = object(rawAudit)
+    requirePoolMember(issues, candidateIds, audit.candidate_id, `/payload/candidate_audits/${index}/candidate_id`)
+    if (typeof audit.candidate_id === 'string') producedCandidateIds.push(audit.candidate_id)
+    if (audit.status === 'PASS' && array(audit.findings).length > 0) {
+      add(
+        issues,
+        'CANDIDATE_AUDIT_STATUS_INCOHERENT',
+        `/payload/candidate_audits/${index}`,
+        'PASS audit cannot contain findings',
+      )
+    }
+  }
+
+  if (producedCandidateIds.length !== new Set(producedCandidateIds).size
+    || producedCandidateIds.length !== expectedCandidateIds.length
+    || producedCandidateIds.some((candidateId) => !candidateIds.has(candidateId))) {
+    add(
+      issues,
+      'CANDIDATE_AUDIT_COVERAGE_INVALID',
+      '/payload/candidate_audits',
+      'complete audit must cover every input candidate exactly once',
+    )
+  }
+
+  const calculation = object(taskPayload.calculation_snapshot)
+  const allowedCalculationRefs = new Set([
+    calculation.calculation_version,
+    calculation.input_digest,
+    calculation.output_digest,
+    ...strings(calculation.candidate_ids),
+  ].filter((value): value is string => typeof value === 'string'))
+  const usedCalculationRefs = collectNamedStrings(resultPayload, new Set(['calculation_refs']))
+  if ([...usedCalculationRefs].some((reference) => !allowedCalculationRefs.has(reference))) {
+    add(
+      issues,
+      'CANDIDATE_AUDIT_CALCULATION_REFERENCE_INVALID',
+      '/payload/candidate_audits',
+      'audit used a calculation reference outside the supplied calculation snapshot',
+    )
   }
 }
 

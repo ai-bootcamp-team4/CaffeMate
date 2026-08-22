@@ -293,4 +293,37 @@ describe('agent semantic validator', () => {
     expect(validation.ok).toBe(false)
     expect(validation.issues.some((issue) => issue.code === 'DOCUMENT_ANCHOR_NOT_SUPPLIED')).toBe(true)
   })
+
+  it('requires a complete candidate audit to cover every supplied candidate exactly once', () => {
+    const { task, result } = fixture('CANDIDATE_AUDIT')
+    const payload = result.payload as { candidate_audits: unknown[] }
+    payload.candidate_audits = []
+
+    const validation = validateAgentSemantics(task, result)
+
+    expect(validation.ok).toBe(false)
+    expect(validation.issues.some((issue) => issue.code === 'CANDIDATE_AUDIT_COVERAGE_INVALID')).toBe(true)
+  })
+
+  it('rejects unsupported calculation references and PASS audits with findings', () => {
+    const { task, result } = fixture('CANDIDATE_AUDIT')
+    const payload = result.payload as {
+      candidate_audits: Array<{ status: string; findings: unknown[] }>
+    }
+    payload.candidate_audits[0].findings = [{
+      code: 'FORGED_CALCULATION',
+      severity: 'HIGH',
+      field_path: '/financial_summary',
+      claim_refs: [],
+      evidence_refs: [],
+      calculation_refs: ['calculation-not-in-input'],
+      disposition: 'REQUIRE_HUMAN',
+    }]
+
+    const validation = validateAgentSemantics(task, result)
+
+    expect(validation.ok).toBe(false)
+    expect(validation.issues.some((issue) => issue.code === 'CANDIDATE_AUDIT_CALCULATION_REFERENCE_INVALID')).toBe(true)
+    expect(validation.issues.some((issue) => issue.code === 'CANDIDATE_AUDIT_STATUS_INCOHERENT')).toBe(true)
+  })
 })

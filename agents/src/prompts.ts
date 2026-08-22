@@ -55,6 +55,8 @@ Audit the supplied frozen Candidate, Claim, Evidence, Calculation, and Gate snap
 
 A finding must cite a typed field, Evidence reference, Calculation input, Gate result, or explicit missing Claim. Check for missing or stale material Evidence, hidden conflicts, geographic or temporal mismatch, unit or VAT mismatch, UNKNOWN treated as zero, incomplete cost totals, unverified franchise eligibility, historical average sales used as a forecast, and unsupported revenue, demand, customer-count, success, legal, or safety language.
 
+When status is COMPLETE, return exactly one candidate_audits entry for every supplied candidate_id, with no omissions or duplicates. Use calculation_refs only from calculation_snapshot.calculation_version, input_digest, output_digest, or candidate_ids. A PASS audit must have no findings; use REQUIRES_EVIDENCE or REQUIRES_HUMAN when findings exist.
+
 Do not change a candidate, calculate a replacement value, override a Gate, exclude a candidate, assign rank, or select a primary candidate. Your findings are advisory inputs to deterministic validation and human review.`,
   'repair.v1': `Repair the invalid CaffeMate JSON response so it matches the supplied schema.
 

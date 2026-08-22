@@ -379,3 +379,27 @@ cases:
       - first validator error
       - schema-valid repaired final event
     pass_condition: 최초 invalid 출력당 추가 생성은 정확히 한 번이고 canary가 다음 Stage로 진행된다.
+
+  - id: EV-025
+    title: Runtime과 Control API의 Candidate Audit 의미 계약 일치
+    input: COMPLETE Candidate Audit가 일부 후보를 누락하거나 중복하고, 허용되지 않은 계산 참조 또는 PASS finding을 반환함
+    relevant_state:
+      workflow_code: FIRST_PROPOSAL
+      current_stage: CANDIDATE_AUDIT
+      input_candidate_count: 2
+    trap: Runtime은 후보 ID membership만 검사해 final event를 반환하지만 Control API의 전체 coverage 검증은 422로 거절한다.
+    expected_behavior:
+      - Runtime이 모든 입력 후보의 정확히 한 번 coverage를 검사한다.
+      - 계산 참조를 입력 calculation snapshot의 버전, digest와 candidate id로 제한한다.
+      - PASS와 finding이 함께 있으면 status 불일치로 거절한다.
+      - 첫 위반은 같은 관리형 invocation의 단일 repair 대상으로 처리한다.
+      - Runtime을 통과한 결과는 Control API의 같은 의미 계약도 통과한다.
+    forbidden_behavior:
+      - Runtime과 Control API가 서로 다른 Candidate Audit 의미 규칙을 적용한다.
+      - 누락된 후보 감사를 백엔드가 임의 생성한다.
+      - Control API 422를 transport retry한다.
+    required_evidence:
+      - shared semantic rule unit tests
+      - Runtime repair test
+      - 13-stage production canary
+    pass_condition: 운영 canary의 CANDIDATE_AUDIT final event가 Control API에서 재거절되지 않고 COMMIT_RESULT로 진행된다.
