@@ -76,6 +76,8 @@ def test_backend_foundation_scripts_preserve_scope_and_secret_values() -> None:
     assert "storage buckets get-iam-policy" in verifier
     assert "roles/run.admin" in verifier
     assert "roles/iam.serviceAccountUser" in verifier
+    assert "roles/firebaseauth.viewer" in bootstrap
+    assert "roles/firebaseauth.viewer" in verifier
     assert "versions access" not in verifier
 
 
