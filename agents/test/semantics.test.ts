@@ -94,7 +94,7 @@ describe('agent semantic validator', () => {
     result.payload = {
       decision: 'PROPOSE_DELTA',
       operations: [{
-        op_id: 'invented-op', kind: 'SET', field_path: 'founder.borrowing_intent',
+        op_id: 'invented-op', kind: 'SET', field_path: '/founder/borrowing_intent',
         expected_old_value: { kind: 'STRING', value: 'NO' }, typed_value: { kind: 'STRING', value: 'YES' },
         unit: null, semantic_kind: 'HARD_CONSTRAINT', source_span: { start: 0, end: 4 }, ambiguity_codes: [],
       }],

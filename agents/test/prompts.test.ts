@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildSystemInstruction, PROMPTS } from '../src/prompts'
 
 const rolePrompts = [
-  'intent-interpreter.v1',
+  'intent-interpreter.v2',
   'evidence-researcher.v1',
   'proposal-agent.v1',
   'document-analyst.v1',

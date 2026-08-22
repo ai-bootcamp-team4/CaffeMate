@@ -110,12 +110,13 @@ function nullableStringSchema(): Record<string, unknown> {
  */
 export function buildAgentTaskResultResponseJsonSchema(task: AgentTask): Record<string, unknown> {
   const evidenceBounds = evidenceAssessOutputBounds(task)
+  const intentOutput = task.task_type === 'INTENT_DELTA'
   const evidenceRefs = task.task_type === 'EVIDENCE_ASSESS'
     ? { type: 'array', items: { type: 'string' }, maxItems: evidenceBounds.candidateCount }
-    : { type: 'array', items: { type: 'string' } }
+    : { type: 'array', items: { type: 'string' }, ...(intentOutput ? { maxItems: 0 } : {}) }
   const missingClaimIds = task.task_type === 'EVIDENCE_ASSESS'
     ? { type: 'array', items: { type: 'string' }, maxItems: evidenceBounds.claimCount }
-    : { type: 'array', items: { type: 'string' } }
+    : { type: 'array', items: { type: 'string' }, ...(intentOutput ? { maxItems: 0 } : {}) }
   return {
     type: 'object',
     additionalProperties: false,
@@ -204,8 +205,8 @@ export function buildAgentTaskResultResponseJsonSchema(task: AgentTask): Record<
       },
       evidence_refs: evidenceRefs,
       missing_claim_ids: missingClaimIds,
-      reason_codes: { type: 'array', items: { type: 'string' } },
-      warnings: { type: 'array', items: { type: 'string' } },
+      reason_codes: { type: 'array', items: { type: 'string' }, ...(intentOutput ? { maxItems: 5 } : {}) },
+      warnings: { type: 'array', items: { type: 'string' }, ...(intentOutput ? { maxItems: 5 } : {}) },
     },
   }
 }

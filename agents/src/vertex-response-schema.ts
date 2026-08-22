@@ -342,6 +342,74 @@ function applyEvidenceAssessBounds(projected: JsonObject, task: AgentTask): void
   conflicts.maxItems = claimCount
 }
 
+const INTENT_VALUE_KINDS = new Set(['NULL', 'STRING', 'INTEGER'])
+
+function intentPool(task: AgentTask, field: 'allowed_field_paths' | 'operation_id_pool'): string[] {
+  const payload = asObject(task.payload)
+  const values = payload?.[field]
+  if (!Array.isArray(values) || values.length === 0 || values.some((value) => typeof value !== 'string')) {
+    throw new Error(`VERTEX_INTENT_${field.toUpperCase()}_INVALID`)
+  }
+  return [...new Set(values as string[])]
+}
+
+function compactIntentTypedValue(schema: JsonObject): JsonObject {
+  const variants = Array.isArray(schema.oneOf) ? schema.oneOf : []
+  const selected = variants.filter((rawVariant) => {
+    const variant = asObject(rawVariant)
+    const properties = variant ? asObject(variant.properties) : null
+    const kind = properties ? asObject(properties.kind) : null
+    const values = kind?.enum
+    return Array.isArray(values)
+      && values.length === 1
+      && typeof values[0] === 'string'
+      && INTENT_VALUE_KINDS.has(values[0])
+  })
+  if (selected.length !== INTENT_VALUE_KINDS.size) {
+    throw new Error('VERTEX_INTENT_TYPED_VALUE_SCHEMA_UNRESOLVED')
+  }
+  return { oneOf: selected }
+}
+
+function applyIntentBounds(projected: JsonObject, task: AgentTask): void {
+  const properties = asObject(projected.properties)
+  const operations = properties ? asObject(properties.operations) : null
+  const operation = operations ? asObject(operations.items) : null
+  const operationProperties = operation ? asObject(operation.properties) : null
+  if (!properties || !operations || !operationProperties) {
+    throw new Error('VERTEX_INTENT_SCHEMA_UNRESOLVED')
+  }
+
+  const fieldPaths = intentPool(task, 'allowed_field_paths')
+  const operationIds = intentPool(task, 'operation_id_pool')
+  operations.maxItems = Math.min(fieldPaths.length, operationIds.length)
+  operationProperties.op_id = { type: 'string', enum: operationIds }
+  operationProperties.field_path = { type: 'string', enum: fieldPaths }
+  operationProperties.kind = { enum: ['SET', 'UNSET', 'ADD', 'REMOVE'] }
+
+  const expectedOldValue = asObject(operationProperties.expected_old_value)
+  const typedValue = asObject(operationProperties.typed_value)
+  if (!expectedOldValue || !typedValue) {
+    throw new Error('VERTEX_INTENT_TYPED_VALUE_SCHEMA_UNRESOLVED')
+  }
+  operationProperties.expected_old_value = compactIntentTypedValue(expectedOldValue)
+  operationProperties.typed_value = compactIntentTypedValue(typedValue)
+  operationProperties.unit = { type: 'null' }
+
+  const ambiguityCodes = asObject(operationProperties.ambiguity_codes)
+  const clarifyingQuestions = asObject(properties.clarifying_questions)
+  const affectedWorkflowCodes = asObject(properties.affected_workflow_codes)
+  const riskFlags = asObject(properties.risk_flags)
+  if (!ambiguityCodes || !clarifyingQuestions || !affectedWorkflowCodes || !riskFlags) {
+    throw new Error('VERTEX_INTENT_ARRAY_SCHEMA_UNRESOLVED')
+  }
+  ambiguityCodes.maxItems = 3
+  clarifyingQuestions.maxItems = 3
+  affectedWorkflowCodes.maxItems = 1
+  affectedWorkflowCodes.items = { type: 'string', enum: ['FIRST_PROPOSAL'] }
+  riskFlags.maxItems = 5
+}
+
 export function buildVertexRolePayloadSchema(task: AgentTask): JsonObject {
   const taskType = task.task_type
   const defName = ROLE_PAYLOAD_DEF[taskType]
@@ -349,6 +417,7 @@ export function buildVertexRolePayloadSchema(task: AgentTask): JsonObject {
   const schema = defs ? asObject(defs[defName]) : null
   if (!schema) throw new Error(`VERTEX_ROLE_SCHEMA_UNRESOLVED: ${taskType}`)
   const projected = projectSchema(schema, ROLE_SCHEMA_FILE, 0, new Set())
+  if (taskType === 'INTENT_DELTA') applyIntentBounds(projected, task)
   if (taskType === 'EVIDENCE_PLAN') applyEvidencePlanToolActionSchema(projected, task)
   if (taskType === 'EVIDENCE_ASSESS') applyEvidenceAssessBounds(projected, task)
   return projected

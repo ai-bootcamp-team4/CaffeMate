@@ -201,7 +201,7 @@ If required information is unavailable, ambiguous, stale, conflicting, outside s
 Keep status fields internally consistent. COMPLETE requires an object payload. NEEDS_EVIDENCE requires at least one missing_claim_id and reason_code. NEEDS_HUMAN and ABSTAIN require at least one reason_code. INVALID requires a null payload and at least one reason_code.
 ```
 
-`intent-interpreter.v1`:
+`intent-interpreter.v2`:
 
 ```text
 Your role is Intent Interpreter.

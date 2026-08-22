@@ -24,11 +24,11 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "prompt_version": "intent-interpreter.v1",
+        "prompt_version": "intent-interpreter.v2",
         "input_schema_id": "caffemate.agent.intent-input.v1",
         "output_schema_id": "caffemate.agent.intent-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:19a8494c67741b85a347c82383a832465f9484c1cf8d4ac263c1f9f515912a6b",
+        "input_digest": "sha256:20f0e9bd76de79b3e47b592a95d568d0d46880f020b2bc44b7b493da139ff150",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -66,7 +66,7 @@
           },
           "latest_user_input": "대출은 받지 않겠습니다.",
           "allowed_field_paths": [
-            "founder.borrowing_intent"
+            "/founder/borrowing_intent"
           ],
           "current_candidate_refs": [],
           "operation_id_pool": [
@@ -93,7 +93,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:19a8494c67741b85a347c82383a832465f9484c1cf8d4ac263c1f9f515912a6b",
+        "input_digest": "sha256:20f0e9bd76de79b3e47b592a95d568d0d46880f020b2bc44b7b493da139ff150",
         "output_schema_id": "caffemate.agent.intent-result.v1",
         "status": "COMPLETE",
         "payload": {
@@ -132,11 +132,11 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "prompt_version": "intent-interpreter.v1",
+        "prompt_version": "intent-interpreter.v2",
         "input_schema_id": "caffemate.agent.intent-input.v1",
         "output_schema_id": "caffemate.agent.intent-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:0d3b81a554036482b0d5ad55286b17d39001a855f987aac2d65aeabb12475eb1",
+        "input_digest": "sha256:6eeeffaddb776e6b4c686caf6823d465985023045533caed1a1638b121a66cec",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -174,7 +174,7 @@
           },
           "latest_user_input": "대출은 받지 않겠습니다.",
           "allowed_field_paths": [
-            "founder.borrowing_intent"
+            "/founder/borrowing_intent"
           ],
           "current_candidate_refs": [],
           "operation_id_pool": [
@@ -201,7 +201,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:0d3b81a554036482b0d5ad55286b17d39001a855f987aac2d65aeabb12475eb1",
+        "input_digest": "sha256:6eeeffaddb776e6b4c686caf6823d465985023045533caed1a1638b121a66cec",
         "output_schema_id": "caffemate.agent.intent-result.v1",
         "status": "ABSTAIN",
         "payload": null,

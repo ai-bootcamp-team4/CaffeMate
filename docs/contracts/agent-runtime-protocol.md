@@ -597,6 +597,20 @@ latest user input
 → affected FIRST_PROPOSAL stages only
 ```
 
+`INTENT_DELTA`는 자연어를 State 변경 제안으로 해석해야 하므로 Agent 역할을 유지한다. 다만
+provider response Schema는 전체 공용 값 공간을 그대로 노출하지 않고 현재 task의
+`allowed_field_paths`와 `operation_id_pool`로 제한한다. 피드백 State가 실제로 표현하는
+`NULL`·`STRING`·`INTEGER`만 허용하고, operation·질문·위험·이유·경고 배열에는 입력 기반 상한을
+둔다. 이 제한은 값을 새로 만들거나 결과를 고치는 fallback이 아니라 모델이 선택할 수 있는 공간을
+Control API의 실제 권한과 일치시키는 생성 최적화다. 최종 권위 검증은 기존 전체 JSON Schema,
+semantic validator, `expected_old_value`, full-head fence가 계속 담당한다.
+
+Vertex가 `MAX_TOKENS` 또는 다른 불완전 finish reason을 반환하면 부분 JSON을 수용하거나 repair하지
+않는다. 이는 같은 입력을 반복해도 회복되지 않는 terminal model-output failure이므로 Runtime은
+HTTP 422로 분류하고 Control API는 transport retry를 실행하지 않는다. 408·429·5xx와 네트워크
+장애만 새 invocation·session을 사용하는 bounded transport retry 대상이다. schema-valid text의
+Schema·echo·의미 오류만 같은 Agent의 단일 validator-guided repair 대상이다.
+
 ### 9.3 DOCUMENT_UPDATE
 
 ```text
@@ -638,6 +652,7 @@ validated parser blocks
 | `CP-019` | UNKNOWN·FRESH date·assumption coverage·money range·franchise eligibility 위반 | 명시된 semantic error code로 모두 거절 |
 | `CP-020` | model·prompt content·Schema content·tool manifest·ACTIVE IndexGeneration 중 하나가 release와 다름 | release 승격 실패 |
 | `CP-021` | 같은 Claim Plan을 반복 실행하고 Claim·allowlist·action budget을 변조 | 정상 입력은 byte-equivalent plan·digest, 변조 입력은 MCP 호출 전 계약 오류, Agent 호출 0 |
+| `CP-022` | `INTENT_DELTA` 단순 변경·NOOP·CLARIFY와 provider `MAX_TOKENS` | 동적 Schema가 task pool과 배열 상한을 반영하고 정상 입력은 STOP, 불완전 출력은 생성 재시도 0 |
 
 완료 기준:
 

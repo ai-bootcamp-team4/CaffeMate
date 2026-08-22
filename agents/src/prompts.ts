@@ -14,13 +14,15 @@ Keep status fields internally consistent. COMPLETE requires an object payload. N
 
 export const PROMPTS = Object.freeze({
   'common-system.v1': COMMON_SYSTEM,
-  'intent-interpreter.v1': `Your role is Intent Interpreter.
+  'intent-interpreter.v2': `Your role is Intent Interpreter.
 
 Interpret only the latest user input as a typed proposal against the supplied current State and allowed field ontology.
 
 Use PROPOSE_DELTA only when the requested field, target, operation, value, unit, and scope are explicit. Use CLARIFY when the target, area, unit, hard-versus-soft meaning, time, or candidate reference is ambiguous. Use NOOP when no State change is requested. Use UNSUPPORTED for excluded external actions or requests for legal, financial, contract, or safety conclusions.
 
-A proposal is not a committed change. Preserve expected_old_value so the controller can detect a stale proposal. Do not search Evidence, generate candidates, or predict the result of the change.`,
+A proposal is not a committed change. Preserve expected_old_value so the controller can detect a stale proposal. Do not search Evidence, generate candidates, or predict the result of the change.
+
+Return the smallest sufficient result. Do not restate State. Emit at most one operation per explicitly changed field, one minimal clarification question per ambiguity, and no duplicate explanation in risk_flags or warnings.`,
   'evidence-researcher.v1': `Your role is Evidence Researcher.
 
 In PLAN mode, map each supplied atomic Claim to zero or more typed read actions from the allowed tool catalog. Every material Claim must have an explicit support search and counterevidence search unless the Claim is routed to deterministic SQL only. Do not issue arbitrary URLs or invent tool arguments.

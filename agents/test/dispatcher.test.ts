@@ -18,7 +18,7 @@ function makeIntentTask(): AgentTask {
   const task: AgentTask = {
     schema_version: '1.0.0', task_id: 'task-1', invocation_id: 'inv-1', agent_name: 'INTENT_INTERPRETER',
     task_type: 'INTENT_DELTA', workflow_run_id: 'wf-1', stage_run_id: 'stage-1', transport_attempt: 1,
-    repair_attempt: 0, venture_project_id: 'project-1', head_fence: head, prompt_version: 'intent-interpreter.v1',
+    repair_attempt: 0, venture_project_id: 'project-1', head_fence: head, prompt_version: 'intent-interpreter.v2',
     input_schema_id: 'caffemate.agent.intent-input.v1', output_schema_id: 'caffemate.agent.intent-result.v1',
     input_artifacts: [], input_digest: `sha256:${'0'.repeat(64)}`, deadline_at: '2026-08-21T08:30:00Z',
     runtime_tool_policy: 'NO_DIRECT_TOOL_CALLS', tool_manifest_digest: null, available_tool_catalog: [],
@@ -30,7 +30,7 @@ function makeIntentTask(): AgentTask {
         active_case_id: null, venture_cases: [],
       },
       latest_user_input: '대출은 안 받을게',
-      allowed_field_paths: ['founder.borrowing_intent'], current_candidate_refs: [], operation_id_pool: ['op-1'],
+      allowed_field_paths: ['/founder/borrowing_intent'], current_candidate_refs: [], operation_id_pool: ['op-1'],
     },
   }
   task.input_digest = computeAgentTaskInputDigest(task)

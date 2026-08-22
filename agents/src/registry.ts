@@ -31,7 +31,7 @@ export interface TaskRegistration {
 export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Object.freeze({
   INTENT_DELTA: {
     agentName: 'INTENT_INTERPRETER',
-    promptVersion: 'intent-interpreter.v1',
+    promptVersion: 'intent-interpreter.v2',
     inputSchemaId: 'caffemate.agent.intent-input.v1',
     outputSchemaId: 'caffemate.agent.intent-result.v1',
     deadlineSeconds: 30,

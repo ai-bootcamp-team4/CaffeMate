@@ -14,7 +14,7 @@
   },
   "allow_global_fallback": false,
   "network_mode": "GCP_CONNECTED",
-  "prompt_bundle_digest": "sha256:d81859b776131378faadfba16da2e52356fedf147177b32c207aea25f3507e39",
+  "prompt_bundle_digest": "sha256:a92b8ab8b6a5ba81a3144b964905abf28ae65d012045bea3225d7e216c33949a",
   "agent_contract_bundle_digest": "sha256:d1392edf4e246d3c5f22876c11148e8b3d2b181794b206f68b55be310f244cf8",
   "mcp": {
     "protocol_revision": "2026-07-28",
@@ -49,12 +49,12 @@
         "content_digest": "sha256:f44af895c9dd771ba22d3890016928ba8bfaa3ed2306d9cd0a5b5bb6ee9d9c34"
       }
     ],
-    "sealed_evaluation_digest": "sha256:068fe4dfc4c70048a4729a0caf4a8ddd606a4ce609a17a00054b480ef5508224"
+    "sealed_evaluation_digest": "sha256:38d833c7f775cfea293ca91e077f737244d5c693b7a1249c4ff25f5c327e4c34"
   },
   "tasks": {
     "INTENT_DELTA": {
       "agent_name": "INTENT_INTERPRETER",
-      "prompt_version": "intent-interpreter.v1",
+      "prompt_version": "intent-interpreter.v2",
       "input_schema_id": "caffemate.agent.intent-input.v1",
       "output_schema_id": "caffemate.agent.intent-result.v1",
       "deadline_seconds": 30,
