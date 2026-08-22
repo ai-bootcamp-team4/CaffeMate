@@ -45,6 +45,25 @@ def test_liveness_is_available_without_user_authentication(client: TestClient) -
     assert response.json() == {"status": "ok"}
 
 
+def test_configured_frontend_origin_receives_cors_headers(monkeypatch) -> None:
+    from app.main import create_app
+
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://web.example.test;https://stable.example.test")
+    with TestClient(create_app()) as cors_client:
+        response = cors_client.options(
+            "/v1/projects",
+            headers={
+                "Origin": "https://web.example.test",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,idempotency-key,content-type",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://web.example.test"
+    assert "authorization" in response.headers["access-control-allow-headers"].lower()
+
+
 def test_project_has_no_state_until_onboarding_is_confirmed(client: TestClient) -> None:
     project = create_project(client)
     assert project["state"] is None
