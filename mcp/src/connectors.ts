@@ -68,17 +68,29 @@ function localitySearchVariants(query: string): string[] {
 }
 
 function localityMatchScore(row: JusoAddress, tokens: string[]): number | null {
-  const components = [row.siNm, row.sggNm, row.emdNm, row.liNm, row.hemdNm]
-    .filter((value): value is string => Boolean(value))
-    .map(normalizeSearchText)
+  const components = [
+    { value: row.siNm, levelWeight: 0 },
+    { value: row.sggNm, levelWeight: 20 },
+    { value: row.emdNm, levelWeight: 40 },
+    { value: row.liNm, levelWeight: 10 },
+    { value: row.hemdNm, levelWeight: 30 },
+  ]
+    .filter((component): component is { value: string; levelWeight: number } => Boolean(component.value))
+    .map((component) => ({ ...component, value: normalizeSearchText(component.value) }))
   if (!components.length || !tokens.length) return null
 
   let score = 0
   for (const token of tokens) {
-    const tokenScore = Math.max(...components.map((component) => {
-      if (component === token) return 400
-      if (component.startsWith(token)) return 300
-      if (component.includes(token)) return 200
+    const tokenScore = Math.max(...components.map(({ value, levelWeight }) => {
+      const suffixWeight = value.startsWith(token)
+        ? value.includes(`${token}동`) ? 30
+          : value.includes(`${token}읍`) ? 10
+            : value.includes(`${token}면`) ? 5
+              : 0
+        : 0
+      if (value === token) return 400 + levelWeight
+      if (value.startsWith(token)) return 300 + levelWeight + suffixWeight
+      if (value.includes(token)) return 200 + levelWeight
       return 0
     }))
     if (tokenScore === 0) return null
@@ -100,7 +112,12 @@ function toRankedCandidate(
   allowAddressFallback: boolean,
 ): RankedAreaCandidate | null {
   if (!row.admCd || !/^\d{10}$/.test(row.admCd)) return null
-  const displayName = [row.siNm, row.sggNm, row.emdNm || row.liNm].filter(Boolean).join(' ')
+  const displayName = [
+    row.siNm,
+    row.sggNm,
+    row.emdNm,
+    row.liNm && row.liNm !== row.emdNm ? row.liNm : undefined,
+  ].filter(Boolean).join(' ')
   if (!displayName) return null
   const localityScore = localityMatchScore(row, tokens)
   const fallbackScore = allowAddressFallback ? addressFallbackScore(row, tokens) : null

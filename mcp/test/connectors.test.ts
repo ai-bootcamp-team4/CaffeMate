@@ -90,6 +90,29 @@ describe('official address connectors', () => {
     expect(fetcher).toHaveBeenCalledOnce()
   })
 
+  it('ranks dong matches before myeon and ri matches and displays the matched ri', async () => {
+    const fetcher = vi.fn(async (input: unknown) => {
+      const keyword = new URL(String(input)).searchParams.get('keyword')
+      const juso = keyword === '성수동'
+        ? [{ admCd: '1120011500', siNm: '서울특별시', sggNm: '성동구', emdNm: '성수동1가' }]
+        : keyword === '성수면'
+          ? [{ admCd: '4575031021', siNm: '전북특별자치도', sggNm: '임실군', emdNm: '성수면' }]
+          : keyword === '성수리'
+            ? [{ admCd: '4719025636', siNm: '경상북도', sggNm: '구미시', emdNm: '산동읍', liNm: '성수리' }]
+            : []
+      return new Response(JSON.stringify({ results: { common: { errorCode: '0' }, juso } }), { status: 200 })
+    })
+    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now }).resolve_area!
+
+    const result = await connector({ query: '성수', country_code: 'KR', limit: 10 }, scope) as { data: Array<{ display_name: string }> }
+
+    expect(result.data.map((candidate) => candidate.display_name)).toEqual([
+      '서울특별시 성동구 성수동1가',
+      '전북특별자치도 임실군 성수면',
+      '경상북도 구미시 산동읍 성수리',
+    ])
+  })
+
   it('retries one transient official API failure before returning candidates', async () => {
     const fetcher = vi.fn()
       .mockRejectedValueOnce(new Error('temporary network failure'))
