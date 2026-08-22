@@ -8,6 +8,7 @@ from app.settings import RuntimeSettings
 from app.workflows.execution_repository import PostgresStageExecutionRepository
 from fastapi import FastAPI, Query, status
 from fastapi.responses import JSONResponse, Response
+from google.api_core.exceptions import GoogleAPICallError
 from pydantic import BaseModel, ConfigDict, Field
 
 from worker.agent_cleanup import (
@@ -224,6 +225,21 @@ def create_worker_app(
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={"code": "WORKER_RETRY_REQUIRED"},
+            )
+        try:
+            dispatcher.publish_one()
+        except (
+            GoogleAPICallError,
+            OutboxConfigurationUnavailableError,
+            RuntimeError,
+            TimeoutError,
+            ValueError,
+        ):
+            # The stage transaction has already committed. A non-2xx response makes
+            # Pub/Sub retry this delivery, and the duplicate path retries this nudge.
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"code": "OUTBOX_PUBLISH_RETRY_REQUIRED"},
             )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 

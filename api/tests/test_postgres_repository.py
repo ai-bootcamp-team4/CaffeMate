@@ -125,6 +125,15 @@ class FailedPreflightDependencies(ConfiguredExternalDependencies):
         raise McpClientError("MCP_MANIFEST_MISMATCH")
 
 
+class RecordingOutboxDispatcher:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def publish_one(self) -> bool:
+        self.calls += 1
+        return False
+
+
 class DocumentStorageFixture:
     def __init__(self) -> None:
         self.objects: dict[str, StoredObject] = {}
@@ -1281,12 +1290,14 @@ def test_http_202_workflow_survives_api_instance_shutdown(
 
     headers = {"Authorization": "Bearer valid-token"}
     dependencies = ConfiguredExternalDependencies()
+    immediate_outbox = RecordingOutboxDispatcher()
     with TestClient(
         create_app(
             identity_verifier=FixedIdentityVerifier(),
             agent_runtime=dependencies,  # type: ignore[arg-type]
             mcp_client=dependencies,  # type: ignore[arg-type]
             mcp_manifest_preflight=dependencies,  # type: ignore[arg-type]
+            outbox_dispatcher=immediate_outbox,
         )
     ) as client:
         project = client.post(
@@ -1315,6 +1326,7 @@ def test_http_202_workflow_survives_api_instance_shutdown(
         assert progress.json()["current_stage_codes"] == ["AREA_RESOLUTION"]
         assert progress.json()["total_stage_count"] == 13
         assert progress.json()["poll_after_ms"] == 1500
+        assert immediate_outbox.calls == 1
 
     loaded = WorkflowService(
         PostgresWorkflowRepository(

@@ -1,11 +1,14 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated, cast
+from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, FastAPI, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from google.api_core.exceptions import GoogleAPICallError
 from pydantic import BaseModel, ConfigDict
+from worker.outbox import OutboxPublisher, PostgresOutboxRepository
+from worker.pubsub import GooglePubSubPublisher
 
 from app.agents.runtime import (
     AgentRuntimeHttpClient,
@@ -151,6 +154,10 @@ from app.workflows.start_guard import FirstProposalStartGuard, McpManifestStartG
 from app.workflows.unavailable_repository import UnavailableWorkflowRepository
 
 
+class OutboxDispatcher(Protocol):
+    def publish_one(self) -> bool: ...
+
+
 class EmptyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -197,6 +204,7 @@ def create_app(
     agent_runtime: AgentRuntime | None = None,
     mcp_client: AreaMcpClient | EvidenceMcpClient | None = None,
     mcp_manifest_preflight: McpManifestPreflight | None = None,
+    outbox_dispatcher: OutboxDispatcher | None = None,
 ) -> FastAPI:
     database_handle: DatabaseHandle | None = None
     settings = RuntimeSettings.from_environment()
@@ -328,6 +336,23 @@ def create_app(
         workflows = WorkflowService(workflow_repository, start_guard=start_guard)
     else:
         workflows = workflow_service
+
+    immediate_outbox = outbox_dispatcher
+    if (
+        immediate_outbox is None
+        and database_handle is not None
+        and settings.workflow_stage_topic_resource
+    ):
+        immediate_outbox = OutboxPublisher(
+            PostgresOutboxRepository(database_handle.engine),
+            GooglePubSubPublisher(
+                topic_resources={
+                    "WORKFLOW_STAGE_READY": settings.workflow_stage_topic_resource,
+                }
+            ),
+            publisher_id="caffemate-api",
+            logical_topic="WORKFLOW_STAGE_READY",
+        )
 
     if feedback_service is not None:
         feedback = feedback_service
@@ -902,12 +927,20 @@ def create_app(
         user_id: Annotated[str, Depends(current_user)],
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> WorkflowRun:
-        return workflows.start(
+        run = workflows.start(
             project_id=project_id,
             user_id=user_id,
             workflow_code=workflow_code,
             idempotency_key=idempotency_key,
         )
+        if immediate_outbox is not None:
+            try:
+                immediate_outbox.publish_one()
+            except (GoogleAPICallError, RuntimeError, TimeoutError, ValueError):
+                # Workflow creation already committed its durable outbox row.
+                # The scheduled drain remains the recovery path.
+                pass
+        return run
 
     @app.get(
         "/v1/projects/{project_id}/workflows/{workflow_run_id}",
