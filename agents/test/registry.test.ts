@@ -31,6 +31,10 @@ describe('task registry', () => {
     }
   })
 
+  it('reserves enough output budget for high-thinking evidence plans', () => {
+    expect(TASK_REGISTRY.EVIDENCE_PLAN.maxOutputTokens).toBe(8192)
+  })
+
   it('pins the approved global generation model while keeping runtime and RAG in Seoul', () => {
     expect(GCP_LOCATIONS).toEqual({
       runtime: 'asia-northeast3',
