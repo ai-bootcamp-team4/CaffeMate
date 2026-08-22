@@ -21,15 +21,13 @@ PY
 tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-agents/caffemate-agent-runtime:${source_revision}"
 approved_tag="${region}-docker.pkg.dev/${project_id}/caffemate-agents/caffemate-agent-runtime:approved-${source_revision}"
 build_sa="projects/${project_id}/serviceAccounts/caffemate-backend-build@${project_id}.iam.gserviceaccount.com"
-built_image=$(gcloud artifacts docker images describe "$tagged_image" \
+expected_image=$(gcloud artifacts docker images describe "$approved_tag" \
   --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
-approved_image=$(gcloud artifacts docker images describe "$approved_tag" \
-  --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
-[ "$built_image" = "$approved_image" ] || {
-  printf '%s\n' 'FAIL Runtime build digest lacks matching approval artifact' >&2
-  exit 1
-}
-digest=${built_image##*@}
+case "$expected_image" in
+  "${region}-docker.pkg.dev/${project_id}/caffemate-agents/caffemate-agent-runtime@sha256:"*) ;;
+  *) printf '%s\n' 'FAIL approved Runtime image digest is unavailable' >&2; exit 1 ;;
+esac
+digest=${expected_image##*@}
 build_id=$(verified_build_id_for_image \
   "$tagged_image" "$digest" "$source_revision" "$build_sa")
 
@@ -51,7 +49,7 @@ agent_default_role=$(gcloud iam roles describe roles/aiplatform.agentDefaultAcce
 session_role=$(gcloud iam roles describe caffemateAgentSessionManager \
   --project="$project_id" --format=json)
 runtime_spec=$(npm run --silent agent:control -- runtime-spec --json)
-RUNTIME_JSON="$runtime" RUNTIME_POLICY="$runtime_policy" PROJECT_POLICY="$project_policy" PROJECT_NUMBER="$project_number" AGENT_DEFAULT_ROLE="$agent_default_role" SESSION_ROLE="$session_role" RUNTIME_SPEC="$runtime_spec" EXPECTED_IMAGE="$built_image" SOURCE_REVISION="$source_revision" BUILD_ID="$build_id" PROJECT_ID="$project_id" python3 - <<'PY'
+RUNTIME_JSON="$runtime" RUNTIME_POLICY="$runtime_policy" PROJECT_POLICY="$project_policy" PROJECT_NUMBER="$project_number" AGENT_DEFAULT_ROLE="$agent_default_role" SESSION_ROLE="$session_role" RUNTIME_SPEC="$runtime_spec" EXPECTED_IMAGE="$expected_image" SOURCE_REVISION="$source_revision" BUILD_ID="$build_id" PROJECT_ID="$project_id" python3 - <<'PY'
 import json
 import os
 
