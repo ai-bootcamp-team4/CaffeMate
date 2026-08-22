@@ -70,7 +70,11 @@ try {
   } | undefined
   if (official?.status !== 'OK'
     || !official.data?.some((row) => row.document_revision_id === 'easylaw-csmSeq-706@2026-07-15')) {
-    throw new Error('MCP_OFFICIAL_RAG_UNSAFE_OUTCOME')
+    throw new Error(`MCP_OFFICIAL_RAG_UNSAFE_OUTCOME ${JSON.stringify({
+      isError: officialResult.isError,
+      structuredContent: officialResult.structuredContent,
+      content: officialResult.content,
+    })}`)
   }
 
   const badHeaders = new Headers({ Authorization: authorization })
