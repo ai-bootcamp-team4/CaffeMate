@@ -13,7 +13,8 @@
   },
   "allow_global_fallback": false,
   "network_mode": "GCP_CONNECTED",
-  "gcp_preflight_status": "GCP_PREFLIGHT_VERIFIED",
+  "prompt_bundle_digest": "sha256:d305dadb96d8ef5b38e664c0362aa476dae81bd16f76067dcc4145a091ad1b11",
+  "agent_contract_bundle_digest": "sha256:d1392edf4e246d3c5f22876c11148e8b3d2b181794b206f68b55be310f244cf8",
   "mcp": {
     "protocol_revision": "2026-07-28",
     "server_sdk": "@modelcontextprotocol/server@2.0.0",
@@ -22,6 +23,23 @@
     "legacy_mode": "reject"
   },
   "mcp_manifest_digest": "sha256:72ac3711d0b2500a90ef974bb7d6a11eaceff1c8108439624525f581202a184b",
+  "index_generation": {
+    "generation_id": "official-2026-08-22-v1",
+    "status": "ACTIVE",
+    "corpus_resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552",
+    "parser_revision": "vertex-layout-parser.v1",
+    "schema_version": "caffemate.rag-index.v1",
+    "embedding_model_id": "text-multilingual-embedding-002",
+    "reranker_id": "semantic-ranker-default-004",
+    "source_revisions": [
+      {
+        "document_revision_id": "easylaw-csmSeq-706@2026-07-15",
+        "rag_file_resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552/ragFiles/5769839172015160639",
+        "content_digest": "sha256:f44af895c9dd771ba22d3890016928ba8bfaa3ed2306d9cd0a5b5bb6ee9d9c34"
+      }
+    ],
+    "sealed_evaluation_digest": "sha256:4ebe372d16ba0245c6464ee6cfe4fd409425b9aeddfb01a947be9d19e9747f70"
+  },
   "tasks": {
     "INTENT_DELTA": {
       "agent_name": "INTENT_INTERPRETER",

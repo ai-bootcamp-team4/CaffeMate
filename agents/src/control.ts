@@ -3,6 +3,7 @@ import releaseManifest from '../release-manifest.json'
 import { dispatchAgentTask } from './dispatcher'
 import { createApplicationDefaultGoogleCloudContext } from './gcp-auth'
 import { runGcpPreflight, type GcpPreflightResult } from './gcp-preflight'
+import { verifyReleaseSourceSeal, type AgentReleaseManifest } from './release-seal'
 import { AGENT_MODEL, GCP_LOCATIONS, TASK_REGISTRY } from './registry'
 import { AGENT_RUNTIME_CLASS_METHODS, CAFFEMATE_AGENT_APP_NAME } from './runtime-contract'
 import { validateAgentTask, validateAgentTaskResult } from './schema-validator'
@@ -36,6 +37,11 @@ function fixtureValidation(fixture: FixtureCase) {
 }
 
 async function defaultGcpPreflight(modelId?: string): Promise<GcpPreflightResult> {
+  const sourceSeal = verifyReleaseSourceSeal(releaseManifest as AgentReleaseManifest)
+  if (!sourceSeal.ok) {
+    throw new Error(`RELEASE_SOURCE_SEAL_INVALID: ${sourceSeal.issues.map((issue) => issue.code).join(',')}`)
+  }
+
   const cloud = createApplicationDefaultGoogleCloudContext()
   const projectId = await cloud.projectId()
   return runGcpPreflight({
@@ -48,6 +54,14 @@ async function defaultGcpPreflight(modelId?: string): Promise<GcpPreflightResult
     runtimePin: {
       resourceName: releaseManifest.runtime.resource_name,
       imageUri: releaseManifest.runtime.image_uri,
+      promptBundleDigest: releaseManifest.prompt_bundle_digest,
+      agentContractBundleDigest: releaseManifest.agent_contract_bundle_digest,
+    },
+    ragPin: {
+      corpusResourceName: releaseManifest.index_generation.corpus_resource_name,
+      ragFileResourceNames: releaseManifest.index_generation.source_revisions.map((source) => source.rag_file_resource_name),
+      embeddingModelId: releaseManifest.index_generation.embedding_model_id,
+      rerankerId: releaseManifest.index_generation.reranker_id,
     },
     accessToken: cloud.accessToken,
   })
