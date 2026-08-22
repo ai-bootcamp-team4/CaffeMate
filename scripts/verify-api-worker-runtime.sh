@@ -5,7 +5,6 @@ project_id=${CAFFEMATE_GCP_PROJECT_ID:-}
 region=${CAFFEMATE_GCP_REGION:-asia-northeast3}
 source_revision=${CAFFEMATE_SOURCE_REVISION:-}
 
-. "$(dirname "$0")/effective-iam-helpers.sh"
 . "$(dirname "$0")/build-provenance-helpers.sh"
 
 if [ -z "$project_id" ] || [ -z "$source_revision" ]; then
@@ -195,15 +194,31 @@ assert not any(
 print("PASS Control API has resource-scoped Agent Runtime query IAM")
 print("PASS Agent Runtime identity has resource-scoped session lifecycle IAM")
 PY
-runtime_full_resource="//aiplatform.googleapis.com/projects/${project_id}/locations/${region}/reasoningEngines/${configured_agent_resource}"
-assert_service_account_permission_state \
-  "$api_sa" "$runtime_full_resource" 'aiplatform.reasoningEngines.query' 'CAN_ACCESS'
-assert_service_account_permissions_denied \
-  "$api_sa" "$runtime_full_resource" \
-  'aiplatform.reasoningEngines.update,aiplatform.reasoningEngines.delete'
-printf '%s\n' 'PASS Policy Troubleshooter confirms Control API invoke-only effective access'
 unset access_token agent_runtime_identity agent_runtime_json agent_runtime_policy project_policy
 unset agent_default_role_json runtime_invoker_role_json session_manager_role_json release_verifier_role_json
+
+agent_iam_verify_job='caffemate-agent-runtime-iam-verify'
+configure_agent_iam_verify_job() {
+  action=$1
+  gcloud run jobs "$action" "$agent_iam_verify_job" \
+    --project="$project_id" --region="$region" \
+    --image="$api_image" --service-account="$api_sa" \
+    --set-env-vars="AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${configured_agent_resource}" \
+    --command=caffemate-api --args=verify-agent-runtime-iam \
+    --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=2m \
+    --cpu=1 --memory=512Mi \
+    --labels="source-revision=${source_revision},managed-by=caffemate-verify" \
+    --quiet >/dev/null
+}
+if gcloud run jobs describe "$agent_iam_verify_job" \
+  --project="$project_id" --region="$region" >/dev/null 2>&1; then
+  configure_agent_iam_verify_job update
+else
+  configure_agent_iam_verify_job create
+fi
+gcloud run jobs execute "$agent_iam_verify_job" \
+  --project="$project_id" --region="$region" --wait --quiet >/dev/null
+printf '%s\n' 'PASS Control API runtime identity has query-only effective access'
 
 agent_preflight_job='caffemate-agent-runtime-control-preflight'
 configure_agent_preflight_job() {

@@ -8,6 +8,7 @@ FROM base AS runtime
 COPY --chown=node:node docs/contracts ./docs/contracts
 COPY --chown=node:node rag/src ./rag/src
 COPY --chown=node:node mcp/src ./mcp/src
+COPY --chown=node:node deploy/runtime-iam-smoke.mjs ./deploy/runtime-iam-smoke.mjs
 USER node
 EXPOSE 8080
 CMD ["node", "--import", "tsx", "mcp/src/runtime.ts"]

@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
-from app.agents.runtime import AgentRuntimeHttpClient, GoogleAccessTokenProvider
+from app.agents.runtime import (
+    AgentRuntimeHttpClient,
+    GoogleAccessTokenProvider,
+    verify_agent_runtime_iam,
+)
 from app.agents.task_factory import compute_agent_input_digest
 from app.candidates.seed_registry import IndependentSeedRegistry
 from app.database import create_database_handle
@@ -84,6 +88,7 @@ def main() -> None:
             "verify-migrations",
             "verify-mcp-preflight",
             "verify-agent-runtime",
+            "verify-agent-runtime-iam",
             "verify-first-proposal",
         ],
     )
@@ -171,6 +176,16 @@ def main() -> None:
                 sort_keys=True,
             )
         )
+    elif arguments.command == "verify-agent-runtime-iam":
+        settings = RuntimeSettings.from_environment()
+        if not settings.has_agent_runtime_configuration:
+            parser.error("complete Agent Runtime configuration required")
+        iam_report = verify_agent_runtime_iam(
+            gcp_project_id=cast(str, settings.agent_runtime_project_id),
+            resource_id=cast(str, settings.agent_runtime_resource_id),
+            access_tokens=GoogleAccessTokenProvider(),
+        )
+        print(json.dumps({"status": "verified", **iam_report}, sort_keys=True))
     elif arguments.command == "verify-first-proposal":
         settings = RuntimeSettings.from_environment()
         if (

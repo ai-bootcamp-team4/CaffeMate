@@ -18,7 +18,7 @@ describe('private MCP deployment IAM contract', () => {
     expect(verify).toContain('caffemateMcpRetriever')
     expect(deploy).toContain('_SOURCE_REVISION=${source_revision}')
     expect(verify).toContain('verified_build_id_for_image')
-    expect(verify).toContain('Policy Troubleshooter confirms MCP has no prohibited effective mutation permission')
+    expect(verify).toContain('MCP runtime identity has no prohibited effective mutation permission')
   })
 })
 
@@ -54,6 +54,7 @@ describe('private MCP artifact boundary', () => {
     expect(runtimeSection).toContain('COPY --chown=node:node docs/contracts ./docs/contracts')
     expect(runtimeSection).toContain('COPY --chown=node:node rag/src ./rag/src')
     expect(runtimeSection).toContain('COPY --chown=node:node mcp/src ./mcp/src')
+    expect(runtimeSection).toContain('COPY --chown=node:node deploy/runtime-iam-smoke.mjs ./deploy/runtime-iam-smoke.mjs')
     expect(runtimeSection).not.toContain('agents/')
     expect(preflightSection).toContain('COPY --chown=node:node agents/release-manifest.json ./agents/release-manifest.json')
     expect(preflightSection).toContain('COPY --chown=node:node agents/src ./agents/src')

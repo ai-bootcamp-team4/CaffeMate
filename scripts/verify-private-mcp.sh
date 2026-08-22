@@ -13,7 +13,6 @@ verify_job=${CAFFEMATE_MCP_VERIFY_JOB:-caffemate-mcp-verify}
 build_sa="projects/${project_id}/serviceAccounts/caffemate-backend-build@${project_id}.iam.gserviceaccount.com"
 
 . "$(dirname "$0")/build-provenance-helpers.sh"
-. "$(dirname "$0")/effective-iam-helpers.sh"
 
 [ -n "$project_id" ] && [ "${#source_revision}" -eq 40 ] && [ -n "$official_rag_corpus_resource" ] || { printf '%s\n' 'project, full source revision and official RAG corpus resource are required' >&2; exit 2; }
 service_json=$(mktemp)
@@ -90,33 +89,38 @@ assert not any(
 print("MCP_DEPLOYMENT_CONTRACT_OK")
 PY
 
-location_full_resource="//aiplatform.googleapis.com/projects/${project_id}/locations/${region}"
-corpus_full_resource="//aiplatform.googleapis.com/${official_rag_corpus_resource}"
 runtime_resource=$(python3 - <<'PY'
 import json
 print(json.load(open("agents/release-manifest.json"))["runtime"]["resource_name"])
 PY
 )
-runtime_full_resource="//aiplatform.googleapis.com/${runtime_resource}"
 access_token=$(gcloud auth print-access-token)
 rag_files=$(curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
   --header "Authorization: Bearer ${access_token}" \
   "https://${region}-aiplatform.googleapis.com/v1/${official_rag_corpus_resource}/ragFiles?pageSize=100")
 rag_file_resource=$(printf '%s' "$rag_files" | python3 -c \
   'import json,sys; rows=json.load(sys.stdin).get("ragFiles", []); assert rows and rows[0].get("name"); print(rows[0]["name"])')
-rag_file_full_resource="//aiplatform.googleapis.com/${rag_file_resource}"
-assert_service_account_permissions_denied \
-  "$mcp_sa" "$location_full_resource" \
-  'aiplatform.reasoningEngines.create,aiplatform.ragCorpora.create'
-assert_service_account_permissions_denied \
-  "$mcp_sa" "$runtime_full_resource" \
-  'aiplatform.reasoningEngines.update,aiplatform.reasoningEngines.delete'
-assert_service_account_permissions_denied \
-  "$mcp_sa" "$corpus_full_resource" \
-  'aiplatform.ragCorpora.update,aiplatform.ragCorpora.delete'
-assert_service_account_permissions_denied \
-  "$mcp_sa" "$rag_file_full_resource" 'aiplatform.ragFiles.delete'
-printf '%s\n' 'PASS Policy Troubleshooter confirms MCP has no prohibited effective mutation permission'
+
+iam_verify_job='caffemate-mcp-iam-verify'
+configure_iam_verify_job() {
+  action=$1
+  gcloud run jobs "$action" "$iam_verify_job" \
+    --project="$project_id" --region="$region" \
+    --image="$tagged_digest" --service-account="$mcp_sa" \
+    --set-env-vars="CAFFEMATE_GCP_REGION=${region},AGENT_RUNTIME_RESOURCE=${runtime_resource},RAG_CORPUS_RESOURCE=${official_rag_corpus_resource},RAG_FILE_RESOURCE=${rag_file_resource}" \
+    --command=node --args=deploy/runtime-iam-smoke.mjs \
+    --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=2m \
+    --cpu=1 --memory=512Mi --quiet >/dev/null
+}
+if gcloud run jobs describe "$iam_verify_job" \
+  --project="$project_id" --region="$region" >/dev/null 2>&1; then
+  configure_iam_verify_job update
+else
+  configure_iam_verify_job create
+fi
+gcloud run jobs execute "$iam_verify_job" \
+  --project="$project_id" --region="$region" --wait --quiet >/dev/null
+printf '%s\n' 'PASS MCP runtime identity has no prohibited effective mutation permission'
 
 mcp_url=$(gcloud run services describe "$service_name" --project="$project_id" --region="$region" --format='value(status.url)')
 unauth_status=$(curl -sS -o /dev/null -w '%{http_code}' "${mcp_url}/healthz")

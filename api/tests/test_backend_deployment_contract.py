@@ -195,7 +195,8 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
         "Agent Runtime identity uses only managed non-mutating default project access"
         in verifier
     )
-    assert "Policy Troubleshooter confirms Control API invoke-only effective access" in verifier
+    assert "verify-agent-runtime-iam" in verifier
+    assert "runtime identity has query-only effective access" in verifier
     assert "shared Agent GCP release preflight" in verifier
     assert "Control API has project service usage permission" in verifier
     assert "created, executed, validated and deleted an Agent Runtime session" in verifier
@@ -282,6 +283,22 @@ def test_mcp_build_provenance_uses_only_reviewed_checkout() -> None:
     assert '"build-agent-release-preflight-image"' in provenance
     assert '"push-agent-release-preflight-image"' in provenance
     assert '"release-preflight"' in provenance
+
+
+def test_effective_iam_verification_runs_as_the_deployed_identities() -> None:
+    verifier = (ROOT / "scripts" / "verify-private-mcp.sh").read_text(
+        encoding="utf-8"
+    )
+    smoke = (ROOT / "deploy" / "runtime-iam-smoke.mjs").read_text(encoding="utf-8")
+
+    assert '--service-account="$mcp_sa"' in verifier
+    assert "deploy/runtime-iam-smoke.mjs" in verifier
+    assert ":testIamPermissions" in smoke
+    assert "aiplatform.reasoningEngines.update" in smoke
+    assert "aiplatform.ragCorpora.query" in smoke
+    assert "aiplatform.ragCorpora.delete" in smoke
+    assert "aiplatform.ragFiles.delete" in smoke
+    assert "MCP_EFFECTIVE_IAM_OK" in smoke
 
 
 def test_shared_agent_preflight_uses_a_non_self_referential_verifier_image() -> None:
