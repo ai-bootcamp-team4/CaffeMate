@@ -9,7 +9,7 @@
   },
   "allow_global_fallback": false,
   "network_mode": "GCP_CONNECTED",
-  "gcp_preflight_status": "GCP_PREFLIGHT_VERIFIED",
+  "gcp_preflight_status": "AGENT_RUNTIME_STREAM_UPDATE_PENDING",
   "mcp": {
     "protocol_revision": "2026-07-28",
     "server_sdk": "@modelcontextprotocol/server@2.0.0",

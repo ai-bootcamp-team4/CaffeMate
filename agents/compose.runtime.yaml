@@ -34,5 +34,6 @@ services:
         Promise.all([
           fetch('http://runtime:8080/health').then(async r => { if (!r.ok || await r.text() !== 'OK') throw new Error('health failed') }),
           fetch('http://runtime:8080/list-apps').then(async r => { const body = await r.json(); if (!r.ok || !Array.isArray(body) || !body.includes('caffemate-agents')) throw new Error('agent discovery failed: ' + JSON.stringify(body)) }),
-          fetch('http://runtime:8080/api/reasoning_engine', {method:'POST', headers:{'content-type':'application/json'}, body:'{}'}).then(async r => { if (r.status !== 400) throw new Error('class method validation did not fail closed: ' + r.status + ' ' + await r.text()) })
+          fetch('http://runtime:8080/api/reasoning_engine', {method:'POST', headers:{'content-type':'application/json'}, body:'{}'}).then(async r => { if (r.status !== 400) throw new Error('class method validation did not fail closed: ' + r.status + ' ' + await r.text()) }),
+          fetch('http://runtime:8080/api/stream_reasoning_engine', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({class_method:'async_stream_query',input:{user_id:'p-smoke'}})}).then(async r => { if (r.status !== 400) throw new Error('stream class method validation did not fail closed: ' + r.status + ' ' + await r.text()) })
         ]).then(() => console.log('runtime smoke OK'))

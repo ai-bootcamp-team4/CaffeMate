@@ -68,6 +68,19 @@ function successfulFetch() {
         }],
       })
     }
+    if (url.endsWith('/reasoningEngines/777')) {
+      return Response.json({
+        name: `projects/${PROJECT_ID}/locations/${RUNTIME_REGION}/reasoningEngines/777`,
+        displayName: 'caffemate-agents',
+        spec: {
+          classMethods: [
+            { name: 'async_create_session', api_mode: 'async' },
+            { name: 'async_stream_query', api_mode: 'async_stream' },
+            { name: 'async_delete_session', api_mode: 'async' },
+          ],
+        },
+      })
+    }
     return Response.json({ error: { message: `unexpected ${url}` } }, { status: 404 })
   })
 }
@@ -117,6 +130,38 @@ describe('GCP deployment preflight', () => {
     expect(urls.filter((url) => url.includes('/reasoningEngines?')).every((url) => url.includes(RUNTIME_REGION))).toBe(true)
     expect(urls.filter((url) => url.includes('/ragCorpora?') || url.endsWith(':retrieveContexts')).every((url) => url.includes(RAG_REGION))).toBe(true)
     expect(urls.some((url) => url.includes('discoveryengine.googleapis.com'))).toBe(false)
+  })
+
+  it('fails closed when the deployed Runtime does not expose the required stream class method', async () => {
+    const fetchImpl = successfulFetch()
+    const baseImplementation = fetchImpl.getMockImplementation()
+    fetchImpl.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/reasoningEngines/777')) {
+        return Response.json({
+          name: `projects/${PROJECT_ID}/locations/${RUNTIME_REGION}/reasoningEngines/777`,
+          displayName: 'caffemate-agents',
+          spec: {
+            classMethods: [
+              { name: 'async_create_session', api_mode: 'async' },
+              { name: 'async_delete_session', api_mode: 'async' },
+            ],
+          },
+        })
+      }
+      if (!baseImplementation) throw new Error('missing base fetch implementation')
+      return baseImplementation(input, init)
+    })
+
+    const result = await runGcpPreflight(options(fetchImpl))
+
+    expect(result.ok).toBe(false)
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: 'agent-runtime',
+      ok: false,
+      code: 'AGENT_RUNTIME_CLASS_METHOD_MISMATCH',
+      detail: 'async_stream_query:async_stream',
+    }))
   })
 
   it('fails closed when the pinned reranker cannot run through the Seoul RAG endpoint', async () => {

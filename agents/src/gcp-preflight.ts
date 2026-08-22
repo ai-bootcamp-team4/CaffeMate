@@ -1,5 +1,6 @@
 import { RAG_RANKER } from '../../rag/src/config'
 import { GCP_LOCATIONS } from './registry'
+import { AGENT_RUNTIME_CLASS_METHODS } from './runtime-contract'
 
 const OFFICIAL_CORPUS_DISPLAY_NAME = 'caffemate-official-v1'
 const EMBEDDING_MODEL_ID = 'text-multilingual-embedding-002'
@@ -69,6 +70,12 @@ interface RagFileRow {
 interface ReasoningEngineRow {
   name?: string
   displayName?: string
+  spec?: {
+    classMethods?: Array<{
+      name?: string
+      api_mode?: string
+    }>
+  }
 }
 
 function pass(name: GcpPreflightCheck['name'], code: string, detail?: string): GcpPreflightCheck {
@@ -77,6 +84,23 @@ function pass(name: GcpPreflightCheck['name'], code: string, detail?: string): G
 
 function fail(name: GcpPreflightCheck['name'], code: string, detail?: string): GcpPreflightCheck {
   return { name, ok: false, code, ...(detail ? { detail } : {}) }
+}
+
+function runtimeClassMethodMismatch(runtime: ReasoningEngineRow): string | null {
+  const actual = new Set(
+    (runtime.spec?.classMethods ?? [])
+      .filter((method) => typeof method.name === 'string' && typeof method.api_mode === 'string')
+      .map((method) => `${method.name}:${method.api_mode}`),
+  )
+  const expected = AGENT_RUNTIME_CLASS_METHODS.map((method) => `${method.name}:${method.api_mode}`)
+  const expectedSet = new Set<string>(expected)
+  for (const method of expected) {
+    if (!actual.has(method)) return method
+  }
+  if (actual.size !== expected.length) {
+    return [...actual].find((method) => !expectedSet.has(method)) ?? 'unexpected class method'
+  }
+  return null
 }
 
 function assertLocations(options: GcpPreflightOptions): void {
@@ -290,7 +314,25 @@ export async function runGcpPreflight(options: GcpPreflightOptions): Promise<Gcp
       checks.push(fail('agent-runtime', 'AGENT_RUNTIME_NOT_DEPLOYED'))
     } else {
       runtimeResource = matches[0].name
-      checks.push(pass('agent-runtime', 'AGENT_RUNTIME_OK', runtimeResource))
+      const runtimeId = runtimeResource.split('/').at(-1)
+      if (!runtimeId) {
+        checks.push(fail('agent-runtime', 'AGENT_RUNTIME_RESOURCE_INVALID', runtimeResource))
+      } else {
+        const runtimeGetResponse = await request(
+          fetchImpl,
+          token,
+          `${runtimeBase}/reasoningEngines/${encodeURIComponent(runtimeId)}`,
+        )
+        if (!runtimeGetResponse.ok) {
+          checks.push(fail('agent-runtime', 'AGENT_RUNTIME_GET_FAILED', `HTTP ${runtimeGetResponse.status}`))
+        } else {
+          const runtime = await runtimeGetResponse.json() as ReasoningEngineRow
+          const mismatch = runtimeClassMethodMismatch(runtime)
+          checks.push(mismatch
+            ? fail('agent-runtime', 'AGENT_RUNTIME_CLASS_METHOD_MISMATCH', mismatch)
+            : pass('agent-runtime', 'AGENT_RUNTIME_OK', runtimeResource))
+        }
+      }
     }
   }
 

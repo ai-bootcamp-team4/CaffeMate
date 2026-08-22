@@ -3,6 +3,7 @@ import { dispatchAgentTask } from './dispatcher'
 import { createApplicationDefaultGoogleCloudContext } from './gcp-auth'
 import { runGcpPreflight, type GcpPreflightResult } from './gcp-preflight'
 import { AGENT_MODEL, GCP_LOCATIONS, TASK_REGISTRY } from './registry'
+import { AGENT_RUNTIME_CLASS_METHODS, CAFFEMATE_AGENT_APP_NAME } from './runtime-contract'
 import { validateAgentTask, validateAgentTaskResult } from './schema-validator'
 import { validateAgentSemantics } from './semantic-validator'
 import type { AgentExecutorMap, AgentTask, AgentTaskResult } from './types'
@@ -55,6 +56,14 @@ export async function runAgentControl(
   switch (command) {
     case 'registry':
       return { ok: true, data: { model: AGENT_MODEL, tasks: TASK_REGISTRY } }
+    case 'runtime-spec':
+      return {
+        ok: true,
+        data: {
+          appName: CAFFEMATE_AGENT_APP_NAME,
+          classMethods: AGENT_RUNTIME_CLASS_METHODS,
+        },
+      }
     case 'validate-fixtures': {
       const validations = fixtures.map(fixtureValidation)
       const invalidCases = validations.filter((item) => !item.ok)
@@ -93,7 +102,7 @@ export async function runAgentControl(
     default:
       return invalid(
         'COMMAND_NOT_SUPPORTED',
-        'supported commands: registry, validate-fixtures, dispatch-fixture <id>, gcp-preflight [model-id]',
+        'supported commands: registry, runtime-spec, validate-fixtures, dispatch-fixture <id>, gcp-preflight [model-id]',
       )
   }
 }

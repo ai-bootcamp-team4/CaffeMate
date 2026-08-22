@@ -1,4 +1,4 @@
-const APP_NAME = 'caffemate-agents'
+import { CAFFEMATE_AGENT_APP_NAME } from './runtime-contract'
 
 export interface ManagedSessionService {
   createSession(request: {
@@ -62,7 +62,7 @@ export async function handleRuntimeClassMethod(
       }
     }
     const session = await sessionService.createSession({
-      appName: APP_NAME,
+      appName: CAFFEMATE_AGENT_APP_NAME,
       userId,
       state,
     })
@@ -78,7 +78,7 @@ export async function handleRuntimeClassMethod(
     }
   }
   await sessionService.deleteSession({
-    appName: APP_NAME,
+    appName: CAFFEMATE_AGENT_APP_NAME,
     userId,
     sessionId,
   })

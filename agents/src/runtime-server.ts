@@ -1,12 +1,15 @@
-import { VertexAiSessionService } from '@google/adk'
+import { Runner, VertexAiSessionService } from '@google/adk'
 import { AdkApiServer } from '@google/adk-devtools'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { rootAgent } from '../caffemate-agents/agent'
 import { GCP_LOCATIONS } from './registry'
+import { CAFFEMATE_AGENT_APP_NAME } from './runtime-contract'
 import {
   handleRuntimeClassMethod,
   type RuntimeClassMethodRequest,
 } from './runtime-session-bridge'
+import { prepareRuntimeStreamMethod } from './runtime-stream-bridge'
 
 const DEFAULT_PORT = 8080
 const MAX_CLASS_METHOD_BODY_BYTES = 1024 * 1024
@@ -42,11 +45,17 @@ interface RuntimeEnvironment {
   port: number
 }
 
-type RuntimeRequest = AsyncIterable<unknown>
+interface RuntimeRequest extends AsyncIterable<unknown> {
+  on(event: 'close', listener: () => void): unknown
+}
 
 interface RuntimeResponse {
+  readonly headersSent: boolean
   status(code: number): RuntimeResponse
   json(body: unknown): unknown
+  setHeader(name: string, value: string): unknown
+  write(chunk: string): boolean
+  end(chunk?: string): unknown
 }
 
 export function runtimeEnvironmentFrom(
@@ -77,6 +86,11 @@ export async function startCaffeMateRuntimeServer(): Promise<AdkApiServer> {
     projectId: runtime.projectId,
     location: runtime.runtimeRegion,
     agentEngineId: runtime.agentEngineId,
+  })
+  const runner = new Runner({
+    appName: CAFFEMATE_AGENT_APP_NAME,
+    agent: rootAgent,
+    sessionService,
   })
   const server = new AdkApiServer({
     agentsDir: process.env.CAFFEMATE_AGENTS_DIR ?? path.resolve(process.cwd(), 'agents'),
@@ -112,6 +126,57 @@ export async function startCaffeMateRuntimeServer(): Promise<AdkApiServer> {
       res.status(500).json({
         error: error instanceof Error ? error.message : String(error),
       })
+    }
+  })
+
+  server.app.post('/api/stream_reasoning_engine', async (req: RuntimeRequest, res: RuntimeResponse) => {
+    let body: RuntimeClassMethodRequest
+    try {
+      body = await readJsonBody(req)
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return
+    }
+
+    const abortController = new AbortController()
+    let responseCompleted = false
+    req.on('close', () => {
+      if (!responseCompleted) abortController.abort()
+    })
+
+    try {
+      const result = await prepareRuntimeStreamMethod(
+        body,
+        sessionService,
+        runner,
+        abortController.signal,
+      )
+      if (!result.handled) {
+        res.status(400).json({ error: 'unsupported class_method' })
+        return
+      }
+      if (result.status !== 200) {
+        res.status(result.status).json({ error: result.error })
+        return
+      }
+
+      res.setHeader('Cache-Control', 'no-cache')
+      res.setHeader('Content-Type', 'application/json')
+      for await (const event of result.stream) {
+        res.write(`${JSON.stringify(event)}\n`)
+      }
+      responseCompleted = true
+      res.end()
+    } catch (error) {
+      const body = { error: error instanceof Error ? error.message : String(error) }
+      if (res.headersSent) {
+        responseCompleted = true
+        res.end(`${JSON.stringify(body)}\n`)
+      } else {
+        res.status(500).json(body)
+      }
     }
   })
 

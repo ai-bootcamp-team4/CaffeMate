@@ -15,6 +15,22 @@ describe('Agent Control CLI core', () => {
     })
   })
 
+  it('reports the deployable Runtime class-method contract', async () => {
+    const output = await runAgentControl(['runtime-spec'])
+
+    expect(output).toMatchObject({
+      ok: true,
+      data: {
+        appName: 'caffemate-agents',
+        classMethods: [
+          { name: 'async_create_session', api_mode: 'async' },
+          { name: 'async_stream_query', api_mode: 'async_stream' },
+          { name: 'async_delete_session', api_mode: 'async' },
+        ],
+      },
+    })
+  })
+
   it('validates every checked-in role fixture', async () => {
     const output = await runAgentControl(['validate-fixtures'])
     expect(output).toMatchObject({ ok: true, data: { total: 14, invalid: 0 } })
