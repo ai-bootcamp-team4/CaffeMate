@@ -174,7 +174,7 @@ def test_missing_subscription_fails_closed_while_liveness_remains_available(
     app = create_worker_app(worker=FakeWorker(), expected_subscription=None)
 
     with TestClient(app) as client:
-        health = client.get("/healthz")
+        health = client.get("/health")
         response = client.post("/internal/v1/pubsub/workflow-stages", json={})
 
     assert health.status_code == 200

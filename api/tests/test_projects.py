@@ -38,6 +38,13 @@ def create_project(client: TestClient) -> dict[str, object]:
     return response.json()
 
 
+def test_liveness_is_available_without_user_authentication(client: TestClient) -> None:
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_project_has_no_state_until_onboarding_is_confirmed(client: TestClient) -> None:
     project = create_project(client)
     assert project["state"] is None

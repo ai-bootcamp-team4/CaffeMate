@@ -124,3 +124,37 @@ def test_migration_runtime_build_and_job_contracts() -> None:
     assert "versions access" not in deploy
     assert "digest-pinned image" in verifier
     assert "latest migration verification execution" in verifier
+
+
+def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
+    deploy = (ROOT / "scripts" / "deploy-api-worker-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+    verifier = (ROOT / "scripts" / "verify-api-worker-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "caffemate-api" in deploy
+    assert "caffemate-worker" in deploy
+    assert "--ingress=all" in deploy
+    assert "--ingress=internal" in deploy
+    assert "--default-url" in deploy
+    assert "--invoker-iam-check" in deploy
+    assert "--allow-unauthenticated" in deploy.split("gcloud run deploy caffemate-worker", 1)[0]
+    assert "--allow-unauthenticated" not in deploy.split("gcloud run deploy caffemate-worker", 1)[1]
+    assert "caffemate-pubsub-push" in deploy
+    assert "caffemate-scheduler" in deploy
+    assert "--push-auth-service-account" in deploy
+    assert "--oidc-service-account-email" in deploy
+    assert "WORKER_ID=caffemate-worker" in deploy
+    assert "roles/iam.serviceAccountTokenCreator" in deploy
+    assert "MCP_SCOPE_HMAC_SECRET" not in deploy.split("gcloud run deploy caffemate-worker", 1)[1]
+    assert "API unauthenticated business request returned HTTP 401" in verifier
+    assert '"${api_url}/health"' in verifier
+    assert '"${worker_url}/health"' in verifier
+    assert "/healthz" not in verifier
+    assert "Worker unauthenticated internet request rejected" in verifier
+    assert "authenticated Pub/Sub push configuration" in verifier
+    assert "API and Worker use the same image digest" in verifier
+    assert "Worker has public invoker policy" in verifier
+    assert "Scheduler reached internal Worker with HTTP 200" in verifier

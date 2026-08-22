@@ -421,8 +421,8 @@ def create_app(
             content["missing_stage_codes"] = error.missing_stage_codes
         return JSONResponse(status_code=status_code, content=content)
 
-    @app.get("/healthz", tags=["operations"])
-    def healthz() -> dict[str, str]:
+    @app.get("/health", tags=["operations"])
+    def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.post(
