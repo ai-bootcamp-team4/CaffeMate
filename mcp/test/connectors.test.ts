@@ -12,12 +12,15 @@ describe('official address connectors', () => {
   })
 
   it('maps official Juso results to deduplicated administrative areas', async () => {
-    const fetcher = vi.fn(async () => new Response(JSON.stringify({
-      results: { common: { errorCode: '0' }, juso: [
-        { admCd: '4111710300', siNm: '경기도', sggNm: '수원시 영통구', emdNm: '원천동' },
-        { admCd: '4111710300', siNm: '경기도', sggNm: '수원시 영통구', emdNm: '원천동' },
-      ] },
-    }), { status: 200 }))
+    const fetcher = vi.fn(async (input: unknown) => {
+      void input
+      return new Response(JSON.stringify({
+        results: { common: { errorCode: '0' }, juso: [
+          { admCd: '4111710300', siNm: '경기도', sggNm: '수원시 영통구', emdNm: '원천동' },
+          { admCd: '4111710300', siNm: '경기도', sggNm: '수원시 영통구', emdNm: '원천동' },
+        ] },
+      }), { status: 200 })
+    })
     const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now }).resolve_area!
     const result = await connector({ query: '수원 원천동', country_code: 'KR', limit: 5 }, scope) as Record<string, unknown>
     expect(result).toMatchObject({ status: 'OK', project_id: 'project-1' })
@@ -26,6 +29,7 @@ describe('official address connectors', () => {
       boundary_version: 'JUSO_LIVE_UNVERSIONED', match_kind: 'CONTAINS',
     }])
     expect(fetcher).toHaveBeenCalledOnce()
+    expect(new URL(String(fetcher.mock.calls[0]?.[0])).searchParams.get('countPerPage')).toBe('5')
   })
 
   it.each([
@@ -84,6 +88,22 @@ describe('official address connectors', () => {
       match_kind: 'CONTAINS',
     }])
     expect(fetcher).toHaveBeenCalledOnce()
+  })
+
+  it('retries one transient official API failure before returning candidates', async () => {
+    const fetcher = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary network failure'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        results: { common: { errorCode: '0' }, juso: [
+          { admCd: '1144012300', siNm: '서울특별시', sggNm: '마포구', emdNm: '망원동' },
+        ] },
+      }), { status: 200 }))
+    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now }).resolve_area!
+
+    const result = await connector({ query: '망원동', country_code: 'KR', limit: 5 }, scope) as Record<string, unknown>
+
+    expect(result).toMatchObject({ status: 'OK' })
+    expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
   it('reports configured and unknown source health without inventing success timestamps', async () => {

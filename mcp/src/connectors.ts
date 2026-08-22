@@ -5,7 +5,8 @@ import { createSourceHealthConnector, type McpConfiguredSource } from './source-
 const JUSO_SOURCE_ID = 'mois-juso-address-search'
 const JUSO_SOURCE_REF = 'https://business.juso.go.kr/addrlink/addrLinkApi.do'
 const JUSO_GUIDE_REF = 'https://business.juso.go.kr/jst/jstRoadNmAddrApiSearch'
-const JUSO_REQUEST_TIMEOUT_MS = 12_000
+const JUSO_REQUEST_TIMEOUT_MS = 8_000
+const JUSO_REQUEST_ATTEMPTS = 2
 
 interface ConnectorOptions {
   jusoApiKey?: string
@@ -179,7 +180,7 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
     const jusoApiKey = options.jusoApiKey
     if (!jusoApiKey) return unavailable(scope, 'resolve_area', now, 'SOURCE_CREDENTIAL_MISSING')
     const input = rawInput as { query: string; limit: number }
-    const fetchJuso = async (query: string, count: number) => {
+    const fetchJusoOnce = async (query: string, count: number) => {
       const url = new URL(JUSO_SOURCE_REF)
       url.search = new URLSearchParams({
         confmKey: jusoApiKey, currentPage: '1', countPerPage: String(count),
@@ -192,10 +193,21 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
       if (!response.ok) throw new Error(`HTTP_${response.status}`)
       return response.text()
     }
+    const fetchJuso = async (query: string, count: number) => {
+      let lastError: unknown
+      for (let attempt = 0; attempt < JUSO_REQUEST_ATTEMPTS; attempt += 1) {
+        try {
+          return await fetchJusoOnce(query, count)
+        } catch (error) {
+          lastError = error
+        }
+      }
+      throw lastError
+    }
 
     let originalBody: string
     try {
-      originalBody = await fetchJuso(input.query, Math.min(100, Math.max(20, input.limit * 5)))
+      originalBody = await fetchJuso(input.query, input.limit)
     } catch {
       return { ...base(scope, 'resolve_area', now), status: 'ERROR', data: [], missing_fields: [], source_trace: [], error_codes: ['SOURCE_UNAVAILABLE'] }
     }
@@ -218,7 +230,7 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
     if (!data.length) {
       const expansions = localitySearchVariants(input.query)
       const expandedResponses = await Promise.allSettled(
-        expansions.map((query) => fetchJuso(query, Math.min(100, Math.max(20, input.limit * 3)))),
+        expansions.map((query) => fetchJuso(query, input.limit)),
       )
       for (const response of expandedResponses) {
         if (response.status !== 'fulfilled') continue
