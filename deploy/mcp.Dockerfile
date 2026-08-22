@@ -4,6 +4,9 @@ WORKDIR /app
 COPY --chown=node:node mcp/package.json mcp/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --chown=node:node docs/contracts ./docs/contracts
+COPY --chown=node:node agents/release-manifest.json ./agents/release-manifest.json
+COPY --chown=node:node agents/fixtures ./agents/fixtures
+COPY --chown=node:node agents/src ./agents/src
 COPY --chown=node:node rag/src ./rag/src
 COPY --chown=node:node mcp/src ./mcp/src
 USER node

@@ -3,12 +3,25 @@ substitutions:
   _AR_REPOSITORY: caffemate-backend
   _IMAGE_NAME: mcp
   _IMAGE_TAG: manual
+  _SOURCE_REVISION: unset
+  _REPOSITORY_URL: https://github.com/ai-bootcamp-team4/CaffeMate.git
 
 steps:
+  - id: checkout-reviewed-source
+    name: gcr.io/cloud-builders/git
+    entrypoint: sh
+    args:
+      - -ceu
+      - |
+        git init /workspace/source
+        git -C /workspace/source remote add origin '${_REPOSITORY_URL}'
+        git -C /workspace/source fetch --depth=1 origin '${_SOURCE_REVISION}'
+        git -C /workspace/source checkout --detach FETCH_HEAD
+        test "$(git -C /workspace/source rev-parse HEAD)" = '${_SOURCE_REVISION}'
   - id: build-mcp-image
     name: gcr.io/cloud-builders/docker
     env: [DOCKER_BUILDKIT=1]
-    args: [build, --file, deploy/mcp.Dockerfile, --tag, '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}', .]
+    args: [build, --file, /workspace/source/deploy/mcp.Dockerfile, --tag, '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}', /workspace/source]
   - id: push-mcp-image
     name: gcr.io/cloud-builders/docker
     args: [push, '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}']

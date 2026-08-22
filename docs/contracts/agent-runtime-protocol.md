@@ -93,7 +93,7 @@ Control API의 물리 설정은 `gcp_project_id`와 `resource_id`를 분리한�
 한 invocation은 다음 순서만 사용한다.
 
 1. `POST .../reasoningEngines/{resource_id}:query`의 `async_create_session`으로 ADK 관리형 session을 생성한다.
-2. 반환된 opaque session id를 아래 `:streamQuery`의 `session_id`로 전달한다.
+2. Runtime이 동일한 session id를 반환했는지 검증하고 아래 `:streamQuery`에 전달한다.
 3. terminal outcome 뒤 `async_delete_session`을 같은 `:query` endpoint로 호출한다.
 4. 삭제 실패는 durable cleanup outbox로 넘겨 재시도하고, 재시도 예산 소진 시 운영 경고를 만든다.
 
@@ -110,7 +110,7 @@ POST https://asia-northeast3-aiplatform.googleapis.com/v1/projects/{gcp_project_
 class_method=async_delete_session
 ```
 
-session 생성 입력의 `user_id`는 실제 사용자 식별자가 아니라 `venture_project_id`를 서버 비밀값으로 HMAC한 `p-<digest>`다. Control API가 session id를 추측하거나 직접 만들지 않는다. 별도 Sessions REST API와 `async_create_session`을 혼용하지 않으며 session TTL을 제품 계약으로 주장하지 않는다. 모든 `AgentTask`는 session 이력 없이 완전해야 하고 session은 제품 State나 대화 기억이 아니다.
+session 생성 입력의 `user_id`는 실제 사용자 식별자가 아니라 `venture_project_id`를 서버 비밀값으로 HMAC한 `p-<digest>`다. Control API는 `invocation_id`의 SHA-256 digest로 충돌하기 어려운 비식별 session id를 생성해 `async_create_session`에 전달하고 Runtime이 그 값을 그대로 사용했는지 확인한다. 이 값은 create 응답이 deadline 때문에 유실돼도 같은 session을 durable cleanup 대상으로 지정하기 위한 식별자이며 제품 State나 사용자 식별자가 아니다. 별도 Sessions REST API와 `async_create_session`을 혼용하지 않으며 session TTL을 제품 계약으로 주장하지 않는다. 모든 `AgentTask`는 session 이력 없이 완전해야 하고 session은 제품 State나 대화 기억이 아니다.
 
 `:streamQuery` body는 다음과 같다.
 

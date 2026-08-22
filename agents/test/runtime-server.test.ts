@@ -16,7 +16,7 @@ describe('Agent Runtime managed-session bridge', () => {
     const result = await handleRuntimeClassMethod(
       {
         class_method: 'async_create_session',
-        input: { user_id: 'p-deadbeef' },
+        input: { user_id: 'p-deadbeef', session_id: 'session-123' },
       },
       { createSession, deleteSession: vi.fn() },
     )
@@ -25,6 +25,7 @@ describe('Agent Runtime managed-session bridge', () => {
       appName: 'caffemate-agents',
       userId: 'p-deadbeef',
       state: {},
+      sessionId: 'session-123',
     })
     expect(result).toEqual({
       handled: true,
@@ -35,6 +36,24 @@ describe('Agent Runtime managed-session bridge', () => {
           userId: 'p-deadbeef',
         }),
       },
+    })
+  })
+
+  it('fails closed when the managed service returns a different session id', async () => {
+    const createSession = vi.fn(async () => ({ id: 'different-session' }))
+
+    const result = await handleRuntimeClassMethod(
+      {
+        class_method: 'async_create_session',
+        input: { user_id: 'p-deadbeef', session_id: 'session-123' },
+      },
+      { createSession, deleteSession: vi.fn() },
+    )
+
+    expect(result).toEqual({
+      handled: true,
+      status: 502,
+      body: { error: 'managed session service returned a mismatched session id' },
     })
   })
 

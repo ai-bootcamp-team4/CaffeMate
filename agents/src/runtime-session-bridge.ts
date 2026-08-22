@@ -6,6 +6,7 @@ export interface ManagedSessionService {
     appName: string
     userId: string
     state?: Record<string, unknown>
+    sessionId?: string
   }): Promise<unknown>
   deleteSession(request: {
     appName: string
@@ -66,6 +67,14 @@ export async function handleRuntimeClassMethod(
   }
 
   if (classMethod === 'async_create_session') {
+    const sessionId = nonEmptyString(input.session_id)
+    if (!sessionId) {
+      return {
+        handled: true,
+        status: 400,
+        body: { error: 'async_create_session requires input.session_id' },
+      }
+    }
     const state = input.state === undefined ? {} : inputObject(input.state)
     if (!state) {
       return {
@@ -78,7 +87,15 @@ export async function handleRuntimeClassMethod(
       appName: CAFFEMATE_AGENT_APP_NAME,
       userId,
       state,
+      sessionId,
     })
+    if (!session || typeof session !== 'object' || (session as { id?: unknown }).id !== sessionId) {
+      return {
+        handled: true,
+        status: 502,
+        body: { error: 'managed session service returned a mismatched session id' },
+      }
+    }
     return { handled: true, status: 200, body: { output: session } }
   }
 
