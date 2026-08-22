@@ -34,23 +34,16 @@ remote_main=$(git ls-remote origin refs/heads/main | awk '{print $1}')
 tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-agents/caffemate-agent-runtime:${source_revision}"
 approved_tag="${region}-docker.pkg.dev/${project_id}/caffemate-agents/caffemate-agent-runtime:approved-${source_revision}"
 build_sa="projects/${project_id}/serviceAccounts/caffemate-backend-build@${project_id}.iam.gserviceaccount.com"
-image=$(gcloud artifacts docker images describe "$tagged_image" \
+image=$(gcloud artifacts docker images describe "$approved_tag" \
   --project="$project_id" \
   --format='value(image_summary.fully_qualified_digest)')
 case "$image" in
   "${region}-docker.pkg.dev/${project_id}/caffemate-agents/caffemate-agent-runtime@sha256:"*) ;;
-  *) printf '%s\n' 'Agent Runtime image digest is unavailable' >&2; exit 1 ;;
+  *) printf '%s\n' 'approved Agent Runtime image digest is unavailable' >&2; exit 1 ;;
 esac
 digest=${image##*@}
 build_id=$(verified_build_id_for_image \
   "$tagged_image" "$digest" "$source_revision" "$build_sa")
-approved_image=$(gcloud artifacts docker images describe "$approved_tag" \
-  --project="$project_id" \
-  --format='value(image_summary.fully_qualified_digest)')
-[ "$approved_image" = "$image" ] || {
-  printf '%s\n' 'Agent Runtime candidate lacks a matching immutable approval tag' >&2
-  exit 1
-}
 
 manifest_resource=$(python3 - <<'PY'
 import json

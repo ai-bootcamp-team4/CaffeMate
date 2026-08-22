@@ -244,6 +244,12 @@ def test_agent_runtime_release_is_source_and_digest_bound() -> None:
     assert "image_summary.fully_qualified_digest" in deploy
     assert "approved-${source_revision}" in approve
     assert "approved-${source_revision}" in deploy
+    assert 'image=$(gcloud artifacts docker images describe "$approved_tag"' in deploy
+    assert 'verified_build_id_for_image' in deploy
+    assert '"$tagged_image" "$digest" "$source_revision" "$build_sa"' in deploy
+    assert '[ "$approved_image" = "$image" ]' not in deploy
+    assert 'expected_image=$(gcloud artifacts docker images describe "$approved_tag"' in verifier
+    assert '[ "$built_image" = "$approved_image" ]' not in verifier
     assert "approval tag already points at a different digest" in approve
     assert "updateMask=description,labels,spec.classMethods" in deploy
     assert "pinned Agent Runtime GET failed with HTTP" in deploy
