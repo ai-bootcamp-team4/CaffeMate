@@ -5,6 +5,9 @@ project_id=${CAFFEMATE_GCP_PROJECT_ID:-}
 region=${CAFFEMATE_GCP_REGION:-asia-northeast3}
 source_revision=${CAFFEMATE_SOURCE_REVISION:-}
 
+. "$(dirname "$0")/effective-iam-helpers.sh"
+. "$(dirname "$0")/build-provenance-helpers.sh"
+
 if [ -z "$project_id" ] || [ -z "$source_revision" ]; then
   printf '%s\n' 'CAFFEMATE_GCP_PROJECT_ID and CAFFEMATE_SOURCE_REVISION are required' >&2
   exit 2
@@ -15,6 +18,10 @@ api_url=$(gcloud run services describe caffemate-api --project="$project_id" \
 worker_url=$(gcloud run services describe caffemate-worker --project="$project_id" \
   --region="$region" --format='value(status.url)')
 api_sa="caffemate-api-runtime@${project_id}.iam.gserviceaccount.com"
+release_verifier_sa="caffemate-release-verifier@${project_id}.iam.gserviceaccount.com"
+runtime_invoker_role="projects/${project_id}/roles/caffemateAgentRuntimeInvoker"
+session_manager_role="projects/${project_id}/roles/caffemateAgentSessionManager"
+release_verifier_role="projects/${project_id}/roles/caffemateReleaseVerifier"
 
 for service in caffemate-api caffemate-worker; do
   revision=$(gcloud run services describe "$service" --project="$project_id" \
@@ -65,51 +72,135 @@ agent_runtime_json=$(curl --fail --silent --show-error \
   "$agent_runtime_url")
 agent_runtime_identity=$(printf '%s' "$agent_runtime_json" | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["spec"]["effectiveIdentity"])')
+agent_runtime_image=$(printf '%s' "$agent_runtime_json" | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["spec"]["containerSpec"]["imageUri"])')
+agent_runtime_resource_name="projects/${project_id}/locations/${region}/reasoningEngines/${configured_agent_resource}"
 case "$agent_runtime_identity" in
   principal://agents.*) ;;
   agents.*) agent_runtime_identity="principal://${agent_runtime_identity}" ;;
   *) printf '%s\n' 'FAIL Agent Runtime effective identity is unavailable' >&2; exit 1 ;;
 esac
 project_policy=$(gcloud projects get-iam-policy "$project_id" --format=json)
-PROJECT_POLICY="$project_policy" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'
+project_number=$(gcloud projects describe "$project_id" --format='value(projectNumber)')
+agent_default_role_json=$(gcloud iam roles describe roles/aiplatform.agentDefaultAccess \
+  --format=json)
+runtime_invoker_role_json=$(gcloud iam roles describe caffemateAgentRuntimeInvoker \
+  --project="$project_id" --format=json)
+session_manager_role_json=$(gcloud iam roles describe caffemateAgentSessionManager \
+  --project="$project_id" --format=json)
+release_verifier_role_json=$(gcloud iam roles describe caffemateReleaseVerifier \
+  --project="$project_id" --format=json)
+PROJECT_POLICY="$project_policy" PROJECT_NUMBER="$project_number" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" API_SERVICE_ACCOUNT="$api_sa" RELEASE_VERIFIER_ROLE="$release_verifier_role" RELEASE_VERIFIER_SERVICE_ACCOUNT="$release_verifier_sa" AGENT_DEFAULT_ROLE_JSON="$agent_default_role_json" RUNTIME_INVOKER_ROLE_JSON="$runtime_invoker_role_json" SESSION_MANAGER_ROLE_JSON="$session_manager_role_json" RELEASE_VERIFIER_ROLE_JSON="$release_verifier_role_json" python3 - <<'PY'
 import json
 import os
 
 policy = json.loads(os.environ["PROJECT_POLICY"])
+agent_default_role = json.loads(os.environ["AGENT_DEFAULT_ROLE_JSON"])
+runtime_role = json.loads(os.environ["RUNTIME_INVOKER_ROLE_JSON"])
+session_role = json.loads(os.environ["SESSION_MANAGER_ROLE_JSON"])
+release_role = json.loads(os.environ["RELEASE_VERIFIER_ROLE_JSON"])
+assert not any(
+    permission.startswith("aiplatform.")
+    and any(action in permission for action in (".create", ".delete", ".update", ".deploy"))
+    for permission in agent_default_role["includedPermissions"]
+), "managed Agent default access contains Vertex mutation permission"
+assert set(runtime_role["includedPermissions"]) == {"aiplatform.reasoningEngines.query"}
+assert set(session_role["includedPermissions"]) == {
+    "aiplatform.sessionEvents.append",
+    "aiplatform.sessionEvents.list",
+    "aiplatform.sessions.create",
+    "aiplatform.sessions.delete",
+    "aiplatform.sessions.get",
+    "aiplatform.sessions.list",
+    "aiplatform.sessions.update",
+}
+assert set(release_role["includedPermissions"]) == {
+    "aiplatform.endpoints.predict",
+    "aiplatform.ragCorpora.get",
+    "aiplatform.ragCorpora.list",
+    "aiplatform.ragCorpora.query",
+    "aiplatform.ragFiles.get",
+    "aiplatform.ragFiles.list",
+    "aiplatform.reasoningEngines.get",
+    "aiplatform.reasoningEngines.list",
+    "discoveryengine.rankingConfigs.rank",
+}
 identity = os.environ["AGENT_RUNTIME_IDENTITY"]
 api_member = f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}"
-roles = {
+release_member = f"serviceAccount:{os.environ['RELEASE_VERIFIER_SERVICE_ACCOUNT']}"
+direct_roles = {
     row["role"]
     for row in policy.get("bindings", [])
     if identity in row.get("members", [])
 }
-required = {"roles/aiplatform.expressUser", "roles/serviceusage.serviceUsageConsumer"}
-assert required <= roles, f"Agent Runtime identity lacks roles: {sorted(required - roles)}"
+assert direct_roles == set(), f"Agent Runtime identity retains direct project roles: {sorted(direct_roles)}"
+platform_set = (
+    "principalSet://" + identity.removeprefix("principal://").split("/resources/", 1)[0]
+    + "/attribute.platformContainer/aiplatform/projects/" + os.environ["PROJECT_NUMBER"]
+)
+platform_roles = {
+    row["role"]
+    for row in policy.get("bindings", [])
+    if platform_set in row.get("members", [])
+}
+assert platform_roles == {"roles/aiplatform.agentDefaultAccess"}, platform_roles
 assert any(
     row.get("role") == "roles/serviceusage.serviceUsageConsumer"
     and api_member in row.get("members", [])
     for row in policy.get("bindings", [])
 ), "Control API lacks project service usage permission"
-print("PASS Agent Runtime identity has model and service usage permissions")
+assert any(
+    row.get("role") == os.environ["RELEASE_VERIFIER_ROLE"]
+    and release_member in row.get("members", [])
+    for row in policy.get("bindings", [])
+), "release verifier lacks bounded AI preflight role"
+print("PASS Agent Runtime identity uses only managed non-mutating default project access")
 print("PASS Control API has project service usage permission")
+print("PASS release verifier has bounded AI preflight permission")
+print("PASS custom AI roles contain only approved permissions")
 PY
 agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
   --header "Authorization: Bearer ${access_token}" \
   --header 'Content-Type: application/json' \
   "${agent_runtime_url}:getIamPolicy" --data '{}')
-AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'
+AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" AGENT_RUNTIME_INVOKER_ROLE="$runtime_invoker_role" AGENT_SESSION_MANAGER_ROLE="$session_manager_role" python3 - <<'PY'
 import json
 import os
 
 policy = json.loads(os.environ["AGENT_RUNTIME_POLICY"])
 member = f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}"
+agent_identity = os.environ["AGENT_RUNTIME_IDENTITY"]
 assert any(
-    row.get("role") == "roles/aiplatform.user" and member in row.get("members", [])
+    row.get("role") == os.environ["AGENT_RUNTIME_INVOKER_ROLE"]
+    and member in row.get("members", [])
     for row in policy.get("bindings", [])
 ), "Control API lacks Agent Runtime query IAM"
+assert not any(
+    row.get("role") == "roles/aiplatform.user" and member in row.get("members", [])
+    for row in policy.get("bindings", [])
+), "Control API retains broad Agent Runtime mutation role"
+assert any(
+    row.get("role") == os.environ["AGENT_SESSION_MANAGER_ROLE"]
+    and agent_identity in row.get("members", [])
+    for row in policy.get("bindings", [])
+), "Agent Runtime identity lacks resource-scoped session lifecycle IAM"
+assert not any(
+    row.get("role") in {"roles/aiplatform.agentContextEditor", "roles/aiplatform.user"}
+    and agent_identity in row.get("members", [])
+    for row in policy.get("bindings", [])
+), "Agent Runtime identity retains resource mutation role"
 print("PASS Control API has resource-scoped Agent Runtime query IAM")
+print("PASS Agent Runtime identity has resource-scoped session lifecycle IAM")
 PY
+runtime_full_resource="//aiplatform.googleapis.com/projects/${project_id}/locations/${region}/reasoningEngines/${configured_agent_resource}"
+assert_service_account_permission_state \
+  "$api_sa" "$runtime_full_resource" 'aiplatform.reasoningEngines.query' 'CAN_ACCESS'
+assert_service_account_permissions_denied \
+  "$api_sa" "$runtime_full_resource" \
+  'aiplatform.reasoningEngines.update,aiplatform.reasoningEngines.delete'
+printf '%s\n' 'PASS Policy Troubleshooter confirms Control API invoke-only effective access'
 unset access_token agent_runtime_identity agent_runtime_json agent_runtime_policy project_policy
+unset agent_default_role_json runtime_invoker_role_json session_manager_role_json release_verifier_role_json
 
 agent_preflight_job='caffemate-agent-runtime-control-preflight'
 configure_agent_preflight_job() {
@@ -133,8 +224,32 @@ gcloud run jobs execute "$agent_preflight_job" --project="$project_id" --region=
   --wait --quiet >/dev/null
 printf '%s\n' 'PASS Control API created, executed, validated and deleted an Agent Runtime session'
 
-mcp_url=$(gcloud run services describe caffemate-mcp --project="$project_id" \
-  --region="$region" --format='value(status.url)')
+mcp_service_json=$(gcloud run services describe caffemate-mcp --project="$project_id" \
+  --region="$region" --format=json)
+mcp_url=$(printf '%s' "$mcp_service_json" | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["status"]["url"])')
+mcp_image=$(printf '%s' "$mcp_service_json" | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["image"])')
+mcp_source_revision=$(printf '%s' "$mcp_service_json" | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["spec"]["template"]["metadata"]["labels"]["source-revision"])')
+mcp_build_id=$(printf '%s' "$mcp_service_json" | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["spec"]["template"]["metadata"]["labels"]["build-id"])')
+[ "$mcp_source_revision" = "$source_revision" ] || {
+  printf '%s\n' 'FAIL MCP producer image source differs from API release' >&2; exit 1;
+}
+mcp_tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-backend/mcp:${source_revision}"
+mcp_tagged_digest=$(gcloud artifacts docker images describe "$mcp_tagged_image" \
+  --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
+[ "$mcp_tagged_digest" = "$mcp_image" ] || {
+  printf '%s\n' 'FAIL MCP producer image digest differs from source tag' >&2; exit 1;
+}
+mcp_verified_build_id=$(verified_build_id_for_image \
+  "$mcp_tagged_image" "${mcp_image##*@}" "$source_revision" \
+  "projects/${project_id}/serviceAccounts/caffemate-backend-build@${project_id}.iam.gserviceaccount.com")
+[ "$mcp_build_id" = "$mcp_verified_build_id" ] || {
+  printf '%s\n' 'FAIL MCP producer build provenance differs from deployed label' >&2; exit 1;
+}
+printf '%s\n' 'PASS MCP producer source, build and digest match backend release'
 configured_mcp_url=$(printf '%s' "$api_service_json" | python3 -c \
   'import json,sys; print(next(row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "MCP_BASE_URL"))')
 configured_mcp_audience=$(printf '%s' "$api_service_json" | python3 -c \
@@ -142,6 +257,30 @@ configured_mcp_audience=$(printf '%s' "$api_service_json" | python3 -c \
 [ "$configured_mcp_url" = "$mcp_url" ] && [ "$configured_mcp_audience" = "$mcp_url" ] || {
   printf '%s\n' 'FAIL Control API MCP URL or audience differs from deployed MCP' >&2; exit 1;
 }
+
+agent_gcp_preflight_job='caffemate-agent-gcp-release-preflight'
+configure_agent_gcp_preflight_job() {
+  action=$1
+  gcloud run jobs "$action" "$agent_gcp_preflight_job" \
+    --project="$project_id" --region="$region" \
+    --image="$mcp_image" --service-account="$release_verifier_sa" \
+    --set-env-vars="CAFFEMATE_AGENT_RUNTIME_RESOURCE_NAME=${agent_runtime_resource_name},CAFFEMATE_AGENT_RUNTIME_IMAGE_URI=${agent_runtime_image}" \
+    --command=node \
+    --args='--import,tsx,agents/src/control-cli.ts,gcp-preflight,--json' \
+    --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=5m \
+    --cpu=1 --memory=512Mi \
+    --labels="source-revision=${source_revision},managed-by=caffemate-verify" \
+    --quiet >/dev/null
+}
+if gcloud run jobs describe "$agent_gcp_preflight_job" \
+  --project="$project_id" --region="$region" >/dev/null 2>&1; then
+  configure_agent_gcp_preflight_job update
+else
+  configure_agent_gcp_preflight_job create
+fi
+gcloud run jobs execute "$agent_gcp_preflight_job" \
+  --project="$project_id" --region="$region" --wait --quiet >/dev/null
+printf '%s\n' 'PASS shared Agent GCP release preflight'
 
 preflight_job='caffemate-mcp-control-preflight'
 configure_preflight_job() {

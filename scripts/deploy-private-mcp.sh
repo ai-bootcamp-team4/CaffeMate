@@ -7,6 +7,9 @@ source_revision=${CAFFEMATE_SOURCE_REVISION:-}
 service_name=${CAFFEMATE_MCP_SERVICE_NAME:-caffemate-mcp}
 official_rag_corpus_resource=${CAFFEMATE_OFFICIAL_RAG_CORPUS_RESOURCE:-}
 
+. "$(dirname "$0")/iam-role-helpers.sh"
+. "$(dirname "$0")/build-provenance-helpers.sh"
+
 if [ -z "$project_id" ] || [ "${#source_revision}" -ne 40 ] || [ "$region" != 'asia-northeast3' ] || [ -z "$official_rag_corpus_resource" ]; then
   printf '%s\n' 'project, Seoul region, full source revision and official RAG corpus resource are required' >&2
   exit 2
@@ -20,24 +23,61 @@ if [ "$(gcloud config get-value project 2>/dev/null)" != "$project_id" ]; then
   printf '%s\n' 'active gcloud project does not match requested project' >&2
   exit 2
 fi
+gcloud services enable policytroubleshooter.googleapis.com \
+  --project="$project_id" --quiet >/dev/null
+current_revision=$(git rev-parse HEAD)
+[ "$current_revision" = "$source_revision" ] || {
+  printf '%s\n' 'requested MCP source revision differs from checked-out HEAD' >&2
+  exit 2
+}
+[ -z "$(git status --porcelain)" ] || {
+  printf '%s\n' 'MCP deployment requires a clean source checkout' >&2
+  exit 2
+}
+remote_main=$(git ls-remote origin refs/heads/main | awk '{print $1}')
+[ "$remote_main" = "$source_revision" ] || {
+  printf '%s\n' 'MCP deployment source must be the immutable origin/main revision' >&2
+  exit 2
+}
 
 tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-backend/mcp:${source_revision}"
 build_sa="projects/${project_id}/serviceAccounts/caffemate-backend-build@${project_id}.iam.gserviceaccount.com"
 runtime_sa="caffemate-mcp-runtime@${project_id}.iam.gserviceaccount.com"
 api_sa="caffemate-api-runtime@${project_id}.iam.gserviceaccount.com"
+mcp_retriever_role_id='caffemateMcpRetriever'
+mcp_retriever_role="projects/${project_id}/roles/${mcp_retriever_role_id}"
 
+ensure_project_custom_role \
+  "$mcp_retriever_role_id" \
+  'CaffeMate MCP Retriever' \
+  'Query approved Vertex RAG corpora and rerank retrieved evidence without mutation.' \
+  'aiplatform.ragCorpora.query,discoveryengine.rankingConfigs.rank'
 gcloud projects add-iam-policy-binding "$project_id" \
-  --member="serviceAccount:${runtime_sa}" --role='roles/aiplatform.user' --quiet >/dev/null
+  --member="serviceAccount:${runtime_sa}" --role="$mcp_retriever_role" --quiet >/dev/null
 gcloud projects add-iam-policy-binding "$project_id" \
-  --member="serviceAccount:${runtime_sa}" --role='roles/discoveryengine.viewer' --quiet >/dev/null
+  --member="serviceAccount:${runtime_sa}" --role='roles/serviceusage.serviceUsageConsumer' --quiet >/dev/null
+remove_project_role_binding "serviceAccount:${runtime_sa}" 'roles/aiplatform.user'
+remove_project_role_binding "serviceAccount:${runtime_sa}" 'roles/discoveryengine.viewer'
 
-if ! gcloud artifacts docker images describe "$tagged_image" --project="$project_id" >/dev/null 2>&1; then
-  gcloud builds submit . --project="$project_id" --region="$region" \
-    --config=cloudbuild.mcp-image.yaml --substitutions="_IMAGE_TAG=${source_revision}" \
+build_id=''
+if gcloud artifacts docker images describe "$tagged_image" --project="$project_id" >/dev/null 2>&1; then
+  image=$(gcloud artifacts docker images describe "$tagged_image" \
+    --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
+  digest=${image##*@}
+  build_id=$(verified_build_id_for_image \
+    "$tagged_image" "$digest" "$source_revision" "$build_sa" 2>/dev/null || true)
+fi
+if [ -z "$build_id" ]; then
+  gcloud builds submit --no-source --project="$project_id" --region="$region" \
+    --config=cloudbuild.mcp-image.yaml \
+    --substitutions="_IMAGE_TAG=${source_revision},_SOURCE_REVISION=${source_revision}" \
     --service-account="$build_sa" --quiet
 fi
 image=$(gcloud artifacts docker images describe "$tagged_image" --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
 case "$image" in "${region}-docker.pkg.dev/${project_id}/caffemate-backend/mcp@sha256:"*) ;; *) printf '%s\n' 'MCP image digest is unavailable' >&2; exit 1;; esac
+digest=${image##*@}
+build_id=$(verified_build_id_for_image \
+  "$tagged_image" "$digest" "$source_revision" "$build_sa")
 
 audience='https://bootstrap.invalid'
 if gcloud run services describe "$service_name" --project="$project_id" --region="$region" >/dev/null 2>&1; then
@@ -49,7 +89,7 @@ gcloud run deploy "$service_name" --project="$project_id" --region="$region" --i
   --set-env-vars="MCP_AUDIENCE=${audience},MCP_ALLOWED_CALLER_EMAIL=${api_sa},CAFFEMATE_GCP_PROJECT_ID=${project_id},RAG_OFFICIAL_CORPUS_RESOURCE=${official_rag_corpus_resource}" \
   --set-secrets='MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest,JUSO_API_KEY=caffemate-juso-api-key:latest' \
   --cpu=1 --memory=512Mi --min=0 --max=10 \
-  --labels="source-revision=${source_revision},managed-by=caffemate-deploy" --quiet >/dev/null
+  --labels="source-revision=${source_revision},build-id=${build_id},managed-by=caffemate-deploy" --quiet >/dev/null
 
 mcp_url=$(gcloud run services describe "$service_name" --project="$project_id" --region="$region" --format='value(status.url)')
 if [ "$audience" != "$mcp_url" ]; then

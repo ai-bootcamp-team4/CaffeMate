@@ -7,6 +7,8 @@ source_revision=${CAFFEMATE_SOURCE_REVISION:-}
 instance_id=${CAFFEMATE_DB_INSTANCE_ID:-caffemate-postgres}
 agent_runtime_resource_id=${CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID:-}
 
+. "$(dirname "$0")/iam-role-helpers.sh"
+
 if [ -z "$project_id" ] || [ -z "$source_revision" ] || [ -z "$agent_runtime_resource_id" ]; then
   printf '%s\n' 'CAFFEMATE_GCP_PROJECT_ID, CAFFEMATE_SOURCE_REVISION and CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID are required' >&2
   exit 2
@@ -28,6 +30,8 @@ if [ "$active_project" != "$project_id" ]; then
     "$active_project" "$project_id" >&2
   exit 2
 fi
+gcloud services enable policytroubleshooter.googleapis.com \
+  --project="$project_id" --quiet >/dev/null
 
 tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-backend/backend:${source_revision}"
 image=$(gcloud artifacts docker images describe "$tagged_image" \
@@ -70,58 +74,130 @@ case "$agent_runtime_identity" in
   *) printf '%s\n' 'Agent Runtime effective identity is unavailable' >&2; exit 1 ;;
 esac
 
-for role in roles/aiplatform.expressUser roles/serviceusage.serviceUsageConsumer; do
-  gcloud projects add-iam-policy-binding "$project_id" \
-    --member="$agent_runtime_identity" \
-    --role="$role" \
-    --condition=None \
-    --quiet >/dev/null
-done
+runtime_invoker_role_id='caffemateAgentRuntimeInvoker'
+runtime_invoker_role="projects/${project_id}/roles/${runtime_invoker_role_id}"
+session_manager_role_id='caffemateAgentSessionManager'
+session_manager_role="projects/${project_id}/roles/${session_manager_role_id}"
+release_verifier_role_id='caffemateReleaseVerifier'
+release_verifier_role="projects/${project_id}/roles/${release_verifier_role_id}"
+release_verifier_sa="caffemate-release-verifier@${project_id}.iam.gserviceaccount.com"
+
+ensure_project_custom_role \
+  "$runtime_invoker_role_id" \
+  'CaffeMate Agent Runtime Invoker' \
+  'Invoke only the pinned CaffeMate Reasoning Engine.' \
+  'aiplatform.reasoningEngines.query'
+ensure_project_custom_role \
+  "$session_manager_role_id" \
+  'CaffeMate Agent Session Manager' \
+  'Manage only the ephemeral sessions and events beneath the pinned CaffeMate Runtime.' \
+  'aiplatform.sessionEvents.append,aiplatform.sessionEvents.list,aiplatform.sessions.create,aiplatform.sessions.delete,aiplatform.sessions.get,aiplatform.sessions.list,aiplatform.sessions.update'
+ensure_project_custom_role \
+  "$release_verifier_role_id" \
+  'CaffeMate AI Release Verifier' \
+  'Read and execute the bounded Agent, RAG, embedding and reranker release probes.' \
+  'aiplatform.endpoints.predict,aiplatform.ragCorpora.get,aiplatform.ragCorpora.list,aiplatform.ragCorpora.query,aiplatform.ragFiles.get,aiplatform.ragFiles.list,aiplatform.reasoningEngines.get,aiplatform.reasoningEngines.list,discoveryengine.rankingConfigs.rank'
+
+remove_project_role_binding "$agent_runtime_identity" 'roles/aiplatform.expressUser'
+remove_project_role_binding "$agent_runtime_identity" 'roles/serviceusage.serviceUsageConsumer'
+remove_project_role_binding "$agent_runtime_identity" "projects/${project_id}/roles/caffemateAgentModelInvoker"
 gcloud projects add-iam-policy-binding "$project_id" \
   --member="serviceAccount:${api_sa}" \
   --role='roles/serviceusage.serviceUsageConsumer' \
   --condition=None \
   --quiet >/dev/null
 
+if ! gcloud iam service-accounts describe "$release_verifier_sa" \
+  --project="$project_id" >/dev/null 2>&1; then
+  gcloud iam service-accounts create caffemate-release-verifier \
+    --project="$project_id" \
+    --display-name='CaffeMate AI release verifier' \
+    --quiet >/dev/null
+fi
+for role in "$release_verifier_role" roles/serviceusage.serviceUsageConsumer; do
+  gcloud projects add-iam-policy-binding "$project_id" \
+    --member="serviceAccount:${release_verifier_sa}" \
+    --role="$role" \
+    --condition=None \
+    --quiet >/dev/null
+done
+
 agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
+  --connect-timeout 10 --max-time 30 \
   --header "Authorization: Bearer ${access_token}" \
   --header 'Content-Type: application/json' \
   "${agent_runtime_url}:getIamPolicy" \
   --data '{}')
-agent_runtime_policy=$(AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'
+agent_runtime_policy=$(AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" AGENT_RUNTIME_INVOKER_ROLE="$runtime_invoker_role" AGENT_SESSION_MANAGER_ROLE="$session_manager_role" python3 - <<'PY'
 import json
 import os
 
 policy = json.loads(os.environ["AGENT_RUNTIME_POLICY"])
 member = f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}"
-binding = next(
-    (row for row in policy.get("bindings", []) if row.get("role") == "roles/aiplatform.user"),
-    None,
-)
+approved_role = os.environ["AGENT_RUNTIME_INVOKER_ROLE"]
+agent_identity = os.environ["AGENT_RUNTIME_IDENTITY"]
+session_role = os.environ["AGENT_SESSION_MANAGER_ROLE"]
+for row in policy.get("bindings", []):
+    if row.get("role") == "roles/aiplatform.user":
+        row["members"] = [value for value in row.get("members", []) if value != member]
+    if row.get("role") in {
+        "roles/aiplatform.agentContextEditor",
+        "roles/aiplatform.user",
+    }:
+        row["members"] = [value for value in row.get("members", []) if value != agent_identity]
+policy["bindings"] = [row for row in policy.get("bindings", []) if row.get("members")]
+binding = next((row for row in policy["bindings"] if row.get("role") == approved_role), None)
 if binding is None:
-    binding = {"role": "roles/aiplatform.user", "members": []}
+    binding = {"role": approved_role, "members": []}
     policy.setdefault("bindings", []).append(binding)
 if member not in binding["members"]:
     binding["members"].append(member)
 binding["members"].sort()
+session_binding = next(
+    (row for row in policy["bindings"] if row.get("role") == session_role),
+    None,
+)
+if session_binding is None:
+    session_binding = {"role": session_role, "members": []}
+    policy["bindings"].append(session_binding)
+if agent_identity not in session_binding["members"]:
+    session_binding["members"].append(agent_identity)
+session_binding["members"].sort()
 print(json.dumps({"policy": policy}, separators=(",", ":")))
 PY
 )
 agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
+  --connect-timeout 10 --max-time 30 \
   --header "Authorization: Bearer ${access_token}" \
   --header 'Content-Type: application/json' \
   "${agent_runtime_url}:setIamPolicy" \
   --data "$agent_runtime_policy")
-AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" python3 - <<'PY'
+AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" AGENT_RUNTIME_INVOKER_ROLE="$runtime_invoker_role" AGENT_SESSION_MANAGER_ROLE="$session_manager_role" python3 - <<'PY'
 import json
 import os
 
 policy = json.loads(os.environ["AGENT_RUNTIME_POLICY"])
 member = f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}"
+approved_role = os.environ["AGENT_RUNTIME_INVOKER_ROLE"]
+agent_identity = os.environ["AGENT_RUNTIME_IDENTITY"]
+session_role = os.environ["AGENT_SESSION_MANAGER_ROLE"]
 assert any(
-    row.get("role") == "roles/aiplatform.user" and member in row.get("members", [])
+    row.get("role") == approved_role and member in row.get("members", [])
     for row in policy.get("bindings", [])
 ), "Agent Runtime query IAM binding was not persisted"
+assert not any(
+    row.get("role") == "roles/aiplatform.user" and member in row.get("members", [])
+    for row in policy.get("bindings", [])
+), "broad Agent Runtime role remains bound"
+assert any(
+    row.get("role") == session_role and agent_identity in row.get("members", [])
+    for row in policy.get("bindings", [])
+), "Agent Runtime identity lacks resource-scoped session lifecycle IAM"
+assert not any(
+    row.get("role") in {"roles/aiplatform.agentContextEditor", "roles/aiplatform.user"}
+    and agent_identity in row.get("members", [])
+    for row in policy.get("bindings", [])
+), "Agent Runtime identity retains broad context mutation IAM"
 PY
 unset access_token agent_runtime_json agent_runtime_identity agent_runtime_policy
 
