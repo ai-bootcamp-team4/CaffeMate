@@ -223,7 +223,14 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "expected one FIRST_PROPOSAL canary report" in verifier
     assert 'report["workflow_status"] == "SUCCEEDED"' in verifier
     assert 'report["stage_count"] == 13' in verifier
+    assert 'report["max_stage_attempt"] == 1' in verifier
+    assert 'report["elapsed_ms"] <= 120_000' in verifier
     assert 'report["result_freshness"] == "CURRENT"' in verifier
+    assert 'jsonPayload.event=\\"VERTEX_AGENT_GENERATION\\"' in verifier
+    assert 'jsonPayload.event=\\"AGENT_RESULT_VALIDATION\\"' in verifier
+    assert 'row.get("elapsed_ms", -1) <= 60_000' in verifier
+    assert 'row.get("outcome") == "VALID"' in verifier
+    assert "managed Agents stopped within budget without repair" in verifier
     assert "Worker has public invoker policy" in verifier
     assert "Scheduler reached internal Worker with HTTP 200" in verifier
 

@@ -86,6 +86,8 @@ class FirstProposalCanaryReport:
     status: str
     workflow_status: str
     stage_count: int
+    max_stage_attempt: int
+    elapsed_ms: int
     candidate_count: int
     candidate_case_types: tuple[str, ...]
     result_freshness: str
@@ -95,6 +97,8 @@ class FirstProposalCanaryReport:
             "status": self.status,
             "workflow_status": self.workflow_status,
             "stage_count": self.stage_count,
+            "max_stage_attempt": self.max_stage_attempt,
+            "elapsed_ms": self.elapsed_ms,
             "candidate_count": self.candidate_count,
             "candidate_case_types": list(self.candidate_case_types),
             "result_freshness": self.result_freshness,
@@ -351,6 +355,19 @@ class FirstProposalCanary:
                     "unsuccessful_stage_codes": unsuccessful,
                 },
             )
+        retried = sorted(
+            stage.stage_code for stage in progress.stages if stage.attempt != 1
+        )
+        if retried:
+            raise FirstProposalCanaryError(
+                "CANARY_STAGE_RETRIED",
+                {
+                    "retried_stage_codes": retried,
+                    "stage_attempts": {
+                        stage.stage_code: stage.attempt for stage in progress.stages
+                    },
+                },
+            )
         result = self._results.get_current(project_id=project_id, user_id=user_id)
         if (
             result.workflow_run_id != workflow_run_id
@@ -380,6 +397,11 @@ class FirstProposalCanary:
             status="verified",
             workflow_status=progress.status.value,
             stage_count=len(progress.stages),
+            max_stage_attempt=max(stage.attempt for stage in progress.stages),
+            elapsed_ms=max(
+                0,
+                round((progress.updated_at - progress.created_at).total_seconds() * 1000),
+            ),
             candidate_count=len(result.candidates),
             candidate_case_types=tuple(case_types),
             result_freshness=result.freshness.value,

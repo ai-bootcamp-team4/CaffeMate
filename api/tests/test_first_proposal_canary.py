@@ -177,6 +177,8 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
         "status": "verified",
         "workflow_status": "SUCCEEDED",
         "stage_count": 13,
+        "max_stage_attempt": 1,
+        "elapsed_ms": 0,
         "candidate_count": 1,
         "candidate_case_types": ["INDEPENDENT"],
         "result_freshness": "CURRENT",
@@ -188,6 +190,24 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
     assert projects.area.source_revision == "MOIS_LEGAL_DONG_20260301"
     assert cleaner.calls == [("canary-project", "first-proposal-canary-probe")]
     assert not workflows.cancelled
+
+
+def test_canary_rejects_hidden_stage_retry_and_still_cleans() -> None:
+    retried = progress(WorkflowStatus.SUCCEEDED)
+    retried.stages[2] = retried.stages[2].model_copy(update={"attempt": 2})
+    cleaner = FakeCleaner()
+    canary = FirstProposalCanary(
+        projects=FakeProjects(),
+        workflows=FakeWorkflows(retried),
+        results=FakeResults(result()),
+        cleaner=cleaner,
+        new_id=lambda: "retried",
+    )
+
+    with pytest.raises(FirstProposalCanaryError, match="CANARY_STAGE_RETRIED"):
+        canary.run(timeout_seconds=10, poll_interval_seconds=1)
+
+    assert cleaner.calls == [("canary-project", "first-proposal-canary-retried")]
 
 
 def test_canary_fails_closed_on_partial_terminal_and_still_cleans() -> None:

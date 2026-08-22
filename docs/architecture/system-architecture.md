@@ -96,6 +96,13 @@ Control API는 각 관리형 세션을 생성하고 final event를 끝까지 기
 삭제한다. repair가 발생하거나 운영 계약 통과율이 낮아지면 해당 역할의 prompt·입력 투영을 먼저
 교정하고, 필요한 역할만 `medium`으로 되돌리는 것이 현재 최적화 결정의 폐기 조건이다.
 
+배포 검증은 결과 카드 생성만 성공으로 보지 않는다. 같은 FIRST_PROPOSAL canary 구간에서 세
+관리형 Agent가 모두 `HTTP 200`, `STOP`, `repair_attempt=0`, `VALID`로 끝났는지 확인하고,
+각 생성은 60초, 13단계 전체는 120초 예산 안에 끝나야 한다. 모든 Stage의 attempt도 1이어야
+하므로 숨은 transport 재시도나 Stage 재실행이 결과 성공 뒤에 가려지지 않는다. 이 기준을 넘으면
+Agent를 고정 `ABSTAIN`으로 대체하지 않고 입력 투영, 출력 Schema, prompt, 런타임 전송 경계를
+먼저 고친다.
+
 Agent Runtime 검증용 13단계 canary는 실제 UI 계약처럼 이미 선택된 법정동 `AreaState`에서
 시작한다. 주소 공급자 장애 때문에 Agent가 한 번도 실행되지 않은 실패를 Agent 지연으로 집계하지
 않는다. 주소 검색 자체는 별도 MCP 검증에서 버전이 붙은 전국 법정동 자료의 무네트워크 조회와
