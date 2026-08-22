@@ -447,7 +447,30 @@ cases:
       - Agent를 제거하거나 결정론적 문구로 결과를 대체한다.
     required_evidence:
       - managed Runtime generation telemetry
+      - safe Agent result validation telemetry
       - task-bounded response Schema
       - schema-valid AgentTaskResult
       - session create and delete trace
     pass_condition: 동일 managed Runtime fixture 3회가 모두 첫 생성에서 STOP하고 전체 계약을 통과하며 MAX_TOKENS 재시도는 0건이다.
+
+  - id: EV-028
+    title: Intent 가능성 진술과 변경 의향의 혼동 방지
+    input: 현재 borrowing_intent가 NO인 상태에서 각각 "대출을 받을 수 있습니다."와 "대출을 받을 의향이 있습니다."를 입력함
+    relevant_state:
+      workflow_code: RESULT_FEEDBACK
+      task_type: INTENT_DELTA
+      current_borrowing_intent: "NO"
+    trap: 가능성 진술을 명시적인 대출 의향으로 간주하거나, 반대로 명시적인 변경 의향도 CLARIFY로 돌린다.
+    expected_behavior:
+      - 가능성 진술에는 YES 변경을 강제하지 않고 문맥에 따라 CLARIFY 또는 NOOP를 허용한다.
+      - 명시적인 변경 의향은 borrowing_intent의 NO에서 YES로 가는 단일 SET operation을 반환한다.
+      - 운영 telemetry로 첫 응답 검증, repair 여부와 최종 상태를 구분할 수 있다.
+    forbidden_behavior:
+      - 두 문장을 동일한 정답 fixture로 취급한다.
+      - 사용자 입력 원문이나 식별자를 telemetry에 기록한다.
+      - validator 오류 원인을 숨긴 채 일반 Runtime 실패만 반환한다.
+    required_evidence:
+      - managed Runtime positive-change fixture three-run result
+      - safe Agent result validation telemetry
+      - schema and semantic validation result
+    pass_condition: 명시적인 의향 fixture 3회가 모두 첫 생성에서 COMPLETE와 정확한 NO에서 YES operation으로 끝난다.

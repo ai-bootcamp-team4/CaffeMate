@@ -27,6 +27,35 @@ const REPAIRABLE_RESULT_CODES = new Set([
   'RESULT_SEMANTIC_INVALID',
 ])
 
+type AgentResultValidationOutcome = 'VALID' | 'REPAIR_REQUIRED' | 'REJECTED'
+
+function resultDecision(result: AgentTaskResult): string | undefined {
+  if (!result.payload || typeof result.payload !== 'object' || Array.isArray(result.payload)) return undefined
+  const decision = (result.payload as Record<string, unknown>).decision
+  return typeof decision === 'string' ? decision.slice(0, 64) : undefined
+}
+
+function recordResultValidation(
+  task: AgentTask,
+  result: AgentTaskResult,
+  outcome: AgentResultValidationOutcome,
+  error?: AgentDispatchError,
+): void {
+  const validatorCodes = error
+    ? [...new Set([error.code, ...error.validatorErrors.map((item) => item.code)])].slice(0, 20)
+    : []
+  console.info(JSON.stringify({
+    event: 'AGENT_RESULT_VALIDATION',
+    task_type: task.task_type,
+    preflight: task.task_id.startsWith('runtime-preflight-'),
+    repair_attempt: task.repair_attempt,
+    outcome,
+    result_status: result.status,
+    ...(resultDecision(result) ? { decision: resultDecision(result) } : {}),
+    ...(validatorCodes.length > 0 ? { validator_codes: validatorCodes } : {}),
+  }))
+}
+
 function sameHead(left: HeadFence, right: HeadFence): boolean {
   return left.workflow_generation === right.workflow_generation
     && left.state_version === right.state_version
@@ -155,8 +184,19 @@ export async function dispatchAgentTask(task: AgentTask, executors: AgentExecuto
   const result = await executor(task)
   try {
     validateResult(task, result)
+    recordResultValidation(task, result, 'VALID')
     return result
   } catch (error) {
+    if (error instanceof AgentDispatchError) {
+      recordResultValidation(
+        task,
+        result,
+        REPAIRABLE_RESULT_CODES.has(error.code) && task.repair_attempt === 0
+          ? 'REPAIR_REQUIRED'
+          : 'REJECTED',
+        error,
+      )
+    }
     if (!(error instanceof AgentDispatchError)
       || !REPAIRABLE_RESULT_CODES.has(error.code)
       || task.repair_attempt !== 0) {
@@ -165,7 +205,15 @@ export async function dispatchAgentTask(task: AgentTask, executors: AgentExecuto
     const repairTask = buildInlineRepairTask(task, result, error)
     validateAgentTaskForDispatch(repairTask)
     const repaired = await executor(repairTask)
-    validateResult(repairTask, repaired)
-    return repaired
+    try {
+      validateResult(repairTask, repaired)
+      recordResultValidation(repairTask, repaired, 'VALID')
+      return repaired
+    } catch (repairError) {
+      if (repairError instanceof AgentDispatchError) {
+        recordResultValidation(repairTask, repaired, 'REJECTED', repairError)
+      }
+      throw repairError
+    }
   }
 }

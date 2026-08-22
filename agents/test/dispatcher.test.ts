@@ -126,6 +126,46 @@ describe('deterministic dispatcher', () => {
     })
   })
 
+  it('logs only safe validation metadata for invalid and repaired Agent results', async () => {
+    const task = makeIntentTask()
+    task.task_id = 'runtime-preflight-sensitive-task'
+    task.input_digest = computeAgentTaskInputDigest(task)
+    const invalidResult = { ...makeIntentResult(task), payload: { decision: 'NOOP' } } as AgentTaskResult
+    const child = vi.fn()
+      .mockResolvedValueOnce(invalidResult)
+      .mockImplementationOnce(async (repairTask: AgentTask) => makeIntentResult(repairTask))
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+
+    try {
+      await dispatchAgentTask(task, { INTENT_INTERPRETER: child })
+
+      const events = info.mock.calls.map(([line]) => JSON.parse(String(line)))
+      expect(events).toEqual([
+        expect.objectContaining({
+          event: 'AGENT_RESULT_VALIDATION',
+          task_type: 'INTENT_DELTA',
+          preflight: true,
+          repair_attempt: 0,
+          outcome: 'REPAIR_REQUIRED',
+          validator_codes: expect.arrayContaining(['RESULT_SCHEMA_INVALID']),
+        }),
+        expect.objectContaining({
+          event: 'AGENT_RESULT_VALIDATION',
+          task_type: 'INTENT_DELTA',
+          preflight: true,
+          repair_attempt: 1,
+          outcome: 'VALID',
+        }),
+      ])
+      const serialized = JSON.stringify(events)
+      expect(serialized).not.toContain(task.task_id)
+      expect(serialized).not.toContain(task.venture_project_id)
+      expect(serialized).not.toContain('대출은 안 받을게')
+    } finally {
+      info.mockRestore()
+    }
+  })
+
   it('rejects a result whose immutable echo differs from the task', async () => {
     const task = makeIntentTask()
     const child = vi.fn(async () => ({ ...makeIntentResult(task), task_id: 'other-task' }))

@@ -571,6 +571,12 @@ Runtime의 안전한 generation telemetry에는 task type, 요청 byte, 사고 �
 HTTP status, finish reason, repair attempt, preflight 여부와 provider token count만 포함한다. 사용자 입력, Evidence
 내용, task·project·workflow·session 식별자와 credential은 기록하지 않는다.
 
+모델 호출 뒤에는 별도의 `AGENT_RESULT_VALIDATION` telemetry를 남긴다. 이 event는 task type,
+preflight 여부, repair attempt, `VALID | REPAIR_REQUIRED | REJECTED`, 결과 status, 허용된 decision과
+validator error code만 포함한다. 원문 응답, 사용자 입력, validator message·JSON pointer와 모든
+식별자는 기록하지 않는다. 운영자는 generation의 지연·종료 사유와 validation의 실패 원인을 함께
+조회하여 transport 재시도, model-output repair, 최종 거절을 구분한다.
+
 Runtime dispatcher는 모델 출력을 외부로 보내기 전에 전체 Schema·echo·의미 검증을 수행한다.
 따라서 이 검증에서 거절된 출력은 Control API까지 도달하지 않으며, 외부 adapter만으로는 repair할
 수 없다. Dispatcher는 최초 출력이 `RESULT_SCHEMA_INVALID`, `RESULT_ECHO_MISMATCH` 또는
@@ -604,6 +610,11 @@ provider response Schema는 전체 공용 값 공간을 그대로 노출하지 �
 둔다. 이 제한은 값을 새로 만들거나 결과를 고치는 fallback이 아니라 모델이 선택할 수 있는 공간을
 Control API의 실제 권한과 일치시키는 생성 최적화다. 최종 권위 검증은 기존 전체 JSON Schema,
 semantic validator, `expected_old_value`, full-head fence가 계속 담당한다.
+
+관리형 Runtime 반복 검증에서 State 변경 성공을 요구하는 문장은 가능성이나 능력이 아니라 변경
+의향을 명시해야 한다. 예를 들어 `대출을 받을 의향이 있습니다.`는 `NO → YES` 검증에 사용하지만,
+`대출을 받을 수 있습니다.`는 자격·가능성 진술이므로 같은 기대값을 강제하지 않는다. 이 구분으로
+모델의 합리적인 `CLARIFY`를 가짜 회귀로 판정하지 않는다.
 
 Vertex가 `MAX_TOKENS` 또는 다른 불완전 finish reason을 반환하면 부분 JSON을 수용하거나 repair하지
 않는다. 이는 같은 입력을 반복해도 회복되지 않는 terminal model-output failure이므로 Runtime은
