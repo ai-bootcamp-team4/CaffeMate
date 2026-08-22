@@ -89,6 +89,12 @@ Runtime resource, container digest, class method, source·build label과 effecti
 읽는다. 고정 Runtime이 없으면 release script가 임의의 새 resource를 만들지 않는다. 먼저
 bootstrap으로 생성된 resource id를 인간이 manifest에 승인한 뒤 release를 실행한다.
 
+MCP와 Agent release-preflight 이미지도 `cloudbuild.mcp-image.yaml`에 전용
+`caffemate-backend-build` identity를 고정한다. 호출자가 `--service-account`를 빠뜨려도 기본 Compute
+identity로 provenance가 갈라지지 않게 하기 위함이다. SHA tag는 불변이므로 잘못된 identity가 먼저
+태그를 차지한 뒤 재빌드로 덮어쓰는 복구 방식을 허용하지 않는다. verifier는 image digest뿐 아니라
+build identity, exact Git checkout step과 source revision을 모두 대조한다.
+
 ```bash
 revision=$(git rev-parse HEAD)
 CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
