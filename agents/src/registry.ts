@@ -40,7 +40,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     inputSchemaId: 'caffemate.agent.evidence-plan-input.v1',
     outputSchemaId: 'caffemate.agent.evidence-plan-result.v1',
     deadlineSeconds: 30,
-    maxOutputTokens: 4096,
+    maxOutputTokens: 8192,
   },
   EVIDENCE_ASSESS: {
     agentName: 'EVIDENCE_RESEARCHER',
