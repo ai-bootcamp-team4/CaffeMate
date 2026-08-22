@@ -1,7 +1,7 @@
 import fixtureMatrix from '../fixtures/task-matrix.json'
 import releaseManifest from '../release-manifest.json'
 import { dispatchAgentTask } from './dispatcher'
-import { createApplicationDefaultGoogleCloudContext } from './gcp-auth'
+import { createApplicationDefaultGoogleCloudContext, type GoogleCloudContext } from './gcp-auth'
 import { runGcpPreflight, type GcpPreflightResult } from './gcp-preflight'
 import { verifyReleaseSourceSeal, type AgentReleaseManifest } from './release-seal'
 import { AGENT_MODEL, GCP_LOCATIONS, TASK_REGISTRY } from './registry'
@@ -36,13 +36,15 @@ function fixtureValidation(fixture: FixtureCase) {
   return { id: fixture.id, task, result, semantics, ok: task.ok && result.ok && semantics.ok }
 }
 
-async function defaultGcpPreflight(modelId?: string): Promise<GcpPreflightResult> {
+export async function runDefaultGcpPreflight(
+  modelId?: string,
+  cloud: GoogleCloudContext = createApplicationDefaultGoogleCloudContext(),
+): Promise<GcpPreflightResult> {
   const sourceSeal = verifyReleaseSourceSeal(releaseManifest as AgentReleaseManifest)
   if (!sourceSeal.ok) {
     throw new Error(`RELEASE_SOURCE_SEAL_INVALID: ${sourceSeal.issues.map((issue) => issue.code).join(',')}`)
   }
 
-  const cloud = createApplicationDefaultGoogleCloudContext()
   const projectId = await cloud.projectId()
   return runGcpPreflight({
     projectId,
@@ -115,7 +117,7 @@ export async function runAgentControl(
     }
     case 'gcp-preflight': {
       try {
-        const result = await (dependencies.gcpPreflight ?? defaultGcpPreflight)(target)
+        const result = await (dependencies.gcpPreflight ?? runDefaultGcpPreflight)(target)
         return {
           ok: result.ok,
           code: result.ok ? undefined : 'GCP_PREFLIGHT_BLOCKED',

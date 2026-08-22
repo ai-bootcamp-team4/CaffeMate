@@ -46,6 +46,7 @@ export interface AgentReleaseManifest {
   runtime_region: string
   runtime: {
     resource_name: string
+    source_revision: string
     image_uri: string
   }
   model: {
@@ -56,6 +57,19 @@ export interface AgentReleaseManifest {
   }
   allow_global_fallback: boolean
   network_mode: string
+  mcp: {
+    protocol_revision: string
+    server_sdk: string
+    control_api_client_sdk: string
+    conformance_client_sdk: string
+    legacy_mode: string
+    runtime: {
+      service_name: string
+      region: string
+      source_revision: string
+      image_uri: string
+    }
+  }
   prompt_bundle_digest: string
   agent_contract_bundle_digest: string
   mcp_manifest_digest: string
@@ -84,6 +98,8 @@ const CORPUS_RESOURCE = /^projects\/[^/]+\/locations\/[^/]+\/ragCorpora\/[^/]+$/
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const GCS_URI = /^gs:\/\/[^/]+\/.+$/
 const GCS_GENERATION = /^[1-9][0-9]*$/
+const GIT_REVISION = /^[0-9a-f]{40}$/
+const DIGEST_IMAGE = /^[a-z0-9.-]+\/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$/
 
 const AGENT_CONTRACT_BUNDLE = Object.freeze({
   commonTypesSchema,
@@ -207,6 +223,15 @@ export function verifyReleaseSourceSeal(manifest: AgentReleaseManifest): Release
   }
   if (manifest.runtime_region !== GCP_LOCATIONS.runtime) {
     issue(issues, 'RELEASE_RUNTIME_REGION_MISMATCH', manifest.runtime_region)
+  }
+  if (!GIT_REVISION.test(manifest.runtime.source_revision) || !DIGEST_IMAGE.test(manifest.runtime.image_uri)) {
+    issue(issues, 'RELEASE_RUNTIME_ARTIFACT_INVALID', 'Runtime source revision and image must be immutable pins')
+  }
+  if (!manifest.mcp.runtime.service_name
+    || manifest.mcp.runtime.region !== GCP_LOCATIONS.rag
+    || !GIT_REVISION.test(manifest.mcp.runtime.source_revision)
+    || !DIGEST_IMAGE.test(manifest.mcp.runtime.image_uri)) {
+    issue(issues, 'RELEASE_MCP_RUNTIME_ARTIFACT_INVALID', 'MCP runtime service/region/source/image pin is invalid')
   }
   if (manifest.allow_global_fallback !== false) {
     issue(issues, 'RELEASE_FALLBACK_POLICY_MISMATCH', 'global fallback must remain disabled')

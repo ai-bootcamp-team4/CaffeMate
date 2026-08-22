@@ -26,6 +26,7 @@ describe('local agent release manifest', () => {
       resource_name: expect.stringMatching(
         /^projects\/proj-aj20-211200020328\/locations\/asia-northeast3\/reasoningEngines\/[0-9]+$/,
       ),
+      source_revision: expect.stringMatching(/^[0-9a-f]{40}$/),
       image_uri: expect.stringMatching(
         /^asia-northeast3-docker\.pkg\.dev\/proj-aj20-211200020328\/caffemate-agents\/caffemate-agent-runtime@sha256:[0-9a-f]{64}$/,
       ),
@@ -39,6 +40,12 @@ describe('local agent release manifest', () => {
       control_api_client_sdk: 'mcp==2.0.0',
       conformance_client_sdk: '@modelcontextprotocol/client@2.0.0',
       legacy_mode: 'reject',
+      runtime: {
+        service_name: 'caffemate-mcp',
+        region: 'asia-northeast3',
+        source_revision: 'a9b6e3a55352c06a40d45bb33f19378de59ccb99',
+        image_uri: 'asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-backend/mcp@sha256:27052e57428d362c950a77817b4e873fc5c4f104704ce04b0771f650f0a7547f',
+      },
     })
     const checkedInMcpManifestDigest = readFileSync('docs/contracts/mcp-tool-manifest.sha256', 'utf8').split(/\s+/)[0]
     expect(releaseManifest.mcp_manifest_digest).toBe(`sha256:${checkedInMcpManifestDigest}`)

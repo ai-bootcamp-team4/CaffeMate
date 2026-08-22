@@ -1,17 +1,28 @@
 #!/bin/sh
 set -eu
 
+manifest='agents/release-manifest.json'
 project_id=${CAFFEMATE_GCP_PROJECT_ID:-}
-region=${CAFFEMATE_GCP_REGION:-asia-northeast3}
-source_revision=${CAFFEMATE_SOURCE_REVISION:-}
-service_name=${CAFFEMATE_MCP_SERVICE_NAME:-caffemate-mcp}
-official_rag_corpus_resource=${CAFFEMATE_OFFICIAL_RAG_CORPUS_RESOURCE:-}
+[ -n "$project_id" ] || { printf '%s\n' 'CAFFEMATE_GCP_PROJECT_ID is required' >&2; exit 2; }
+[ -f "$manifest" ] || { printf '%s\n' 'agents/release-manifest.json is required' >&2; exit 2; }
+
+set -- $(python3 - "$manifest" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+r = m['mcp']['runtime']
+print(r['service_name'], r['region'], r['source_revision'], r['image_uri'], m['index_generation']['corpus_resource_name'])
+PY
+)
+service_name=$1
+region=$2
+pinned_revision=$3
+pinned_image=$4
+official_rag_corpus_resource=$5
 api_sa="caffemate-api-runtime@${project_id}.iam.gserviceaccount.com"
 worker_sa="caffemate-worker-runtime@${project_id}.iam.gserviceaccount.com"
 mcp_sa="caffemate-mcp-runtime@${project_id}.iam.gserviceaccount.com"
 verify_job=${CAFFEMATE_MCP_VERIFY_JOB:-caffemate-mcp-verify}
 
-[ -n "$project_id" ] && [ "${#source_revision}" -eq 40 ] && [ -n "$official_rag_corpus_resource" ] || { printf '%s\n' 'project, full source revision and official RAG corpus resource are required' >&2; exit 2; }
 service_json=$(mktemp)
 policy_json=$(mktemp)
 project_policy_json=$(mktemp)
@@ -20,17 +31,17 @@ gcloud run services describe "$service_name" --project="$project_id" --region="$
 gcloud run services get-iam-policy "$service_name" --project="$project_id" --region="$region" --format=json >"$policy_json"
 gcloud projects get-iam-policy "$project_id" --format=json >"$project_policy_json"
 
-python3 - "$service_json" "$policy_json" "$project_policy_json" "$source_revision" "$api_sa" "$mcp_sa" "$project_id" "$official_rag_corpus_resource" <<'PY'
+python3 - "$service_json" "$policy_json" "$project_policy_json" "$pinned_revision" "$pinned_image" "$api_sa" "$mcp_sa" "$project_id" "$official_rag_corpus_resource" <<'PY'
 import json, sys
 service = json.load(open(sys.argv[1]))
 policy = json.load(open(sys.argv[2]))
 project_policy = json.load(open(sys.argv[3]))
-revision, api_sa, mcp_sa, project_id, corpus = sys.argv[4:]
+revision, pinned_image, api_sa, mcp_sa, project_id, corpus = sys.argv[4:]
 template = service["spec"]["template"]
 assert template["metadata"]["labels"]["source-revision"] == revision
 assert template["spec"]["serviceAccountName"] == mcp_sa
 image = template["spec"]["containers"][0]["image"]
-assert "@sha256:" in image
+assert image == pinned_image
 env = {row["name"]: row.get("value") for row in template["spec"]["containers"][0].get("env", [])}
 assert env["CAFFEMATE_GCP_PROJECT_ID"] == project_id
 assert env["RAG_OFFICIAL_CORPUS_RESOURCE"] == corpus
@@ -49,15 +60,10 @@ mcp_url=$(gcloud run services describe "$service_name" --project="$project_id" -
 unauth_status=$(curl -sS -o /dev/null -w '%{http_code}' "${mcp_url}/healthz")
 case "$unauth_status" in 401|403|404) ;; *) printf 'unauthenticated request returned %s\n' "$unauth_status" >&2; exit 1;; esac
 
-image=$(python3 - "$service_json" <<'PY'
-import json, sys
-print(json.load(open(sys.argv[1]))["spec"]["template"]["spec"]["containers"][0]["image"])
-PY
-)
 configure_verify_job() {
   action=$1
   gcloud run jobs "$action" "$verify_job" --project="$project_id" --region="$region" \
-    --image="$image" --service-account="$api_sa" \
+    --image="$pinned_image" --service-account="$api_sa" \
     --set-env-vars="MCP_BASE_URL=${mcp_url}" \
     --set-secrets='MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
     --command=node --args=--import,tsx,mcp/src/smoke.ts \

@@ -22,6 +22,22 @@ describe('private MCP deployment IAM contract', () => {
   })
 })
 
+describe('private MCP deployment provenance', () => {
+  it('binds builds to the clean checked-out commit instead of a caller-supplied revision', () => {
+    expect(deploy).toContain('git rev-parse HEAD')
+    expect(deploy).toContain('git status --porcelain')
+    expect(deploy).not.toContain('CAFFEMATE_SOURCE_REVISION')
+  })
+
+  it('binds Cloud Run source revision and immutable image to the release manifest pin', () => {
+    expect(deploy).toContain('agents/release-manifest.json')
+    expect(deploy).toContain('MCP_RELEASE_PIN_REQUIRED')
+    expect(verify).toContain('agents/release-manifest.json')
+    expect(verify).toContain('pinned_image')
+    expect(verify).toContain('pinned_revision')
+  })
+})
+
 describe('private MCP artifact boundary', () => {
   it('installs a dedicated MCP production package instead of the repository root package', () => {
     const packagePath = join(process.cwd(), 'mcp/package.json')
