@@ -42,6 +42,12 @@ api_sa="caffemate-api-runtime@${project_id}.iam.gserviceaccount.com"
 worker_sa="caffemate-worker-runtime@${project_id}.iam.gserviceaccount.com"
 push_sa="caffemate-pubsub-push@${project_id}.iam.gserviceaccount.com"
 scheduler_sa="caffemate-scheduler@${project_id}.iam.gserviceaccount.com"
+mcp_url=$(gcloud run services describe caffemate-mcp \
+  --project="$project_id" --region="$region" --format='value(status.url)')
+if [ -z "$mcp_url" ]; then
+  printf '%s\n' 'private MCP service must be deployed before Control API' >&2
+  exit 1
+fi
 
 create_service_account() {
   account_id=$1
@@ -78,7 +84,7 @@ gcloud run deploy caffemate-api \
   --image="$image" \
   --service-account="$api_sa" \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa}" \
+  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest,AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
   --port=8080 \
   --ingress=all \
