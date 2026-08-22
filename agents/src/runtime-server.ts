@@ -6,6 +6,7 @@ import { rootAgent } from '../caffemate-agents/agent'
 import { GCP_LOCATIONS } from './registry'
 import { bindRuntimeStreamAbort } from './runtime-abort'
 import { CAFFEMATE_AGENT_APP_NAME } from './runtime-contract'
+import { runtimeErrorRecord } from './runtime-error'
 import {
   handleRuntimeClassMethod,
   type RuntimeClassMethodRequest,
@@ -169,6 +170,7 @@ export async function startCaffeMateRuntimeServer(): Promise<AdkApiServer> {
       responseCompleted = true
       res.end()
     } catch (error) {
+      console.error(JSON.stringify(runtimeErrorRecord(error)))
       const body = { error: error instanceof Error ? error.message : String(error) }
       if (res.headersSent) {
         responseCompleted = true
