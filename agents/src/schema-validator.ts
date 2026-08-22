@@ -1,4 +1,4 @@
-import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020'
+import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js'
 import addFormats from 'ajv-formats'
 import agentRolePayloadsSchema from '../../docs/contracts/agent-role-payloads.schema.json'
 import agentTaskResultSchema from '../../docs/contracts/agent-task-result.schema.json'
