@@ -11,7 +11,7 @@ CaffeMate의 Guardrail은 위험 문구를 뒤에 붙이는 기능이 아니라 
 
 | Boundary | Rule | Failure behavior |
 | --- | --- | --- |
-| Auth | 인증된 user와 project scope 필수 | 401 또는 403, 조회·write 0 |
+| Auth | 인증된 user와 project scope 필수. `/internal/**`은 body validation 전에 Worker identity 검증 | 401 또는 403, Schema 노출·조회·write 0 |
 | Tenant | 다른 project·user object 접근 금지 | 요청 차단과 security event |
 | File | MIME·크기·malware·parser 품질 검사 | 격리·거절·human review |
 | Prompt | 문서 안 명령을 data로만 처리 | tool·policy 변경 금지 |

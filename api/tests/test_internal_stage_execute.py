@@ -92,6 +92,39 @@ def test_internal_stage_execute_requires_worker_identity_and_current_lease() -> 
     assert executor.calls == 1
 
 
+def test_all_internal_routes_authenticate_before_body_validation() -> None:
+    authorizer = FakeAuthorizer()
+    executor = FakeExecutor()
+    paths = [
+        "/internal/v1/workflows/workflow-1/stages/stage-1:execute",
+        "/internal/v1/documents/document-1:scan-result",
+        "/internal/v1/documents/document-1:parser-result",
+        "/internal/v1/evidence:refresh",
+    ]
+
+    with client(authorizer, executor) as test_client:
+        anonymous = [test_client.post(path, json={}) for path in paths]
+        authenticated = [
+            test_client.post(
+                path,
+                headers={"Authorization": "Bearer worker-token"},
+                json={},
+            )
+            for path in paths
+        ]
+
+    assert [response.status_code for response in anonymous] == [401, 401, 401, 401]
+    assert [response.json() for response in anonymous] == [
+        {"code": "UNAUTHENTICATED"},
+        {"code": "UNAUTHENTICATED"},
+        {"code": "UNAUTHENTICATED"},
+        {"code": "UNAUTHENTICATED"},
+    ]
+    assert [response.status_code for response in authenticated] == [422, 422, 422, 422]
+    assert authorizer.calls == 0
+    assert executor.calls == 0
+
+
 def test_path_mismatch_and_rejected_lease_never_execute() -> None:
     authorizer = FakeAuthorizer(allowed=False)
     executor = FakeExecutor()
