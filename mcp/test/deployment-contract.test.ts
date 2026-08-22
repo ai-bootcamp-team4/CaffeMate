@@ -13,7 +13,7 @@ const agentControl = readFileSync(join(process.cwd(), 'agents/src/control.ts'), 
 describe('private MCP deployment IAM contract', () => {
   it('uses the minimum retrieval role and verifies effective mutation denial', () => {
     expect(deploy).toContain('caffemateMcpRetriever')
-    expect(deploy).toContain('aiplatform.ragCorpora.get,aiplatform.ragCorpora.query,discoveryengine.rankingConfigs.rank')
+    expect(deploy).toContain('aiplatform.endpoints.predict,aiplatform.ragCorpora.get,aiplatform.ragCorpora.query,discoveryengine.rankingConfigs.rank')
     expect(deploy).toContain("remove_project_role_binding \"serviceAccount:${runtime_sa}\" 'roles/aiplatform.user'")
     expect(deploy).toContain("remove_project_role_binding \"serviceAccount:${runtime_sa}\" 'roles/discoveryengine.viewer'")
     expect(verify).toContain('caffemateMcpRetriever')

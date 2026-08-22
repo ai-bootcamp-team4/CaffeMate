@@ -73,6 +73,7 @@ assert all(m == f"serviceAccount:{api_sa}" for m in members)
 member = f"serviceAccount:{mcp_sa}"
 retriever_role = f"projects/{project_id}/roles/caffemateMcpRetriever"
 assert set(retriever_role_definition["includedPermissions"]) == {
+    "aiplatform.endpoints.predict",
     "aiplatform.ragCorpora.get",
     "aiplatform.ragCorpora.query",
     "discoveryengine.rankingConfigs.rank",
