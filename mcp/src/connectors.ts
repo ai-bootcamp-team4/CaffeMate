@@ -5,6 +5,7 @@ import { createSourceHealthConnector, type McpConfiguredSource } from './source-
 const JUSO_SOURCE_ID = 'mois-juso-address-search'
 const JUSO_SOURCE_REF = 'https://business.juso.go.kr/addrlink/addrLinkApi.do'
 const JUSO_GUIDE_REF = 'https://business.juso.go.kr/jst/jstRoadNmAddrApiSearch'
+const JUSO_REQUEST_TIMEOUT_MS = 12_000
 
 interface ConnectorOptions {
   jusoApiKey?: string
@@ -184,7 +185,10 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
         confmKey: jusoApiKey, currentPage: '1', countPerPage: String(count),
         keyword: query, resultType: 'json', hstryYn: 'N', firstSort: 'location', addInfoYn: 'Y',
       }).toString()
-      const response = await fetcher(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(5000) })
+      const response = await fetcher(url, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(JUSO_REQUEST_TIMEOUT_MS),
+      })
       if (!response.ok) throw new Error(`HTTP_${response.status}`)
       return response.text()
     }
