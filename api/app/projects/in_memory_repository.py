@@ -83,7 +83,12 @@ class InMemoryProjectRepository:
             command.idempotency_key,
         )
         digest = hashlib.sha256(
-            rfc8785.dumps(command.founder.model_dump(mode="json"))
+            rfc8785.dumps(
+                {
+                    "founder": command.founder.model_dump(mode="json"),
+                    "area": command.area.model_dump(mode="json") if command.area else None,
+                }
+            )
         ).digest()
         with self._lock:
             project = self._owned_project(
@@ -100,6 +105,7 @@ class InMemoryProjectRepository:
                 user_id=project.user_id,
                 occurred_at=self._now(),
                 founder=command.founder,
+                area=command.area,
             )
             state = reduce_venture_state(project.state, event)
             assert state is not None

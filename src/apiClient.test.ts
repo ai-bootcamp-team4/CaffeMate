@@ -28,9 +28,10 @@ describe('ControlApiClient', () => {
 
     const response = await client.confirmOnboarding('project-1', {
       targetAreaInput: ' 수원 원천동 ', ownFundsKrw: '80000000', borrowingIntent: 'UNDECIDED', cafeTypePreference: 'OPEN_TO_BOTH', operationMode: 'DIRECT_FULL_TIME', desiredOpeningPeriod: '', priorCafeExperience: '',
-    }) as unknown as { founder: Record<string, unknown> }
+    }, 'signed-area-selection') as unknown as { founder: Record<string, unknown>; area_selection_token: string }
 
     expect(response.founder).toEqual(expect.objectContaining({ target_area_input: '수원 원천동', own_funds_krw: 80_000_000, desired_opening_period: null, preferences: [], avoidances: [] }))
+    expect(response.area_selection_token).toBe('signed-area-selection')
   })
 
   it('preserves backend error codes for user-visible failure handling', async () => {

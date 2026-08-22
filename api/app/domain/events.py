@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from app.domain.models import FounderState, StrictModel
+from app.domain.models import AreaState, FounderState, StrictModel
 
 
 class ProjectCreated(StrictModel):
@@ -21,6 +21,7 @@ class OnboardingConfirmed(StrictModel):
     user_id: str
     occurred_at: datetime
     founder: FounderState
+    area: AreaState | None = None
 
 
 class FeedbackChangeConfirmed(StrictModel):
@@ -76,3 +77,4 @@ class ConfirmOnboardingCommand(StrictModel):
     user_id: str
     idempotency_key: str = Field(min_length=1, max_length=255)
     founder: FounderState
+    area: AreaState | None = None

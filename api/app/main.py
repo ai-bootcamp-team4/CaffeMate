@@ -12,6 +12,9 @@ from app.agents.runtime import (
     GoogleAccessTokenProvider,
     PostgresAgentCleanupSink,
 )
+from app.areas.models import AreaSearchRequest, AreaSearchResult
+from app.areas.service import AreaLookupService, UnavailableAreaLookupService
+from app.areas.token import AreaSelectionTokenSigner
 from app.auth import (
     FirebaseIdentityVerifier,
     GoogleServiceIdentityVerifier,
@@ -61,7 +64,14 @@ from app.domain.errors import (
     WorkflowNotFoundError,
     WorkflowPreconditionError,
 )
-from app.domain.models import FounderState, Project
+from app.domain.models import (
+    AreaResolutionStatus,
+    AreaState,
+    CandidateSetCompleteness,
+    CoverageProfile,
+    FounderState,
+    Project,
+)
 from app.evidence.models import EvidenceRefreshRequest, EvidenceRefreshResult
 from app.evidence.refresh import (
     EvidenceRefreshService,
@@ -148,6 +158,7 @@ class EmptyRequest(BaseModel):
 class ConfirmOnboardingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     founder: FounderState
+    area_selection_token: str | None = None
 
 
 class StageExecuteRequest(BaseModel):
@@ -179,6 +190,7 @@ def create_app(
     evidence_refresh_service: (
         EvidenceRefreshService | UnavailableEvidenceRefreshService | None
     ) = None,
+    area_lookup_service: AreaLookupService | UnavailableAreaLookupService | None = None,
     identity_verifier: IdentityVerifier | None = None,
     stage_execution_service: StageExecution | None = None,
     internal_identity_verifier: IdentityVerifier | None = None,
@@ -371,6 +383,21 @@ def create_app(
         evidence_refresh = EvidenceRefreshService(database_handle.engine)
     else:
         evidence_refresh = UnavailableEvidenceRefreshService()
+
+    if area_lookup_service is not None:
+        area_lookup = area_lookup_service
+    elif (
+        configured_mcp_client is not None
+        and settings.mcp_scope_hmac_secret is not None
+        and settings.policy_snapshot_id is not None
+    ):
+        area_lookup = AreaLookupService(
+            configured_mcp_client,
+            token_signer=AreaSelectionTokenSigner(secret=settings.mcp_scope_hmac_secret),
+            policy_snapshot_id=settings.policy_snapshot_id,
+        )
+    else:
+        area_lookup = UnavailableAreaLookupService()
 
     if stage_execution_service is not None:
         internal_stages = stage_execution_service
@@ -783,6 +810,22 @@ def create_app(
     def list_projects(user_id: Annotated[str, Depends(current_user)]) -> list[Project]:
         return service.list_projects(user_id=user_id)
 
+    @app.post(
+        "/v1/projects/{project_id}/areas:search",
+        response_model=AreaSearchResult,
+    )
+    async def search_areas(
+        project_id: str,
+        request: AreaSearchRequest,
+        user_id: Annotated[str, Depends(current_user)],
+    ) -> AreaSearchResult:
+        service.get_project(project_id=project_id, user_id=user_id)
+        return await area_lookup.search(
+            project_id=project_id,
+            query=request.query,
+            limit=request.limit,
+        )
+
     @app.post("/v1/projects/{project_id}/onboarding/confirm", response_model=Project)
     def confirm_onboarding(
         project_id: str,
@@ -790,11 +833,43 @@ def create_app(
         user_id: Annotated[str, Depends(current_user)],
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> Project:
+        identity = area_lookup.resolve_selection(
+            project_id=project_id,
+            query=request.founder.target_area_input,
+            selection_token=request.area_selection_token,
+        )
+        area = None
+        if identity is not None:
+            analysis_code = (
+                identity.administrative_dong_codes[0]
+                if len(identity.administrative_dong_codes) == 1
+                else identity.legal_dong_code
+            )
+            area = AreaState(
+                resolution_status=AreaResolutionStatus.RESOLVED,
+                area_id=identity.area_id,
+                scope_type=identity.scope_type,
+                administrative_code=analysis_code,
+                legal_dong_code=identity.legal_dong_code,
+                administrative_dong_codes=identity.administrative_dong_codes,
+                mapping_status=identity.mapping_status,
+                candidate_set_completeness=CandidateSetCompleteness.UNVERIFIED,
+                source_revision=identity.source_revision,
+                display_name=identity.display_name,
+                boundary_version=identity.boundary_version,
+                coverage_profile=CoverageProfile.N0_NATIONWIDE_FACTS,
+                unavailable_fields=(
+                    ["administrative_dong_mapping"]
+                    if not identity.administrative_dong_codes
+                    else []
+                ),
+            )
         return service.confirm_onboarding(
             project_id=project_id,
             user_id=user_id,
             idempotency_key=idempotency_key,
             founder=request.founder,
+            area=area,
         )
 
     @app.post(

@@ -100,6 +100,40 @@ class FakeMcpClient:
         )
 
 
+def test_confirmed_area_identity_skips_mcp_resolution() -> None:
+    context = stage_context()
+    context = context.model_copy(
+        update={
+            "state": context.state.model_copy(
+                update={
+                    "area": AreaState(
+                        resolution_status=AreaResolutionStatus.RESOLVED,
+                        area_id="legal-dong:1144012300",
+                        scope_type="LEGAL_DONG",
+                        administrative_code="1144012300",
+                        legal_dong_code="1144012300",
+                        administrative_dong_codes=[],
+                        mapping_status="UNVERIFIED",
+                        candidate_set_completeness="UNVERIFIED",
+                        source_revision="JUSO_LIVE_UNVERSIONED",
+                        display_name="서울특별시 마포구 망원동",
+                        coverage_profile=CoverageProfile.N0_NATIONWIDE_FACTS,
+                        unavailable_fields=["administrative_dong_mapping"],
+                    )
+                }
+            )
+        }
+    )
+    client = FakeMcpClient(status="OK", data=[])
+
+    result = AreaResolutionStageHandler(client).execute(context)
+
+    assert result["stage_control"] == {"disposition": "CONTINUE", "reason_codes": []}
+    assert result["area_resolution"]["mcp_status"] == "STATE_CONFIRMED"
+    assert result["area_resolution"]["selected"]["display_name"] == "서울특별시 마포구 망원동"
+    assert client.calls == []
+
+
 def test_exact_candidate_continues_with_deterministic_selection() -> None:
     client = FakeMcpClient(
         status="OK",

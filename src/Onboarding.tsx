@@ -1,5 +1,5 @@
-import { type FormEvent, type KeyboardEvent, useMemo, useState } from 'react'
-import { findLocationSuggestions, type LocationSuggestion } from './locationSuggestions'
+import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useState } from 'react'
+import type { AreaSearchCandidate } from './apiClient'
 import {
   canContinue,
   formatKrw,
@@ -84,27 +84,62 @@ function ChoiceGroup({
   )
 }
 
-export default function Onboarding({ onComplete }: { onComplete: (values: OnboardingValues) => Promise<void> }) {
+export default function Onboarding({
+  onComplete,
+  searchAreas,
+}: {
+  onComplete: (values: OnboardingValues, areaSelectionToken: string) => Promise<void>
+  searchAreas: (query: string) => Promise<AreaSearchCandidate[]>
+}) {
   const [step, setStep] = useState(0)
   const [values, setValues] = useState(initialOnboardingValues)
   const [message, setMessage] = useState('필수 항목만 입력해도 분석을 시작할 수 있습니다.')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isLocationListOpen, setIsLocationListOpen] = useState(false)
   const [activeLocationIndex, setActiveLocationIndex] = useState(0)
+  const [locationSuggestions, setLocationSuggestions] = useState<AreaSearchCandidate[]>([])
+  const [selectedArea, setSelectedArea] = useState<AreaSearchCandidate | null>(null)
+  const [locationLookupStatus, setLocationLookupStatus] = useState('동네 이름을 입력한 뒤 검색 결과에서 선택해 주세요.')
   const [fundUnit, setFundUnit] = useState<MoneyUnit>('만원')
   const [fundInput, setFundInput] = useState('')
   const progress = useMemo(() => ((step + 1) / steps.length) * 100, [step])
-  const suggestedLocations = useMemo(
-    () => findLocationSuggestions(values.targetAreaInput),
-    [values.targetAreaInput],
-  )
+  useEffect(() => {
+    const query = values.targetAreaInput.trim()
+    if (selectedArea?.display_name === query) return
+    if (query.length < 2) return
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void searchAreas(query).then((candidates) => {
+        if (cancelled) return
+        setLocationSuggestions(candidates)
+        setActiveLocationIndex(0)
+        setIsLocationListOpen(true)
+        setLocationLookupStatus(candidates.length ? '분석할 지역을 선택해 주세요.' : '일치하는 지역을 찾지 못했습니다.')
+      }).catch((error) => {
+        if (cancelled) return
+        setLocationSuggestions([])
+        setLocationLookupStatus(error instanceof Error ? error.message : '지역 검색에 실패했습니다.')
+      })
+    }, 300)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [searchAreas, selectedArea, values.targetAreaInput])
 
   const update = <Key extends keyof OnboardingValues>(key: Key, value: OnboardingValues[Key]) => {
     setValues((current) => ({ ...current, [key]: value }))
+    if (key === 'targetAreaInput') {
+      const query = String(value).trim()
+      setSelectedArea(null)
+      setLocationSuggestions([])
+      setLocationLookupStatus(query.length < 2 ? '두 글자 이상 입력하면 전국 지역을 검색합니다.' : '공식 주소 자료에서 지역을 찾고 있어요.')
+    }
     setMessage('입력 내용을 확인하고 있어요.')
   }
 
   const next = () => {
+    if (step === 0 && selectedArea === null) {
+      setMessage('검색 결과에서 분석할 지역을 선택해 주세요.')
+      return
+    }
     if (!canContinue(step, values)) {
       setMessage('이 단계의 필수 항목을 선택해 주세요.')
       return
@@ -116,20 +151,27 @@ export default function Onboarding({ onComplete }: { onComplete: (values: Onboar
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    if (!selectedArea) {
+      setMessage('지역 선택이 만료되었습니다. 희망 지역을 다시 선택해 주세요.')
+      setStep(0)
+      return
+    }
     setIsAnalyzing(true)
     setMessage('입력한 조건을 기준으로 후보와 근거를 찾고 있어요.')
     try {
-      await onComplete(values)
+      await onComplete(values, selectedArea.selection_token)
     } catch (error) {
       setIsAnalyzing(false)
       setMessage(error instanceof Error ? error.message : '분석을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.')
     }
   }
 
-  const selectLocation = (suggestion: LocationSuggestion) => {
-    update('targetAreaInput', suggestion.value)
+  const selectLocation = (suggestion: AreaSearchCandidate) => {
+    setValues((current) => ({ ...current, targetAreaInput: suggestion.display_name }))
+    setSelectedArea(suggestion)
     setIsLocationListOpen(false)
-    setMessage(`${suggestion.district}을(를) 희망 지역으로 선택했어요.`)
+    setLocationLookupStatus(`${suggestion.display_name}을(를) 분석 지역으로 선택했습니다.`)
+    setMessage(`${suggestion.display_name}을(를) 희망 지역으로 선택했어요.`)
   }
 
   const updateFunds = (rawValue: string) => {
@@ -158,17 +200,17 @@ export default function Onboarding({ onComplete }: { onComplete: (values: Onboar
   }
 
   const handleLocationKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (!isLocationListOpen || suggestedLocations.length === 0) return
+    if (!isLocationListOpen || locationSuggestions.length === 0) return
 
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      setActiveLocationIndex((current) => (current + 1) % suggestedLocations.length)
+      setActiveLocationIndex((current) => (current + 1) % locationSuggestions.length)
     } else if (event.key === 'ArrowUp') {
       event.preventDefault()
-      setActiveLocationIndex((current) => (current - 1 + suggestedLocations.length) % suggestedLocations.length)
+      setActiveLocationIndex((current) => (current - 1 + locationSuggestions.length) % locationSuggestions.length)
     } else if (event.key === 'Enter') {
       event.preventDefault()
-      selectLocation(suggestedLocations[activeLocationIndex])
+      selectLocation(locationSuggestions[activeLocationIndex])
     } else if (event.key === 'Escape') {
       setIsLocationListOpen(false)
     }
@@ -229,8 +271,8 @@ export default function Onboarding({ onComplete }: { onComplete: (values: Onboar
                     role="combobox"
                     aria-autocomplete="list"
                     aria-controls="locationSuggestions"
-                    aria-expanded={isLocationListOpen && suggestedLocations.length > 0}
-                    aria-activedescendant={isLocationListOpen && suggestedLocations.length > 0 ? `location-option-${activeLocationIndex}` : undefined}
+                    aria-expanded={isLocationListOpen && locationSuggestions.length > 0}
+                    aria-activedescendant={isLocationListOpen && locationSuggestions.length > 0 ? `location-option-${activeLocationIndex}` : undefined}
                     value={values.targetAreaInput}
                     placeholder="예: 성수, 원천동, 수원 영통구"
                     onChange={(event) => {
@@ -244,10 +286,10 @@ export default function Onboarding({ onComplete }: { onComplete: (values: Onboar
                     required
                     autoFocus
                   />
-                  {isLocationListOpen && suggestedLocations.length > 0 && (
+                  {isLocationListOpen && locationSuggestions.length > 0 && (
                     <ul className="location-suggestions" id="locationSuggestions" role="listbox" aria-label="연관 지역">
-                      {suggestedLocations.map((suggestion, index) => (
-                        <li key={suggestion.value}>
+                      {locationSuggestions.map((suggestion, index) => (
+                        <li key={suggestion.area_id}>
                           <button
                             id={`location-option-${index}`}
                             role="option"
@@ -257,15 +299,15 @@ export default function Onboarding({ onComplete }: { onComplete: (values: Onboar
                             onMouseEnter={() => setActiveLocationIndex(index)}
                             onClick={() => selectLocation(suggestion)}
                           >
-                            <strong>{suggestion.district}</strong>
-                            <span>{suggestion.municipality}</span>
+                            <strong>{suggestion.display_name}</strong>
+                            <span>{suggestion.scope_type === 'LEGAL_DONG' ? '법정동 기준' : '행정동 기준'} · {suggestion.mapping_status === 'VERIFIED' ? '행정동 연결 확인' : '행정동 연결 검토 필요'}</span>
                           </button>
                         </li>
                       ))}
                     </ul>
                   )}
                 </div>
-                <p id="targetAreaHelp">시·군·구와 동네 이름까지 적으면 지역을 더 정확히 찾을 수 있어요.</p>
+                <p id="targetAreaHelp">{locationLookupStatus}</p>
               </div>
             )}
 

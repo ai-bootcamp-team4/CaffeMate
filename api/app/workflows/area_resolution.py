@@ -57,6 +57,34 @@ class AreaResolutionStageHandler:
         self._mcp_client = mcp_client
 
     def execute(self, context: StageContext) -> dict[str, object]:
+        resolved = context.state.area
+        if (
+            resolved.resolution_status.value == "RESOLVED"
+            and resolved.administrative_code
+            and resolved.display_name
+            and resolved.source_revision
+        ):
+            confirmed_candidate = AreaCandidate(
+                administrative_code=resolved.administrative_code,
+                display_name=resolved.display_name,
+                boundary_version=resolved.boundary_version or resolved.source_revision,
+                match_kind=AreaMatchKind.EXACT,
+            )
+            return self._result(
+                control=StageControl(),
+                output=AreaResolutionOutput(
+                    query=context.state.founder.target_area_input.strip(),
+                    resolution_status="RESOLVED",
+                    selected=confirmed_candidate,
+                    candidates=[confirmed_candidate],
+                    mcp_status="STATE_CONFIRMED",
+                    evidence_records=[],
+                    missing_fields=list(resolved.unavailable_fields),
+                    conflicts=[],
+                    source_trace=[],
+                    observed_at=context.state.updated_at.isoformat(),
+                ),
+            )
         query = context.state.founder.target_area_input.strip()
         outcome = asyncio.run(
             self._mcp_client.call_tool(

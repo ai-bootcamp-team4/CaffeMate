@@ -112,7 +112,12 @@ class PostgresProjectRepository:
     def confirm_onboarding(self, command: ConfirmOnboardingCommand) -> Project:
         operation = f"CONFIRM_ONBOARDING:{command.project_id}"
         digest = hashlib.sha256(
-            rfc8785.dumps(command.founder.model_dump(mode="json"))
+            rfc8785.dumps(
+                {
+                    "founder": command.founder.model_dump(mode="json"),
+                    "area": command.area.model_dump(mode="json") if command.area else None,
+                }
+            )
         ).digest()
         with self._engine.begin() as connection:
             locked = connection.execute(
@@ -160,6 +165,7 @@ class PostgresProjectRepository:
                 user_id=project.user_id,
                 occurred_at=self._now(),
                 founder=command.founder,
+                area=command.area,
             )
             state = reduce_venture_state(project.state, event)
             assert state is not None

@@ -42,6 +42,23 @@ class AreaResolutionStatus(StrEnum):
     RESOLVED = "RESOLVED"
 
 
+class AreaScopeType(StrEnum):
+    LEGAL_DONG = "LEGAL_DONG"
+    ADMINISTRATIVE_DONG = "ADMINISTRATIVE_DONG"
+    COMPOSITE = "COMPOSITE"
+
+
+class AreaMappingStatus(StrEnum):
+    VERIFIED = "VERIFIED"
+    UNVERIFIED = "UNVERIFIED"
+
+
+class CandidateSetCompleteness(StrEnum):
+    COMPLETE = "COMPLETE"
+    TRUNCATED = "TRUNCATED"
+    UNVERIFIED = "UNVERIFIED"
+
+
 class CoverageProfile(StrEnum):
     N0_NATIONWIDE_FACTS = "N0_NATIONWIDE_FACTS"
     N1_NATIONWIDE_CONDITIONAL = "N1_NATIONWIDE_CONDITIONAL"
@@ -89,9 +106,27 @@ class FounderState(StrictModel):
     max_loss_krw: int | None = Field(default=None, ge=0)
 
 
+class AreaIdentity(StrictModel):
+    area_id: str = Field(min_length=1, max_length=128)
+    scope_type: AreaScopeType
+    display_name: str = Field(min_length=1, max_length=256)
+    legal_dong_code: str | None = Field(default=None, pattern=r"^[0-9]{10}$")
+    administrative_dong_codes: list[str] = Field(default_factory=list)
+    mapping_status: AreaMappingStatus
+    source_revision: str = Field(min_length=1, max_length=128)
+    boundary_version: str | None = Field(default=None, max_length=128)
+
+
 class AreaState(StrictModel):
     resolution_status: AreaResolutionStatus
+    area_id: str | None = None
+    scope_type: AreaScopeType | None = None
     administrative_code: str | None = None
+    legal_dong_code: str | None = None
+    administrative_dong_codes: list[str] = Field(default_factory=list)
+    mapping_status: AreaMappingStatus | None = None
+    candidate_set_completeness: CandidateSetCompleteness | None = None
+    source_revision: str | None = None
     display_name: str | None = None
     boundary_version: str | None = None
     coverage_profile: CoverageProfile

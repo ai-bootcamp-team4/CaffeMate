@@ -3,6 +3,9 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 
 from app.domain.models import (
+    AreaIdentity,
+    AreaMappingStatus,
+    AreaScopeType,
     BorrowingIntent,
     CafeTypePreference,
     FounderState,
@@ -10,6 +13,44 @@ from app.domain.models import (
 )
 from app.projects.in_memory_repository import InMemoryProjectRepository
 from app.projects.service import ProjectService
+
+
+class FakeAreaLookupService:
+    async def search(self, *, project_id: str, query: str, limit: int):
+        from app.areas.models import AreaSearchCandidate, AreaSearchResult
+
+        return AreaSearchResult(
+            query=query,
+            status="OK",
+            completeness="UNVERIFIED",
+            candidates=[
+                AreaSearchCandidate(
+                    area_id="legal-dong:1144012300",
+                    scope_type="LEGAL_DONG",
+                    display_name="서울특별시 마포구 망원동",
+                    legal_dong_code="1144012300",
+                    administrative_dong_codes=[],
+                    mapping_status="UNVERIFIED",
+                    source_revision="JUSO_LIVE_UNVERSIONED",
+                    boundary_version=None,
+                    selection_token=f"selection:{project_id}:{query}",
+                )
+            ],
+        )
+
+    def resolve_selection(self, *, project_id: str, query: str, selection_token: str | None):
+        if selection_token != f"selection:{project_id}:{query}":
+            raise AssertionError("unexpected area selection")
+        return AreaIdentity(
+            area_id="legal-dong:1144012300",
+            scope_type=AreaScopeType.LEGAL_DONG,
+            display_name="서울특별시 마포구 망원동",
+            legal_dong_code="1144012300",
+            administrative_dong_codes=[],
+            mapping_status=AreaMappingStatus.UNVERIFIED,
+            source_revision="JUSO_LIVE_UNVERSIONED",
+            boundary_version=None,
+        )
 
 
 def auth(user_id: str = "user-1") -> dict[str, str]:
@@ -80,6 +121,47 @@ def test_project_has_no_state_until_onboarding_is_confirmed(client: TestClient) 
     assert state["status"] == "ANALYZING"
     assert state["area"]["resolution_status"] == "UNRESOLVED"
     assert state["founder"]["target_area_input"] == "수원 아주대 부근"
+
+
+def test_structured_area_selection_is_persisted_as_legal_dong_without_inventing_admin_mapping(
+    repository: InMemoryProjectRepository,
+) -> None:
+    from conftest import FakeIdentityVerifier
+
+    from app.main import create_app
+
+    with TestClient(
+        create_app(
+            project_service=ProjectService(repository),
+            identity_verifier=FakeIdentityVerifier(),
+            area_lookup_service=FakeAreaLookupService(),  # type: ignore[arg-type]
+        )
+    ) as structured_client:
+        project = create_project(structured_client)
+        search = structured_client.post(
+            f"/v1/projects/{project['project_id']}/areas:search",
+            headers=auth(),
+            json={"query": "서울 마포구 망원동", "limit": 10},
+        )
+        candidate = search.json()["candidates"][0]
+        response = structured_client.post(
+            f"/v1/projects/{project['project_id']}/onboarding/confirm",
+            headers={**auth(), "Idempotency-Key": "onboarding-1"},
+            json={
+                "founder": {**founder_payload(), "target_area_input": "서울 마포구 망원동"},
+                "area_selection_token": candidate["selection_token"],
+            },
+        )
+
+    assert search.status_code == 200
+    assert response.status_code == 200
+    area = response.json()["state"]["area"]
+    assert area["resolution_status"] == "RESOLVED"
+    assert area["scope_type"] == "LEGAL_DONG"
+    assert area["legal_dong_code"] == "1144012300"
+    assert area["administrative_dong_codes"] == []
+    assert area["mapping_status"] == "UNVERIFIED"
+    assert area["unavailable_fields"] == ["administrative_dong_mapping"]
 
 
 def test_project_list_only_returns_current_users_projects(client: TestClient) -> None:
