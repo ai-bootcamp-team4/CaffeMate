@@ -1,0 +1,20 @@
+{
+  "name": "@caffemate/agent-runtime",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@google/adk": "1.6.0",
+    "@google/adk-devtools": "1.6.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "google-auth-library": "11.0.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "overrides": {
+    "adm-zip": "0.6.0",
+    "tar": "7.5.22"
+  }
+}
