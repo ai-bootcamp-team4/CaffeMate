@@ -22,8 +22,6 @@ from app.contracts.schema_registry import AgentContractValidator, ContractRegist
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 
 CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
-SESSION_CREATE_TIMEOUT_SECONDS = 10.0
-SESSION_DELETE_TIMEOUT_SECONDS = 10.0
 STREAM_CLEANUP_RESERVE_SECONDS = 2.0
 T = TypeVar("T")
 
@@ -126,6 +124,10 @@ class _RepairableResultError(Exception):
 
 
 class _HardRuntimeDeadlineError(AgentRuntimeError):
+    pass
+
+
+class _RuntimeCleanupUncertainError(AgentRuntimeError):
     pass
 
 
@@ -261,64 +263,44 @@ class AgentRuntimeHttpClient:
         self._ensure_before_deadline(task)
         user_id = self._runtime_user_id(task["venture_project_id"])
         session_id = self._runtime_session_id(task["invocation_id"])
-        session_create_attempted = False
-        session_cleanup_required = False
-        primary_error: Exception | None = None
         try:
-            create_timeout = self._session_create_timeout(task)
-            session_create_attempted = True
-            session_id = self._create_session(
-                user_id,
-                session_id=session_id,
-                timeout=create_timeout,
-            )
-            session_cleanup_required = True
             events = self._stream_query(
                 user_id=user_id,
                 session_id=session_id,
                 task=task,
                 timeout=self._stream_timeout(task),
             )
-            self._ensure_before_deadline(task)
-            response_text = self._select_final_text(events, expected_author=task["agent_name"])
-            result = self._parse_and_validate_result(response_text)
-            self._ensure_before_deadline(task)
-            return result
-        except Exception as error:
-            primary_error = error
-            if session_create_attempted and isinstance(
-                error,
-                (_HardRuntimeDeadlineError, _RetryableTransportError),
-            ):
-                session_cleanup_required = True
+        except Exception:
+            # The Runtime owns normal deletion in the ephemeral stream's finally
+            # block. A transport interruption makes that acknowledgement
+            # uncertain, so enqueue the deterministic session id for idempotent
+            # cleanup before propagating the original failure.
+            self._enqueue_uncertain_cleanup(user_id=user_id, session_id=session_id)
             raise
-        finally:
-            if session_cleanup_required:
-                if isinstance(primary_error, _HardRuntimeDeadlineError):
-                    self._cleanup_sink.enqueue_session_delete(
-                        runtime_resource=self._resource,
-                        user_id=user_id,
-                        session_id=session_id,
-                    )
-                else:
-                    try:
-                        self._delete_session(
-                            user_id=user_id,
-                            session_id=session_id,
-                            timeout=self._session_delete_timeout(task),
-                        )
-                    except Exception:
-                        try:
-                            self._cleanup_sink.enqueue_session_delete(
-                                runtime_resource=self._resource,
-                                user_id=user_id,
-                                session_id=session_id,
-                            )
-                        except Exception as enqueue_error:
-                            if primary_error is None:
-                                raise AgentRuntimeError(
-                                    "RUNTIME_CLEANUP_ENQUEUE_FAILED"
-                                ) from enqueue_error
+        self._ensure_before_deadline(task)
+        try:
+            response_text = self._select_final_text(
+                events,
+                expected_author=task["agent_name"],
+            )
+        except _RuntimeCleanupUncertainError:
+            self._enqueue_uncertain_cleanup(user_id=user_id, session_id=session_id)
+            raise
+        result = self._parse_and_validate_result(response_text)
+        self._ensure_before_deadline(task)
+        return result
+
+    def _enqueue_uncertain_cleanup(self, *, user_id: str, session_id: str) -> None:
+        try:
+            self._cleanup_sink.enqueue_session_delete(
+                runtime_resource=self._resource,
+                user_id=user_id,
+                session_id=session_id,
+            )
+        except Exception:
+            # Preserve the primary execution failure. The deterministic session
+            # id remains available in the invocation trace for operator cleanup.
+            pass
 
     def _parse_and_validate_result(self, response_text: str) -> dict[str, Any]:
         try:
@@ -399,40 +381,6 @@ class AgentRuntimeHttpClient:
         self._contracts.validate_agent_task(repair_task)
         return repair_task
 
-    def _create_session(self, user_id: str, *, session_id: str, timeout: float) -> str:
-        return self._run_with_hard_timeout(
-            lambda client: self._create_session_transport(
-                client,
-                user_id,
-                session_id=session_id,
-                request_timeout=timeout,
-            ),
-            timeout=timeout,
-        )
-
-    async def _create_session_transport(
-        self,
-        client: httpx.AsyncClient,
-        user_id: str,
-        *,
-        session_id: str,
-        request_timeout: float,
-    ) -> str:
-        response = await self._post_json(
-            client,
-            f"{self._base_url}:query",
-            {
-                "class_method": "async_create_session",
-                "input": {"user_id": user_id, "session_id": session_id},
-            },
-            request_timeout=request_timeout,
-        )
-        output = response.get("output", response)
-        returned_session_id = output.get("id") if isinstance(output, dict) else None
-        if returned_session_id != session_id:
-            raise AgentRuntimeError("RUNTIME_SESSION_CREATE_INVALID")
-        return returned_session_id
-
     def _stream_query(
         self,
         *,
@@ -462,7 +410,7 @@ class AgentRuntimeHttpClient:
         request_timeout: float,
     ) -> list[dict[str, Any]]:
         body = {
-            "class_method": "async_stream_query",
+            "class_method": "async_ephemeral_stream_query",
             "input": {
                 "user_id": user_id,
                 "session_id": session_id,
@@ -504,35 +452,6 @@ class AgentRuntimeHttpClient:
         except httpx.HTTPError as error:
             raise AgentRuntimeError("RUNTIME_STREAM_TRANSPORT_FAILED") from error
         return events
-
-    def _delete_session(self, *, user_id: str, session_id: str, timeout: float) -> None:
-        self._run_with_hard_timeout(
-            lambda client: self._delete_session_transport(
-                client,
-                user_id=user_id,
-                session_id=session_id,
-                request_timeout=timeout,
-            ),
-            timeout=timeout,
-        )
-
-    async def _delete_session_transport(
-        self,
-        client: httpx.AsyncClient,
-        *,
-        user_id: str,
-        session_id: str,
-        request_timeout: float,
-    ) -> None:
-        await self._post_json(
-            client,
-            f"{self._base_url}:query",
-            {
-                "class_method": "async_delete_session",
-                "input": {"user_id": user_id, "session_id": session_id},
-            },
-            request_timeout=request_timeout,
-        )
 
     def _run_with_hard_timeout(
         self,
@@ -611,6 +530,8 @@ class AgentRuntimeHttpClient:
         for event in events:
             observed_error = event.get("error_code", event.get("errorCode"))
             if observed_error is not None:
+                if observed_error == "RUNTIME_SESSION_CLEANUP_FAILED":
+                    raise _RuntimeCleanupUncertainError(observed_error)
                 if observed_error == "SAFETY_BLOCKED":
                     raise AgentRuntimeError("SAFETY_BLOCKED")
                 raise AgentRuntimeError("RUNTIME_PROTOCOL_INVALID")
@@ -681,13 +602,6 @@ class AgentRuntimeHttpClient:
             now = now.replace(tzinfo=UTC)
         return (deadline - now).total_seconds()
 
-    def _session_create_timeout(self, task: dict[str, Any]) -> float:
-        remaining = self._remaining_seconds(task)
-        available = remaining - STREAM_CLEANUP_RESERVE_SECONDS
-        if available <= 0:
-            raise AgentRuntimeError("RUNTIME_TIMED_OUT")
-        return min(SESSION_CREATE_TIMEOUT_SECONDS, available)
-
     def _stream_timeout(self, task: dict[str, Any]) -> float:
         available = self._remaining_seconds(task) - STREAM_CLEANUP_RESERVE_SECONDS
         if available <= 0:
@@ -697,12 +611,6 @@ class AgentRuntimeHttpClient:
     def _ensure_stream_budget(self, task: dict[str, Any]) -> None:
         if self._remaining_seconds(task) <= STREAM_CLEANUP_RESERVE_SECONDS:
             raise AgentRuntimeError("RUNTIME_TIMED_OUT")
-
-    def _session_delete_timeout(self, task: dict[str, Any]) -> float:
-        remaining = self._remaining_seconds(task)
-        if remaining <= 0:
-            raise AgentRuntimeError("RUNTIME_TIMED_OUT")
-        return min(SESSION_DELETE_TIMEOUT_SECONDS, remaining)
 
     def _retry_after_seconds(self, response: httpx.Response) -> float | None:
         value = response.headers.get("Retry-After")

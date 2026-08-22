@@ -554,3 +554,30 @@ cases:
       - 13-stage production canary
       - current conditional result card
     pass_condition: 첫 Proposal 응답이 후보를 포함해 통과하고 Candidate Audit도 실제 실행되어 FIRST_PROPOSAL이 CURRENT 결과 카드로 끝난다.
+
+  - id: EV-032
+    title: Agent 세션 왕복 축소가 역할 격리와 삭제 보장을 깨뜨리지 않음
+    input: Evidence Assess, 개인카페 Proposal, Candidate Audit가 차례로 필요한 FIRST_PROPOSAL 실행
+    relevant_state:
+      workflow_code: FIRST_PROPOSAL
+      transport_method: async_ephemeral_stream_query
+      managed_agent_count: 3
+    trap: 지연을 줄인다는 이유로 Agent 응답을 기다리지 않거나 Proposal과 Critic이 한 session 이력을 공유하거나 session 삭제를 생략한다.
+    expected_behavior:
+      - 각 Agent invocation은 외부 Runtime 요청 한 번으로 session 생성, 실행, 삭제를 완료한다.
+      - final event와 Runtime 내부 삭제가 끝나기 전 Control API는 결과를 수용하지 않는다.
+      - Proposal Agent와 Candidate Auditor는 서로 다른 invocation id와 session id를 사용한다.
+      - 성공, 모델 오류, stream 취소 모두에서 Runtime의 finally 삭제가 실행된다.
+      - transport 중단이나 명시적인 삭제 실패는 deterministic session id의 durable cleanup을 예약한다.
+      - 세 Agent 결과는 각각 STOP, repair 0, Schema와 의미 VALID를 충족한다.
+    forbidden_behavior:
+      - timeout을 COMPLETE 또는 ABSTAIN으로 바꿔 다음 단계로 넘어간다.
+      - Proposal 결과를 Critic의 대화 이력으로 전달한다.
+      - 외부 create, stream, delete 세 왕복을 그대로 유지하면서 최적화 완료라고 보고한다.
+      - 삭제 실패 뒤 유효 결과 카드를 commit한다.
+    required_evidence:
+      - Runtime ephemeral lifecycle unit tests
+      - Control API transport and durable cleanup tests
+      - managed Runtime generation and validation telemetry
+      - 13-stage production canary before and after elapsed time
+    pass_condition: 세 역할이 각각 격리된 ephemeral session으로 실제 실행되고 삭제 불확실성이 0인 상태에서 13단계를 한 번에 완주하며, 동일 기준선보다 end-to-end 시간이 감소한다.

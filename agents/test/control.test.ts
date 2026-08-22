@@ -25,6 +25,7 @@ describe('Agent Control CLI core', () => {
         classMethods: [
           { name: 'async_create_session', api_mode: 'async' },
           { name: 'async_stream_query', api_mode: 'async_stream' },
+          { name: 'async_ephemeral_stream_query', api_mode: 'async_stream' },
           { name: 'async_delete_session', api_mode: 'async' },
           { name: 'async_get_release_identity', api_mode: 'async' },
         ],

@@ -92,8 +92,10 @@ Agent 호출은 역할별로 최적화한다. Control API는 전체 MCP 저장�
 
 이는 Agent를 제거하거나 응답을 기다리지 않는 fallback이 아니다. 결정론적 Evidence Plan과 MCP
 물리 조회가 먼저 필요한 근거를 좁히고, Agent는 의미 판정·typed 제안·독립 감사에만 제한된다.
-Control API는 각 관리형 세션을 생성하고 final event를 끝까지 기다린 뒤 계약을 검증하고 세션을
-삭제한다. repair가 발생하거나 운영 계약 통과율이 낮아지면 해당 역할의 prompt·입력 투영을 먼저
+Control API는 각 역할마다 하나의 ephemeral stream을 호출한다. Runtime adapter가 서로 분리된
+관리형 세션을 생성하고 Agent final event까지 실행한 뒤 `finally`에서 삭제하며, Control API는
+stream 종료와 계약 검증을 모두 기다린다. 이 방식은 역할 격리를 유지하면서 호출당 외부 Runtime
+왕복을 세 번에서 한 번으로 줄인다. repair가 발생하거나 운영 계약 통과율이 낮아지면 해당 역할의 prompt·입력 투영을 먼저
 교정하고, 필요한 역할만 `medium`으로 되돌리는 것이 현재 최적화 결정의 폐기 조건이다.
 
 배포 검증은 결과 카드 생성만 성공으로 보지 않는다. 같은 FIRST_PROPOSAL canary 구간에서 세

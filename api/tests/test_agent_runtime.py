@@ -138,17 +138,13 @@ def expected_session_id(invocation_id: str) -> str:
     return f"caffemate-{hashlib.sha256(invocation_id.encode()).hexdigest()[:48]}"
 
 
-def test_runtime_creates_streams_validates_and_deletes_one_managed_session() -> None:
+def test_runtime_uses_one_ephemeral_stream_and_validates_the_final_result() -> None:
     task, result = evidence_fixture()
     requests: list[dict[str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         requests.append({"url": str(request.url), "body": body, "headers": request.headers})
-        if body.get("class_method") == "async_create_session":
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if body.get("class_method") == "async_delete_session":
-            return httpx.Response(200, json={"output": None})
         event = {
             "author": "EVIDENCE_RESEARCHER",
             "partial": False,
@@ -161,20 +157,14 @@ def test_runtime_creates_streams_validates_and_deletes_one_managed_session() -> 
 
     assert loaded == result
     assert [request["body"].get("class_method") for request in requests] == [
-        "async_create_session",
-        "async_stream_query",
-        "async_delete_session",
+        "async_ephemeral_stream_query",
     ]
-    create_user_id = requests[0]["body"]["input"]["user_id"]
-    assert create_user_id.startswith("p-")
-    assert task["venture_project_id"] not in create_user_id
-    stream_input = requests[1]["body"]["input"]
-    assert requests[0]["body"]["input"]["session_id"] == expected_session_id(
-        task["invocation_id"]
-    )
+    stream_input = requests[0]["body"]["input"]
+    assert stream_input["user_id"].startswith("p-")
+    assert task["venture_project_id"] not in stream_input["user_id"]
     assert stream_input["session_id"] == expected_session_id(task["invocation_id"])
     assert json.loads(stream_input["message"]) == task
-    assert all(request["headers"]["Authorization"] == "Bearer access-token" for request in requests)
+    assert requests[0]["headers"]["Authorization"] == "Bearer access-token"
     assert cleanup.calls == []
 
 
@@ -188,10 +178,6 @@ def test_sixty_second_task_preserves_stream_budget_and_reserves_cleanup() -> Non
         method = body.get("class_method")
         timeout = request.extensions["timeout"]
         observed_timeouts[str(method)] = float(timeout["read"])
-        if method == "async_create_session":
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if method == "async_delete_session":
-            return httpx.Response(200, json={"output": None})
         event = {
             "author": "EVIDENCE_RESEARCHER",
             "partial": False,
@@ -202,9 +188,7 @@ def test_sixty_second_task_preserves_stream_budget_and_reserves_cleanup() -> Non
     runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
 
     assert observed_timeouts == {
-        "async_create_session": 10.0,
-        "async_stream_query": 58.0,
-        "async_delete_session": 10.0,
+        "async_ephemeral_stream_query": 58.0,
     }
 
 
@@ -212,25 +196,17 @@ def test_stream_discards_final_when_wall_clock_reaches_cleanup_reserve() -> None
     task, result = evidence_fixture()
     task["deadline_at"] = "2026-08-21T09:00:00Z"
     cleanup = FakeCleanupSink()
-    delete_timeouts: list[float] = []
     observed_times = iter(
         [
             datetime(2026, 8, 21, 8, 59, 0, tzinfo=UTC),
             datetime(2026, 8, 21, 8, 59, 0, tzinfo=UTC),
-            datetime(2026, 8, 21, 8, 59, 0, tzinfo=UTC),
-            datetime(2026, 8, 21, 8, 59, 59, tzinfo=UTC),
             datetime(2026, 8, 21, 8, 59, 59, tzinfo=UTC),
         ]
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
-        method = body.get("class_method")
-        if method == "async_create_session":
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if method == "async_delete_session":
-            delete_timeouts.append(float(request.extensions["timeout"]["read"]))
-            return httpx.Response(200, json={"output": None})
+        assert body.get("class_method") == "async_ephemeral_stream_query"
         event = {
             "author": "EVIDENCE_RESEARCHER",
             "content": {"parts": [{"text": json.dumps(result)}]},
@@ -249,57 +225,33 @@ def test_stream_discards_final_when_wall_clock_reaches_cleanup_reserve() -> None
     with pytest.raises(AgentRuntimeError, match="RUNTIME_TIMED_OUT"):
         client.invoke(task)
 
-    assert delete_timeouts == [1.0]
-    assert cleanup.calls == []
-
-
-def test_expired_cleanup_budget_enqueues_session_delete() -> None:
-    task, result = evidence_fixture()
-    task["deadline_at"] = "2026-08-21T09:00:00Z"
-    cleanup = FakeCleanupSink()
-    delete_calls = 0
-    observed_times = iter(
-        [
-            datetime(2026, 8, 21, 8, 59, 0, tzinfo=UTC),
-            datetime(2026, 8, 21, 8, 59, 0, tzinfo=UTC),
-            datetime(2026, 8, 21, 8, 59, 0, tzinfo=UTC),
-            datetime(2026, 8, 21, 8, 59, 59, tzinfo=UTC),
-            datetime(2026, 8, 21, 9, 0, 0, tzinfo=UTC),
-        ]
-    )
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal delete_calls
-        body = json.loads(request.content)
-        method = body.get("class_method")
-        if method == "async_create_session":
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if method == "async_delete_session":
-            delete_calls += 1
-            return httpx.Response(200, json={"output": None})
-        event = {
-            "author": "EVIDENCE_RESEARCHER",
-            "content": {"parts": [{"text": json.dumps(result)}]},
-        }
-        return httpx.Response(200, text=f'{json.dumps({"output": event})}\n')
-
-    client = AgentRuntimeHttpClient(
-        gcp_project_id="gcp-project",
-        resource_id="runtime-1",
-        user_hmac_secret="x" * 32,
-        access_tokens=FakeTokens(),
-        cleanup_sink=cleanup,
-        transport=httpx.MockTransport(handler),
-        now=lambda: next(observed_times),
-    )
-    with pytest.raises(AgentRuntimeError, match="RUNTIME_TIMED_OUT"):
-        client.invoke(task)
-
-    assert delete_calls == 0
     assert len(cleanup.calls) == 1
-    assert cleanup.calls[0]["runtime_resource"].endswith("reasoningEngines/runtime-1")
-    assert cleanup.calls[0]["user_id"].startswith("p-")
     assert cleanup.calls[0]["session_id"] == expected_session_id(task["invocation_id"])
+
+
+def test_exhausted_transport_retries_enqueue_each_uncertain_ephemeral_session() -> None:
+    task, _result = evidence_fixture()
+    cleanup = FakeCleanupSink()
+    invocation_ids = iter(["inv-retry-2", "inv-retry-3"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body.get("class_method") == "async_ephemeral_stream_query"
+        return httpx.Response(503)
+
+    with pytest.raises(AgentRuntimeError, match="RUNTIME_STREAM_TRANSPORT_FAILED"):
+        runtime_client(
+            httpx.MockTransport(handler),
+            cleanup,
+            sleep=lambda _seconds: None,
+            new_invocation_id=lambda: next(invocation_ids),
+        ).invoke(task)
+
+    assert [call["session_id"] for call in cleanup.calls] == [
+        expected_session_id(task["invocation_id"]),
+        expected_session_id("inv-retry-2"),
+        expected_session_id("inv-retry-3"),
+    ]
 
 
 def test_stream_transport_is_cancelled_at_absolute_wall_clock_deadline() -> None:
@@ -312,11 +264,7 @@ def test_stream_transport_is_cancelled_at_absolute_wall_clock_deadline() -> None
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal stream_cancelled
         body = json.loads(request.content)
-        method = body.get("class_method")
-        if method == "async_create_session":
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if method == "async_delete_session":
-            pytest.fail("hard stream timeout must use durable cleanup instead")
+        assert body.get("class_method") == "async_ephemeral_stream_query"
         try:
             await asyncio.sleep(2.0)
         except asyncio.CancelledError:
@@ -347,52 +295,13 @@ def test_stream_transport_is_cancelled_at_absolute_wall_clock_deadline() -> None
     assert cleanup.calls[0]["session_id"] == expected_session_id(task["invocation_id"])
 
 
-def test_create_transport_is_cancelled_and_known_session_is_enqueued() -> None:
-    task, _result = evidence_fixture()
-    task["deadline_at"] = "2026-08-21T09:00:00Z"
-    cleanup = FakeCleanupSink()
-    create_cancelled = False
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal create_cancelled
-        body = json.loads(request.content)
-        if body.get("class_method") != "async_create_session":
-            pytest.fail("timed-out create must not continue to stream or inline delete")
-        try:
-            await asyncio.sleep(2.0)
-        except asyncio.CancelledError:
-            create_cancelled = True
-            raise
-        return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-
-    client = AgentRuntimeHttpClient(
-        gcp_project_id="gcp-project",
-        resource_id="runtime-1",
-        user_hmac_secret="x" * 32,
-        access_tokens=FakeTokens(),
-        cleanup_sink=cleanup,
-        transport=httpx.MockTransport(handler),
-        now=lambda: datetime(2026, 8, 21, 8, 59, 57, 700000, tzinfo=UTC),
-    )
-
-    with pytest.raises(AgentRuntimeError, match="RUNTIME_TIMED_OUT"):
-        client.invoke(task)
-
-    assert create_cancelled is True
-    assert cleanup.calls[0]["session_id"] == expected_session_id(task["invocation_id"])
-
-
-def test_wrong_author_and_duplicate_final_events_are_protocol_errors_but_still_cleanup() -> None:
+def test_wrong_author_and_duplicate_final_events_fail_after_runtime_cleanup() -> None:
     task, result = evidence_fixture()
-    deleted: list[str] = []
+    cleanup = FakeCleanupSink()
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
-        if body.get("class_method") == "async_create_session":
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if body.get("class_method") == "async_delete_session":
-            deleted.append(body["input"]["session_id"])
-            return httpx.Response(200, json={"output": None})
+        assert body.get("class_method") == "async_ephemeral_stream_query"
         events = [
             {
                 "author": "OTHER_AGENT",
@@ -411,8 +320,8 @@ def test_wrong_author_and_duplicate_final_events_are_protocol_errors_but_still_c
         return httpx.Response(200, text=body_text)
 
     with pytest.raises(AgentRuntimeError, match="RUNTIME_PROTOCOL_INVALID"):
-        runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
-    assert deleted == [expected_session_id(task["invocation_id"])]
+        runtime_client(httpx.MockTransport(handler), cleanup).invoke(task)
+    assert cleanup.calls == []
 
 
 @pytest.mark.parametrize(
@@ -510,25 +419,29 @@ def test_wrong_author_partial_event_fails_closed() -> None:
         runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
 
 
-def test_delete_failure_is_durably_enqueued_without_losing_valid_result() -> None:
+def test_runtime_cleanup_failure_invalidates_result_and_enqueues_durable_cleanup() -> None:
     task, result = evidence_fixture()
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
-        if body.get("class_method") == "async_create_session":
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if body.get("class_method") == "async_delete_session":
-            return httpx.Response(503)
+        assert body.get("class_method") == "async_ephemeral_stream_query"
         event = {
             "author": "EVIDENCE_RESEARCHER",
             "content": {"parts": [{"text": json.dumps(result)}]},
         }
-        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
+        cleanup_error = {"error_code": "RUNTIME_SESSION_CLEANUP_FAILED"}
+        return httpx.Response(
+            200,
+            text=(
+                f"data: {json.dumps(event)}\n\n"
+                f"data: {json.dumps(cleanup_error)}\n\n"
+            ),
+        )
 
     cleanup = FakeCleanupSink()
-    loaded = runtime_client(httpx.MockTransport(handler), cleanup).invoke(task)
+    with pytest.raises(AgentRuntimeError, match="RUNTIME_SESSION_CLEANUP_FAILED"):
+        runtime_client(httpx.MockTransport(handler), cleanup).invoke(task)
 
-    assert loaded == result
     assert cleanup.calls == [
         {
             "runtime_resource": (
@@ -558,22 +471,19 @@ def test_task_digest_mismatch_makes_zero_runtime_calls() -> None:
 
 def test_retryable_transport_uses_new_invocation_and_session_then_succeeds() -> None:
     task, result = evidence_fixture()
-    created = 0
+    stream_calls = 0
     streamed_tasks: list[dict[str, Any]] = []
     sleeps: list[float] = []
     invocation_ids = iter(["inv-retry-2", "unused"])
+    cleanup = FakeCleanupSink()
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal created
+        nonlocal stream_calls
         body = json.loads(request.content)
-        method = body.get("class_method")
-        if method == "async_create_session":
-            created += 1
-            if created == 1:
-                return httpx.Response(503)
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if method == "async_delete_session":
-            return httpx.Response(200, json={"output": None})
+        assert body.get("class_method") == "async_ephemeral_stream_query"
+        stream_calls += 1
+        if stream_calls == 1:
+            return httpx.Response(503)
         sent_task = json.loads(body["input"]["message"])
         streamed_tasks.append(sent_task)
         response_result = copy.deepcopy(result)
@@ -586,36 +496,31 @@ def test_retryable_transport_uses_new_invocation_and_session_then_succeeds() -> 
 
     loaded = runtime_client(
         httpx.MockTransport(handler),
-        FakeCleanupSink(),
+        cleanup,
         sleep=sleeps.append,
         new_invocation_id=lambda: next(invocation_ids),
     ).invoke(task)
 
     assert loaded["invocation_id"] == "inv-retry-2"
-    assert created == 2
+    assert stream_calls == 2
     assert streamed_tasks[0]["transport_attempt"] == 2
     assert streamed_tasks[0]["task_id"] == task["task_id"]
     assert streamed_tasks[0]["input_digest"] == task["input_digest"]
     assert len(sleeps) == 1
     assert 0.25 <= sleeps[0] <= 0.35
+    assert [call["session_id"] for call in cleanup.calls] == [
+        expected_session_id(task["invocation_id"])
+    ]
 
 
 def test_terminal_agent_output_failure_is_not_retried() -> None:
     task, _result = evidence_fixture()
-    create_calls = 0
     stream_calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal create_calls, stream_calls
+        nonlocal stream_calls
         body = json.loads(request.content)
-        method = body.get("class_method")
-        if method == "async_create_session":
-            create_calls += 1
-            return httpx.Response(
-                200, json={"output": {"id": body["input"]["session_id"]}}
-            )
-        if method == "async_delete_session":
-            return httpx.Response(200, json={"output": None})
+        assert body.get("class_method") == "async_ephemeral_stream_query"
         stream_calls += 1
         return httpx.Response(
             422, json={"error": "VERTEX_MODEL_RESPONSE_INCOMPLETE"}
@@ -624,26 +529,18 @@ def test_terminal_agent_output_failure_is_not_retried() -> None:
     with pytest.raises(AgentRuntimeError, match="RUNTIME_AGENT_OUTPUT_INVALID"):
         runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
 
-    assert create_calls == 1
     assert stream_calls == 1
 
 
-def test_stream_retry_cleans_each_known_session() -> None:
+def test_stream_retry_enqueues_only_the_uncertain_failed_session() -> None:
     task, result = evidence_fixture()
-    sessions = 0
     streams = 0
-    deleted: list[str] = []
+    cleanup = FakeCleanupSink()
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal sessions, streams
+        nonlocal streams
         body = json.loads(request.content)
-        method = body.get("class_method")
-        if method == "async_create_session":
-            sessions += 1
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if method == "async_delete_session":
-            deleted.append(body["input"]["session_id"])
-            return httpx.Response(200, json={"output": None})
+        assert body.get("class_method") == "async_ephemeral_stream_query"
         streams += 1
         if streams == 1:
             return httpx.Response(503)
@@ -658,31 +555,26 @@ def test_stream_retry_cleans_each_known_session() -> None:
 
     runtime_client(
         httpx.MockTransport(handler),
-        FakeCleanupSink(),
+        cleanup,
         sleep=lambda _seconds: None,
         new_invocation_id=lambda: "inv-stream-retry",
     ).invoke(task)
-    assert deleted == [
+    assert [call["session_id"] for call in cleanup.calls] == [
         expected_session_id(task["invocation_id"]),
-        expected_session_id("inv-stream-retry"),
     ]
 
 
 def test_schema_invalid_result_is_repaired_once_in_a_new_session() -> None:
     task, result = evidence_fixture()
-    sessions = 0
+    streams = 0
     sent_tasks: list[dict[str, Any]] = []
     invocation_ids = iter(["inv-repair-1"])
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal sessions
+        nonlocal streams
         body = json.loads(request.content)
-        method = body.get("class_method")
-        if method == "async_create_session":
-            sessions += 1
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if method == "async_delete_session":
-            return httpx.Response(200, json={"output": None})
+        assert body.get("class_method") == "async_ephemeral_stream_query"
+        streams += 1
         sent_task = json.loads(body["input"]["message"])
         sent_tasks.append(sent_task)
         if sent_task["repair_attempt"] == 0:
@@ -704,7 +596,7 @@ def test_schema_invalid_result_is_repaired_once_in_a_new_session() -> None:
     ).invoke(task)
 
     assert loaded["invocation_id"] == "inv-repair-1"
-    assert sessions == 2
+    assert streams == 2
     assert [sent["repair_attempt"] for sent in sent_tasks] == [0, 1]
     repair = sent_tasks[1]
     assert repair["repair_of_invocation_id"] == task["invocation_id"]
@@ -722,18 +614,14 @@ def test_schema_invalid_result_is_repaired_once_in_a_new_session() -> None:
 
 def test_second_schema_failure_stops_without_third_generation() -> None:
     task, _result = evidence_fixture()
-    sessions = 0
+    streams = 0
     invocation_ids = iter(["inv-repair-1"])
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal sessions
+        nonlocal streams
         body = json.loads(request.content)
-        method = body.get("class_method")
-        if method == "async_create_session":
-            sessions += 1
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if method == "async_delete_session":
-            return httpx.Response(200, json={"output": None})
+        assert body.get("class_method") == "async_ephemeral_stream_query"
+        streams += 1
         event = {
             "author": task["agent_name"],
             "content": {"parts": [{"text": "{}"}]},
@@ -746,7 +634,7 @@ def test_second_schema_failure_stops_without_third_generation() -> None:
             FakeCleanupSink(),
             new_invocation_id=lambda: next(invocation_ids),
         ).invoke(task)
-    assert sessions == 2
+    assert streams == 2
 
 
 @pytest.mark.parametrize(
@@ -771,28 +659,21 @@ def test_terminal_http_failures_are_not_retried(status_code: int, runtime_code: 
     assert calls == 1
 
 
-def test_safety_block_event_is_terminal_and_session_is_cleaned() -> None:
+def test_safety_block_event_is_terminal_after_runtime_cleanup() -> None:
     task, _result = evidence_fixture()
-    sessions = 0
-    deletes = 0
+    stream_calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal sessions, deletes
+        nonlocal stream_calls
         body = json.loads(request.content)
-        method = body.get("class_method")
-        if method == "async_create_session":
-            sessions += 1
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if method == "async_delete_session":
-            deletes += 1
-            return httpx.Response(200, json={"output": None})
+        assert body.get("class_method") == "async_ephemeral_stream_query"
+        stream_calls += 1
         event = {"errorCode": "SAFETY_BLOCKED"}
         return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
 
     with pytest.raises(AgentRuntimeError, match="SAFETY_BLOCKED"):
         runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
-    assert sessions == 1
-    assert deletes == 1
+    assert stream_calls == 1
 
 
 def test_expired_deadline_makes_zero_runtime_calls() -> None:
@@ -819,20 +700,16 @@ def test_expired_deadline_makes_zero_runtime_calls() -> None:
 
 def test_retry_after_is_used_only_within_two_seconds() -> None:
     task, result = evidence_fixture()
-    create_calls = 0
+    stream_calls = 0
     sleeps: list[float] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal create_calls
+        nonlocal stream_calls
         body = json.loads(request.content)
-        method = body.get("class_method")
-        if method == "async_create_session":
-            create_calls += 1
-            if create_calls == 1:
-                return httpx.Response(429, headers={"Retry-After": "1.5"})
-            return httpx.Response(200, json={"output": {"id": body["input"]["session_id"]}})
-        if method == "async_delete_session":
-            return httpx.Response(200, json={"output": None})
+        assert body.get("class_method") == "async_ephemeral_stream_query"
+        stream_calls += 1
+        if stream_calls == 1:
+            return httpx.Response(429, headers={"Retry-After": "1.5"})
         sent_task = json.loads(body["input"]["message"])
         response_result = copy.deepcopy(result)
         response_result["invocation_id"] = sent_task["invocation_id"]
@@ -853,24 +730,17 @@ def test_retry_after_is_used_only_within_two_seconds() -> None:
 
 def test_transport_retry_then_repair_references_invalid_retry_invocation() -> None:
     task, result = evidence_fixture()
-    create_calls = 0
+    stream_calls = 0
     sent_tasks: list[dict[str, Any]] = []
     invocation_ids = iter(["inv-transport-2", "inv-repair-after-retry"])
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal create_calls
+        nonlocal stream_calls
         body = json.loads(request.content)
-        method = body.get("class_method")
-        if method == "async_create_session":
-            create_calls += 1
-            if create_calls == 1:
-                return httpx.Response(503)
-            return httpx.Response(
-                200,
-                json={"output": {"id": body["input"]["session_id"]}},
-            )
-        if method == "async_delete_session":
-            return httpx.Response(200, json={"output": None})
+        assert body.get("class_method") == "async_ephemeral_stream_query"
+        stream_calls += 1
+        if stream_calls == 1:
+            return httpx.Response(503)
         sent_task = json.loads(body["input"]["message"])
         sent_tasks.append(sent_task)
         if sent_task["repair_attempt"] == 0:

@@ -147,7 +147,7 @@ API와 MCP 실행 계정으로 일회성 Cloud Run Job을 실행하여, 고정 �
 변경 권한을 `testIamPermissions` 응답에서 함께 확인한다.
 
 검증 스크립트는 API image와 같은 service account를 쓰는 일회성
-Cloud Run Job으로 실제 session 생성, Agent 실행, typed final event 검증과 session 삭제를
+Cloud Run Job으로 한 ephemeral stream 안의 실제 session 생성, Agent 실행, typed final event 검증과 session 삭제를
 모두 통과시킨다. 이어 producer와 같은 Agent GCP preflight를 별도 최소 권한 verifier identity로
 실행해 RAG corpus/file, embedding, retrieval, reranker, generation model과 pinned Runtime을 함께
 검사한다. 단순 resource 조회는 실행 가능성의 증거로 취급하지 않는다.
@@ -186,7 +186,7 @@ Migration job은 API 시작 명령을 사용하지 않고 `caffemate-api migrate
 5. API 업무 endpoint의 무인증 요청이 거절됨
 6. Worker 업무 endpoint가 internet과 권한 없는 identity에서 거절됨
 7. test Workflow outbox가 `PUBLISHED`가 되고 Pub/Sub push 뒤 stage event가 이어짐
-8. Control API identity로 Agent Runtime session 생성·실행·typed final 검증·삭제 성공
+8. Control API identity로 Agent Runtime ephemeral stream의 session 생성·실행·typed final 검증·삭제 성공
 
 하나라도 확인하지 못하면 배포 상태는 `pending`이다.
 

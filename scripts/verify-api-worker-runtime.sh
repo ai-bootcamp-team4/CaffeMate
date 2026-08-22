@@ -240,7 +240,7 @@ else
 fi
 gcloud run jobs execute "$agent_preflight_job" --project="$project_id" --region="$region" \
   --wait --quiet >/dev/null
-printf '%s\n' 'PASS Control API created, executed, validated and deleted an Agent Runtime session'
+printf '%s\n' 'PASS Control API completed one ephemeral Agent Runtime stream with create, execute, validate and delete'
 
 intent_preflight_job='caffemate-agent-runtime-intent-preflight'
 configure_intent_preflight_job() {
