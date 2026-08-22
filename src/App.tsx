@@ -188,12 +188,13 @@ export default function App({ authGateway, apiFactory }: AppProps = {}) {
     } catch (error) { setLoginError(error instanceof Error ? error.message : 'Google 로그인에 실패했습니다.') } finally { setLoginBusy(false) }
   }
 
-  const completeOnboarding = async (values: OnboardingValues) => {
+  const completeOnboarding = async (values: OnboardingValues, areaSelectionToken: string) => {
     if (!client || !project) throw new Error('프로젝트 연결이 준비되지 않았습니다.')
-    const confirmedProject = await client.confirmOnboarding(project.project_id, values)
+    const confirmedProject = await client.confirmOnboarding(project.project_id, values, areaSelectionToken)
     setProject(confirmedProject)
     const workflow = await client.startFirstProposal(project.project_id)
     const terminal = await waitForWorkflow(client, project.project_id, workflow, setProgress)
+    if (terminal.status === 'WAITING_FOR_HUMAN') return
     if (!['SUCCEEDED', 'PARTIAL'].includes(terminal.status)) {
       const reasons = terminal.terminal_reason_codes.join(' · ')
       throw new Error(`첫 분석이 완료되지 않았습니다: ${terminal.status}${reasons ? ` (${reasons})` : ''}`)
@@ -203,7 +204,10 @@ export default function App({ authGateway, apiFactory }: AppProps = {}) {
   }
 
   if (screen === 'welcome') return <Welcome onStart={start} busy={loginBusy} error={loginError} />
-  if (screen === 'onboarding') return <><Onboarding onComplete={completeOnboarding} />{progress && <p className="workflow-progress" aria-live="polite">분석 진행 {progress.completed_stage_count}/{progress.total_stage_count} · {progress.current_stage_codes.join(' · ') || progress.status}</p>}</>
+  if (screen === 'onboarding') return <><Onboarding onComplete={completeOnboarding} searchAreas={async (query) => {
+    if (!client || !project) throw new Error('프로젝트 연결이 준비되지 않았습니다.')
+    return (await client.searchAreas(project.project_id, query)).candidates
+  }} />{progress && <p className="workflow-progress" aria-live="polite">{progress.status === 'WAITING_FOR_HUMAN' ? `추가 확인 필요 · ${progress.human_review_requests.flatMap((request) => request.reason_codes).join(' · ')}` : `분석 진행 ${progress.completed_stage_count}/${progress.total_stage_count} · ${progress.current_stage_codes.join(' · ') || progress.status}`}</p>}</>
   if (client && project && result) return <ResultScreen client={client} project={project} initialResult={result} />
   return <main className="analysis-stage"><h1>결과를 불러오지 못했습니다</h1><p>프로젝트 상태를 다시 확인해 주세요.</p></main>
 }

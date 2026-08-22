@@ -153,9 +153,32 @@
         "resolution_status": {
           "enum": ["UNRESOLVED", "AMBIGUOUS", "RESOLVED"]
         },
+        "area_id": { "type": ["string", "null"] },
+        "scope_type": {
+          "type": ["string", "null"],
+          "enum": ["LEGAL_DONG", "ADMINISTRATIVE_DONG", "COMPOSITE", null]
+        },
         "administrative_code": {
           "type": ["string", "null"]
         },
+        "legal_dong_code": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{10}$"
+        },
+        "administrative_dong_codes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[0-9]{8,10}$" },
+          "uniqueItems": true
+        },
+        "mapping_status": {
+          "type": ["string", "null"],
+          "enum": ["VERIFIED", "UNVERIFIED", null]
+        },
+        "candidate_set_completeness": {
+          "type": ["string", "null"],
+          "enum": ["COMPLETE", "TRUNCATED", "UNVERIFIED", null]
+        },
+        "source_revision": { "type": ["string", "null"] },
         "display_name": {
           "type": ["string", "null"]
         },

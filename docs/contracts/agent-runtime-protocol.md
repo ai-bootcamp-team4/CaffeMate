@@ -415,6 +415,13 @@ MCP 2026-07-28은 stateless이므로 `initialize`, `notifications/initialized`�
 - scope token 수명은 최대 5분이다.
 - MCP는 Cloud Run identity와 scope token을 모두 검증한 뒤 project tool을 실행한다.
 - Agent가 생성한 `venture_project_id`, scope token과 query filter는 받지 않는다.
+
+온보딩 이전 지역 검색도 브라우저가 MCP를 직접 호출하지 않는다. Control API는 먼저 프로젝트
+소유권을 확인한 뒤 `area-lookup:<uuid>` 형식의 단기 operation id와 lookup 전용 head를 사용해
+`resolve_area`를 호출한다. 이 operation id는 Workflow run이나 권위 State가 아니며, MCP의
+project fence와 호출 추적에만 사용한다. 검색 결과를 브라우저에 전달할 때에는 프로젝트·검색어·
+후보 identity·만료를 묶은 별도 서명 토큰을 발급한다. 온보딩 확정 시 해당 토큰을 재검증하고,
+표시 문자열이나 브라우저가 다시 보낸 지역 코드를 권위값으로 신뢰하지 않는다.
 - public corpus tool에도 trace와 source scope를 남기되 사용자 project 문서를 섞지 않는다.
 
 ### 8.3 Tool 호출

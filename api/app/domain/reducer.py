@@ -41,7 +41,7 @@ def reduce_venture_state(
             state_version=1,
             status=VentureStatus.ANALYZING,
             founder=event.founder,
-            area=AreaState(
+            area=event.area or AreaState(
                 resolution_status=AreaResolutionStatus.UNRESOLVED,
                 coverage_profile=CoverageProfile.N0_NATIONWIDE_FACTS,
                 unavailable_fields=[],
