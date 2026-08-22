@@ -16,8 +16,131 @@ interface ConnectorOptions {
 interface JusoResult {
   results?: {
     common?: { errorCode?: string; errorMessage?: string }
-    juso?: Array<{ admCd?: string; siNm?: string; sggNm?: string; emdNm?: string; liNm?: string; roadAddr?: string }>
+    juso?: JusoAddress[]
   }
+}
+
+interface JusoAddress {
+  admCd?: string
+  siNm?: string
+  sggNm?: string
+  emdNm?: string
+  liNm?: string
+  hemdNm?: string
+  roadAddr?: string
+  jibunAddr?: string
+  bdNm?: string
+}
+
+interface RankedAreaCandidate {
+  administrative_code: string
+  display_name: string
+  boundary_version: string
+  match_kind: 'EXACT' | 'ALIAS' | 'CONTAINS' | 'AMBIGUOUS'
+  score: number
+}
+
+const LOCALITY_SUFFIXES = ['동', '읍', '면', '리', '구', '시'] as const
+
+function normalizeSearchText(value: string): string {
+  return value.normalize('NFKC').toLocaleLowerCase('ko-KR').replaceAll(/\s+/g, '')
+}
+
+function queryTokens(query: string): string[] {
+  return query
+    .normalize('NFKC')
+    .trim()
+    .split(/\s+/)
+    .map(normalizeSearchText)
+    .filter(Boolean)
+}
+
+function localitySearchVariants(query: string): string[] {
+  const parts = query.normalize('NFKC').trim().split(/\s+/).filter(Boolean)
+  const last = parts.at(-1)
+  if (!last || !/^[가-힣]{2,}$/.test(last) || LOCALITY_SUFFIXES.some((suffix) => last.endsWith(suffix))) {
+    return []
+  }
+  const prefix = parts.slice(0, -1)
+  return LOCALITY_SUFFIXES.map((suffix) => [...prefix, `${last}${suffix}`].join(' '))
+}
+
+function localityMatchScore(row: JusoAddress, tokens: string[]): number | null {
+  const components = [row.siNm, row.sggNm, row.emdNm, row.liNm, row.hemdNm]
+    .filter((value): value is string => Boolean(value))
+    .map(normalizeSearchText)
+  if (!components.length || !tokens.length) return null
+
+  let score = 0
+  for (const token of tokens) {
+    const tokenScore = Math.max(...components.map((component) => {
+      if (component === token) return 400
+      if (component.startsWith(token)) return 300
+      if (component.includes(token)) return 200
+      return 0
+    }))
+    if (tokenScore === 0) return null
+    score += tokenScore
+  }
+  return score
+}
+
+function addressFallbackScore(row: JusoAddress, tokens: string[]): number | null {
+  const searchable = normalizeSearchText([row.roadAddr, row.jibunAddr, row.bdNm].filter(Boolean).join(' '))
+  if (!searchable || !tokens.every((token) => searchable.includes(token))) return null
+  return tokens.reduce((score, token) => score + (searchable.startsWith(token) ? 50 : 25), 0)
+}
+
+function toRankedCandidate(
+  row: JusoAddress,
+  tokens: string[],
+  expanded: boolean,
+  allowAddressFallback: boolean,
+): RankedAreaCandidate | null {
+  if (!row.admCd || !/^\d{10}$/.test(row.admCd)) return null
+  const displayName = [row.siNm, row.sggNm, row.emdNm || row.liNm].filter(Boolean).join(' ')
+  if (!displayName) return null
+  const localityScore = localityMatchScore(row, tokens)
+  const fallbackScore = allowAddressFallback ? addressFallbackScore(row, tokens) : null
+  if (localityScore === null && fallbackScore === null) return null
+
+  const normalizedDisplay = normalizeSearchText(displayName)
+  const normalizedQuery = tokens.join('')
+  return {
+    administrative_code: row.admCd,
+    display_name: displayName,
+    boundary_version: 'JUSO_LIVE_UNVERSIONED',
+    match_kind: normalizedDisplay === normalizedQuery
+      ? 'EXACT'
+      : localityScore !== null
+        ? expanded ? 'ALIAS' : 'CONTAINS'
+        : 'AMBIGUOUS',
+    score: localityScore ?? fallbackScore ?? 0,
+  }
+}
+
+function rankAndDeduplicate(
+  rows: Array<{ row: JusoAddress; expanded: boolean }>,
+  tokens: string[],
+  limit: number,
+  allowAddressFallback: boolean,
+) {
+  const unique = new Map<string, RankedAreaCandidate>()
+  for (const { row, expanded } of rows) {
+    const candidate = toRankedCandidate(row, tokens, expanded, allowAddressFallback)
+    if (!candidate) continue
+    const existing = unique.get(candidate.administrative_code)
+    if (!existing || candidate.score > existing.score) unique.set(candidate.administrative_code, candidate)
+  }
+  return [...unique.values()]
+    .sort((left, right) => right.score - left.score || left.display_name.localeCompare(right.display_name, 'ko-KR'))
+    .slice(0, limit)
+    .map((candidate) => ({
+      administrative_code: candidate.administrative_code,
+      display_name: candidate.display_name,
+      boundary_version: candidate.boundary_version,
+      match_kind: candidate.match_kind,
+    }))
 }
 
 function digest(value: string): string {
@@ -52,43 +175,66 @@ export function createConnectorRegistry(options: ConnectorOptions = {}): McpConn
 
   const resolveArea: McpConnector = async (rawInput, scope) => {
     const now = clock()
-    if (!options.jusoApiKey) return unavailable(scope, 'resolve_area', now, 'SOURCE_CREDENTIAL_MISSING')
+    const jusoApiKey = options.jusoApiKey
+    if (!jusoApiKey) return unavailable(scope, 'resolve_area', now, 'SOURCE_CREDENTIAL_MISSING')
     const input = rawInput as { query: string; limit: number }
-    const url = new URL(JUSO_SOURCE_REF)
-    url.search = new URLSearchParams({
-      confmKey: options.jusoApiKey, currentPage: '1', countPerPage: String(input.limit),
-      keyword: input.query, resultType: 'json', hstryYn: 'N', firstSort: 'location', addInfoYn: 'Y',
-    }).toString()
-    let body: string
-    try {
+    const fetchJuso = async (query: string, count: number) => {
+      const url = new URL(JUSO_SOURCE_REF)
+      url.search = new URLSearchParams({
+        confmKey: jusoApiKey, currentPage: '1', countPerPage: String(count),
+        keyword: query, resultType: 'json', hstryYn: 'N', firstSort: 'location', addInfoYn: 'Y',
+      }).toString()
       const response = await fetcher(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(5000) })
       if (!response.ok) throw new Error(`HTTP_${response.status}`)
-      body = await response.text()
+      return response.text()
+    }
+
+    let originalBody: string
+    try {
+      originalBody = await fetchJuso(input.query, Math.min(100, Math.max(20, input.limit * 5)))
     } catch {
       return { ...base(scope, 'resolve_area', now), status: 'ERROR', data: [], missing_fields: [], source_trace: [], error_codes: ['SOURCE_UNAVAILABLE'] }
     }
-    let parsed: JusoResult
-    try { parsed = JSON.parse(body) as JusoResult } catch {
-      return { ...base(scope, 'resolve_area', now), status: 'ERROR', data: [], missing_fields: [], source_trace: sourceTrace(now, body), error_codes: ['SOURCE_RESPONSE_INVALID'] }
+    let originalParsed: JusoResult
+    try {
+      originalParsed = JSON.parse(originalBody) as JusoResult
+    } catch {
+      return { ...base(scope, 'resolve_area', now), status: 'ERROR', data: [], missing_fields: [], source_trace: sourceTrace(now, originalBody), error_codes: ['SOURCE_RESPONSE_INVALID'] }
     }
-    if (parsed.results?.common?.errorCode !== '0') {
-      return { ...base(scope, 'resolve_area', now), status: 'ERROR', data: [], missing_fields: [], source_trace: sourceTrace(now, body), error_codes: ['SOURCE_RESPONSE_REJECTED'] }
+    if (originalParsed.results?.common?.errorCode !== '0') {
+      return { ...base(scope, 'resolve_area', now), status: 'ERROR', data: [], missing_fields: [], source_trace: sourceTrace(now, originalBody), error_codes: ['SOURCE_RESPONSE_REJECTED'] }
     }
-    const unique = new Map<string, { administrative_code: string; display_name: string; boundary_version: string; match_kind: string }>()
-    for (const row of parsed.results.juso ?? []) {
-      if (!row.admCd || !/^\d{10}$/.test(row.admCd)) continue
-      const display = [row.siNm, row.sggNm, row.emdNm || row.liNm].filter(Boolean).join(' ')
-      if (!display) continue
-      unique.set(row.admCd, {
-        administrative_code: row.admCd, display_name: display,
-        boundary_version: 'JUSO_LIVE_UNVERSIONED',
-        match_kind: display === input.query ? 'EXACT' : display.includes(input.query) ? 'CONTAINS' : 'AMBIGUOUS',
-      })
+
+    const tokens = queryTokens(input.query)
+    const originalRows = (originalParsed.results?.juso ?? []).map((row) => ({ row, expanded: false }))
+    let rows = originalRows
+    let data = rankAndDeduplicate(rows, tokens, input.limit, false)
+    const bodies = [originalBody]
+
+    if (!data.length) {
+      const expansions = localitySearchVariants(input.query)
+      const expandedResponses = await Promise.allSettled(
+        expansions.map((query) => fetchJuso(query, Math.min(100, Math.max(20, input.limit * 3)))),
+      )
+      for (const response of expandedResponses) {
+        if (response.status !== 'fulfilled') continue
+        let parsed: JusoResult
+        try {
+          parsed = JSON.parse(response.value) as JusoResult
+        } catch {
+          continue
+        }
+        if (parsed.results?.common?.errorCode !== '0') continue
+        bodies.push(response.value)
+        rows = rows.concat((parsed.results?.juso ?? []).map((row) => ({ row, expanded: true })))
+      }
+      data = rankAndDeduplicate(rows, tokens, input.limit, false)
     }
-    const data = [...unique.values()].slice(0, input.limit)
+
+    if (!data.length) data = rankAndDeduplicate(originalRows, tokens, input.limit, true)
     return {
       ...base(scope, 'resolve_area', now), status: data.length ? 'OK' : 'NOT_FOUND', data,
-      missing_fields: data.length ? [] : ['administrative_area'], source_trace: sourceTrace(now, body),
+      missing_fields: data.length ? [] : ['administrative_area'], source_trace: sourceTrace(now, bodies.join('\n')),
     }
   }
 

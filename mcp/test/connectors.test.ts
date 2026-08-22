@@ -23,7 +23,65 @@ describe('official address connectors', () => {
     expect(result).toMatchObject({ status: 'OK', project_id: 'project-1' })
     expect(result.data).toEqual([{
       administrative_code: '4111710300', display_name: '경기도 수원시 영통구 원천동',
-      boundary_version: 'JUSO_LIVE_UNVERSIONED', match_kind: 'AMBIGUOUS',
+      boundary_version: 'JUSO_LIVE_UNVERSIONED', match_kind: 'CONTAINS',
+    }])
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ['성수', '성수동', '1120011500', '서울특별시', '성동구', '성수동1가'],
+    ['망원', '망원동', '1144012300', '서울특별시', '마포구', '망원동'],
+    ['조원', '조원동', '4111113000', '경기도', '수원시 장안구', '조원동'],
+    ['원천', '원천동', '4111710300', '경기도', '수원시 영통구', '원천동'],
+  ])('resolves the short locality %s without a place-specific alias table', async (
+    query,
+    expandedQuery,
+    admCd,
+    siNm,
+    sggNm,
+    emdNm,
+  ) => {
+    const fetcher = vi.fn(async (input: unknown) => {
+      const keyword = new URL(String(input)).searchParams.get('keyword')
+      const juso = keyword === expandedQuery
+        ? [{ admCd, siNm, sggNm, emdNm }]
+        : keyword === query
+          ? [{
+              admCd: '1168010700', siNm: '서울특별시', sggNm: '강남구', emdNm: '신사동',
+              roadAddr: `서울특별시 강남구 ${query}로 1`,
+            }]
+          : []
+      return new Response(JSON.stringify({ results: { common: { errorCode: '0' }, juso } }), { status: 200 })
+    })
+    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now }).resolve_area!
+
+    const result = await connector({ query, country_code: 'KR', limit: 5 }, scope) as Record<string, unknown>
+
+    expect(result).toMatchObject({ status: 'OK' })
+    expect(result.data).toEqual([{
+      administrative_code: admCd,
+      display_name: `${siNm} ${sggNm} ${emdNm}`,
+      boundary_version: 'JUSO_LIVE_UNVERSIONED',
+      match_kind: 'ALIAS',
+    }])
+  })
+
+  it('filters unrelated address hits and ranks every locality token for composite input', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      results: { common: { errorCode: '0' }, juso: [
+        { admCd: '4111710500', siNm: '경기도', sggNm: '수원시 영통구', emdNm: '영통동' },
+        { admCd: '1168010700', siNm: '서울특별시', sggNm: '강남구', emdNm: '신사동', roadAddr: '서울특별시 강남구 수원영통로 1' },
+      ] },
+    }), { status: 200 }))
+    const connector = createConnectorRegistry({ jusoApiKey: 'configured', fetch: fetcher as typeof fetch, now: () => now }).resolve_area!
+
+    const result = await connector({ query: '수원 영통구', country_code: 'KR', limit: 5 }, scope) as Record<string, unknown>
+
+    expect(result.data).toEqual([{
+      administrative_code: '4111710500',
+      display_name: '경기도 수원시 영통구 영통동',
+      boundary_version: 'JUSO_LIVE_UNVERSIONED',
+      match_kind: 'CONTAINS',
     }])
     expect(fetcher).toHaveBeenCalledOnce()
   })
