@@ -156,6 +156,8 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "roles/aiplatform.user" in deploy
     assert "roles/aiplatform.expressUser" in deploy
     assert "roles/serviceusage.serviceUsageConsumer" in deploy
+    assert 'agent_runtime_identity="principal://${agent_runtime_identity}"' in deploy
+    assert 'agent_runtime_identity="principal://${agent_runtime_identity}"' in verifier
     assert "--header=" not in deploy
     assert "--header=" not in verifier
     assert "MCP_SCOPE_HMAC_SECRET" not in deploy.split("gcloud run deploy caffemate-worker", 1)[1]
