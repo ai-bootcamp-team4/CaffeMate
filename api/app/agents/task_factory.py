@@ -71,6 +71,13 @@ class AgentTaskFactory:
             root / "docs" / "contracts" / "mcp-tool-manifest.json"
         )
 
+    def _deadline_for(self, task_type: str) -> datetime:
+        registration = self._release.get("tasks", {}).get(task_type)
+        seconds = registration.get("deadline_seconds") if isinstance(registration, dict) else None
+        if not isinstance(seconds, int) or seconds <= 0:
+            raise ContractValidationError(f"{task_type} deadline registry is invalid")
+        return self._now() + timedelta(seconds=seconds)
+
     def build_evidence_plan(self, context: StageContext) -> dict[str, Any]:
         dependency = context.dependency_results.get("CLAIM_PLAN")
         payload = dependency.get("claim_plan") if dependency else None
@@ -86,7 +93,7 @@ class AgentTaskFactory:
             }
             for tool in self._mcp_manifest["tools"]
         ]
-        deadline = self._now() + timedelta(seconds=20)
+        deadline = self._deadline_for("EVIDENCE_PLAN")
         task: dict[str, Any] = {
             "schema_version": "1.0.0",
             "task_id": f"task-{context.lease.stage_run_id}",
@@ -130,7 +137,7 @@ class AgentTaskFactory:
         if not latest_user_input.strip():
             raise ContractValidationError("Feedback input must not be empty")
         registry = self._release["tasks"]["INTENT_DELTA"]
-        deadline = self._now() + timedelta(seconds=15)
+        deadline = self._deadline_for("INTENT_DELTA")
         task: dict[str, Any] = {
             "schema_version": "1.0.0",
             "task_id": f"task-feedback-{preview_id}",
@@ -184,7 +191,7 @@ class AgentTaskFactory:
             raise ContractValidationError("DOCUMENT_EXTRACT requires 1..12 parser blocks")
         registry = self._release["tasks"]["DOCUMENT_EXTRACT"]
         task_id = f"task-document-{document_revision_id}-{batch_index}"
-        deadline = self._now() + timedelta(seconds=60)
+        deadline = self._deadline_for("DOCUMENT_EXTRACT")
         task: dict[str, Any] = {
             "schema_version": "1.0.0",
             "task_id": task_id,
@@ -239,7 +246,7 @@ class AgentTaskFactory:
         if not isinstance(executed_actions, list):
             raise ContractValidationError("EVIDENCE_ASSESS executed actions are invalid")
         registry = self._release["tasks"]["EVIDENCE_ASSESS"]
-        deadline = self._now() + timedelta(seconds=30)
+        deadline = self._deadline_for("EVIDENCE_ASSESS")
         task: dict[str, Any] = {
             "schema_version": "1.0.0",
             "task_id": f"task-{context.lease.stage_run_id}",
@@ -354,7 +361,7 @@ class AgentTaskFactory:
             },
         }
         registry = self._release["tasks"]["CANDIDATE_AUDIT"]
-        deadline = self._now() + timedelta(seconds=30)
+        deadline = self._deadline_for("CANDIDATE_AUDIT")
         task: dict[str, Any] = {
             "schema_version": "1.0.0",
             "task_id": f"task-{context.lease.stage_run_id}",
@@ -406,7 +413,7 @@ class AgentTaskFactory:
         ):
             raise ContractValidationError(f"{task_type} has no eligible candidate input")
         registry = self._release["tasks"][task_type]
-        deadline = self._now() + timedelta(seconds=30)
+        deadline = self._deadline_for(task_type)
         task: dict[str, Any] = {
             "schema_version": "1.0.0",
             "task_id": f"task-{context.lease.stage_run_id}",

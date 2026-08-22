@@ -21,6 +21,8 @@ from app.contracts.schema_registry import AgentContractValidator, ContractRegist
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 
 CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+QUERY_TIMEOUT_SECONDS = 10.0
+CLEANUP_RESERVE_SECONDS = 2.0
 
 
 class AccessTokenProvider(Protocol):
@@ -199,12 +201,12 @@ class AgentRuntimeHttpClient:
         session_id: str | None = None
         primary_error: Exception | None = None
         try:
-            session_id = self._create_session(user_id, timeout=self._request_timeout(task))
+            session_id = self._create_session(user_id, timeout=self._query_timeout(task))
             events = self._stream_query(
                 user_id=user_id,
                 session_id=session_id,
                 task=task,
-                timeout=self._request_timeout(task),
+                timeout=self._stream_timeout(task),
             )
             self._ensure_before_deadline(task)
             response_text = self._select_final_text(events, expected_author=task["agent_name"])
@@ -220,7 +222,7 @@ class AgentRuntimeHttpClient:
                     self._delete_session(
                         user_id=user_id,
                         session_id=session_id,
-                        timeout=self._request_timeout(task),
+                        timeout=self._query_timeout(task),
                     )
                 except Exception:
                     try:
@@ -490,11 +492,17 @@ class AgentRuntimeHttpClient:
             now = now.replace(tzinfo=UTC)
         return (deadline - now).total_seconds()
 
-    def _request_timeout(self, task: dict[str, Any]) -> float:
+    def _query_timeout(self, task: dict[str, Any]) -> float:
         remaining = self._remaining_seconds(task)
         if remaining <= 0:
             raise AgentRuntimeError("RUNTIME_TIMED_OUT")
-        return min(30.0, remaining)
+        return min(QUERY_TIMEOUT_SECONDS, remaining)
+
+    def _stream_timeout(self, task: dict[str, Any]) -> float:
+        available = self._remaining_seconds(task) - CLEANUP_RESERVE_SECONDS
+        if available <= 0:
+            raise AgentRuntimeError("RUNTIME_TIMED_OUT")
+        return available
 
     def _retry_after_seconds(self, response: httpx.Response) -> float | None:
         value = response.headers.get("Retry-After")

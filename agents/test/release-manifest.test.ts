@@ -14,7 +14,7 @@ describe('local agent release manifest', () => {
     expect(releaseManifest.runtime_region).toBe(GCP_LOCATIONS.runtime)
     expect(releaseManifest.allow_global_fallback).toBe(false)
     expect(releaseManifest.network_mode).toBe('GCP_CONNECTED')
-    expect(releaseManifest.gcp_preflight_status).toBe('AGENT_RUNTIME_STREAM_UPDATE_PENDING')
+    expect(releaseManifest.gcp_preflight_status).toBe('GCP_PREFLIGHT_VERIFIED')
     expect(releaseManifest.mcp).toEqual({
       protocol_revision: '2026-07-28',
       server_sdk: '@modelcontextprotocol/server@2.0.0',
@@ -32,6 +32,7 @@ describe('local agent release manifest', () => {
         prompt_version: registration.promptVersion,
         input_schema_id: registration.inputSchemaId,
         output_schema_id: registration.outputSchemaId,
+        deadline_seconds: registration.deadlineSeconds,
       })
     }
 

@@ -9,7 +9,7 @@
   },
   "allow_global_fallback": false,
   "network_mode": "GCP_CONNECTED",
-  "gcp_preflight_status": "AGENT_RUNTIME_STREAM_UPDATE_PENDING",
+  "gcp_preflight_status": "GCP_PREFLIGHT_VERIFIED",
   "mcp": {
     "protocol_revision": "2026-07-28",
     "server_sdk": "@modelcontextprotocol/server@2.0.0",
@@ -23,43 +23,50 @@
       "agent_name": "INTENT_INTERPRETER",
       "prompt_version": "intent-interpreter.v1",
       "input_schema_id": "caffemate.agent.intent-input.v1",
-      "output_schema_id": "caffemate.agent.intent-result.v1"
+      "output_schema_id": "caffemate.agent.intent-result.v1",
+      "deadline_seconds": 30
     },
     "EVIDENCE_PLAN": {
       "agent_name": "EVIDENCE_RESEARCHER",
       "prompt_version": "evidence-researcher.v1",
       "input_schema_id": "caffemate.agent.evidence-plan-input.v1",
-      "output_schema_id": "caffemate.agent.evidence-plan-result.v1"
+      "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
+      "deadline_seconds": 30
     },
     "EVIDENCE_ASSESS": {
       "agent_name": "EVIDENCE_RESEARCHER",
       "prompt_version": "evidence-researcher.v1",
       "input_schema_id": "caffemate.agent.evidence-assess-input.v1",
-      "output_schema_id": "caffemate.agent.evidence-assess-result.v1"
+      "output_schema_id": "caffemate.agent.evidence-assess-result.v1",
+      "deadline_seconds": 30
     },
     "PROPOSE_INDEPENDENT": {
       "agent_name": "PROPOSAL_AGENT",
       "prompt_version": "proposal-agent.v1",
       "input_schema_id": "caffemate.agent.independent-proposal-input.v1",
-      "output_schema_id": "caffemate.agent.independent-proposal-result.v1"
+      "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
+      "deadline_seconds": 30
     },
     "PROPOSE_FRANCHISE": {
       "agent_name": "PROPOSAL_AGENT",
       "prompt_version": "proposal-agent.v1",
       "input_schema_id": "caffemate.agent.franchise-proposal-input.v1",
-      "output_schema_id": "caffemate.agent.franchise-proposal-result.v1"
+      "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
+      "deadline_seconds": 30
     },
     "DOCUMENT_EXTRACT": {
       "agent_name": "DOCUMENT_ANALYST",
       "prompt_version": "document-analyst.v1",
       "input_schema_id": "caffemate.agent.document-extract-input.v1",
-      "output_schema_id": "caffemate.agent.document-extract-result.v1"
+      "output_schema_id": "caffemate.agent.document-extract-result.v1",
+      "deadline_seconds": 60
     },
     "CANDIDATE_AUDIT": {
       "agent_name": "TYPED_CANDIDATE_AUDITOR",
       "prompt_version": "typed-candidate-auditor.v1",
       "input_schema_id": "caffemate.agent.candidate-audit-input.v1",
-      "output_schema_id": "caffemate.agent.candidate-audit-result.v1"
+      "output_schema_id": "caffemate.agent.candidate-audit-result.v1",
+      "deadline_seconds": 60
     }
   }
 }

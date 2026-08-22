@@ -31,7 +31,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     promptVersion: 'intent-interpreter.v1',
     inputSchemaId: 'caffemate.agent.intent-input.v1',
     outputSchemaId: 'caffemate.agent.intent-result.v1',
-    deadlineSeconds: 15,
+    deadlineSeconds: 30,
     maxOutputTokens: 4096,
   },
   EVIDENCE_PLAN: {
@@ -39,7 +39,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     promptVersion: 'evidence-researcher.v1',
     inputSchemaId: 'caffemate.agent.evidence-plan-input.v1',
     outputSchemaId: 'caffemate.agent.evidence-plan-result.v1',
-    deadlineSeconds: 20,
+    deadlineSeconds: 30,
     maxOutputTokens: 4096,
   },
   EVIDENCE_ASSESS: {
@@ -79,7 +79,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     promptVersion: 'typed-candidate-auditor.v1',
     inputSchemaId: 'caffemate.agent.candidate-audit-input.v1',
     outputSchemaId: 'caffemate.agent.candidate-audit-result.v1',
-    deadlineSeconds: 20,
+    deadlineSeconds: 60,
     maxOutputTokens: 6144,
   },
 })

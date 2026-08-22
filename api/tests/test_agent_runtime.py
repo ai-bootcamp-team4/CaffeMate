@@ -91,6 +91,34 @@ def test_runtime_creates_streams_validates_and_deletes_one_managed_session() -> 
     assert cleanup.calls == []
 
 
+def test_runtime_reserves_cleanup_budget_and_does_not_cap_long_streams_at_30_seconds() -> None:
+    task, result = evidence_fixture()
+    observed: list[tuple[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        method = body.get("class_method")
+        timeout = request.extensions["timeout"]
+        observed.append((str(method), float(timeout["read"])))
+        if method == "async_create_session":
+            return httpx.Response(200, json={"output": {"id": "session-1"}})
+        if method == "async_delete_session":
+            return httpx.Response(200, json={"output": None})
+        event = {
+            "author": "EVIDENCE_RESEARCHER",
+            "content": {"parts": [{"text": json.dumps(result)}]},
+        }
+        return stream_response(event)
+
+    runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
+
+    assert observed == [
+        ("async_create_session", 10.0),
+        ("async_stream_query", 58.0),
+        ("async_delete_session", 10.0),
+    ]
+
+
 @pytest.mark.parametrize(
     "stream_body",
     [

@@ -96,7 +96,7 @@ def test_evidence_plan_task_is_manifest_pinned_schema_valid_and_digest_bound() -
 
     assert task["agent_name"] == "EVIDENCE_RESEARCHER"
     assert task["runtime_tool_policy"] == "NO_DIRECT_TOOL_CALLS"
-    assert task["deadline_at"] == "2026-08-21T10:00:20Z"
+    assert task["deadline_at"] == "2026-08-21T10:00:30Z"
     assert len(task["available_tool_catalog"]) == 10
     assert task["input_digest"] == compute_agent_input_digest(task)
     assert task["tool_manifest_digest"].startswith("sha256:")
@@ -119,7 +119,7 @@ def test_intent_delta_task_pins_state_candidates_and_editable_fields() -> None:
 
     assert task["task_type"] == "INTENT_DELTA"
     assert task["agent_name"] == "INTENT_INTERPRETER"
-    assert task["deadline_at"] == "2026-08-21T10:00:15Z"
+    assert task["deadline_at"] == "2026-08-21T10:00:30Z"
     assert task["runtime_tool_policy"] == "NO_DIRECT_TOOL_CALLS"
     assert task["available_tool_catalog"] == []
     assert task["payload"]["latest_user_input"] == "자금은 4천만 원으로 바꿀래"

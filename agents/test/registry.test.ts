@@ -11,11 +11,23 @@ const expected = {
   CANDIDATE_AUDIT: 'TYPED_CANDIDATE_AUDITOR',
 } as const
 
+const expectedDeadlines = {
+  INTENT_DELTA: 30,
+  EVIDENCE_PLAN: 30,
+  EVIDENCE_ASSESS: 30,
+  PROPOSE_INDEPENDENT: 30,
+  PROPOSE_FRANCHISE: 30,
+  DOCUMENT_EXTRACT: 60,
+  CANDIDATE_AUDIT: 60,
+} as const
+
 describe('task registry', () => {
   it('maps every task type to exactly one fixed agent', () => {
     expect(Object.keys(TASK_REGISTRY).sort()).toEqual(Object.keys(expected).sort())
     for (const [taskType, agentName] of Object.entries(expected)) {
-      expect(TASK_REGISTRY[taskType as keyof typeof TASK_REGISTRY].agentName).toBe(agentName)
+      const registration = TASK_REGISTRY[taskType as keyof typeof TASK_REGISTRY]
+      expect(registration.agentName).toBe(agentName)
+      expect(registration.deadlineSeconds).toBe(expectedDeadlines[taskType as keyof typeof expectedDeadlines])
     }
   })
 
