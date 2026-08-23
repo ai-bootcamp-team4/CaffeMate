@@ -68,11 +68,10 @@ class CandidateAuditStageHandler:
             current_head=context.lease.head,
         )
         if not boundary.accepted:
-            codes = ",".join(error.code for error in boundary.errors)
-            raise ContractValidationError(f"CANDIDATE_AUDIT boundary rejected: {codes}")
+            return self._unavailable(task, "CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID")
         status = result["status"]
         if status == "INVALID":
-            raise ContractValidationError("CANDIDATE_AUDIT Agent rejected its input")
+            return self._unavailable(task, "CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID")
         if status != "COMPLETE":
             return self._result(
                 candidates=task["payload"]["candidates"],
@@ -86,13 +85,13 @@ class CandidateAuditStageHandler:
 
         payload = result["payload"]
         if not isinstance(payload, dict):
-            raise ContractValidationError("CANDIDATE_AUDIT payload is invalid")
+            return self._unavailable(task, "CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID")
         audits = payload.get("candidate_audits")
         global_findings = payload.get("global_findings")
         if not isinstance(audits, list) or not isinstance(global_findings, list):
-            raise ContractValidationError("CANDIDATE_AUDIT findings are invalid")
+            return self._unavailable(task, "CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID")
         if any(value.get("status") == "INVALID_INPUT" for value in audits):
-            raise ContractValidationError("CANDIDATE_AUDIT reported invalid backend input")
+            return self._unavailable(task, "CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID")
         candidates_by_id = {
             value["candidate_id"]: value for value in task["payload"]["candidates"]
         }
@@ -161,6 +160,18 @@ class CandidateAuditStageHandler:
             "prompt_version": task["prompt_version"],
             "output_schema_id": task["output_schema_id"],
         }
+
+    @classmethod
+    def _unavailable(cls, task: dict[str, Any], reason_code: str) -> dict[str, object]:
+        return cls._result(
+            candidates=task["payload"]["candidates"],
+            audit_status="UNAVAILABLE",
+            agent_status="ABSTAIN",
+            candidate_audits=[],
+            global_findings=[],
+            reason_codes=[reason_code],
+            agent_trace=cls._trace(task),
+        )
 
     @staticmethod
     def _result(
