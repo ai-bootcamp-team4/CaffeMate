@@ -24,7 +24,7 @@ const project: Project = {
   state: {
     state_version: 1,
     status: 'ANALYZING',
-    founder: {},
+    founder: { own_funds_krw: 50_000_000, borrowing_intent: 'UNDECIDED' },
     area: {
       resolution_status: 'RESOLVED',
       display_name: '수원시 영통구 원천동',
@@ -153,7 +153,7 @@ describe('CaffeMate Control API integration', () => {
     expect(client.confirmOnboarding).toHaveBeenCalledWith('project-1', expect.any(Object), 'signed-area-selection')
     expect(client.startFirstProposal).toHaveBeenCalledWith('project-1')
     expect(client.getWorkflow).toHaveBeenCalledWith('project-1', 'workflow-1')
-    expect(screen.getAllByText('출점 가능 여부 확인이 필요한 조건부 후보입니다.').length).toBeGreaterThan(0)
+    expect(screen.getByText('지금 예산에 맞는 운영안이나 실제 점포 비용으로 한 번 더 비교해 보세요.')).toBeTruthy()
     expect(screen.getAllByText(/70,000,000원/).length).toBeGreaterThan(0)
     expect(screen.queryByText(/가상 목업값/)).toBeNull()
   })
@@ -161,22 +161,35 @@ describe('CaffeMate Control API integration', () => {
   it('persists an explicit next-preparation selection through the API', async () => {
     const { client } = setup()
     await completeOnboarding()
-    fireEvent.click(screen.getByRole('button', { name: '대상 선택' }))
+    fireEvent.click(screen.getByRole('button', { name: '실제 점포 비용으로 다시 보기' }))
     await waitFor(() => expect(client.selectCandidate).toHaveBeenCalledWith('project-1', result, 'candidate-1'))
     expect(await screen.findByText(/다음 준비 대상으로 선택했습니다/)).toBeTruthy()
+  })
+
+  it('shows the funding gap first and prepares a smaller-model feedback request', async () => {
+    setup()
+    await completeOnboarding()
+
+    expect(screen.getAllByText('지금 예산에는 조금 큰 안이에요').length).toBeGreaterThan(0)
+    expect(screen.getByText(/최소 20,000,000원을 더 마련하거나/)).toBeTruthy()
+    expect(screen.getByText('최소 부족액 20,000,000원')).toBeTruthy()
+    expect(screen.queryByText(/감사 사람 확인 필요/)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '예산에 맞는 작은 안 보기' }))
+    await waitFor(() => expect((screen.getByLabelText('자연어 피드백') as HTMLTextAreaElement).value).toBe('현재 자기자금 범위에 더 가까운 작은 개인카페 운영안으로 다시 보고 싶어요.'))
   })
 
   it('keeps internal result codes and identifiers out of user-facing panels', async () => {
     setup()
     await completeOnboarding()
 
-    expect(screen.getByText('본사 확인 필요')).toBeTruthy()
     expect(screen.queryByText('HQ_CONFIRMATION_REQUIRED')).toBeNull()
     expect(screen.queryByText('evidence-franchise')).toBeNull()
 
     fireEvent.click(screen.getByRole('tab', { name: '상권 신호' }))
-    expect(screen.getByText('전국 기준 자료 없음')).toBeTruthy()
-    expect(screen.getByText(/행정동 연결 정보 · 점포 추정 매출/)).toBeTruthy()
+    expect(screen.queryByText('전국 기준 자료 없음')).toBeNull()
+    expect(screen.queryByText(/행정동 연결 정보 · 점포 추정 매출/)).toBeNull()
+    expect(screen.getByText('확인한 상권 지표')).toBeTruthy()
     expect(screen.getByText('208개')).toBeTruthy()
     expect(screen.getByText('2,596,733,728원')).toBeTruthy()
     expect(screen.getByText('12,465,323명·회')).toBeTruthy()
