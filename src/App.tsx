@@ -727,7 +727,7 @@ function FundsPanel({
       <header className="panel__header">
         <h2>내 자금과 필요한 비용을 함께 볼게요</h2>
         <p>
-          기본 모델로 계산한 범위와 실제로 더 확인할 비용을 나누어 보여드립니다.
+          기본 모델과 현재까지 확인된 자료를 함께 반영한 비용 범위입니다.
         </p>
       </header>
       <div className="section-stack">
@@ -735,7 +735,7 @@ function FundsPanel({
           <span>예상 초기 필요자금</span>
           <strong>{formatRange(finance.initial_cash)}</strong>
           <small>
-            실제 점포나 견적이 아닌 기본 운영 모델의 참고 범위입니다.
+            확인된 값과 확인 전 기본 가정을 구분하여 계산한 참고 범위입니다.
           </small>
         </div>
         {capital.ownFunds != null && (
@@ -788,7 +788,7 @@ function FundsPanel({
         </article>
         <article className="surface surface--flat">
           <div className="surface__head">
-            <h3>실제 자료로 바꿔야 할 값</h3>
+            <h3>비용 확인 상태</h3>
           </div>
           {finance.unknown_cost_fields.length ? (
             <ul className="plain-list plain-list--neutral">
@@ -800,8 +800,8 @@ function FundsPanel({
             </ul>
           ) : (
             <p>
-              기본 계산 항목은 모두 채워졌어요. 다음 단계에서는
-              보증금·월세·권리금과 공사·장비 견적을 실제 자료로 바꿔야 합니다.
+              계산에 필요한 항목은 모두 채워졌어요. 실제 자료로 확인된 값은
+              반영하고, 확인 전 값은 기본 가정으로 구분했어요.
             </p>
           )}
         </article>
@@ -2025,11 +2025,12 @@ function ResultScreen({
               </div>
               {selection && (
                 <p className="table-note">
-                  {candidates.find(
-                    (candidate) =>
-                      candidate.candidate_id === selection.candidate_id,
-                  )?.display_name ?? "선택한 창업안"}
-                  의 준비 자료를 확인할 수 있어요.
+                  {`${
+                    candidates.find(
+                      (candidate) =>
+                        candidate.candidate_id === selection.candidate_id,
+                    )?.display_name ?? "선택한 창업안"
+                  }의 준비 자료를 확인할 수 있어요.`}
                 </p>
               )}
             </aside>
