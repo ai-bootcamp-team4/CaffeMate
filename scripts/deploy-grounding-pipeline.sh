@@ -90,14 +90,10 @@ if ! bq --project_id="$project_id" show "${project_id}:${dataset_id}" >/dev/null
     --description='Versioned CaffeMate public grounding snapshots' \
     "${project_id}:${dataset_id}" >/dev/null
 fi
-gcloud projects add-iam-policy-binding "$project_id" \
-  --member="serviceAccount:${runtime_sa}" \
-  --role='roles/bigquery.jobUser' \
-  --quiet >/dev/null
-bq --project_id="$project_id" add-iam-policy-binding --dataset \
-  --member="serviceAccount:${runtime_sa}" \
-  --role='roles/bigquery.dataEditor' \
-  "${project_id}:${dataset_id}" >/dev/null
+for role in roles/bigquery.jobUser roles/bigquery.dataEditor; do
+  gcloud projects add-iam-policy-binding "$project_id" \
+    --member="serviceAccount:${runtime_sa}" --role="$role" --quiet >/dev/null
+done
 gcloud secrets add-iam-policy-binding seoul-open-api-key \
   --project="$project_id" \
   --member="serviceAccount:${runtime_sa}" \
