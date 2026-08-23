@@ -54,8 +54,8 @@ def test_commit_result_builds_schema_valid_bundle_from_audited_candidates() -> N
     bundle = result["result_bundle"]
     assert isinstance(bundle, dict)
     assert bundle["audit_status"] == "PASSED"
-    assert len(bundle["candidates"]) == 2
-    assert [candidate["rank"] for candidate in bundle["candidates"]] == [1, 2]
+    assert len(bundle["candidates"]) == 3
+    assert [candidate["rank"] for candidate in bundle["candidates"]] == [1, 2, 3]
     assert bundle["primary_candidate_id"] == bundle["candidates"][0]["candidate_id"]
     assert all(
         candidate["review_status"] != "EXCLUDED"
@@ -69,7 +69,7 @@ def test_commit_result_builds_schema_valid_bundle_from_audited_candidates() -> N
 def test_excluded_candidates_are_never_committed() -> None:
     context = commit_context(include_franchise=True)
     audit = output_candidate_audit(context)
-    excluded = audit["candidates"][1]
+    excluded = audit["candidates"][-1]
     excluded.update(
         {
             "review_status": "EXCLUDED",
@@ -84,7 +84,7 @@ def test_excluded_candidates_are_never_committed() -> None:
 
     bundle = result["result_bundle"]
     assert isinstance(bundle, dict)
-    assert len(bundle["candidates"]) == 1
+    assert len(bundle["candidates"]) == 3
     assert excluded["candidate_id"] not in {
         candidate["candidate_id"] for candidate in bundle["candidates"]
     }
@@ -93,16 +93,16 @@ def test_excluded_candidates_are_never_committed() -> None:
 def test_no_reviewable_candidate_abstains_without_result_bundle() -> None:
     context = commit_context()
     audit = output_candidate_audit(context)
-    candidate = audit["candidates"][0]
-    candidate.update(
-        {
-            "review_status": "EXCLUDED",
-            "reason_codes": ["CONFIRMED_HARD_CONSTRAINT"],
-            "rank": None,
-            "rank_basis": "NOT_RANKED",
-            "is_primary_next_review": False,
-        }
-    )
+    for candidate in audit["candidates"]:
+        candidate.update(
+            {
+                "review_status": "EXCLUDED",
+                "reason_codes": ["CONFIRMED_HARD_CONSTRAINT"],
+                "rank": None,
+                "rank_basis": "NOT_RANKED",
+                "is_primary_next_review": False,
+            }
+        )
 
     result = CommitResultStageHandler().execute(context)
 

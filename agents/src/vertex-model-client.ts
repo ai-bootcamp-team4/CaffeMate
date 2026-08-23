@@ -47,6 +47,21 @@ function record(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+function collectProposalEvidenceIds(payload: unknown): string[] {
+  const candidate = record(payload)
+  const records = Array.isArray(candidate?.evidence_records) ? candidate.evidence_records : []
+  return [...new Set(records.flatMap((value) => {
+    const evidence = record(value)
+    return typeof evidence?.evidence_id === 'string' ? [evidence.evidence_id] : []
+  }))]
+}
+
+function collectProposalClaimIds(payload: unknown): string[] {
+  const candidate = record(payload)
+  const values = Array.isArray(candidate?.claim_id_pool) ? candidate.claim_id_pool : []
+  return [...new Set(values.filter((value): value is string => typeof value === 'string'))]
+}
+
 function numericMetric(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
@@ -122,11 +137,34 @@ export function buildAgentModelInput(task: AgentTask): Record<string, unknown> {
 export function buildAgentTaskResultResponseJsonSchema(task: AgentTask): Record<string, unknown> {
   const evidenceBounds = evidenceAssessOutputBounds(task)
   const intentOutput = task.task_type === 'INTENT_DELTA'
+  const proposalOutput = task.task_type === 'PROPOSE_INDEPENDENT' || task.task_type === 'PROPOSE_FRANCHISE'
+  const proposalEvidenceIds = proposalOutput
+    ? collectProposalEvidenceIds(task.payload)
+    : []
+  const proposalClaimIds = proposalOutput
+    ? collectProposalClaimIds(task.payload)
+    : []
   const evidenceRefs = task.task_type === 'EVIDENCE_ASSESS'
     ? { type: 'array', items: { type: 'string' }, maxItems: evidenceBounds.candidateCount }
+    : proposalOutput
+      ? {
+          type: 'array',
+          items: proposalEvidenceIds.length > 0
+            ? { type: 'string', enum: proposalEvidenceIds }
+            : { type: 'string' },
+          maxItems: proposalEvidenceIds.length,
+        }
     : { type: 'array', items: { type: 'string' }, ...(intentOutput ? { maxItems: 0 } : {}) }
   const missingClaimIds = task.task_type === 'EVIDENCE_ASSESS'
     ? { type: 'array', items: { type: 'string' }, maxItems: evidenceBounds.claimCount }
+    : proposalOutput
+      ? {
+          type: 'array',
+          items: proposalClaimIds.length > 0
+            ? { type: 'string', enum: proposalClaimIds }
+            : { type: 'string' },
+          maxItems: proposalClaimIds.length,
+        }
     : { type: 'array', items: { type: 'string' }, ...(intentOutput ? { maxItems: 0 } : {}) }
   return {
     type: 'object',

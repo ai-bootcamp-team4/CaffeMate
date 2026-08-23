@@ -560,6 +560,72 @@ function applyIntentBounds(projected: JsonObject, task: AgentTask): void {
   riskFlags.maxItems = 5
 }
 
+function proposalSource(task: AgentTask): JsonObject {
+  const payload = asObject(task.payload)
+  const key = task.task_type === 'PROPOSE_INDEPENDENT' ? 'model_seeds' : 'franchise_universe'
+  const sources = payload && Array.isArray(payload[key]) ? payload[key] : []
+  const source = asObject(sources[0])
+  if (!source || sources.length !== 1) throw new Error('VERTEX_PROPOSAL_SOURCE_INVALID')
+  return source
+}
+
+function proposalEvidenceIds(task: AgentTask): string[] {
+  const payload = asObject(task.payload)
+  const records = payload && Array.isArray(payload.evidence_records) ? payload.evidence_records : []
+  return records
+    .map((record) => asObject(record)?.evidence_id)
+    .filter((value): value is string => typeof value === 'string')
+}
+
+function boundedStringArray(schema: JsonObject, values: readonly string[]): void {
+  schema.maxItems = values.length
+  schema.items = values.length > 0
+    ? { type: 'string', enum: [...values] }
+    : { type: 'string' }
+}
+
+function applyProposalBounds(projected: JsonObject, task: AgentTask): void {
+  const properties = asObject(projected.properties)
+  const proposals = properties ? asObject(properties.candidate_proposals) : null
+  const proposal = proposals ? asObject(proposals.items) : null
+  const proposalProperties = proposal ? asObject(proposal.properties) : null
+  if (!proposals || !proposalProperties) throw new Error('VERTEX_PROPOSAL_SCHEMA_UNRESOLVED')
+
+  const source = proposalSource(task)
+  const proposalId = source.proposal_id
+  const sourceId = task.task_type === 'PROPOSE_INDEPENDENT' ? source.model_id : source.brand_id
+  const displayName = source.display_name
+  if (typeof proposalId !== 'string' || typeof sourceId !== 'string' || typeof displayName !== 'string') {
+    throw new Error('VERTEX_PROPOSAL_SOURCE_ID_INVALID')
+  }
+
+  proposals.minItems = 1
+  proposals.maxItems = 1
+  proposalProperties.proposal_id = { type: 'string', enum: [proposalId] }
+  proposalProperties.seed_or_brand_id = { type: 'string', enum: [sourceId] }
+  proposalProperties.display_name = { type: 'string', enum: [displayName] }
+
+  const evidenceRefs = asObject(proposalProperties.evidence_refs)
+  const assumptionRefs = asObject(proposalProperties.assumption_refs)
+  const claimRefs = asObject(proposalProperties.claim_refs)
+  if (!evidenceRefs || !assumptionRefs || !claimRefs) {
+    throw new Error('VERTEX_PROPOSAL_REFERENCE_SCHEMA_UNRESOLVED')
+  }
+  const evidenceIds = proposalEvidenceIds(task)
+  boundedStringArray(evidenceRefs, evidenceIds)
+
+  const assumptions = task.task_type === 'PROPOSE_INDEPENDENT' && Array.isArray(source.support_refs)
+    ? source.support_refs.filter((value): value is string => typeof value === 'string')
+    : []
+  boundedStringArray(assumptionRefs, assumptions)
+  if (assumptions.length > 0) assumptionRefs.minItems = assumptions.length
+  const payload = asObject(task.payload)
+  const claimIds = payload && Array.isArray(payload.claim_id_pool)
+    ? payload.claim_id_pool.filter((value): value is string => typeof value === 'string')
+    : []
+  boundedStringArray(claimRefs, claimIds)
+}
+
 export function buildVertexRolePayloadSchema(task: AgentTask): JsonObject {
   const taskType = task.task_type
   const defName = ROLE_PAYLOAD_DEF[taskType]
@@ -570,5 +636,6 @@ export function buildVertexRolePayloadSchema(task: AgentTask): JsonObject {
   if (taskType === 'INTENT_DELTA') applyIntentBounds(projected, task)
   if (taskType === 'EVIDENCE_PLAN') applyEvidencePlanToolActionSchema(projected, task)
   if (taskType === 'EVIDENCE_ASSESS') applyEvidenceAssessBounds(projected, task)
+  if (taskType === 'PROPOSE_INDEPENDENT' || taskType === 'PROPOSE_FRANCHISE') applyProposalBounds(projected, task)
   return projected
 }

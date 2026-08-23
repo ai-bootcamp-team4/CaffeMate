@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from threading import Barrier
 from typing import Any
 
 import pytest
@@ -139,8 +140,16 @@ def proposal_result(
 @pytest.mark.parametrize(
     ("task_type", "builder_name", "source_key"),
     [
-        ("PROPOSE_INDEPENDENT", "build_independent_proposal", "model_seeds"),
-        ("PROPOSE_FRANCHISE", "build_franchise_proposal", "franchise_universe"),
+        (
+            "PROPOSE_INDEPENDENT",
+            "build_independent_proposal_tasks",
+            "model_seeds",
+        ),
+        (
+            "PROPOSE_FRANCHISE",
+            "build_franchise_proposal_tasks",
+            "franchise_universe",
+        ),
     ],
 )
 def test_proposal_task_is_pinned_schema_valid_and_has_no_tools(
@@ -154,15 +163,19 @@ def test_proposal_task_is_pinned_schema_valid_and_has_no_tools(
         new_invocation_id=lambda: "invocation-proposal",
     )
 
-    task = getattr(factory, builder_name)(context)
+    tasks = getattr(factory, builder_name)(context)
 
-    assert task["task_type"] == task_type
-    assert task["deadline_at"] == "2026-08-21T10:01:00Z"
-    assert task["runtime_tool_policy"] == "NO_DIRECT_TOOL_CALLS"
-    assert task["available_tool_catalog"] == []
-    assert task["tool_manifest_digest"] is None
-    assert task["payload"][source_key]
-    assert task["input_digest"] == compute_agent_input_digest(task)
+    assert tasks
+    assert len({task["task_id"] for task in tasks}) == len(tasks)
+    for task in tasks:
+        assert task["task_type"] == task_type
+        assert task["deadline_at"] == "2026-08-21T10:01:00Z"
+        assert task["runtime_tool_policy"] == "NO_DIRECT_TOOL_CALLS"
+        assert task["available_tool_catalog"] == []
+        assert task["tool_manifest_digest"] is None
+        assert len(task["payload"][source_key]) == 1
+        assert task["payload"]["requested_candidate_count"] == 1
+        assert task["input_digest"] == compute_agent_input_digest(task)
 
 
 @pytest.mark.parametrize("task_type", ["PROPOSE_INDEPENDENT", "PROPOSE_FRANCHISE"])
@@ -185,8 +198,49 @@ def test_complete_proposal_is_boundary_validated_and_normalized(task_type: str) 
     output = result[output_key]
     assert isinstance(output, dict)
     assert output["status"] == "COMPLETE"
-    assert len(output["candidate_proposals"]) == 1
+    expected_count = 3 if task_type == "PROPOSE_INDEPENDENT" else 1
+    assert len(output["candidate_proposals"]) == expected_count
+    assert len(runtime.tasks) == expected_count
+    assert len(output["agent_traces"]) == expected_count
     assert output["agent_trace"]["input_digest"] == runtime.tasks[0]["input_digest"]
+
+
+def test_independent_proposals_are_invoked_in_parallel() -> None:
+    barrier = Barrier(3)
+
+    def synchronized_result(task: dict[str, Any]) -> dict[str, Any]:
+        barrier.wait(timeout=2)
+        return proposal_result(task)
+
+    runtime = FakeRuntime(synchronized_result)
+
+    result = ProposalStageHandler.independent(runtime).execute(
+        proposal_context("PROPOSE_INDEPENDENT")
+    )
+
+    output = result["independent_proposal"]
+    assert isinstance(output, dict)
+    assert len(output["candidate_proposals"]) == 3
+
+
+def test_one_parallel_proposal_failure_keeps_the_other_candidates() -> None:
+    def one_failure(task: dict[str, Any]) -> dict[str, Any]:
+        model_id = task["payload"]["model_seeds"][0]["model_id"]
+        if model_id == "independent-balanced-v1":
+            raise ExternalExecutionUnavailableError("runtime unavailable")
+        return proposal_result(task)
+
+    runtime = FakeRuntime(one_failure)
+
+    result = ProposalStageHandler.independent(runtime).execute(
+        proposal_context("PROPOSE_INDEPENDENT")
+    )
+
+    output = result["independent_proposal"]
+    assert isinstance(output, dict)
+    assert output["status"] == "NEEDS_EVIDENCE"
+    assert len(output["candidate_proposals"]) == 2
+    assert "PROPOSAL_PARTIAL_RUNTIME_FAILURE" in output["reason_codes"]
 
 
 @pytest.mark.parametrize("task_type", ["PROPOSE_INDEPENDENT", "PROPOSE_FRANCHISE"])

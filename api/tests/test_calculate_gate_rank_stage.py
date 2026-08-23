@@ -69,8 +69,9 @@ def calculation_context(
         independent_context
     )
     independent_proposal = independent_result["independent_proposal"]
-    independent_proposal["candidate_proposals"][0]["missing_fields"] = []
-    independent_proposal["candidate_proposals"][0]["warnings"] = []
+    for candidate in independent_proposal["candidate_proposals"]:
+        candidate["missing_fields"] = []
+        candidate["warnings"] = []
     dependencies: dict[str, dict[str, Any]] = {
         "PROPOSE_INDEPENDENT": independent_result,
     }
@@ -97,7 +98,11 @@ def test_unknown_costs_remain_unknown_and_candidate_stays_conditional() -> None:
     output = CalculateGateRankStageHandler().execute(calculation_context())["calculate_gate_rank"]
 
     assert isinstance(output, dict)
-    candidate = output["candidates"][0]
+    candidate = next(
+        value
+        for value in output["candidates"]
+        if value["display_name"] == "소형 포장 중심 개인카페"
+    )
     assert candidate["finance"]["initial_cash"] == {
         "low": None,
         "base": None,
@@ -149,8 +154,11 @@ def test_registered_seed_assumptions_make_first_proposal_calculable() -> None:
         "calculate_gate_rank"
     ]
 
-    candidate = output["candidates"][0]
-    assert candidate["display_name"] == "소형 포장 중심 개인카페"
+    candidate = next(
+        value
+        for value in output["candidates"]
+        if value["display_name"] == "소형 포장 중심 개인카페"
+    )
     assert candidate["finance"]["initial_cash"] == {
         "low": 79_500_000,
         "base": 139_500_000,
@@ -246,7 +254,10 @@ def test_confirmed_document_cost_overrides_benchmark_but_open_conflict_stays_unk
     ]
 
     output = CalculateGateRankStageHandler().execute(context)["calculate_gate_rank"]
-    assert output["candidates"][0]["finance"]["initial_cash"] == {
+    selected = next(
+        value for value in output["candidates"] if value["source_id"] == source_id
+    )
+    assert selected["finance"]["initial_cash"] == {
         "low": 52_000_000,
         "base": 52_000_000,
         "high": 52_000_000,
@@ -254,7 +265,9 @@ def test_confirmed_document_cost_overrides_benchmark_but_open_conflict_stays_unk
 
     context.document_claims[0]["has_open_conflict"] = True
     conflicted = CalculateGateRankStageHandler().execute(context)["calculate_gate_rank"]
-    candidate = conflicted["candidates"][0]
+    candidate = next(
+        value for value in conflicted["candidates"] if value["source_id"] == source_id
+    )
     assert candidate["finance"]["initial_cash"] == {
         "low": None,
         "base": None,

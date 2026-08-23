@@ -103,15 +103,24 @@ def test_candidate_audit_task_projects_schema_valid_deterministic_inputs() -> No
     assert candidate["is_primary_next_review"] is True
     assert candidate["financial_summary"]["required_daily_orders"] == 40.0
     assert candidate["financial_summary"]["initial_cash"]["provenance_refs"]
-    assert task["payload"]["gate_snapshot"]["candidate_gates"] == [
-        {
-            "candidate_id": candidate["candidate_id"],
+    candidate_gates = task["payload"]["gate_snapshot"]["candidate_gates"]
+    assert len(candidate_gates) == 3
+    assert [gate["candidate_id"] for gate in candidate_gates] == [
+        value["candidate_id"] for value in task["payload"]["candidates"]
+    ]
+    assert all(
+        gate
+        == {
+            "candidate_id": value["candidate_id"],
             "hard_constraint": "PASS",
             "economic_viability": "PASS",
             "founder_fit": "PASS",
             "risk_adjusted_status": "REVIEW_RECOMMENDED",
         }
-    ]
+        for gate, value in zip(
+            candidate_gates, task["payload"]["candidates"], strict=True
+        )
+    )
 
 
 def test_franchise_natural_language_warning_does_not_enter_reason_code_field() -> None:

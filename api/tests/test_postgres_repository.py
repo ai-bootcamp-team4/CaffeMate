@@ -1549,7 +1549,7 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
         user_id="user-1",
     )
     assert result.workflow_run_id == run.workflow_run_id
-    assert len(result.candidates) == 1
+    assert len(result.candidates) == 3
     assert result.candidates[0]["case_type"] == "INDEPENDENT"
     assert result.candidates[0]["rank"] == 1
     assert result.freshness.value == "CURRENT"
@@ -1566,6 +1566,8 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
     ]
     assert runtime.task_types == [
         "EVIDENCE_ASSESS",
+        "PROPOSE_INDEPENDENT",
+        "PROPOSE_INDEPENDENT",
         "PROPOSE_INDEPENDENT",
         "CANDIDATE_AUDIT",
     ]
@@ -1605,7 +1607,9 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
     assert preview.before_founder["own_funds_krw"] == 50_000_000
     assert preview.after_founder is not None
     assert preview.after_founder["own_funds_krw"] == 40_000_000
-    assert preview.affected_candidate_ids == [result.candidates[0]["candidate_id"]]
+    assert preview.affected_candidate_ids == [
+        candidate["candidate_id"] for candidate in result.candidates
+    ]
     assert preview.affected_stage_codes == [
         "INDEPENDENT_SEED",
         "FRANCHISE_ELIGIBILITY",
