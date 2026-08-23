@@ -16,6 +16,7 @@ from app.workflows.stage_context import StageContext
 MAX_CONCURRENT_MCP_CALLS = 8
 MCP_TIMEOUT_SECONDS = 30.0
 RAG_DOCUMENT_TOOLS = frozenset({"retrieve_official_documents", "retrieve_project_documents"})
+STRUCTURED_METRIC_TOOLS = frozenset({"get_area_profile", "search_cafe_observations"})
 
 
 class EvidenceMcpClient(Protocol):
@@ -229,6 +230,14 @@ class EvidenceRetrievalStageHandler:
                 project_id=project_id,
             )
             self._contracts.validate_mcp_tool_result(action["tool_name"], structured_result)
+        elif action["tool_name"] in STRUCTURED_METRIC_TOOLS:
+            self._attach_metric_evidence_candidates(
+                structured_result,
+                action=action,
+                claim=claim,
+                project_id=project_id,
+            )
+            self._contracts.validate_mcp_tool_result(action["tool_name"], structured_result)
         return {
             "action_id": action["action_id"],
             "claim_id": action["claim_id"],
@@ -236,6 +245,163 @@ class EvidenceRetrievalStageHandler:
             "tool_name": action["tool_name"],
             "request_id": outcome.request_id,
             "structured_result": structured_result,
+        }
+
+    @classmethod
+    def _attach_metric_evidence_candidates(
+        cls,
+        structured_result: dict[str, Any],
+        *,
+        action: dict[str, Any],
+        claim: dict[str, Any],
+        project_id: str,
+    ) -> None:
+        metrics = structured_result.get("data")
+        source_trace = structured_result.get("source_trace")
+        observed_at = structured_result.get("observed_at")
+        if not isinstance(metrics, list) or not isinstance(source_trace, list):
+            raise ContractValidationError("Structured metric result is invalid")
+        if not isinstance(observed_at, str):
+            raise ContractValidationError("Structured metric observation time is invalid")
+
+        records: list[dict[str, Any]] = []
+        unmapped_metric = False
+        for metric in metrics:
+            if not isinstance(metric, dict):
+                raise ContractValidationError("Structured metric is invalid")
+            trace = cls._source_trace_for_metric(metric, source_trace)
+            if trace is None:
+                unmapped_metric = True
+                continue
+            records.append(
+                cls._metric_evidence_record(
+                    metric,
+                    trace=trace,
+                    action=action,
+                    claim=claim,
+                    project_id=project_id,
+                    observed_at=observed_at,
+                )
+            )
+
+        structured_result["evidence_records"] = records
+        if unmapped_metric:
+            missing = structured_result.get("missing_fields")
+            if not isinstance(missing, list):
+                raise ContractValidationError("Structured metric missing fields are invalid")
+            structured_result["missing_fields"] = sorted(
+                {*missing, "metric_source_trace"}
+            )
+            structured_result["status"] = "PARTIAL"
+
+    @staticmethod
+    def _source_trace_for_metric(
+        metric: dict[str, Any], source_trace: list[Any]
+    ) -> dict[str, Any] | None:
+        evidence_id = metric.get("evidence_id")
+        if not isinstance(evidence_id, str):
+            return None
+        source_id = evidence_id.split(":", maxsplit=1)[0]
+        matching = [
+            value
+            for value in source_trace
+            if isinstance(value, dict) and value.get("source_id") == source_id
+        ]
+        if len(matching) == 1:
+            return matching[0]
+        return None
+
+    @classmethod
+    def _metric_evidence_record(
+        cls,
+        metric: dict[str, Any],
+        *,
+        trace: dict[str, Any],
+        action: dict[str, Any],
+        claim: dict[str, Any],
+        project_id: str,
+        observed_at: str,
+    ) -> dict[str, Any]:
+        claim_type = claim.get("claim_type")
+        geographic_scope = claim.get("geographic_scope")
+        metric_name = metric.get("metric")
+        value = metric.get("value")
+        unit = metric.get("unit")
+        source_date = metric.get("as_of")
+        retrieval_evidence_id = metric.get("evidence_id")
+        if not isinstance(claim_type, str) or not isinstance(geographic_scope, dict):
+            raise ContractValidationError("Structured metric Claim context is invalid")
+        if (
+            not isinstance(metric_name, str)
+            or not metric_name
+            or not isinstance(value, dict)
+            or (unit is not None and not isinstance(unit, str))
+            or not isinstance(source_date, str)
+            or not isinstance(retrieval_evidence_id, str)
+            or not retrieval_evidence_id
+        ):
+            raise ContractValidationError("Structured metric fields are invalid")
+        source_id = trace.get("source_id")
+        source_ref = trace.get("source_ref")
+        checksum = trace.get("content_digest")
+        if (
+            not isinstance(source_id, str)
+            or not source_id
+            or not isinstance(source_ref, str)
+            or not source_ref
+            or not isinstance(checksum, str)
+            or not checksum
+        ):
+            raise ContractValidationError("Structured metric source trace is invalid")
+
+        identity = {
+            "project_id": project_id,
+            "claim_id": action["claim_id"],
+            "claim_type": claim_type,
+            "metric": metric_name,
+            "retrieval_evidence_id": retrieval_evidence_id,
+        }
+        evidence_digest = hashlib.sha256(rfc8785.dumps(identity)).hexdigest()
+        excerpt_digest = hashlib.sha256(rfc8785.dumps(metric)).hexdigest()
+        parts = retrieval_evidence_id.split(":", maxsplit=2)
+        document_version = parts[1] if len(parts) == 3 else None
+        derived = isinstance(unit, str) and "DERIVED" in unit
+        missing_context = ["QUARTERLY_ADMIN_DONG_AGGREGATE"]
+        if metric_name == "CLOSURE_RATE" and derived:
+            missing_context.append("CLOSE_COUNT_DIVIDED_BY_CURRENT_STORE_COUNT")
+        return {
+            "schema_version": "2.0.0",
+            "evidence_id": f"structured-evidence:{evidence_digest}",
+            "project_id": project_id,
+            "claim_type": claim_type,
+            "value": deepcopy(value),
+            "value_kind": "DERIVED_RESULT" if derived else "EVIDENCED_FACT",
+            "unit": unit,
+            "geographic_scope": deepcopy(geographic_scope),
+            "source": {
+                "title": source_id,
+                "source_ref": source_ref,
+                "authority": "PRIMARY_DATA",
+                "source_type": "DATASET",
+                "published_or_data_date": source_date,
+                "source_observed_at": observed_at,
+                "document_version": document_version,
+                "checksum": checksum,
+            },
+            "original_anchor": {
+                "anchor_type": "CALCULATION" if derived else "DATASET_ROW",
+                "locator": retrieval_evidence_id,
+                "excerpt_hash": f"sha256:{excerpt_digest}",
+            },
+            "freshness_status": cls._freshness_status(
+                source_date,
+                as_of=action["date_constraints"]["as_of"],
+                max_age_days=action["date_constraints"]["max_age_days"],
+            ),
+            "conflict_status": "NONE",
+            "retrieved_at": observed_at,
+            "missing_context": missing_context,
+            "durable_evidence_refs": [retrieval_evidence_id, source_id],
         }
 
     @classmethod

@@ -67,6 +67,28 @@ def rag_action(action_id: str, polarity: str) -> dict[str, Any]:
     }
 
 
+def metric_action(action_id: str, polarity: str) -> dict[str, Any]:
+    return {
+        "action_id": action_id,
+        "claim_id": "claim:AREA_PROFILE",
+        "polarity": polarity,
+        "tool_name": "get_area_profile",
+        "tool_version": "1.0.0",
+        "typed_arguments": {
+            "administrative_code": "41117550",
+            "boundary_version": "2026-01",
+            "as_of": "2026-08-21",
+        },
+        "required_authority": ["PRIMARY_DATA"],
+        "date_constraints": {"as_of": "2026-08-21", "max_age_days": 365},
+        "scope_constraints": {
+            "scope_type": "ADMINISTRATIVE_AREA",
+            "scope_id": "41117550",
+            "boundary_version": "2026-01",
+        },
+    }
+
+
 def context(*, support: list[dict[str, Any]], counter: list[dict[str, Any]]) -> StageContext:
     now = datetime(2026, 8, 21, 9, 0, tzinfo=UTC)
     head = HeadFence(
@@ -247,6 +269,59 @@ class FakeRagMcpClient:
         )
 
 
+class FakeMetricMcpClient:
+    def __init__(self, *, source_trace: bool = True) -> None:
+        self.source_trace = source_trace
+
+    async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+        request_id = "request-metric"
+        source_id = "seoul-resident-population-quarterly"
+        ingestion_id = "5b206b15c98303940cebfbfa"
+        content = {
+            "schema_version": "1.0.0",
+            "request_id": request_id,
+            "tool_name": "get_area_profile",
+            "tool_version": "1.0.0",
+            "status": "OK",
+            "project_id": "project-1",
+            "evidence_records": [],
+            "missing_fields": [],
+            "conflicts": [],
+            "source_trace": (
+                [
+                    {
+                        "source_id": source_id,
+                        "source_ref": "https://data.seoul.go.kr/resident",
+                        "data_date": "2026-03-31",
+                        "retrieved_at": "2026-08-21T09:00:00Z",
+                        "content_digest": "sha256:" + "a" * 64,
+                    }
+                ]
+                if self.source_trace
+                else []
+            ),
+            "error_codes": [],
+            "observed_at": "2026-08-21T09:00:00Z",
+            "data": [
+                {
+                    "metric": "RESIDENT_POPULATION",
+                    "value": {"kind": "INTEGER", "value": 40000},
+                    "unit": "PERSONS",
+                    "as_of": "2026-03-31",
+                    "evidence_id": f"{source_id}:{ingestion_id}:" + "b" * 64,
+                }
+            ],
+        }
+        return McpCallOutcome(
+            request_id=request_id,
+            tool_name="get_area_profile",
+            tool_version="1.0.0",
+            status="OK",
+            is_complete=True,
+            structured_content=content,
+        )
+
+
 def test_identical_support_and_counter_requests_execute_once_but_keep_both_actions() -> None:
     client = FakeMcpClient()
     value = context(
@@ -379,6 +454,42 @@ def test_rag_hit_without_source_trace_is_not_promoted_to_evidence() -> None:
     assert structured["status"] == "PARTIAL"
     assert structured["evidence_records"] == []
     assert structured["missing_fields"] == ["rag_hit_source_trace"]
+
+
+def test_structured_metrics_become_claim_scoped_evidence_candidates() -> None:
+    value = context(
+        support=[metric_action("action-01", "SUPPORT")],
+        counter=[metric_action("action-02", "COUNTER")],
+    )
+
+    result = EvidenceRetrievalStageHandler(FakeMetricMcpClient()).execute(value)
+
+    retrieval = result["evidence_retrieval"]
+    assert isinstance(retrieval, dict)
+    assert retrieval["physical_call_count"] == 1
+    assert retrieval["completeness"] == "COMPLETE"
+    record = retrieval["executed_actions"][0]["structured_result"]["evidence_records"][0]
+    assert record["claim_type"] == "AREA_PROFILE"
+    assert record["value"] == {"kind": "INTEGER", "value": 40000}
+    assert record["unit"] == "PERSONS"
+    assert record["source"]["authority"] == "PRIMARY_DATA"
+    assert record["source"]["document_version"] == "5b206b15c98303940cebfbfa"
+    assert record["freshness_status"] == "FRESH"
+    assert record["original_anchor"]["anchor_type"] == "DATASET_ROW"
+    assert record["missing_context"] == ["QUARTERLY_ADMIN_DONG_AGGREGATE"]
+
+
+def test_structured_metric_without_matching_trace_is_not_promoted() -> None:
+    result = EvidenceRetrievalStageHandler(FakeMetricMcpClient(source_trace=False)).execute(
+        context(support=[metric_action("action-01", "SUPPORT")], counter=[])
+    )
+
+    retrieval = result["evidence_retrieval"]
+    assert isinstance(retrieval, dict)
+    structured = retrieval["executed_actions"][0]["structured_result"]
+    assert structured["status"] == "PARTIAL"
+    assert structured["evidence_records"] == []
+    assert structured["missing_fields"] == ["metric_source_trace"]
 
 
 @pytest.mark.parametrize(

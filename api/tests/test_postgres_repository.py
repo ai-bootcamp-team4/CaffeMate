@@ -1557,7 +1557,13 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
     assert result.current_head == result.head
     assert committed_events == 1
     assert mcp.tool_names[0] == "resolve_area"
-    assert mcp.tool_names[1:] == ["retrieve_official_documents"] * 6
+    assert mcp.tool_names[1:] == [
+        "get_area_profile",
+        "search_cafe_observations",
+        "search_cafe_observations",
+        "search_cafe_observations",
+        *(["retrieve_official_documents"] * 6),
+    ]
     assert runtime.task_types == [
         "EVIDENCE_ASSESS",
         "PROPOSE_INDEPENDENT",

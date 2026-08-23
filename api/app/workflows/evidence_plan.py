@@ -2,7 +2,7 @@ import hashlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 import rfc8785
@@ -327,18 +327,14 @@ class DeterministicEvidencePlanner:
     def _area_business_churn(
         cls, claim: dict[str, Any], as_of: date
     ) -> tuple[ActionSpec, ActionSpec]:
-        code, _ = cls._area_identity(claim)
-        max_age_days = cls._freshness_days(claim.get("required_freshness"))
-        if max_age_days is None:
-            raise ContractValidationError("Business churn requires a freshness window")
+        code, boundary = cls._area_identity(claim)
         action = ActionSpec(
-            tool_name="search_business_events",
+            tool_name="search_cafe_observations",
             typed_arguments={
                 "administrative_code": code,
-                "business_category": "CAFE",
-                "date_from": (as_of - timedelta(days=max_age_days)).isoformat(),
-                "date_to": as_of.isoformat(),
-                "event_types": ["OPEN", "CLOSE", "STATUS_CHANGE"],
+                "boundary_version": boundary,
+                "as_of": as_of.isoformat(),
+                "metrics": ["OPEN_COUNT", "CLOSE_COUNT", "CLOSURE_RATE"],
             },
             required_authority=("PRIMARY_DATA",),
         )

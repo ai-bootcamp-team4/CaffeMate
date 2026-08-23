@@ -10,7 +10,7 @@ const officialCorpus = `projects/${projectId}/locations/${region}/ragCorpora/514
 const scope = { ventureProjectId: 'project-1', workflowRunId: 'workflow-1', requestId: 'request-1' }
 
 describe('production MCP connector composition', () => {
-  it('adds only the verified official RAG connector to the first-deployment connector set', async () => {
+  it('adds verified structured grounding and official RAG connectors', async () => {
     const accessToken = vi.fn(async () => 'access-token')
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
@@ -75,9 +75,11 @@ describe('production MCP connector composition', () => {
       now: () => new Date('2026-08-22T01:30:00Z'),
     })
     expect(Object.keys(connectors).sort()).toEqual([
+      'get_area_profile',
       'get_source_health',
       'resolve_area',
       'retrieve_official_documents',
+      'search_cafe_observations',
     ])
 
     const result = await new McpToolRouter(connectors).call('retrieve_official_documents', {

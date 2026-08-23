@@ -116,12 +116,8 @@ def test_complete_plan_is_generated_without_agent_runtime() -> None:
     assert plan["status"] == "COMPLETE"
     assert len(plan["claims"]) == 9
     assert len(plan["claim_plans"]) == 9
-    assert len(actions(result)) == 6
+    assert len(actions(result)) == 14
     assert plan["missing_claim_ids"] == [
-        "claim:AREA_PROFILE",
-        "claim:AREA_CAFE_COMPETITION",
-        "claim:AREA_BUSINESS_CHURN",
-        "claim:AREA_DEMAND_SIGNALS",
         "claim:FRANCHISE_UNIVERSE_ELIGIBILITY",
         "claim:FRANCHISE_DISCLOSURE_AVAILABILITY",
     ]
@@ -129,7 +125,7 @@ def test_complete_plan_is_generated_without_agent_runtime() -> None:
     assert plan["planner_trace"]["planner_version"] == PLANNER_VERSION
     assert plan["planner_trace"]["plan_digest"].startswith("sha256:")
     assert {action["action_id"] for action in actions(result)} == {
-        f"action-{index:02d}" for index in range(1, 7)
+        f"action-{index:02d}" for index in range(1, 15)
     }
 
 
@@ -172,10 +168,10 @@ def test_rules_use_typed_tools_for_each_claim() -> None:
     }
 
     assert tools_by_claim == {
-        "claim:AREA_PROFILE": set(),
-        "claim:AREA_CAFE_COMPETITION": set(),
-        "claim:AREA_BUSINESS_CHURN": set(),
-        "claim:AREA_DEMAND_SIGNALS": set(),
+        "claim:AREA_PROFILE": {"get_area_profile"},
+        "claim:AREA_CAFE_COMPETITION": {"search_cafe_observations"},
+        "claim:AREA_BUSINESS_CHURN": {"search_cafe_observations"},
+        "claim:AREA_DEMAND_SIGNALS": {"search_cafe_observations"},
         "claim:INDEPENDENT_STARTUP_COST_BENCHMARK": {
             "retrieve_official_documents"
         },
@@ -193,9 +189,9 @@ def test_rules_use_typed_tools_for_each_claim() -> None:
 @pytest.mark.parametrize(
     ("preference", "claim_count", "action_count"),
     [
-        (CafeTypePreference.OPEN_TO_BOTH, 9, 6),
-        (CafeTypePreference.INDEPENDENT_ONLY, 7, 6),
-        (CafeTypePreference.FRANCHISE_ONLY, 7, 2),
+        (CafeTypePreference.OPEN_TO_BOTH, 9, 14),
+        (CafeTypePreference.INDEPENDENT_ONLY, 7, 14),
+        (CafeTypePreference.FRANCHISE_ONLY, 7, 10),
     ],
 )
 def test_branch_preferences_keep_plan_within_bounded_action_budget(
@@ -222,14 +218,14 @@ def test_unknown_claim_type_is_a_nonretryable_contract_failure() -> None:
 
 
 def test_rule_without_a_production_connector_becomes_explicit_missing_evidence() -> None:
-    context = stage_context(CafeTypePreference.INDEPENDENT_ONLY)
+    context = stage_context(CafeTypePreference.FRANCHISE_ONLY)
     result = EvidencePlanStageHandler().execute(context)
     plan = result["evidence_plan"]
     assert isinstance(plan, dict)
 
-    assert "claim:AREA_PROFILE" in plan["missing_claim_ids"]
+    assert "claim:FRANCHISE_UNIVERSE_ELIGIBILITY" in plan["missing_claim_ids"]
     assert not any(
-        action["tool_name"] == "get_area_profile" for action in actions(result)
+        action["tool_name"] == "list_franchise_universe" for action in actions(result)
     )
 
 

@@ -2,6 +2,7 @@ import { RAG_REGION } from '../../rag/src/config'
 import { RetrievalCoordinator } from '../../rag/src/retrieval'
 import { createVertexRagBackend } from '../../rag/src/vertex-rag-backend'
 import { createConnectorRegistry } from './connectors'
+import { createBigQueryGroundingConnectors } from './bigquery-grounding'
 import { mapOfficialRagContext } from './official-rag'
 import { createOfficialRagHealthSource } from './official-rag-health'
 import { createRagMcpConnectors } from './rag-connectors'
@@ -16,6 +17,7 @@ export interface ProductionMcpConnectorOptions {
   fetch?: typeof globalThis.fetch
   now?: () => Date
   officialRagHealthTimeoutMs?: number
+  groundingDatasetId?: string
 }
 
 function validateOfficialCorpusResource(projectId: string, resource: string): void {
@@ -59,8 +61,17 @@ export function createProductionMcpConnectors(options: ProductionMcpConnectorOpt
     resolveProjectCorpusMapping: async () => null,
     now: () => now().toISOString(),
   })
+  const grounding = createBigQueryGroundingConnectors({
+    projectId: options.projectId,
+    datasetId: options.groundingDatasetId,
+    location: RAG_REGION,
+    accessToken: options.accessToken,
+    fetch: fetchImpl,
+    now,
+  })
   const connectors: McpConnectorRegistry = {
     ...base,
+    ...grounding,
     retrieve_official_documents: rag.retrieve_official_documents,
   }
   const configured = Object.keys(connectors).sort()
