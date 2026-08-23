@@ -102,6 +102,36 @@ N0_NATIONWIDE_FACTS
 
 ## Structured Retrieval과 RAG
 
+### 서버 수집과 실시간 조회 경계
+
+갱신 가능한 공공 자료를 사용자 요청 시마다 검색하지 않는다. 서버가 공급자 갱신주기에 맞춰
+주기적으로 수집하고 아래 순서로 승인된 snapshot을 만든다.
+
+```text
+공식 API·공식 배포 파일
+→ Cloud Storage 불변 raw와 manifest
+→ schema·행 수·기간·지역코드 품질검사
+→ BigQuery versioned normalized snapshot
+→ read-only MCP SQL 조회
+→ Claim-scoped EvidenceRecord 후보
+```
+
+- 서울 상권 자료의 첫 수집기는 Cloud Run Job `caffemate-grounding-ingest`이며 주간 Scheduler와
+  배포 전 수동 실행을 사용한다. 분기 자료를 매 요청 때 다시 받지 않는다.
+- 같은 원천·기간·내용은 digest 기반 `ingestion_id`와 BigQuery job id로 멱등 적재한다. 원본과
+  manifest는 덮어쓰지 않는다.
+- BigQuery에는 사용자 State나 모델 출력을 넣지 않는다. 정형 공공 관측과 수집 품질 metadata만
+  저장한다.
+- 문서 원문은 Cloud Storage에 revision별로 보관하고 Vertex AI RAG Engine에 적재한다. 정형 수치는
+  BigQuery·SQL을 권위 경로로 사용하며 RAG 문맥에서 숫자를 재구성하지 않는다.
+- 실시간 검색은 현재 가맹 모집·후보 지역 출점 가능 여부·최신 매물처럼 저장 snapshot이 빠르게
+  낡는 항목에만 사용한다. 검색 실패가 승인 snapshot을 조용히 대체하지 않으며, 검색 결과도
+  원문·조회 시각·scope를 검증하기 전에는 임시 Evidence 후보다.
+- 공급자 SLA를 넘은 snapshot은 `STALE`로 표시한다. 최신 조회 실패 시 과거 값을 `FRESH`로
+  재표시하거나 0으로 바꾸지 않는다.
+- 서울 전용 수요·추정매출 자료가 없는 지역에는 같은 품질의 전국 수치를 생성하지 않고
+  `UNKNOWN`과 coverage 차이를 유지한다.
+
 ### Structured Retrieval
 
 다음은 API·SQL·공간 질의로 가져온다.
