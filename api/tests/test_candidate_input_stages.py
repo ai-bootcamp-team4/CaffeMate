@@ -155,7 +155,7 @@ def test_default_registry_exposes_three_calculable_operating_models() -> None:
         "좌석 중심 개인카페",
     ]
     assert output["proposal_input"]["requested_candidate_count"] == 3
-    assert all(value["finance_profile"] is not None for value in models)
+    assert selected_registry.get("independent-small-takeout-v1").finance_profile is not None
 
 
 def test_independent_seed_does_not_guess_affordability_when_threshold_fails() -> None:

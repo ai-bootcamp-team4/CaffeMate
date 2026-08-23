@@ -109,11 +109,6 @@ class IndependentSeedStageHandler:
                 "allowed_parameters": [
                     value.model_dump(mode="json") for value in model.allowed_parameters
                 ],
-                "finance_profile": (
-                    model.finance_profile.model_dump(mode="json")
-                    if model.finance_profile is not None
-                    else None
-                ),
                 "support_refs": model.support_refs,
             }
             for model in self._registry.select(context.state.founder)
