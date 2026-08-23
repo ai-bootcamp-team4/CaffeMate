@@ -21,5 +21,6 @@ describe('agent prompts', () => {
     expect(instruction).toContain('Do not invent a brand')
     expect(instruction).toContain('exactly requested_candidate_count')
     expect(instruction).toContain('does not justify an empty proposal')
+    expect(instruction).toContain('never to evidence_refs')
   })
 })

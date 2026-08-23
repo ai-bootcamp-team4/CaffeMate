@@ -169,6 +169,8 @@ Claim Plan
 - 개인카페는 근거가 있는 표준 운영 모델을 사용자 조건에 맞게 조정할 수 있다.
 - 프랜차이즈는 확인된 실제 브랜드만 제안하며 존재하지 않는 브랜드·비용·매출을 생성하지 않는다.
 - Proposal Agent는 후보를 만들 수 있지만 비용 계산, Hard Gate, 순위와 주력 후보 선택은 수행하지 않는다.
+- Control API는 등록 후보마다 후보 1개짜리 AgentTask를 만들고 최대 3개를 병렬 실행한다. 각 Agent는 자신에게 배정된 후보 하나만 구조화하며, Control API가 결과를 합쳐 기존 결정론적 계산·Gate·순위 단계로 넘긴다.
+- 개인카페 seed의 `support_refs`는 가정 근거이고 frozen Evidence의 `evidence_id`와 구분한다. Agent는 전자를 `assumption_refs`, 후자만 `evidence_refs`에 사용한다.
 - 별도의 Typed Candidate Auditor가 Proposal 결과의 누락·무근거·충돌을 검사한다.
 
 ### 개인카페

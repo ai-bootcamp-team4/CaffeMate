@@ -102,6 +102,11 @@ stream 종료와 계약 검증을 모두 기다린다. 이 방식은 역할 격�
 왕복을 세 번에서 한 번으로 줄인다. repair가 발생하거나 운영 계약 통과율이 낮아지면 해당 역할의 prompt·입력 투영을 먼저
 교정하고, 필요한 역할만 `medium`으로 되돌리는 것이 현재 최적화 결정의 폐기 조건이다.
 
+Proposal 단계는 후보 수만큼 독립 stream을 동시에 호출하는 제한된 fan-out이다. 각 task에는 한
+개의 seed 또는 brand와 `requested_candidate_count=1`만 전달한다. 일부 호출만 실패하면 성공한
+후보는 보존하고 자료 부족 상태로 다음 결정론적 단계에 넘기며, 모든 호출이 실패한 경우에만 기존
+Runtime 재시도 정책을 적용한다. 후보 간 비교·계산·순위는 Agent가 아니라 Control API가 수행한다.
+
 배포 검증은 결과 카드 생성만 성공으로 보지 않는다. 같은 FIRST_PROPOSAL canary 구간에서 세
 관리형 Agent가 모두 `HTTP 200`, `STOP`, `repair_attempt=0`, `VALID`로 끝났는지 확인하고,
 각 생성은 60초, 13단계 전체는 120초 예산 안에 끝나야 한다. 모든 Stage의 attempt도 1이어야

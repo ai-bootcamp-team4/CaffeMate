@@ -558,7 +558,8 @@ Control API Claim Plan
 → EVIDENCE_ASSESS AgentTask
 → validate the actual Agent final event or fail the Stage with the original Runtime code
 → freeze EvidenceSnapshot
-→ PROPOSE_INDEPENDENT and/or PROPOSE_FRANCHISE AgentTask
+→ eligible seed·brand별 PROPOSE_INDEPENDENT and/or PROPOSE_FRANCHISE AgentTask 병렬 실행
+→ Control API가 유효한 개별 proposal을 입력 순서로 집계
 → proposal support validation
 → deterministic finance·Gate·rank
 → CANDIDATE_AUDIT AgentTask
@@ -567,7 +568,10 @@ Control API Claim Plan
 ```
 
 Proposal Agent 입력의 `model_seeds`와 `franchise_universe`는 결정론적 eligibility 단계를 통과한
-후보다. 따라서 Agent는 `requested_candidate_count`만큼 서로 다른 proposal id를 반환해야 한다.
+후보다. Control API는 source별로 task를 분리하여 각 task에 source 하나와
+`requested_candidate_count=1`을 넣는다. Agent는 backend가 배정한 proposal id·표시명·source id를
+그대로 유지한 proposal 하나를 반환해야 한다. 독립카페 seed의 `support_refs`는 `assumption_refs`와
+조정값의 support로만 사용하며, `evidence_refs`에는 task의 `evidence_records[].evidence_id`만 허용한다.
 비용·매출·수요·출점 가능성·정보공개서 일부가 없다는 이유만으로 후보 배열을 비우지 않는다.
 지원되지 않는 조정값은 만들지 않고 `missing_fields`와 warning에 남긴다. 대응 missing Claim id가
 있으면 후보를 포함한 `NEEDS_EVIDENCE`, 없으면 후보 생성 작업 자체가 끝났다는 뜻의 `COMPLETE`를

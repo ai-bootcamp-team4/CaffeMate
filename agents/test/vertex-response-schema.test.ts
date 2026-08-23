@@ -17,6 +17,7 @@ interface ProjectedSchema {
   anyOf?: ProjectedSchema[]
   oneOf?: ProjectedSchema[]
   maxItems?: number
+  minItems?: number
   minimum?: number
   maximum?: number
 }
@@ -53,6 +54,12 @@ function evidenceAssessTask(): AgentTask {
     },
   }]
   return task
+}
+
+function independentProposalTask(): AgentTask {
+  const item = fixtureMatrix.cases.find((entry) => entry.task.task_type === 'PROPOSE_INDEPENDENT' && entry.result.status === 'COMPLETE')
+  if (!item) throw new Error('missing PROPOSE_INDEPENDENT fixture')
+  return structuredClone(item.task) as unknown as AgentTask
 }
 
 describe('Vertex role response schema projection', () => {
@@ -277,5 +284,24 @@ describe('Vertex role response schema projection', () => {
     expect(roleSchema.properties?.conflict_proposals.maxItems).toBe(1)
     expect(responseSchema.properties?.evidence_refs.maxItems).toBe(2)
     expect(responseSchema.properties?.missing_claim_ids.maxItems).toBe(1)
+  })
+
+  it('bounds a proposal call to its single allocated source and separates assumptions from Evidence', () => {
+    const task = independentProposalTask()
+    const roleSchema = buildVertexRolePayloadSchema(task) as ProjectedSchema
+    const responseSchema = buildAgentTaskResultResponseJsonSchema(task) as ProjectedSchema
+    const proposals = roleSchema.properties?.candidate_proposals
+    const proposal = proposals?.items
+
+    expect(proposals?.minItems).toBe(1)
+    expect(proposals?.maxItems).toBe(1)
+    expect(proposal?.properties?.proposal_id.enum).toEqual(['proposal-independent-1'])
+    expect(proposal?.properties?.seed_or_brand_id.enum).toEqual(['independent-small-v1'])
+    expect(proposal?.properties?.display_name.enum).toEqual(['소형 개인카페 모델'])
+    expect(proposal?.properties?.evidence_refs.maxItems).toBe(0)
+    expect(proposal?.properties?.assumption_refs.minItems).toBe(1)
+    expect(proposal?.properties?.assumption_refs.items?.enum).toEqual(['seed-registry-1'])
+    expect(responseSchema.properties?.evidence_refs.maxItems).toBe(0)
+    expect(responseSchema.properties?.missing_claim_ids.maxItems).toBe(0)
   })
 })
