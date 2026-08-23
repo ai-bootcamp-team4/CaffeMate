@@ -49,11 +49,72 @@ try {
     throw new Error('MCP_MANIFEST_MISMATCH')
   }
   const result = await client.callTool({
-    name: 'resolve_area', arguments: { query: '경기도 수원시 영통구 월드컵로 206', country_code: 'KR', limit: 5 },
+    name: 'resolve_area', arguments: { query: '서울특별시 마포구 망원동', country_code: 'KR', limit: 5 },
   })
-  const structured = result.structuredContent as { status?: string; error_codes?: string[]; missing_fields?: string[] } | undefined
+  const structured = result.structuredContent as {
+    status?: string
+    data?: Array<{ administrative_code?: string; boundary_version?: string }>
+    source_trace?: Array<{ source_id?: string; content_digest?: string }>
+    error_codes?: string[]
+    missing_fields?: string[]
+  } | undefined
   if (!structured || structured.status !== 'OK') {
     throw new Error(`MCP_RESOLVE_AREA_UNSAFE_OUTCOME status=${structured?.status ?? 'MISSING'} errors=${structured?.error_codes?.join(',') ?? ''} missing=${structured?.missing_fields?.join(',') ?? ''}`)
+  }
+  const administrativeCode = structured.data?.[0]?.administrative_code
+  const boundaryVersion = structured.data?.[0]?.boundary_version
+  if (!administrativeCode
+    || !boundaryVersion
+    || !structured.source_trace?.some((row) => row.source_id === 'mois-legal-dong-directory'
+      && row.content_digest?.startsWith('sha256:'))) {
+    throw new Error('MCP_LOCAL_AREA_DIRECTORY_UNVERIFIED')
+  }
+
+  const areaResult = await client.callTool({
+    name: 'get_area_profile',
+    arguments: {
+      administrative_code: administrativeCode,
+      boundary_version: boundaryVersion,
+      as_of: '2026-08-23',
+    },
+  })
+  const area = areaResult.structuredContent as {
+    status?: string
+    data?: Array<{ metric?: string }>
+    source_trace?: Array<{ source_id?: string; content_digest?: string }>
+  } | undefined
+  const areaMetrics = new Set(area?.data?.map((row) => row.metric))
+  if (area?.status !== 'OK'
+    || !areaMetrics.has('MAPPED_ADMIN_DONG_COUNT')
+    || !areaMetrics.has('RESIDENT_POPULATION')
+    || !area?.source_trace?.some((row) => row.source_id === 'mois-admin-legal-mapping'
+      && row.content_digest?.startsWith('sha256:'))) {
+    throw new Error(`MCP_AREA_GROUNDING_UNSAFE_OUTCOME ${JSON.stringify(area)}`)
+  }
+
+  const cafeResult = await client.callTool({
+    name: 'search_cafe_observations',
+    arguments: {
+      administrative_code: administrativeCode,
+      boundary_version: boundaryVersion,
+      as_of: '2026-08-23',
+      metrics: ['CAFE_COUNT', 'CLOSE_COUNT', 'ESTIMATED_SALES', 'FOOT_TRAFFIC'],
+    },
+  })
+  const cafe = cafeResult.structuredContent as {
+    status?: string
+    data?: Array<{ metric?: string }>
+    source_trace?: Array<{ source_id?: string; content_digest?: string }>
+  } | undefined
+  const cafeMetrics = new Set(cafe?.data?.map((row) => row.metric))
+  const cafeSources = new Set(cafe?.source_trace?.map((row) => row.source_id))
+  if (cafe?.status !== 'OK'
+    || !['CAFE_COUNT', 'CLOSE_COUNT', 'ESTIMATED_SALES', 'FOOT_TRAFFIC']
+      .every((metric) => cafeMetrics.has(metric))
+    || !['seoul-cafe-store-quarterly', 'seoul-cafe-sales-quarterly', 'seoul-foot-traffic-quarterly']
+      .every((source) => cafeSources.has(source))
+    || !cafe?.source_trace?.every((row) => row.content_digest?.startsWith('sha256:'))) {
+    throw new Error(`MCP_CAFE_GROUNDING_UNSAFE_OUTCOME ${JSON.stringify(cafe)}`)
   }
 
   const officialResult = await client.callTool({
@@ -81,7 +142,7 @@ try {
   const healthResult = await client.callTool({
     name: 'get_source_health',
     arguments: {
-      source_ids: ['mois-juso-address-search', 'easylaw-csmSeq-706'],
+      source_ids: ['easylaw-csmSeq-706'],
       as_of: '2026-07-15',
     },
   })
@@ -96,7 +157,6 @@ try {
       .map((row) => row.source_id),
   )
   if (health?.status !== 'OK'
-    || !healthySources.has('mois-juso-address-search')
     || !healthySources.has('easylaw-csmSeq-706')) {
     throw new Error(`MCP_SOURCE_HEALTH_UNSAFE_OUTCOME ${JSON.stringify({
       isError: healthResult.isError,
@@ -110,7 +170,7 @@ try {
   badHeaders.set('X-CaffeMate-Scope-Token', 'invalid')
   const badScope = await fetch(`${baseUrl}/mcp`, { method: 'POST', headers: badHeaders, body: '{}' })
   if (badScope.status !== 403) throw new Error(`MCP_BAD_SCOPE_NOT_REJECTED_${badScope.status}`)
-  console.log(`MCP_SMOKE_OK tools=${names.length} resolve_area=${structured.status} official_rag=${official.status} source_health=${health.status} invalid_scope=403`)
+  console.log(`MCP_SMOKE_OK tools=${names.length} resolve_area=${structured.status} area_grounding=${area.status} cafe_grounding=${cafe.status} official_rag=${official.status} source_health=${health.status} invalid_scope=403`)
 } finally {
   await client.close().catch(() => undefined)
 }
