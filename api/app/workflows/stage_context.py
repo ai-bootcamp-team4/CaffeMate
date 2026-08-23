@@ -121,7 +121,10 @@ class PostgresStageContextRepository:
                     SELECT DISTINCT ON (claim.claim_type)
                            claim.claim_id, claim.case_id, claim.case_type,
                            claim.source_id, claim.claim_type, claim.value_json,
-                           claim.unit, claim.materiality, document.document_type,
+                           claim.unit, claim.materiality,
+                           claim.document_revision_id,
+                           claim.created_at AS observed_at,
+                           document.document_type,
                            EXISTS (
                                SELECT 1 FROM document_claim_conflicts conflict
                                WHERE conflict.project_id=claim.project_id
@@ -147,7 +150,8 @@ class PostgresStageContextRepository:
                     SELECT DISTINCT ON (source_id)
                            property_input_id, candidate_id, case_type, source_id,
                            address, area_sqm, floor, deposit_krw,
-                           monthly_rent_krw, management_fee_krw, key_money_krw
+                           monthly_rent_krw, management_fee_krw, key_money_krw,
+                           created_at AS observed_at
                     FROM candidate_property_intakes
                     WHERE project_id=:project_id
                     ORDER BY source_id, created_at DESC, property_input_id DESC
@@ -185,6 +189,7 @@ class PostgresStageContextRepository:
                             "document_type": "PROPERTY_LISTING",
                             "has_open_conflict": False,
                             "input_kind": "USER_CONFIRMED_PROPERTY_TERMS",
+                            "observed_at": property_row["observed_at"],
                         }
                     )
             return StageContext(

@@ -401,38 +401,123 @@ class CalculateGateRankStageHandler:
                 grouped.setdefault(category, []).append(claim)
         records: list[dict[str, Any]] = []
         for category, claims in sorted(grouped.items()):
+            claim_ids = sorted(str(claim["claim_id"]) for claim in claims)
+            digest = hashlib.sha256(rfc8785.dumps(claim_ids)).hexdigest()
+            timestamp = context.state.updated_at.isoformat().replace("+00:00", "Z")
+            observed_values = [
+                value
+                for value in (
+                    CalculateGateRankStageHandler._iso_timestamp(
+                        claim.get("observed_at")
+                    )
+                    for claim in claims
+                )
+                if value is not None
+            ]
+            source_observed_at = max(observed_values, default=timestamp)
+            document_versions = sorted(
+                {
+                    str(claim["document_revision_id"])
+                    for claim in claims
+                    if claim.get("document_revision_id") is not None
+                }
+            )
+            is_property_input = all(
+                claim.get("input_kind") == "USER_CONFIRMED_PROPERTY_TERMS"
+                for claim in claims
+            )
+            source_type = "USER_FIELD" if is_property_input else "USER_DOCUMENT"
+            title = (
+                "사용자가 확인한 점포 조건"
+                if is_property_input
+                else "사용자가 확인한 창업 문서"
+            )
+            source_ref = (
+                f"user-field://{source_id}/{digest}"
+                if is_property_input
+                else f"user-document://{digest}"
+            )
+            document_version = (
+                document_versions[0]
+                if len(document_versions) == 1
+                else f"compound:{digest}"
+                if document_versions
+                else None
+            )
+            common = {
+                "schema_version": "2.0.0",
+                "project_id": context.project_id,
+                "unit": "KRW",
+                "geographic_scope": {
+                    "scope_type": "CASE",
+                    "scope_id": source_id,
+                    "boundary_version": None,
+                },
+                "source": {
+                    "title": title,
+                    "source_ref": source_ref,
+                    "authority": "USER_ARTIFACT",
+                    "source_type": source_type,
+                    "published_or_data_date": None,
+                    "source_observed_at": source_observed_at,
+                    "document_version": document_version,
+                    "checksum": digest,
+                },
+                "original_anchor": {
+                    "anchor_type": "USER_FIELD",
+                    "locator": "claims:" + ",".join(claim_ids),
+                    "excerpt_hash": None,
+                },
+                "retrieved_at": timestamp,
+                "durable_evidence_refs": [],
+            }
             if category.startswith("CONFLICT:"):
                 actual_category = category.removeprefix("CONFLICT:")
                 records.append(
                     {
-                        "evidence_id": f"document-conflict-{claims[0]['claim_id']}",
-                        "project_id": context.project_id,
+                        **common,
+                        "evidence_id": f"document-conflict-{digest[:32]}",
                         "claim_type": f"DOCUMENT_CONFLICT_COST_{actual_category}",
-                        "value": {"kind": "CONFLICT"},
+                        "value": {"kind": "NULL", "value": None},
+                        "value_kind": "UNKNOWN",
+                        "freshness_status": "UNKNOWN",
+                        "conflict_status": "CONFIRMED",
+                        "missing_context": [
+                            "상충하는 사용자 확인 비용 입력이 있어 값을 확정할 수 없습니다."
+                        ],
                     }
                 )
                 continue
             amount = sum(int(claim["value_json"]) for claim in claims)
-            claim_ids = sorted(str(claim["claim_id"]) for claim in claims)
-            digest = hashlib.sha256(rfc8785.dumps(claim_ids)).hexdigest()
             records.append(
                 {
+                    **common,
                     "evidence_id": f"document-evidence-{digest[:32]}",
-                    "project_id": context.project_id,
                     "claim_type": f"COST_{category}",
                     "value": {
                         "kind": "MONEY_RANGE",
+                        "currency": "KRW",
                         "low": amount,
                         "base": amount,
                         "high": amount,
                     },
                     "value_kind": "USER_CONFIRMED_FACT",
-                    "source": {"authority": "USER_DOCUMENT"},
-                    "geographic_scope": {"scope_type": "CASE", "scope_id": source_id},
-                    "document_claim_ids": claim_ids,
+                    "freshness_status": "NOT_APPLICABLE",
+                    "conflict_status": "NONE",
+                    "missing_context": [],
                 }
             )
         return records
+
+    @staticmethod
+    def _iso_timestamp(value: Any) -> str | None:
+        if value is None:
+            return None
+        if hasattr(value, "isoformat"):
+            return str(value.isoformat()).replace("+00:00", "Z")
+        if isinstance(value, str) and value:
+            return value.replace("+00:00", "Z")
+        return None
 
     def _seed_assumption_evidence(
         self,

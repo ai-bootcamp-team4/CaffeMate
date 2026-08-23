@@ -6,7 +6,8 @@ import pytest
 
 from app.agents.runtime import AgentRuntimeError
 from app.agents.task_factory import AgentTaskFactory, compute_agent_input_digest
-from app.domain.errors import ExternalExecutionUnavailableError
+from app.contracts.schema_registry import ContractRegistry
+from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 from app.workflows.calculate_gate_rank import CalculateGateRankStageHandler
 from app.workflows.candidate_audit import CandidateAuditStageHandler
 from app.workflows.stage_context import StageContext
@@ -333,3 +334,23 @@ def test_no_calculated_candidates_abstains_without_runtime_call() -> None:
     assert isinstance(output, dict)
     assert output["status"] == "UNAVAILABLE"
     assert output["candidates"] == []
+
+
+def test_task_construction_failure_never_leaks_raw_calculation_candidates() -> None:
+    class RejectingTaskFactory:
+        def build_candidate_audit(self, _context: StageContext) -> dict[str, Any]:
+            raise ContractValidationError("synthetic task construction failure")
+
+    runtime = FakeRuntime(audit_result)
+    result = CandidateAuditStageHandler(
+        runtime,
+        task_factory=RejectingTaskFactory(),  # type: ignore[arg-type]
+    ).execute(audit_context())
+
+    output = result["candidate_audit"]
+    assert isinstance(output, dict)
+    assert runtime.tasks == []
+    assert output["status"] == "UNAVAILABLE"
+    assert output["reason_codes"] == ["CANDIDATE_AUDIT_INPUT_UNAVAILABLE"]
+    assert "finance" not in output["candidates"][0]
+    ContractRegistry().validate_candidate_result(output["candidates"][0])
