@@ -6,13 +6,15 @@ import pytest
 
 from app.agents.runtime import AgentRuntimeError
 from app.agents.task_factory import AgentTaskFactory, compute_agent_input_digest
-from app.domain.errors import ExternalExecutionUnavailableError
+from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 from app.workflows.calculate_gate_rank import CalculateGateRankStageHandler
 from app.workflows.candidate_audit import CandidateAuditStageHandler
+from app.workflows.candidate_audit_input import CandidateAuditInputBuilder
 from app.workflows.stage_context import StageContext
 from tests.test_calculate_gate_rank_stage import (
     calculation_context,
     complete_independent_finance,
+    property_cost_claims,
 )
 from tests.test_proposal_stages import FakeRuntime
 
@@ -21,6 +23,7 @@ def audit_context(
     *,
     complete_finance: bool = True,
     include_franchise: bool = False,
+    property_terms: bool = False,
     attempt: int = 1,
 ) -> StageContext:
     records = complete_independent_finance() if complete_finance else []
@@ -28,6 +31,10 @@ def audit_context(
         evidence_records=records,
         include_franchise=include_franchise,
     )
+    if property_terms:
+        proposal = source.dependency_results["PROPOSE_INDEPENDENT"]["independent_proposal"]
+        source_id = proposal["candidate_proposals"][0]["seed_or_brand_id"]
+        source.document_claims = property_cost_claims(source_id)
     calculated = CalculateGateRankStageHandler().execute(source)
     return StageContext(
         lease=source.lease.model_copy(
@@ -84,6 +91,22 @@ def audit_result(
     }
 
 
+def test_property_terms_build_schema_valid_candidate_audit_task() -> None:
+    context = audit_context(property_terms=True)
+    factory = AgentTaskFactory(
+        now=lambda: datetime(2026, 8, 23, 13, 49, 45, tzinfo=UTC),
+        new_invocation_id=lambda: "invocation-property-audit",
+    )
+
+    task = factory.build_candidate_audit(context, CandidateAuditInputBuilder().build(context))
+
+    assert task["payload"]["candidates"]
+    assert any(
+        record["source"]["source_type"] == "USER_FIELD"
+        for record in task["payload"]["evidence_records"]
+    )
+
+
 def test_candidate_audit_task_projects_schema_valid_deterministic_inputs() -> None:
     context = audit_context()
     factory = AgentTaskFactory(
@@ -91,7 +114,7 @@ def test_candidate_audit_task_projects_schema_valid_deterministic_inputs() -> No
         new_invocation_id=lambda: "invocation-audit",
     )
 
-    task = factory.build_candidate_audit(context)
+    task = factory.build_candidate_audit(context, CandidateAuditInputBuilder().build(context))
 
     candidate = task["payload"]["candidates"][0]
     assert task["task_type"] == "CANDIDATE_AUDIT"
@@ -118,23 +141,19 @@ def test_candidate_audit_task_projects_schema_valid_deterministic_inputs() -> No
             "founder_fit": "PASS",
             "risk_adjusted_status": "REVIEW_RECOMMENDED",
         }
-        for gate, value in zip(
-            candidate_gates, task["payload"]["candidates"], strict=True
-        )
+        for gate, value in zip(candidate_gates, task["payload"]["candidates"], strict=True)
     )
 
 
 def test_franchise_natural_language_warning_does_not_enter_reason_code_field() -> None:
+    context = audit_context(include_franchise=True)
     task = AgentTaskFactory().build_candidate_audit(
-        audit_context(include_franchise=True)
+        context, CandidateAuditInputBuilder().build(context)
     )
 
     warning_codes = task["payload"]["calculation_snapshot"]["warning_codes"]
     assert warning_codes
-    assert all(
-        code.replace("_", "").isalnum() and code == code.upper()
-        for code in warning_codes
-    )
+    assert all(code.replace("_", "").isalnum() and code == code.upper() for code in warning_codes)
     assert "본사 출점 가능 여부 확인 필요" not in warning_codes
 
 
@@ -191,9 +210,7 @@ def test_missing_candidate_coverage_preserves_candidates_as_unavailable() -> Non
         result["payload"]["candidate_audits"] = []
         return result
 
-    result = CandidateAuditStageHandler(FakeRuntime(missing_audit)).execute(
-        audit_context()
-    )
+    result = CandidateAuditStageHandler(FakeRuntime(missing_audit)).execute(audit_context())
     assert result["candidate_audit"]["status"] == "UNAVAILABLE"
     assert result["candidate_audit"]["candidates"]
 
@@ -215,9 +232,7 @@ def test_unallocated_calculation_reference_preserves_candidates() -> None:
             findings=[finding],
         )
 
-    result = CandidateAuditStageHandler(FakeRuntime(forged_reference)).execute(
-        audit_context()
-    )
+    result = CandidateAuditStageHandler(FakeRuntime(forged_reference)).execute(audit_context())
     assert result["candidate_audit"]["status"] == "UNAVAILABLE"
     assert result["candidate_audit"]["candidates"]
 
@@ -228,27 +243,25 @@ def test_agent_replacement_rank_preserves_backend_candidates() -> None:
         result["payload"]["candidate_audits"][0]["rank"] = 2
         return result
 
-    result = CandidateAuditStageHandler(FakeRuntime(replacement_rank)).execute(
-        audit_context()
-    )
+    result = CandidateAuditStageHandler(FakeRuntime(replacement_rank)).execute(audit_context())
     assert result["candidate_audit"]["status"] == "UNAVAILABLE"
     assert result["candidate_audit"]["candidates"][0]["rank"] == 1
 
 
-def test_tampered_finance_output_abstains_before_runtime() -> None:
+def test_tampered_finance_output_is_rejected_before_runtime() -> None:
     context = audit_context()
     dependency = context.dependency_results["CALCULATE_GATE_RANK"]
     candidate = dependency["calculate_gate_rank"]["candidates"][0]
     candidate["finance"]["break_even_monthly_sales_krw"] += 1
     runtime = FakeRuntime(audit_result)
 
-    result = CandidateAuditStageHandler(runtime).execute(context)
+    with pytest.raises(ContractValidationError, match="deterministic replay"):
+        CandidateAuditStageHandler(runtime).execute(context)
 
     assert runtime.tasks == []
-    assert result["candidate_audit"]["status"] == "UNAVAILABLE"
 
 
-def test_missing_franchise_eligibility_evidence_abstains() -> None:
+def test_missing_franchise_eligibility_evidence_is_rejected() -> None:
     context = audit_context(include_franchise=True)
     dependency = context.dependency_results["CALCULATE_GATE_RANK"]
     franchise = next(
@@ -259,10 +272,10 @@ def test_missing_franchise_eligibility_evidence_abstains() -> None:
     franchise["franchise_eligibility_evidence_refs"] = ["missing-evidence"]
     runtime = FakeRuntime(audit_result)
 
-    result = CandidateAuditStageHandler(runtime).execute(context)
+    with pytest.raises(ContractValidationError, match="unavailable Evidence ref"):
+        CandidateAuditStageHandler(runtime).execute(context)
 
     assert runtime.tasks == []
-    assert result["candidate_audit"]["status"] == "UNAVAILABLE"
 
 
 def test_pass_status_with_findings_preserves_candidates() -> None:
@@ -278,9 +291,7 @@ def test_pass_status_with_findings_preserves_candidates() -> None:
         }
         return audit_result(task, findings=[finding])
 
-    result = CandidateAuditStageHandler(FakeRuntime(incoherent)).execute(
-        audit_context()
-    )
+    result = CandidateAuditStageHandler(FakeRuntime(incoherent)).execute(audit_context())
     assert result["candidate_audit"]["status"] == "UNAVAILABLE"
     assert result["candidate_audit"]["candidates"]
 

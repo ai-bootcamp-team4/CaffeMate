@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from app.domain.errors import ContractValidationError
+from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 from app.workflows.candidate_audit import CandidateAuditStageHandler
 from app.workflows.commit_result import CommitResultStageHandler
 from app.workflows.stage_context import StageContext
@@ -57,10 +57,7 @@ def test_commit_result_builds_schema_valid_bundle_from_audited_candidates() -> N
     assert len(bundle["candidates"]) == 3
     assert [candidate["rank"] for candidate in bundle["candidates"]] == [1, 2, 3]
     assert bundle["primary_candidate_id"] == bundle["candidates"][0]["candidate_id"]
-    assert all(
-        candidate["review_status"] != "EXCLUDED"
-        for candidate in bundle["candidates"]
-    )
+    assert all(candidate["review_status"] != "EXCLUDED" for candidate in bundle["candidates"])
     commit = result["commit_result"]
     assert isinstance(commit, dict)
     assert commit["status"] == "READY_TO_COMMIT"
@@ -149,8 +146,7 @@ def test_open_to_both_keeps_a_reviewable_franchise_in_the_result() -> None:
     context = commit_context(include_franchise=True)
     audit = output_candidate_audit(context)
     franchise = next(
-        candidate for candidate in audit["candidates"]
-        if candidate["case_type"] == "FRANCHISE"
+        candidate for candidate in audit["candidates"] if candidate["case_type"] == "FRANCHISE"
     )
     assert franchise["rank"] == 4
 
@@ -241,6 +237,63 @@ def test_candidate_audit_coverage_is_revalidated_before_commit() -> None:
 
     with pytest.raises(ContractValidationError, match="coverage is incomplete"):
         CommitResultStageHandler().execute(context)
+
+
+def test_property_recompute_commits_after_successful_candidate_audit() -> None:
+    source = audit_context(property_terms=True)
+    runtime = FakeRuntime(audit_result)
+
+    audit_output = CandidateAuditStageHandler(runtime).execute(source)
+    context = StageContext(
+        lease=source.lease.model_copy(
+            update={
+                "stage_run_id": "stage-property-commit",
+                "stage_code": "COMMIT_RESULT",
+            }
+        ),
+        project_id=source.project_id,
+        state=source.state,
+        dependency_results={"CANDIDATE_AUDIT": audit_output},
+    )
+
+    result = CommitResultStageHandler().execute(context)
+
+    assert runtime.tasks
+    assert any(
+        record["source"]["source_type"] == "USER_FIELD"
+        for record in runtime.tasks[0]["payload"]["evidence_records"]
+    )
+    assert audit_output["candidate_audit"]["status"] == "PASSED"
+    assert result["result_bundle"]["audit_status"] == "PASSED"
+    assert result["commit_result"]["status"] == "READY_TO_COMMIT"
+
+
+def test_property_recompute_commits_when_candidate_audit_runtime_is_unavailable() -> None:
+    source = audit_context(property_terms=True, attempt=3)
+
+    def unavailable(_task: dict[str, Any]) -> dict[str, Any]:
+        raise ExternalExecutionUnavailableError("runtime unavailable")
+
+    audit_output = CandidateAuditStageHandler(FakeRuntime(unavailable)).execute(source)
+    context = StageContext(
+        lease=source.lease.model_copy(
+            update={
+                "stage_run_id": "stage-property-commit",
+                "stage_code": "COMMIT_RESULT",
+            }
+        ),
+        project_id=source.project_id,
+        state=source.state,
+        dependency_results={"CANDIDATE_AUDIT": audit_output},
+    )
+
+    result = CommitResultStageHandler().execute(context)
+
+    audit = audit_output["candidate_audit"]
+    assert audit["reason_codes"] == ["CANDIDATE_AUDIT_RUNTIME_UNAVAILABLE"]
+    assert all(candidate["schema_version"] == "2.0.0" for candidate in audit["candidates"])
+    assert result["result_bundle"]["audit_status"] == "UNAVAILABLE"
+    assert result["commit_result"]["status"] == "READY_TO_COMMIT"
 
 
 def test_unavailable_audit_is_visible_without_changing_candidates() -> None:

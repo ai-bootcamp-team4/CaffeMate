@@ -4,6 +4,7 @@ from app.agents.boundary import validate_agent_boundary
 from app.agents.protocols import AgentRuntime
 from app.agents.task_factory import AgentTaskFactory
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
+from app.workflows.candidate_audit_input import CandidateAuditInputBuilder
 from app.workflows.models import StageControl
 from app.workflows.stage_context import StageContext
 
@@ -16,9 +17,11 @@ class CandidateAuditStageHandler:
         runtime: AgentRuntime,
         *,
         task_factory: AgentTaskFactory | None = None,
+        input_builder: CandidateAuditInputBuilder | None = None,
     ) -> None:
         self._runtime = runtime
         self._task_factory = task_factory or AgentTaskFactory()
+        self._input_builder = input_builder or CandidateAuditInputBuilder()
 
     def execute(self, context: StageContext) -> dict[str, object]:
         calculated = self._calculated(context)
@@ -36,24 +39,17 @@ class CandidateAuditStageHandler:
                 agent_trace=None,
             )
 
-        try:
-            task = self._task_factory.build_candidate_audit(context)
-        except ContractValidationError:
-            return self._result(
-                candidates=candidates,
-                audit_status="UNAVAILABLE",
-                agent_status="ABSTAIN",
-                candidate_audits=[],
-                global_findings=[],
-                reason_codes=["CANDIDATE_AUDIT_INPUT_UNAVAILABLE"],
-                agent_trace=None,
-            )
+        payload = self._input_builder.build(context)
+        projected_candidates = payload["candidates"]
+        if not isinstance(projected_candidates, list):
+            raise ContractValidationError("CANDIDATE_AUDIT projected candidates are invalid")
+        task = self._task_factory.build_candidate_audit(context, payload)
         try:
             result = self._runtime.invoke(task)
         except ExternalExecutionUnavailableError as error:
             if getattr(error, "runtime_code", None) == "RUNTIME_AGENT_OUTPUT_INVALID":
                 return self._result(
-                    candidates=task["payload"]["candidates"],
+                    candidates=projected_candidates,
                     audit_status="UNAVAILABLE",
                     agent_status="ABSTAIN",
                     candidate_audits=[],
@@ -64,7 +60,7 @@ class CandidateAuditStageHandler:
             if context.lease.attempt < CANDIDATE_AUDIT_RUNTIME_MAX_ATTEMPTS:
                 raise
             return self._result(
-                candidates=task["payload"]["candidates"],
+                candidates=projected_candidates,
                 audit_status="UNAVAILABLE",
                 agent_status="ABSTAIN",
                 candidate_audits=[],
@@ -85,7 +81,7 @@ class CandidateAuditStageHandler:
             return self._unavailable(task, "CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID")
         if status != "COMPLETE":
             return self._result(
-                candidates=task["payload"]["candidates"],
+                candidates=projected_candidates,
                 audit_status="UNAVAILABLE",
                 agent_status=status,
                 candidate_audits=[],
@@ -103,17 +99,13 @@ class CandidateAuditStageHandler:
             return self._unavailable(task, "CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID")
         if any(value.get("status") == "INVALID_INPUT" for value in audits):
             return self._unavailable(task, "CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID")
-        candidates_by_id = {
-            value["candidate_id"]: value for value in task["payload"]["candidates"]
-        }
-        requires_human = any(
-            self._requires_human(value, candidates_by_id) for value in audits
-        )
+        candidates_by_id = {value["candidate_id"]: value for value in task["payload"]["candidates"]}
+        requires_human = any(self._requires_human(value, candidates_by_id) for value in audits)
         reason_codes = list(result["reason_codes"])
         if requires_human:
             reason_codes = sorted(set(reason_codes + ["CANDIDATE_AUDIT_REQUIRES_HUMAN"]))
         return self._result(
-            candidates=task["payload"]["candidates"],
+            candidates=projected_candidates,
             audit_status="REQUIRES_HUMAN" if requires_human else "PASSED",
             agent_status=status,
             candidate_audits=audits,
@@ -127,9 +119,7 @@ class CandidateAuditStageHandler:
         dependency = context.dependency_results.get("CALCULATE_GATE_RANK")
         value = dependency.get("calculate_gate_rank") if dependency else None
         if not isinstance(value, dict):
-            raise ContractValidationError(
-                "CANDIDATE_AUDIT requires CALCULATE_GATE_RANK output"
-            )
+            raise ContractValidationError("CANDIDATE_AUDIT requires CALCULATE_GATE_RANK output")
         return value
 
     @staticmethod
@@ -142,11 +132,7 @@ class CandidateAuditStageHandler:
         if audit.get("status") == "REQUIRES_HUMAN":
             return True
         candidate_id = audit.get("candidate_id")
-        candidate = (
-            candidates_by_id.get(candidate_id)
-            if isinstance(candidate_id, str)
-            else None
-        )
+        candidate = candidates_by_id.get(candidate_id) if isinstance(candidate_id, str) else None
         if (
             audit.get("status") == "REQUIRES_EVIDENCE"
             and candidate is not None
@@ -174,8 +160,11 @@ class CandidateAuditStageHandler:
 
     @classmethod
     def _unavailable(cls, task: dict[str, Any], reason_code: str) -> dict[str, object]:
+        candidates = task["payload"].get("candidates")
+        if not isinstance(candidates, list):
+            raise ContractValidationError("CANDIDATE_AUDIT projected candidates are invalid")
         return cls._result(
-            candidates=task["payload"]["candidates"],
+            candidates=candidates,
             audit_status="UNAVAILABLE",
             agent_status="ABSTAIN",
             candidate_audits=[],
@@ -196,9 +185,7 @@ class CandidateAuditStageHandler:
         agent_trace: dict[str, Any] | None,
     ) -> dict[str, object]:
         return {
-            "stage_control": StageControl(reason_codes=reason_codes).model_dump(
-                mode="json"
-            ),
+            "stage_control": StageControl(reason_codes=reason_codes).model_dump(mode="json"),
             "candidate_audit": {
                 "status": audit_status,
                 "agent_status": agent_status,

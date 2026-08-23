@@ -12,28 +12,19 @@ from app.candidates.models import (
     RiskSignal,
 )
 from app.candidates.ranking import rank_candidates
-from app.candidates.seed_registry import IndependentFinanceProfile, IndependentSeedRegistry
+from app.candidates.seed_registry import IndependentSeedRegistry
 from app.domain.errors import ContractValidationError
 from app.domain.models import CaseType, FranchiseEligibility, OperationMode
 from app.finance.calculator import calculate_finance, evaluate_capital_gate
-from app.finance.models import (
-    INITIAL_COST_CATEGORIES,
-    MONTHLY_FIXED_COST_CATEGORIES,
-    CapitalGateInput,
-    CapitalGateResult,
-    CostCategory,
-    CostLine,
-    FinanceInput,
-    MoneyRange,
-    ValueProvenance,
-)
+from app.finance.models import CapitalGateInput, CapitalGateResult, MoneyRange
+from app.workflows.candidate_finance import CandidateFinanceInputBuilder
 from app.workflows.models import StageControl
 from app.workflows.stage_context import StageContext
 
 
 class CalculateGateRankStageHandler:
     def __init__(self, seed_registry: IndependentSeedRegistry | None = None) -> None:
-        self._seed_registry = seed_registry
+        self._finance_inputs = CandidateFinanceInputBuilder(seed_registry)
 
     def execute(self, context: StageContext) -> dict[str, object]:
         calculated: list[dict[str, Any]] = []
@@ -82,19 +73,12 @@ class CalculateGateRankStageHandler:
                 source_id = proposal.get("seed_or_brand_id")
                 if not isinstance(source_id, str):
                     raise ContractValidationError("Candidate proposal source id is invalid")
-                evidence_records = [
-                    *base_evidence_records,
-                    *self._document_evidence(
-                        context=context,
-                        case_type=case_type,
-                        source_id=source_id,
-                    ),
-                    *self._seed_assumption_evidence(
-                        context=context,
-                        case_type=case_type,
-                        source_id=source_id,
-                    ),
-                ]
+                evidence_records = self._finance_inputs.evidence_records(
+                    context=context,
+                    case_type=case_type,
+                    source_id=source_id,
+                    base_records=base_evidence_records,
+                )
                 for evidence in evidence_records:
                     evidence_id = evidence.get("evidence_id")
                     if not isinstance(evidence_id, str):
@@ -194,171 +178,6 @@ class CalculateGateRankStageHandler:
             records.append(value)
         return records
 
-    @staticmethod
-    def _document_evidence(
-        *, context: StageContext, case_type: CaseType, source_id: str
-    ) -> list[dict[str, Any]]:
-        category_map = {
-            "LEASE_DEPOSIT": CostCategory.DEPOSIT.value,
-            "KEY_MONEY": CostCategory.ACQUISITION_OR_PREMIUM.value,
-            "MONTHLY_RENT": CostCategory.MONTHLY_OCCUPANCY.value,
-            "MANAGEMENT_FEE": CostCategory.MONTHLY_OCCUPANCY.value,
-            "FRANCHISE_FEE": CostCategory.FRANCHISE_INITIAL_FEES.value,
-            "EDUCATION_FEE": CostCategory.FRANCHISE_INITIAL_FEES.value,
-        }
-        grouped: dict[str, list[dict[str, Any]]] = {}
-        for claim in context.document_claims:
-            if (
-                claim.get("case_type") != case_type.value
-                or claim.get("source_id") != source_id
-                or not isinstance(claim.get("value_json"), int)
-            ):
-                continue
-            claim_type = claim.get("claim_type")
-            category = category_map.get(str(claim_type))
-            if claim_type == "QUOTE_TOTAL":
-                if claim.get("document_type") == "INTERIOR_QUOTE":
-                    category = CostCategory.CONSTRUCTION.value
-                elif claim.get("document_type") == "EQUIPMENT_QUOTE":
-                    category = CostCategory.EQUIPMENT.value
-            if category is not None:
-                if claim.get("has_open_conflict") is True:
-                    grouped.setdefault(f"CONFLICT:{category}", []).append(claim)
-                    continue
-                grouped.setdefault(category, []).append(claim)
-        records: list[dict[str, Any]] = []
-        for category, claims in sorted(grouped.items()):
-            if category.startswith("CONFLICT:"):
-                actual_category = category.removeprefix("CONFLICT:")
-                records.append(
-                    {
-                        "evidence_id": f"document-conflict-{claims[0]['claim_id']}",
-                        "project_id": context.project_id,
-                        "claim_type": f"DOCUMENT_CONFLICT_COST_{actual_category}",
-                        "value": {"kind": "CONFLICT"},
-                    }
-                )
-                continue
-            amount = sum(int(claim["value_json"]) for claim in claims)
-            claim_ids = sorted(str(claim["claim_id"]) for claim in claims)
-            digest = hashlib.sha256(rfc8785.dumps(claim_ids)).hexdigest()
-            records.append(
-                {
-                    "evidence_id": f"document-evidence-{digest[:32]}",
-                    "project_id": context.project_id,
-                    "claim_type": f"COST_{category}",
-                    "value": {
-                        "kind": "MONEY_RANGE",
-                        "low": amount,
-                        "base": amount,
-                        "high": amount,
-                    },
-                    "value_kind": "USER_CONFIRMED_FACT",
-                    "source": {"authority": "USER_DOCUMENT"},
-                    "geographic_scope": {"scope_type": "CASE", "scope_id": source_id},
-                    "document_claim_ids": claim_ids,
-                }
-            )
-        return records
-
-    def _seed_assumption_evidence(
-        self,
-        *,
-        context: StageContext,
-        case_type: CaseType,
-        source_id: str,
-    ) -> list[dict[str, Any]]:
-        profile = self._seed_finance_profile(case_type, source_id)
-        if profile is None:
-            return []
-
-        values: list[tuple[str, dict[str, Any], str | None]] = []
-        for category, amount in sorted(
-            profile.cost_ranges.items(), key=lambda item: item[0].value
-        ):
-            values.append(
-                (
-                    f"INDEPENDENT_COST_{category.value}",
-                    {
-                        "kind": "MONEY_RANGE",
-                        "currency": "KRW",
-                        **amount.model_dump(mode="json"),
-                    },
-                    "KRW",
-                )
-            )
-        values.extend(
-            [
-                (
-                    "CONTRIBUTION_MARGIN_BPS",
-                    {"kind": "INTEGER", "value": profile.contribution_margin_bps},
-                    "basis_point",
-                ),
-                (
-                    "OPERATING_DAYS_PER_MONTH",
-                    {"kind": "INTEGER", "value": profile.operating_days_per_month},
-                    "day/month",
-                ),
-                (
-                    "AVERAGE_TICKET_KRW",
-                    {"kind": "INTEGER", "value": profile.average_ticket_krw},
-                    "KRW/order",
-                ),
-            ]
-        )
-        timestamp = context.state.updated_at.isoformat().replace("+00:00", "Z")
-        records: list[dict[str, Any]] = []
-        for claim_type, value, unit in values:
-            digest = hashlib.sha256(
-                rfc8785.dumps(
-                    {
-                        "seed_registry_id": context.lease.head.seed_registry_id,
-                        "source_id": source_id,
-                        "claim_type": claim_type,
-                        "value": value,
-                    }
-                )
-            ).hexdigest()
-            records.append(
-                {
-                    "schema_version": "2.0.0",
-                    "evidence_id": f"seed-assumption-{digest[:40]}",
-                    "project_id": context.project_id,
-                    "claim_type": claim_type,
-                    "value": value,
-                    "value_kind": "DECLARED_ASSUMPTION",
-                    "unit": unit,
-                    "geographic_scope": {
-                        "scope_type": "CASE",
-                        "scope_id": source_id,
-                        "boundary_version": None,
-                    },
-                    "source": {
-                        "title": f"{source_id} 등록 모델 임시 계산값",
-                        "source_ref": f"seed://{source_id}/{claim_type}",
-                        "authority": "SECONDARY",
-                        "source_type": "DATASET",
-                        "published_or_data_date": None,
-                        "source_observed_at": None,
-                        "document_version": context.lease.head.seed_registry_id,
-                        "checksum": digest,
-                    },
-                    "original_anchor": {
-                        "anchor_type": "CALCULATION",
-                        "locator": f"seed:{source_id}:{claim_type}",
-                        "excerpt_hash": None,
-                    },
-                    "freshness_status": "NOT_APPLICABLE",
-                    "conflict_status": "NONE",
-                    "retrieved_at": timestamp,
-                    "missing_context": [
-                        "실제 매물·견적 입력 전 사용하는 등록 모델 임시 범위"
-                    ],
-                    "durable_evidence_refs": [],
-                }
-            )
-        return records
-
     def _calculate_candidate(
         self,
         *,
@@ -373,8 +192,8 @@ class CalculateGateRankStageHandler:
         if not isinstance(proposal_id, str) or not isinstance(source_id, str):
             raise ContractValidationError("Proposal identity is invalid")
         candidate_id = self._candidate_id(context, proposal_id)
-        seed_finance_profile = self._seed_finance_profile(case_type, source_id)
-        finance_input, finance_conflicts, calculation_evidence_refs = self._finance_input(
+        seed_finance_profile = self._finance_inputs.seed_finance_profile(case_type, source_id)
+        finance_input, finance_conflicts, calculation_evidence_refs = self._finance_inputs.build(
             case_type=case_type,
             source_id=source_id,
             proposal_id=proposal_id,
@@ -397,11 +216,7 @@ class CalculateGateRankStageHandler:
         proposal_missing = (
             set()
             if seed_finance_profile is not None
-            else {
-                value
-                for value in proposal.get("missing_fields", [])
-                if isinstance(value, str)
-            }
+            else {value for value in proposal.get("missing_fields", []) if isinstance(value, str)}
         )
         material_missing = sorted(proposal_missing | set(finance.unknown_cost_fields))
         risks = self._risks(
@@ -463,288 +278,6 @@ class CalculateGateRankStageHandler:
             },
             decision_input,
         )
-
-    def _finance_input(
-        self,
-        *,
-        case_type: CaseType,
-        source_id: str,
-        proposal_id: str,
-        evidence_records: list[dict[str, Any]],
-        seed_finance_profile: IndependentFinanceProfile | None,
-    ) -> tuple[FinanceInput, list[str], list[str]]:
-        conflicts: list[str] = []
-        initial = [
-            self._cost_line(
-                case_type=case_type,
-                category=category,
-                source_id=source_id,
-                proposal_id=proposal_id,
-                evidence_records=evidence_records,
-                conflicts=conflicts,
-                seed_finance_profile=seed_finance_profile,
-            )
-            for category in sorted(INITIAL_COST_CATEGORIES, key=lambda value: value.value)
-        ]
-        monthly = [
-            self._cost_line(
-                case_type=case_type,
-                category=category,
-                source_id=source_id,
-                proposal_id=proposal_id,
-                evidence_records=evidence_records,
-                conflicts=conflicts,
-                seed_finance_profile=seed_finance_profile,
-            )
-            for category in sorted(MONTHLY_FIXED_COST_CATEGORIES, key=lambda value: value.value)
-        ]
-        contribution_margin, contribution_margin_ref = self._scalar_value(
-            case_type,
-            "CONTRIBUTION_MARGIN_BPS",
-            source_id,
-            proposal_id,
-            evidence_records,
-            conflicts,
-            seed_finance_profile,
-        )
-        operating_days, operating_days_ref = self._scalar_value(
-            case_type,
-            "OPERATING_DAYS_PER_MONTH",
-            source_id,
-            proposal_id,
-            evidence_records,
-            conflicts,
-            seed_finance_profile,
-        )
-        average_ticket, average_ticket_ref = self._scalar_value(
-            case_type,
-            "AVERAGE_TICKET_KRW",
-            source_id,
-            proposal_id,
-            evidence_records,
-            conflicts,
-            seed_finance_profile,
-        )
-        finance_input = FinanceInput(
-            initial_cost_lines=initial,
-            monthly_fixed_cost_lines=monthly,
-            contribution_margin_bps=contribution_margin,
-            operating_days_per_month=operating_days,
-            average_ticket_krw=average_ticket,
-        )
-        cost_refs = {
-            line.evidence_ref for line in [*initial, *monthly] if line.evidence_ref is not None
-        }
-        scalar_refs = {
-            value
-            for value in (
-                contribution_margin_ref,
-                operating_days_ref,
-                average_ticket_ref,
-            )
-            if value is not None
-        }
-        return (
-            finance_input,
-            sorted(set(conflicts)),
-            sorted(cost_refs | scalar_refs),
-        )
-
-    def _cost_line(
-        self,
-        *,
-        case_type: CaseType,
-        category: CostCategory,
-        source_id: str,
-        proposal_id: str,
-        evidence_records: list[dict[str, Any]],
-        conflicts: list[str],
-        seed_finance_profile: IndependentFinanceProfile | None,
-    ) -> CostLine:
-        if case_type == CaseType.INDEPENDENT and category == CostCategory.FRANCHISE_INITIAL_FEES:
-            return CostLine(
-                field_id=category.value,
-                category=category,
-                amount=MoneyRange(low=0, base=0, high=0),
-                provenance=ValueProvenance.DERIVED,
-            )
-        if any(
-            value.get("claim_type") == f"DOCUMENT_CONFLICT_COST_{category.value}"
-            for value in evidence_records
-        ):
-            conflicts.append(f"DOCUMENT_COST_CONFLICT:{category.value}")
-            return self._unknown_cost(category)
-        matches = self._money_records(
-            case_type,
-            category.value,
-            source_id,
-            proposal_id,
-            evidence_records,
-        )
-        if not matches:
-            if seed_finance_profile is not None:
-                amount = seed_finance_profile.cost_ranges.get(category)
-                if amount is not None:
-                    return CostLine(
-                        field_id=category.value,
-                        category=category,
-                        amount=amount,
-                        provenance=ValueProvenance.ASSUMPTION,
-                    )
-            return self._unknown_cost(category)
-        grounded_or_confirmed = [
-            value
-            for value in matches
-            if value.get("value_kind") != "DECLARED_ASSUMPTION"
-        ]
-        if grounded_or_confirmed:
-            matches = grounded_or_confirmed
-        user_confirmed = [
-            value for value in matches if value.get("value_kind") == "USER_CONFIRMED_FACT"
-        ]
-        if user_confirmed:
-            matches = user_confirmed
-        distinct = {
-            (
-                value["value"].get("low"),
-                value["value"].get("base"),
-                value["value"].get("high"),
-            )
-            for value in matches
-        }
-        if len(distinct) != 1:
-            conflicts.append(f"COST_CONFLICT:{category.value}")
-            return self._unknown_cost(category)
-        selected = min(matches, key=self._evidence_priority)
-        typed = selected["value"]
-        return CostLine(
-            field_id=category.value,
-            category=category,
-            amount=MoneyRange(
-                low=typed.get("low"),
-                base=typed.get("base"),
-                high=typed.get("high"),
-            ),
-            provenance=self._provenance(selected),
-            evidence_ref=selected["evidence_id"],
-        )
-
-    @staticmethod
-    def _unknown_cost(category: CostCategory) -> CostLine:
-        return CostLine(
-            field_id=category.value,
-            category=category,
-            amount=MoneyRange(low=None, base=None, high=None),
-            provenance=ValueProvenance.UNKNOWN,
-        )
-
-    def _money_records(
-        self,
-        case_type: CaseType,
-        field: str,
-        source_id: str,
-        proposal_id: str,
-        evidence_records: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        claim_types = {
-            f"{case_type.value}_COST_{field}",
-            f"CAFE_COST_{field}",
-            f"COST_{field}",
-        }
-        return [
-            value
-            for value in evidence_records
-            if value.get("claim_type") in claim_types
-            and isinstance(value.get("value"), dict)
-            and value["value"].get("kind") == "MONEY_RANGE"
-            and self._scope_matches(value, source_id, proposal_id)
-        ]
-
-    def _scalar_value(
-        self,
-        case_type: CaseType,
-        field: str,
-        source_id: str,
-        proposal_id: str,
-        evidence_records: list[dict[str, Any]],
-        conflicts: list[str],
-        seed_finance_profile: IndependentFinanceProfile | None,
-    ) -> tuple[int | None, str | None]:
-        claim_types = {field, f"CAFE_{field}", f"{case_type.value}_{field}"}
-        values = [
-            value
-            for value in evidence_records
-            if value.get("claim_type") in claim_types
-            and isinstance(value.get("value"), dict)
-            and value["value"].get("kind") == "INTEGER"
-            and isinstance(value["value"].get("value"), int)
-            and self._scope_matches(value, source_id, proposal_id)
-        ]
-        grounded_or_confirmed = [
-            value
-            for value in values
-            if value.get("value_kind") != "DECLARED_ASSUMPTION"
-        ]
-        if grounded_or_confirmed:
-            values = grounded_or_confirmed
-        distinct = {value["value"]["value"] for value in values}
-        if len(distinct) > 1:
-            conflicts.append(f"VALUE_CONFLICT:{field}")
-            return None, None
-        if not values:
-            if seed_finance_profile is not None:
-                fallback = {
-                    "CONTRIBUTION_MARGIN_BPS": seed_finance_profile.contribution_margin_bps,
-                    "OPERATING_DAYS_PER_MONTH": (
-                        seed_finance_profile.operating_days_per_month
-                    ),
-                    "AVERAGE_TICKET_KRW": seed_finance_profile.average_ticket_krw,
-                }.get(field)
-                if fallback is not None:
-                    return fallback, None
-            return None, None
-        selected = min(values, key=self._evidence_priority)
-        return int(selected["value"]["value"]), str(selected["evidence_id"])
-
-    @staticmethod
-    def _scope_matches(
-        evidence: dict[str, Any],
-        source_id: str,
-        proposal_id: str,
-    ) -> bool:
-        scope = evidence.get("geographic_scope")
-        if not isinstance(scope, dict) or scope.get("scope_type") != "CASE":
-            return True
-        return scope.get("scope_id") in {source_id, proposal_id}
-
-    @staticmethod
-    def _evidence_priority(value: dict[str, Any]) -> tuple[int, str]:
-        value_kind = value.get("value_kind")
-        authority = value.get("source", {}).get("authority")
-        priority = 0 if value_kind == "USER_CONFIRMED_FACT" else 1
-        if authority == "VALIDATED_BENCHMARK":
-            priority = 2
-        if value_kind == "DECLARED_ASSUMPTION":
-            priority = 3
-        return priority, str(value.get("evidence_id"))
-
-    @staticmethod
-    def _provenance(value: dict[str, Any]) -> ValueProvenance:
-        if value.get("value_kind") == "USER_CONFIRMED_FACT":
-            return ValueProvenance.USER_INPUT
-        if value.get("source", {}).get("authority") == "VALIDATED_BENCHMARK":
-            return ValueProvenance.BENCHMARK
-        if value.get("value_kind") == "DECLARED_ASSUMPTION":
-            return ValueProvenance.ASSUMPTION
-        return ValueProvenance.FACT
-
-    def _seed_finance_profile(
-        self, case_type: CaseType, source_id: str
-    ) -> IndependentFinanceProfile | None:
-        if case_type != CaseType.INDEPENDENT or self._seed_registry is None:
-            return None
-        seed = self._seed_registry.get(source_id)
-        return seed.finance_profile if seed is not None else None
 
     @staticmethod
     def _founder_fit(

@@ -2,6 +2,7 @@ from copy import deepcopy
 from typing import Any
 
 from app.candidates.seed_registry import IndependentSeedRegistry
+from app.contracts.schema_registry import ContractRegistry
 from app.domain.models import BorrowingIntent
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
@@ -52,6 +53,32 @@ def complete_independent_finance(amount: int = 1_000_000) -> list[dict[str, Any]
         scalar_evidence("CONTRIBUTION_MARGIN_BPS", 5_000),
         scalar_evidence("OPERATING_DAYS_PER_MONTH", 30),
         scalar_evidence("AVERAGE_TICKET_KRW", 5_000),
+    ]
+
+
+def property_cost_claims(source_id: str) -> list[dict[str, Any]]:
+    values = {
+        "LEASE_DEPOSIT": 30_000_000,
+        "MONTHLY_RENT": 2_200_000,
+        "MANAGEMENT_FEE": 200_000,
+        "KEY_MONEY": 10_000_000,
+    }
+    return [
+        {
+            "claim_id": f"property-input:property-1:{claim_type}",
+            "case_id": "selected-candidate",
+            "case_type": "INDEPENDENT",
+            "source_id": source_id,
+            "claim_type": claim_type,
+            "value_json": amount,
+            "unit": "KRW",
+            "materiality": "HIGH",
+            "document_type": "PROPERTY_LISTING",
+            "has_open_conflict": False,
+            "input_kind": "USER_CONFIRMED_PROPERTY_TERMS",
+            "observed_at": "2026-08-23T13:49:44Z",
+        }
+        for claim_type, amount in values.items()
     ]
 
 
@@ -234,6 +261,36 @@ def test_conflicting_cost_evidence_is_not_auto_resolved() -> None:
     assert candidate["decision"]["review_status"] == "CONDITIONAL_REVIEW"
 
 
+def test_property_cost_evidence_is_canonical_before_candidate_projection() -> None:
+    context = calculation_context(evidence_records=complete_independent_finance())
+    proposal = context.dependency_results["PROPOSE_INDEPENDENT"]["independent_proposal"]
+    source_id = proposal["candidate_proposals"][0]["seed_or_brand_id"]
+    context.document_claims = property_cost_claims(source_id)
+
+    output = CalculateGateRankStageHandler().execute(context)["calculate_gate_rank"]
+
+    contracts = ContractRegistry()
+    property_records = [
+        record
+        for record in output["evidence_records"]
+        if record.get("source", {}).get("source_type") == "USER_FIELD"
+    ]
+    assert property_records
+    for record in property_records:
+        contracts.validate_evidence_record(record)
+        assert record["geographic_scope"] == {
+            "scope_type": "PROPERTY",
+            "scope_id": "property-1",
+            "boundary_version": None,
+        }
+    candidate = next(value for value in output["candidates"] if value["source_id"] == source_id)
+    assert candidate["finance_input"]["initial_cost_lines"]
+    assert any(
+        line.get("evidence_ref") in {record["evidence_id"] for record in property_records}
+        for line in candidate["finance_input"]["initial_cost_lines"]
+    )
+
+
 def test_confirmed_document_cost_overrides_benchmark_but_open_conflict_stays_unknown() -> None:
     context = calculation_context(evidence_records=complete_independent_finance())
     proposal = context.dependency_results["PROPOSE_INDEPENDENT"]["independent_proposal"]
@@ -254,9 +311,7 @@ def test_confirmed_document_cost_overrides_benchmark_but_open_conflict_stays_unk
     ]
 
     output = CalculateGateRankStageHandler().execute(context)["calculate_gate_rank"]
-    selected = next(
-        value for value in output["candidates"] if value["source_id"] == source_id
-    )
+    selected = next(value for value in output["candidates"] if value["source_id"] == source_id)
     assert selected["finance"]["initial_cash"] == {
         "low": 52_000_000,
         "base": 52_000_000,
@@ -265,9 +320,7 @@ def test_confirmed_document_cost_overrides_benchmark_but_open_conflict_stays_unk
 
     context.document_claims[0]["has_open_conflict"] = True
     conflicted = CalculateGateRankStageHandler().execute(context)["calculate_gate_rank"]
-    candidate = next(
-        value for value in conflicted["candidates"] if value["source_id"] == source_id
-    )
+    candidate = next(value for value in conflicted["candidates"] if value["source_id"] == source_id)
     assert candidate["finance"]["initial_cash"] == {
         "low": None,
         "base": None,
