@@ -223,6 +223,12 @@ deterministic Claim type routing
 
 실제 견적 전 임시 가정으로만 사용한다.
 
+첫 PoC는 `api/app/candidates/independent_seed_registry.json`의 세 개인카페 모델을 계산 가능한
+등록 원장으로 사용한다. 원장의 수치는 `DECLARED_ASSUMPTION` EvidenceRecord로 투영하며
+`seed_registry_id`와 모델·필드별 digest를 남긴다. 화면에는 계산 범위를 표시하되 외부 근거
+건수로 세지 않는다. 우선순위는 사용자 확인 문서 → 수용된 외부 근거 → 등록 모델 임시값이다.
+임시값과 같은 항목의 실제 자료가 들어오면 실제 자료가 대체하며, 둘을 충돌로 오인하지 않는다.
+
 - 출처, 기준연도, 표본 또는 적용 대상
 - low·base·high range
 - 포함·제외 항목

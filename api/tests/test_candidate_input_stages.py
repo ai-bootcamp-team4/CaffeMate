@@ -142,6 +142,22 @@ def test_independent_seed_is_filtered_and_pinned_before_proposal() -> None:
     assert proposal_input["model_seeds"][0]["proposal_id"].startswith("proposal-independent-")
 
 
+def test_default_registry_exposes_three_calculable_operating_models() -> None:
+    selected_registry = IndependentSeedRegistry.load_default()
+    context = candidate_context(seed_registry_id=selected_registry.registry_id)
+
+    output = IndependentSeedStageHandler(selected_registry).execute(context)["independent_seed"]
+    models = output["proposal_input"]["model_seeds"]
+
+    assert [value["display_name"] for value in models] == [
+        "소형 포장 중심 개인카페",
+        "중소형 균형 개인카페",
+        "좌석 중심 개인카페",
+    ]
+    assert output["proposal_input"]["requested_candidate_count"] == 3
+    assert all(value["finance_profile"] is not None for value in models)
+
+
 def test_independent_seed_does_not_guess_affordability_when_threshold_fails() -> None:
     selected_registry = registry(minimum_funds=80_000_000)
     context = candidate_context(
