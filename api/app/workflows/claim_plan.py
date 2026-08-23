@@ -69,6 +69,7 @@ class ClaimPlanStageHandler:
         # explicit missing evidence instead of becoming guaranteed MCP errors.
         allowed_tools = {
             "get_area_profile",
+            "list_franchise_universe",
             "retrieve_official_documents",
             "search_cafe_observations",
         }

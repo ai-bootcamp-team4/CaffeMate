@@ -120,6 +120,7 @@ def test_claim_plan_selects_branch_specific_claims(
         "CAFE_OPENING_REQUIRED_PROCEDURES",
     } <= claim_types
     assert plan["planning_constraints"]["as_of"] == "2026-08-21"
+    assert "list_franchise_universe" in plan["planning_constraints"]["allowed_tools"]
     assert len(plan["action_id_pool"]) == 20
 
 
