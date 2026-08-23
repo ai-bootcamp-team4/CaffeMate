@@ -334,6 +334,65 @@ describe('CaffeMate Control API integration', () => {
     await waitFor(() => expect(client.applyPropertyTerms).toHaveBeenCalledWith('project-1', 'selection-1', 2, expect.objectContaining({ monthly_rent_krw: 2_000_000, deposit_krw: 30_000_000 })))
     expect(await screen.findByRole('heading', { name: '임시값과 점포 반영값 비교' })).toBeTruthy()
     expect(screen.getByText('70,000,000원')).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('월세(만원)'), { target: { value: '190' } })
+    fireEvent.click(screen.getByRole('button', { name: '이 조건으로 비용 다시 계산' }))
+    await waitFor(() => expect(client.applyPropertyTerms).toHaveBeenLastCalledWith('project-1', 'selection-1', 3, expect.objectContaining({ monthly_rent_krw: 1_900_000 })))
+  })
+
+  it('uploads a document, exposes editable extracted values, applies them, and refreshes the result', async () => {
+    const { client } = setup()
+    await completeOnboarding()
+    fireEvent.click(screen.getByRole('button', { name: '이 안을 계속 검토하기' }))
+    await screen.findByRole('heading', { name: '실제 검증 브랜드에 점포 조건을 넣어보세요' })
+
+    const uploadTicket = {
+      document_id: 'document-1', document_revision_id: 'revision-1', revision_number: 1,
+      object_path: 'users/user-1/projects/project-1/documents/document-1/revisions/1/file.pdf',
+      upload_url: 'https://storage.example.test/upload', method: 'PUT' as const,
+      required_headers: { 'Content-Type': 'application/pdf' }, expires_at: '2026-08-23T01:00:00Z', status: 'UPLOAD_PENDING' as const,
+    }
+    const revision = {
+      document_id: 'document-1', document_revision_id: 'revision-1', project_id: 'project-1', revision_number: 1,
+      document_type: 'COMMERCIAL_LEASE' as const, original_filename: 'lease.pdf', content_type: 'application/pdf', size_bytes: 4,
+      sha256: 'a'.repeat(64), status: 'EXTRACTION_READY' as const, failure_codes: [],
+      created_at: '2026-08-23T00:00:00Z', updated_at: '2026-08-23T00:01:00Z', completed_at: '2026-08-23T00:01:00Z',
+    }
+    const extractionForm = {
+      form_id: 'form-1', project_id: 'project-1', document_id: 'document-1', document_revision_id: 'revision-1',
+      expected_state_version: 2, form_status: 'READY_FOR_REVIEW', apply_label: '반영하고 다시 계산',
+      form_digest: `sha256:${'b'.repeat(64)}`, applied_state_version: null,
+      fields: [{
+        field_id: 'monthly_rent_krw', claim_type: 'MONTHLY_RENT', label: '월세', raw_value_text: '220만원',
+        extracted_value: 2_200_000, current_value: 2_200_000, unit: '원', materiality: 'HIGH', extraction_status: 'AUTO_FILLED' as const,
+        edit_status: 'UNCHANGED' as const, anchor: { page_index: 0, section_path: '임대 조건' }, warnings: [],
+      }],
+    }
+    const appliedForm = { ...extractionForm, form_digest: `sha256:${'c'.repeat(64)}`, fields: [{ ...extractionForm.fields[0], current_value: '2000000', edit_status: 'EDITED' as const }] }
+    vi.mocked(client.beginDocumentUpload).mockResolvedValueOnce(uploadTicket)
+    vi.mocked(client.uploadDocument).mockResolvedValueOnce(undefined)
+    vi.mocked(client.completeDocumentUpload).mockResolvedValueOnce(revision)
+    vi.mocked(client.getDocumentRevision).mockResolvedValueOnce(revision)
+    vi.mocked(client.getDocumentExtractionForm).mockResolvedValueOnce(extractionForm)
+    vi.mocked(client.updateDocumentExtractionForm).mockResolvedValueOnce(appliedForm)
+    vi.mocked(client.applyDocumentExtractionForm).mockResolvedValueOnce({
+      application_id: 'application-1', project_id: 'project-1', document_revision_id: 'revision-1', applied_state_version: 3,
+      recompute_workflow_run_id: 'workflow-1', claims: [], conflicts: [], requires_human_review: false,
+    })
+    vi.mocked(client.getResult).mockResolvedValueOnce({ ...result, current_head: { ...head, state_version: 3 } })
+
+    const file = new File(['test'], 'lease.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'arrayBuffer', { value: async () => new TextEncoder().encode('test').buffer })
+    fireEvent.change(screen.getByLabelText('파일 선택'), { target: { files: [file] } })
+    fireEvent.click(screen.getByRole('button', { name: '업로드하고 값 찾기' }))
+
+    expect(await screen.findByDisplayValue('2200000')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('월세 (원)'), { target: { value: '2000000' } })
+    fireEvent.click(screen.getByRole('button', { name: '반영하고 다시 계산' }))
+
+    await waitFor(() => expect(client.updateDocumentExtractionForm).toHaveBeenCalledWith('project-1', extractionForm, [{ field_id: 'monthly_rent_krw', value: '2000000' }]))
+    await waitFor(() => expect(client.applyDocumentExtractionForm).toHaveBeenCalledWith('project-1', appliedForm))
+    expect(await screen.findByText('문서 값을 반영하고 창업안을 다시 계산했어요.')).toBeTruthy()
   })
 
   it('keeps the selected checklist usable when official procedure lookup fails', async () => {

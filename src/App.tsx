@@ -449,7 +449,7 @@ function ResultScreen({ client, project, initialResult }: { client: ControlApiCl
     const nextIndex = nextResult.candidates.findIndex((nextCandidate) => candidateSource(nextCandidate) === source)
     const nextCandidate = nextResult.candidates[nextIndex]
     if (!nextCandidate) throw new Error('재계산된 후보를 찾지 못했습니다.')
-    setResult(nextResult); setActiveCandidateIndex(nextIndex); setActionStatus('점포 조건을 반영해 비용을 다시 계산했습니다.')
+    setResult(nextResult); setActiveCandidateIndex(nextIndex); setSelection((current) => current ? { ...current, selected_state_version: application.applied_state_version } : current); setActionStatus('점포 조건을 반영해 비용을 다시 계산했습니다.')
     return { application, candidate: nextCandidate }
   }
   const updateResult = (next: ResultView) => { setResult(next); setActiveCandidateIndex(0); setActivePanel('overview'); setSelection(null); setPreparationOpen(false); setPreparationGuide(null) }
@@ -459,6 +459,7 @@ function ResultScreen({ client, project, initialResult }: { client: ControlApiCl
     const nextIndex = nextResult.candidates.findIndex((nextCandidate) => candidateSource(nextCandidate) === source)
     setResult(nextResult)
     setActiveCandidateIndex(Math.max(0, nextIndex))
+    setSelection((current) => current ? { ...current, selected_state_version: nextResult.current_head.state_version } : current)
     setActionStatus('문서에서 확인한 값으로 창업안을 다시 계산했습니다.')
   }
   if (!activeCandidate) return <main className="analysis-stage"><h1>표시할 후보가 없습니다</h1><p>결과 계약을 다시 확인해 주세요.</p></main>
