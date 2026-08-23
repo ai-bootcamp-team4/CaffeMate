@@ -7,6 +7,7 @@ from pydantic import Field
 from app.contracts.schema_registry import ContractRegistry, EvidenceContractValidator
 from app.domain.errors import ContractValidationError
 from app.domain.models import StrictModel
+from app.evidence.identity import immutable_evidence_record_bytes
 from app.workflows.models import StageControl
 from app.workflows.stage_context import StageContext
 
@@ -103,7 +104,7 @@ class EvidenceFreezeStageHandler:
                     raise ContractValidationError("Evidence record crossed project scope")
                 evidence_id = value["evidence_id"]
                 immutable_digest = hashlib.sha256(
-                    self._immutable_record_bytes(value)
+                    immutable_evidence_record_bytes(value)
                 ).digest()
                 canonical_record = rfc8785.dumps(value)
                 if (
@@ -121,23 +122,6 @@ class EvidenceFreezeStageHandler:
                     canonical_records[evidence_id] = canonical_record
                 immutable_digests[evidence_id] = immutable_digest
         return records
-
-    @staticmethod
-    def _immutable_record_bytes(value: dict[str, Any]) -> bytes:
-        """Exclude per-call observation times from immutable Evidence identity.
-
-        The same source row or RAG chunk can be returned by support and counter
-        searches milliseconds apart. Its content, source version and checksum are
-        immutable; retrieval timestamps describe the calls, not different facts.
-        """
-        stable = dict(value)
-        stable.pop("retrieved_at", None)
-        source = stable.get("source")
-        if isinstance(source, dict):
-            stable["source"] = {
-                key: item for key, item in source.items() if key != "source_observed_at"
-            }
-        return rfc8785.dumps(stable)
 
     @staticmethod
     def _accepted_evidence_ids(
