@@ -1,4 +1,5 @@
 from copy import deepcopy
+from typing import Any, cast
 
 import pytest
 
@@ -60,6 +61,33 @@ def freeze_context(*, accepted: bool = True, cross_project: bool = False):
     return value
 
 
+def structured_metric_record(
+    evidence_id: str,
+    metric: str,
+    *,
+    authority: str = "PRIMARY_DATA",
+    conflict_status: str = "NONE",
+    freshness_status: str = "FRESH",
+) -> dict[str, object]:
+    record = cast(
+        dict[str, Any],
+        evidence_record(evidence_id, freshness_status=freshness_status),
+    )
+    record["claim_type"] = "AREA_DEMAND_SIGNALS"
+    record["metric"] = metric
+    record["unit"] = "PEOPLE"
+    record["source"] = {
+        **record["source"],
+        "authority": authority,
+        "source_type": "DATASET",
+        "source_ref": f"https://data.example/{metric.lower()}",
+        "checksum": f"sha256:{'a' * 64}",
+    }
+    record["conflict_status"] = conflict_status
+    record["durable_evidence_refs"] = [f"dataset-row:{metric.lower()}"]
+    return cast(dict[str, object], record)
+
+
 def test_only_fully_validated_records_enter_immutable_snapshot() -> None:
     result = EvidenceFreezeStageHandler().execute(freeze_context())
 
@@ -71,6 +99,91 @@ def test_only_fully_validated_records_enter_immutable_snapshot() -> None:
         "evidence-area-profile"
     ]
     assert output["missing_claim_ids"] == []
+
+
+def test_accepted_structured_metric_includes_trusted_siblings_from_same_action() -> None:
+    value = freeze_context()
+    assessment = value.dependency_results["EVIDENCE_ASSESS"]["evidence_assessment"]
+    representative = structured_metric_record("evidence-sales", "ESTIMATED_SALES")
+    sibling = structured_metric_record("evidence-foot-traffic", "FOOT_TRAFFIC")
+    assessment["assessments"][0]["candidate_ref"] = "evidence-sales"
+    assessment["executed_actions"][0]["structured_result"]["evidence_records"] = [
+        representative,
+        sibling,
+    ]
+
+    output = EvidenceFreezeStageHandler().execute(value)["evidence_freeze"]
+
+    assert isinstance(output, dict)
+    assert [record["evidence_id"] for record in output["evidence_records"]] == [
+        "evidence-foot-traffic",
+        "evidence-sales",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("authority", "SECONDARY"),
+        ("conflict_status", "POTENTIAL"),
+        ("freshness_status", "STALE"),
+    ],
+)
+def test_untrusted_structured_sibling_is_not_implicitly_frozen(
+    field: str,
+    value: str,
+) -> None:
+    context = freeze_context()
+    assessment = context.dependency_results["EVIDENCE_ASSESS"]["evidence_assessment"]
+    representative = structured_metric_record("evidence-sales", "ESTIMATED_SALES")
+    sibling = structured_metric_record("evidence-foot-traffic", "FOOT_TRAFFIC")
+    if field == "authority":
+        source = cast(dict[str, object], sibling["source"])
+        source["authority"] = value
+    else:
+        sibling[field] = value
+    assessment["assessments"][0]["candidate_ref"] = "evidence-sales"
+    assessment["executed_actions"][0]["structured_result"]["evidence_records"] = [
+        representative,
+        sibling,
+    ]
+
+    output = EvidenceFreezeStageHandler().execute(context)["evidence_freeze"]
+
+    assert isinstance(output, dict)
+    assert [record["evidence_id"] for record in output["evidence_records"]] == [
+        "evidence-sales"
+    ]
+
+
+def test_rag_or_web_sibling_is_not_implicitly_frozen() -> None:
+    value = freeze_context()
+    assessment = value.dependency_results["EVIDENCE_ASSESS"]["evidence_assessment"]
+    representative = structured_metric_record("evidence-sales", "ESTIMATED_SALES")
+    sibling = structured_metric_record("evidence-web", "FOOT_TRAFFIC")
+    sibling_source = cast(dict[str, object], sibling["source"])
+    sibling["source"] = {
+        **sibling_source,
+        "authority": "SECONDARY",
+        "source_type": "WEB",
+    }
+    sibling["original_anchor"] = {
+        "anchor_type": "SECTION",
+        "locator": "section:1",
+        "excerpt_hash": None,
+    }
+    assessment["assessments"][0]["candidate_ref"] = "evidence-sales"
+    assessment["executed_actions"][0]["structured_result"]["evidence_records"] = [
+        representative,
+        sibling,
+    ]
+
+    output = EvidenceFreezeStageHandler().execute(value)["evidence_freeze"]
+
+    assert isinstance(output, dict)
+    assert [record["evidence_id"] for record in output["evidence_records"]] == [
+        "evidence-sales"
+    ]
 
 
 def test_invalid_anchor_never_enters_snapshot_and_missing_claim_survives() -> None:
