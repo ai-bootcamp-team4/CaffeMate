@@ -85,7 +85,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
   },
   CANDIDATE_AUDIT: {
     agentName: 'TYPED_CANDIDATE_AUDITOR',
-    promptVersion: 'typed-candidate-auditor.v1',
+    promptVersion: 'typed-candidate-auditor.v2',
     inputSchemaId: 'caffemate.agent.candidate-audit-input.v1',
     outputSchemaId: 'caffemate.agent.candidate-audit-result.v1',
     deadlineSeconds: 60,

@@ -1537,11 +1537,11 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "prompt_version": "typed-candidate-auditor.v1",
+        "prompt_version": "typed-candidate-auditor.v2",
         "input_schema_id": "caffemate.agent.candidate-audit-input.v1",
         "output_schema_id": "caffemate.agent.candidate-audit-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:4585666f4f88ff80b9eea770f8cfcc166bde268b503ac271d3543de46b9b042f",
+        "input_digest": "sha256:3120b96042a5c1367f754f23929c951d2f93bbfb81ad8fd2097fa5e73f7d7b2d",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -1650,7 +1650,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:4585666f4f88ff80b9eea770f8cfcc166bde268b503ac271d3543de46b9b042f",
+        "input_digest": "sha256:3120b96042a5c1367f754f23929c951d2f93bbfb81ad8fd2097fa5e73f7d7b2d",
         "output_schema_id": "caffemate.agent.candidate-audit-result.v1",
         "status": "COMPLETE",
         "payload": {
@@ -1692,11 +1692,11 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "prompt_version": "typed-candidate-auditor.v1",
+        "prompt_version": "typed-candidate-auditor.v2",
         "input_schema_id": "caffemate.agent.candidate-audit-input.v1",
         "output_schema_id": "caffemate.agent.candidate-audit-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:88631471dd1411b52f82ba6339714937b84ac09883042bc4eddba604f17fc793",
+        "input_digest": "sha256:0de339cc9ed9e35915057268d2e7f07c9ef4c701073abc936bfee9b0d38fdcab",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -1805,7 +1805,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:88631471dd1411b52f82ba6339714937b84ac09883042bc4eddba604f17fc793",
+        "input_digest": "sha256:0de339cc9ed9e35915057268d2e7f07c9ef4c701073abc936bfee9b0d38fdcab",
         "output_schema_id": "caffemate.agent.candidate-audit-result.v1",
         "status": "ABSTAIN",
         "payload": null,

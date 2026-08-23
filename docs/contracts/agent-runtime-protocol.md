@@ -644,6 +644,13 @@ digest·출력 digest·후보 ID로 제한하며, PASS 항목에는 finding을 �
 먼저 적용해야 validator-guided repair가 final event 이전에 작동하고, Runtime을 통과한 응답이
 Control API에서 다시 거절되는 split validation을 막을 수 있다.
 
+`CANDIDATE_AUDIT`의 Evidence·Claim·Calculation 참조 필드는 자유 텍스트가 아니다. Auditor는 입력에
+실제로 포함된 id만 복사하며 `DECLARED_ASSUMPTION`과 `UNKNOWN` id를 Evidence coverage로 사용할 수
+없다. 해당 값 때문에 확인이 필요하면 정확한 field path를 지정하고 Evidence·Claim 참조 배열은
+비운다. 관리형 Runtime의 최초 생성과 1회 수리가 모두 출력 의미 검증에서 거절되면 Control API는
+후보·결정론적 계산·순위를 보존하고 `CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID`로 감사 미확보 상태를
+기록한다. 요청 계약 위반, 인증 실패, transport 장애는 이 경로로 숨기지 않는다.
+
 ### 9.2 RESULT_FEEDBACK
 
 ```text

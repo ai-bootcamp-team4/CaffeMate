@@ -563,6 +563,16 @@ class AgentRuntimeHttpClient:
                 f"RUNTIME_{stage}_TRANSPORT_FAILED",
                 retry_after_seconds=self._retry_after_seconds(response),
             )
+        provider_code = self._response_error_code(response)
+        if provider_code in {
+            "MODEL_JSON_INVALID",
+            "RESULT_SCHEMA_INVALID",
+            "RESULT_SEMANTIC_INVALID",
+            "RUNTIME_AGENT_OUTPUT_INVALID",
+            "VERTEX_MODEL_RESPONSE_INCOMPLETE",
+            "VERTEX_MODEL_RESPONSE_INVALID",
+        }:
+            raise AgentRuntimeError("RUNTIME_AGENT_OUTPUT_INVALID")
         code = {
             400: "RUNTIME_REQUEST_INVALID",
             401: "RUNTIME_UNAUTHENTICATED",
@@ -570,6 +580,17 @@ class AgentRuntimeHttpClient:
             422: "RUNTIME_AGENT_OUTPUT_INVALID",
         }.get(status, "RUNTIME_HTTP_TERMINAL")
         raise AgentRuntimeError(code)
+
+    @staticmethod
+    def _response_error_code(response: httpx.Response) -> str | None:
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        error = payload.get("error")
+        return error if isinstance(error, str) else None
 
     def _wait_before_retry(
         self,
