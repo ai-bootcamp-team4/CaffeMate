@@ -124,10 +124,15 @@ class CandidateSelectionService:
                 raise CandidateSelectionPreconditionError(
                     "Candidate is not in the current result"
                 )
-            payload.validate_contracts(
-                project_id=project_id,
-                state_version=expected_head.state_version,
-            )
+            try:
+                payload.validate_contracts(
+                    project_id=project_id,
+                    state_version=expected_head.state_version,
+                )
+            except ValueError as error:
+                raise CandidateSelectionPreconditionError(
+                    "Candidate result is stale and must be regenerated"
+                ) from error
             state_json = project["state_json"]
             if isinstance(state_json, str):
                 state_json = json.loads(state_json)

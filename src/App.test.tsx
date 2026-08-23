@@ -307,6 +307,33 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.queryByRole('button', { name: '선택한 안의 준비 자료 보기' })).toBeNull()
   })
 
+  it('refreshes a stale result in the same project before selecting the candidate', async () => {
+    const currentHead: HeadFence = { ...head, state_version: 2, workflow_generation: 2 }
+    const staleResult: ResultView = {
+      ...result,
+      freshness: 'STALE',
+      current_head: currentHead,
+      stale_head_dimensions: ['state_version'],
+    }
+    const refreshedResult: ResultView = {
+      ...result,
+      result_bundle_id: 'result-2',
+      head: currentHead,
+      current_head: currentHead,
+      freshness: 'CURRENT',
+      candidates: result.candidates.map((candidate) => ({ ...candidate, state_version: 2 })),
+    }
+    const { client } = setup(staleResult)
+    await completeOnboarding()
+    vi.mocked(client.getResult).mockResolvedValueOnce(refreshedResult)
+
+    fireEvent.click(screen.getByRole('button', { name: '이 안을 계속 검토하기' }))
+
+    await waitFor(() => expect(client.startFirstProposal).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(client.selectCandidate).toHaveBeenCalledWith('project-1', refreshedResult, 'candidate-1'))
+    expect(await screen.findByRole('heading', { name: '실제 검증 브랜드에 점포 조건을 넣어보세요' })).toBeTruthy()
+  })
+
   it('recalculates the selected candidate from six editable property terms', async () => {
     const recalculated: ResultView = {
       ...result,

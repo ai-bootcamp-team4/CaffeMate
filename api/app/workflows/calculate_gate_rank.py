@@ -30,6 +30,39 @@ from app.finance.models import (
 from app.workflows.models import StageControl
 from app.workflows.stage_context import StageContext
 
+_EDIYA_BRAND_ID = "kr-ediya-coffee"
+_EDIYA_OFFICIAL_COST_URL = "https://www.ediya.com/C/contents/franchise_02.html"
+_EDIYA_OFFICIAL_INTERIOR_URL = "https://www.ediya.com/C/contents/interior.html"
+
+# Official 20-pyeong figures are kept separate from provisional operating assumptions.
+# Actual property terms and user documents continue to override both through the normal
+# Evidence priority rules.
+_EDIYA_OFFICIAL_COSTS: dict[CostCategory, MoneyRange] = {
+    CostCategory.FRANCHISE_INITIAL_FEES: MoneyRange(
+        low=19_000_000, base=19_000_000, high=19_000_000
+    ),
+    CostCategory.OPENING_INVENTORY: MoneyRange(low=8_000_000, base=8_000_000, high=8_000_000),
+    CostCategory.CONSTRUCTION: MoneyRange(low=54_900_000, base=54_900_000, high=54_900_000),
+    CostCategory.EQUIPMENT: MoneyRange(low=38_421_000, base=38_421_000, high=38_421_000),
+}
+
+_EDIYA_PROVISIONAL_COSTS: dict[CostCategory, MoneyRange] = {
+    CostCategory.DEPOSIT: MoneyRange(low=30_000_000, base=40_000_000, high=60_000_000),
+    CostCategory.ACQUISITION_OR_PREMIUM: MoneyRange(low=0, base=10_000_000, high=30_000_000),
+    CostCategory.PREOPENING: MoneyRange(low=3_000_000, base=5_000_000, high=8_000_000),
+    CostCategory.CONTINGENCY: MoneyRange(low=10_000_000, base=15_000_000, high=20_000_000),
+    CostCategory.OPERATING_RESERVE: MoneyRange(low=20_000_000, base=30_000_000, high=40_000_000),
+    CostCategory.MONTHLY_OCCUPANCY: MoneyRange(low=3_000_000, base=4_500_000, high=7_000_000),
+    CostCategory.MONTHLY_LABOR: MoneyRange(low=6_000_000, base=8_000_000, high=12_000_000),
+    CostCategory.MONTHLY_OTHER_FIXED: MoneyRange(low=1_500_000, base=2_200_000, high=3_500_000),
+}
+
+_EDIYA_PROVISIONAL_SCALARS = {
+    "CONTRIBUTION_MARGIN_BPS": (6_500, "basis_point"),
+    "OPERATING_DAYS_PER_MONTH": (30, "day/month"),
+    "AVERAGE_TICKET_KRW": (5_500, "KRW/order"),
+}
+
 
 class CalculateGateRankStageHandler:
     def __init__(self, seed_registry: IndependentSeedRegistry | None = None) -> None:
@@ -90,6 +123,11 @@ class CalculateGateRankStageHandler:
                         source_id=source_id,
                     ),
                     *self._seed_assumption_evidence(
+                        context=context,
+                        case_type=case_type,
+                        source_id=source_id,
+                    ),
+                    *self._franchise_baseline_evidence(
                         context=context,
                         case_type=case_type,
                         source_id=source_id,
@@ -195,6 +233,141 @@ class CalculateGateRankStageHandler:
         return records
 
     @staticmethod
+    def _franchise_baseline_evidence(
+        *, context: StageContext, case_type: CaseType, source_id: str
+    ) -> list[dict[str, Any]]:
+        if case_type != CaseType.FRANCHISE or source_id != _EDIYA_BRAND_ID:
+            return []
+
+        timestamp = context.state.updated_at.isoformat().replace("+00:00", "Z")
+        values: list[
+            tuple[
+                str,
+                dict[str, Any],
+                str | None,
+                str,
+                str,
+                str,
+                list[str],
+            ]
+        ] = []
+        for category, amount in _EDIYA_OFFICIAL_COSTS.items():
+            if category in {
+                CostCategory.CONSTRUCTION,
+                CostCategory.EQUIPMENT,
+            }:
+                source_ref = _EDIYA_OFFICIAL_INTERIOR_URL
+                title = "이디야커피 20평 인테리어·기기 공식 기준"
+            else:
+                source_ref = _EDIYA_OFFICIAL_COST_URL
+                title = "이디야커피 가맹 개설 공식 비용"
+            values.append(
+                (
+                    f"FRANCHISE_COST_{category.value}",
+                    {
+                        "kind": "MONEY_RANGE",
+                        "currency": "KRW",
+                        **amount.model_dump(mode="json"),
+                    },
+                    "KRW",
+                    "EVIDENCED_FACT",
+                    title,
+                    source_ref,
+                    [
+                        "20평 기준이며 부가가치세와 임대차 비용은 별도",
+                        "실제 출점 조건과 견적으로 교체 필요",
+                    ],
+                )
+            )
+        for category, amount in _EDIYA_PROVISIONAL_COSTS.items():
+            values.append(
+                (
+                    f"FRANCHISE_COST_{category.value}",
+                    {
+                        "kind": "MONEY_RANGE",
+                        "currency": "KRW",
+                        **amount.model_dump(mode="json"),
+                    },
+                    "KRW",
+                    "DECLARED_ASSUMPTION",
+                    "이디야 20평 데모 계산용 임시 범위",
+                    f"seed://{source_id}/FRANCHISE_COST_{category.value}",
+                    ["실제 점포 매물 또는 견적 입력 전 사용하는 임시 계산 범위"],
+                )
+            )
+        for claim_type, (scalar_value, scalar_unit) in _EDIYA_PROVISIONAL_SCALARS.items():
+            values.append(
+                (
+                    f"FRANCHISE_{claim_type}",
+                    {"kind": "INTEGER", "value": scalar_value},
+                    scalar_unit,
+                    "DECLARED_ASSUMPTION",
+                    "이디야 20평 데모 계산용 임시 운영값",
+                    f"seed://{source_id}/FRANCHISE_{claim_type}",
+                    ["실제 점포 운영계획과 매출 자료 입력 전 사용하는 임시 계산값"],
+                )
+            )
+
+        records: list[dict[str, Any]] = []
+        for (
+            claim_type,
+            record_value,
+            record_unit,
+            value_kind,
+            title,
+            source_ref,
+            missing_context,
+        ) in values:
+            digest = hashlib.sha256(
+                rfc8785.dumps(
+                    {
+                        "source_id": source_id,
+                        "claim_type": claim_type,
+                        "value": record_value,
+                        "source_ref": source_ref,
+                    }
+                )
+            ).hexdigest()
+            official = value_kind == "EVIDENCED_FACT"
+            records.append(
+                {
+                    "schema_version": "2.0.0",
+                    "evidence_id": f"franchise-baseline-{digest[:40]}",
+                    "project_id": context.project_id,
+                    "claim_type": claim_type,
+                    "value": record_value,
+                    "value_kind": value_kind,
+                    "unit": record_unit,
+                    "geographic_scope": {
+                        "scope_type": "CASE",
+                        "scope_id": source_id,
+                        "boundary_version": None,
+                    },
+                    "source": {
+                        "title": title,
+                        "source_ref": source_ref,
+                        "authority": "COMPANY_OFFICIAL" if official else "SECONDARY",
+                        "source_type": "WEB" if official else "DATASET",
+                        "published_or_data_date": None,
+                        "source_observed_at": timestamp if official else None,
+                        "document_version": "ediya-20p-demo-v1",
+                        "checksum": digest,
+                    },
+                    "original_anchor": {
+                        "anchor_type": "SECTION" if official else "CALCULATION",
+                        "locator": claim_type,
+                        "excerpt_hash": None,
+                    },
+                    "freshness_status": "NOT_APPLICABLE",
+                    "conflict_status": "NONE",
+                    "retrieved_at": timestamp,
+                    "missing_context": missing_context,
+                    "durable_evidence_refs": [],
+                }
+            )
+        return records
+
+    @staticmethod
     def _document_evidence(
         *, context: StageContext, case_type: CaseType, source_id: str
     ) -> list[dict[str, Any]]:
@@ -273,9 +446,7 @@ class CalculateGateRankStageHandler:
             return []
 
         values: list[tuple[str, dict[str, Any], str | None]] = []
-        for category, amount in sorted(
-            profile.cost_ranges.items(), key=lambda item: item[0].value
-        ):
+        for category, amount in sorted(profile.cost_ranges.items(), key=lambda item: item[0].value):
             values.append(
                 (
                     f"INDEPENDENT_COST_{category.value}",
@@ -351,9 +522,7 @@ class CalculateGateRankStageHandler:
                     "freshness_status": "NOT_APPLICABLE",
                     "conflict_status": "NONE",
                     "retrieved_at": timestamp,
-                    "missing_context": [
-                        "실제 매물·견적 입력 전 사용하는 등록 모델 임시 범위"
-                    ],
+                    "missing_context": ["실제 매물·견적 입력 전 사용하는 등록 모델 임시 범위"],
                     "durable_evidence_refs": [],
                 }
             )
@@ -397,11 +566,7 @@ class CalculateGateRankStageHandler:
         proposal_missing = (
             set()
             if seed_finance_profile is not None
-            else {
-                value
-                for value in proposal.get("missing_fields", [])
-                if isinstance(value, str)
-            }
+            else {value for value in proposal.get("missing_fields", []) if isinstance(value, str)}
         )
         material_missing = sorted(proposal_missing | set(finance.unknown_cost_fields))
         risks = self._risks(
@@ -593,9 +758,7 @@ class CalculateGateRankStageHandler:
                     )
             return self._unknown_cost(category)
         grounded_or_confirmed = [
-            value
-            for value in matches
-            if value.get("value_kind") != "DECLARED_ASSUMPTION"
+            value for value in matches if value.get("value_kind") != "DECLARED_ASSUMPTION"
         ]
         if grounded_or_confirmed:
             matches = grounded_or_confirmed
@@ -681,9 +844,7 @@ class CalculateGateRankStageHandler:
             and self._scope_matches(value, source_id, proposal_id)
         ]
         grounded_or_confirmed = [
-            value
-            for value in values
-            if value.get("value_kind") != "DECLARED_ASSUMPTION"
+            value for value in values if value.get("value_kind") != "DECLARED_ASSUMPTION"
         ]
         if grounded_or_confirmed:
             values = grounded_or_confirmed
@@ -695,9 +856,7 @@ class CalculateGateRankStageHandler:
             if seed_finance_profile is not None:
                 fallback = {
                     "CONTRIBUTION_MARGIN_BPS": seed_finance_profile.contribution_margin_bps,
-                    "OPERATING_DAYS_PER_MONTH": (
-                        seed_finance_profile.operating_days_per_month
-                    ),
+                    "OPERATING_DAYS_PER_MONTH": (seed_finance_profile.operating_days_per_month),
                     "AVERAGE_TICKET_KRW": seed_finance_profile.average_ticket_krw,
                 }.get(field)
                 if fallback is not None:
