@@ -114,6 +114,11 @@ Runtime 재시도 정책을 적용한다. 후보 간 비교·계산·순위는 A
 Agent를 고정 `ABSTAIN`으로 대체하지 않고 입력 투영, 출력 Schema, prompt, 런타임 전송 경계를
 먼저 고친다.
 
+배포 검증은 `OPEN_TO_BOTH`와 `FRANCHISE_ONLY`를 별도 Cloud Run Job으로 실행한다.
+`OPEN_TO_BOTH`는 개인카페와 프랜차이즈 후보가 모두 남아야 하며, `FRANCHISE_ONLY`는 개인카페
+후보가 섞이지 않고 실제 `brand_id`, `VERIFIED` 개인 가맹 적격성, 유효한 순위를 가진 검토 가능
+프랜차이즈 후보가 하나 이상이어야 통과한다.
+
 2026-08-23 운영 전환 후 같은 조건의 13단계 canary는 47.917초에 `SUCCEEDED`와 `CURRENT`
 결과 카드 1건을 만들었다. 변경 전 54.611초보다 6.694초, 약 12% 짧다. Evidence Assess,
 Independent Proposal, Candidate Audit의 생성 시간은 각각 6.414초, 7.813초, 7.281초였고 세

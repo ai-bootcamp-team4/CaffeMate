@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.domain.models import CoverageProfile, Project
+from app.domain.models import CafeTypePreference, CoverageProfile, Project
 from app.results.models import AuditStatus, ResultFreshness, ResultView
 from app.verification.first_proposal import FirstProposalCanary, FirstProposalCanaryError
 from app.workflows.first_proposal import FirstProposalStage
@@ -211,9 +211,13 @@ def result() -> ResultView:
             {
                 "candidate_id": "candidate-2",
                 "case_type": "FRANCHISE",
-                "brand_id": "kr-ediya-coffee",
                 "display_name": "이디야커피",
+                "review_status": "CONDITIONAL_REVIEW",
                 "rank": 2,
+                "franchise": {
+                    "brand_id": "kr-ediya-coffee",
+                    "eligibility": "VERIFIED",
+                },
                 "market_signals": [],
             },
         ],
@@ -241,12 +245,14 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
 
     assert report.as_dict() == {
         "status": "verified",
+        "requested_cafe_type_preference": "OPEN_TO_BOTH",
         "workflow_status": "SUCCEEDED",
         "stage_count": 13,
         "max_stage_attempt": 1,
         "elapsed_ms": 0,
         "candidate_count": 2,
         "candidate_case_types": ["FRANCHISE", "INDEPENDENT"],
+        "franchise_candidate_brand_ids": ["kr-ediya-coffee"],
         "market_signals": [
             {
                 "signal_type": "CAFE_COUNT",
@@ -315,6 +321,58 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
     assert projects.area.source_revision == "MOIS_LEGAL_DONG_20260301"
     assert cleaner.calls == [("canary-project", "first-proposal-canary-probe")]
     assert not workflows.cancelled
+
+
+def test_franchise_only_canary_requires_a_ranked_verified_real_brand() -> None:
+    franchise_only = result()
+    franchise_only.candidates = franchise_only.candidates[1:]
+    franchise_only.primary_candidate_id = "candidate-2"
+    franchise_only.candidates[0]["market_signals"] = result().candidates[0][
+        "market_signals"
+    ]
+    projects = FakeProjects()
+
+    report = FirstProposalCanary(
+        projects=projects,
+        workflows=FakeWorkflows(progress(WorkflowStatus.SUCCEEDED)),
+        results=FakeResults(franchise_only),
+        cleaner=FakeCleaner(),
+        new_id=lambda: "franchise-only",
+    ).run(
+        timeout_seconds=10,
+        poll_interval_seconds=1,
+        cafe_type_preference=CafeTypePreference.FRANCHISE_ONLY,
+    )
+
+    assert projects.founder.cafe_type_preference == CafeTypePreference.FRANCHISE_ONLY
+    assert report.candidate_case_types == ("FRANCHISE",)
+    assert report.franchise_candidate_brand_ids == ("kr-ediya-coffee",)
+
+
+def test_franchise_only_canary_rejects_unverified_brand() -> None:
+    franchise_only = result()
+    franchise_only.candidates = franchise_only.candidates[1:]
+    franchise_only.primary_candidate_id = "candidate-2"
+    franchise_only.candidates[0]["market_signals"] = result().candidates[0][
+        "market_signals"
+    ]
+    franchise_only.candidates[0]["franchise"]["eligibility"] = "UNVERIFIED"
+
+    with pytest.raises(
+        FirstProposalCanaryError,
+        match="CANARY_VERIFIED_FRANCHISE_CANDIDATE_MISSING",
+    ):
+        FirstProposalCanary(
+            projects=FakeProjects(),
+            workflows=FakeWorkflows(progress(WorkflowStatus.SUCCEEDED)),
+            results=FakeResults(franchise_only),
+            cleaner=FakeCleaner(),
+            new_id=lambda: "unverified-franchise",
+        ).run(
+            timeout_seconds=10,
+            poll_interval_seconds=1,
+            cafe_type_preference=CafeTypePreference.FRANCHISE_ONLY,
+        )
 
 
 def test_canary_rejects_open_to_both_result_without_franchise_candidate() -> None:

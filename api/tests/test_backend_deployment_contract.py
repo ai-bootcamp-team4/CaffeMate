@@ -253,6 +253,8 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "Agent Runtime probe operations differ from fixture" in cli
     assert "verify-first-proposal" in verifier
     assert "caffemate-first-proposal-canary" in verifier
+    assert "caffemate-franchise-proposal-canary" in verifier
+    assert "--cafe-type-preference=${cafe_type_preference}" in verifier
     assert "--task-timeout=25m" in verifier
     assert "FIRST_PROPOSAL traversed all 13 production stages" in verifier
     assert 'jsonPayload.status=\\"verified\\"' in verifier
@@ -263,6 +265,9 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert 'report["max_stage_attempt"] == 1' in verifier
     assert 'report["elapsed_ms"] <= 120_000' in verifier
     assert 'report["result_freshness"] == "CURRENT"' in verifier
+    assert 'report["requested_cafe_type_preference"] == "FRANCHISE_ONLY"' in verifier
+    assert 'set(report.get("candidate_case_types", [])) == {"FRANCHISE"}' in verifier
+    assert 'report.get("franchise_candidate_brand_ids")' in verifier
     assert 'jsonPayload.event=\\"VERTEX_AGENT_GENERATION\\"' in verifier
     assert 'jsonPayload.event=\\"AGENT_RESULT_VALIDATION\\"' in verifier
     assert 'row.get("elapsed_ms", -1) <= 60_000' in verifier
