@@ -1,0 +1,160 @@
+substitutions:
+  _REGION: asia-northeast3
+  _WEB_REPOSITORY: caffemate-web
+  _WEB_IMAGE: web
+  _WEB_SERVICE: caffemate-web
+  _WEB_RUNTIME_SERVICE_ACCOUNT: caffemate-web-runtime@${PROJECT_ID}.iam.gserviceaccount.com
+  _BACKEND_REPOSITORY: caffemate-backend
+  _BACKEND_IMAGE: backend
+  _API_SERVICE: caffemate-api
+  _API_RUNTIME_SERVICE_ACCOUNT: caffemate-api-runtime@${PROJECT_ID}.iam.gserviceaccount.com
+  _WORKER_SERVICE: caffemate-worker
+  _WORKER_RUNTIME_SERVICE_ACCOUNT: caffemate-worker-runtime@${PROJECT_ID}.iam.gserviceaccount.com
+  _MIGRATION_JOB: caffemate-migrate
+  _MIGRATION_SERVICE_ACCOUNT: caffemate-migrate@${PROJECT_ID}.iam.gserviceaccount.com
+
+steps:
+  - id: clone-main
+    name: gcr.io/cloud-builders/git
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        git clone --depth=1 --branch=main https://github.com/ai-bootcamp-team4/CaffeMate.git /workspace/repo
+        git -C /workspace/repo rev-parse HEAD > /workspace/source-revision
+
+  - id: build-web
+    name: gcr.io/cloud-builders/docker
+    waitFor: [clone-main]
+    args:
+      - build
+      - --tag
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_WEB_REPOSITORY}/${_WEB_IMAGE}:${BUILD_ID}
+      - /workspace/repo
+
+  - id: build-backend
+    name: gcr.io/cloud-builders/docker
+    waitFor: [clone-main]
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - --file
+      - /workspace/repo/deploy/backend.Dockerfile
+      - --tag
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}
+      - /workspace/repo
+
+  - id: push-web
+    name: gcr.io/cloud-builders/docker
+    waitFor: [build-web]
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_WEB_REPOSITORY}/${_WEB_IMAGE}:${BUILD_ID}
+
+  - id: push-backend
+    name: gcr.io/cloud-builders/docker
+    waitFor: [build-backend]
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}
+
+  - id: deploy-web
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [push-web]
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        revision="$$(cat /workspace/source-revision)"
+        gcloud run deploy "${_WEB_SERVICE}" \
+          --image="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_WEB_REPOSITORY}/${_WEB_IMAGE}:${BUILD_ID}" \
+          --region="${_REGION}" \
+          --platform=managed \
+          --service-account="${_WEB_RUNTIME_SERVICE_ACCOUNT}" \
+          --port=8080 \
+          --update-labels="source-revision=$${revision},managed-by=cloud-build" \
+          --quiet
+
+  - id: update-migration-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [push-backend]
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        revision="$$(cat /workspace/source-revision)"
+        gcloud run jobs update "${_MIGRATION_JOB}" \
+          --image="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}" \
+          --region="${_REGION}" \
+          --service-account="${_MIGRATION_SERVICE_ACCOUNT}" \
+          --command=caffemate-api \
+          --args=migrate \
+          --tasks=1 \
+          --max-retries=0 \
+          --task-timeout=10m \
+          --update-labels="source-revision=$${revision},managed-by=cloud-build" \
+          --quiet
+
+  - id: run-migrations
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [update-migration-job]
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - execute
+      - ${_MIGRATION_JOB}
+      - --region=${_REGION}
+      - --wait
+      - --quiet
+
+  - id: deploy-api
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [run-migrations]
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        revision="$$(cat /workspace/source-revision)"
+        gcloud run deploy "${_API_SERVICE}" \
+          --image="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}" \
+          --region="${_REGION}" \
+          --platform=managed \
+          --service-account="${_API_RUNTIME_SERVICE_ACCOUNT}" \
+          --port=8080 \
+          --ingress=all \
+          --update-labels="source-revision=$${revision},managed-by=cloud-build" \
+          --quiet
+
+  - id: deploy-worker
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [deploy-api]
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        revision="$$(cat /workspace/source-revision)"
+        api_url="$$(gcloud run services describe '${_API_SERVICE}' \
+          --region='${_REGION}' --format='value(status.url)')"
+        test -n "$${api_url}"
+        gcloud run deploy "${_WORKER_SERVICE}" \
+          --image="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}" \
+          --region="${_REGION}" \
+          --platform=managed \
+          --service-account="${_WORKER_RUNTIME_SERVICE_ACCOUNT}" \
+          --command=uvicorn \
+          --args=worker.main:app,--host,0.0.0.0,--port,8080 \
+          --port=8080 \
+          --ingress=internal \
+          --update-env-vars="CONTROL_API_URL=$${api_url},CONTROL_API_AUDIENCE=$${api_url}" \
+          --update-labels="source-revision=$${revision},managed-by=cloud-build" \
+          --quiet
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_WEB_REPOSITORY}/${_WEB_IMAGE}:${BUILD_ID}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}
+
+options:
+  dynamicSubstitutions: true
+  logging: CLOUD_LOGGING_ONLY

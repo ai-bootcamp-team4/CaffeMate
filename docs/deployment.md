@@ -1,8 +1,14 @@
-# Frontend deployment
+# Main deployment
 
-This repository deploys only the Vite `dist` output. Nginx listens on the
-Cloud Run `PORT`, serves `/_healthz` without application logic, and falls back
-to `index.html` for client-side routes. No backend process is included.
+The main webhook trigger uses `cloudbuild.main-webhook.yaml` to deploy the Vite
+frontend and the FastAPI/Worker backend from the same cloned `main` revision.
+The web and backend images build in parallel. Backend deployment runs the
+migration job before updating the API and Worker. This prevents a merge from
+updating only the frontend while leaving an older backend revision live.
+
+The frontend image still contains only the Vite `dist` output. Nginx listens
+on the Cloud Run `PORT`, serves `/_healthz` without application logic, and
+falls back to `index.html` for client-side routes.
 
 ## Cloud Build trigger contract
 
@@ -11,21 +17,25 @@ Configure the GitHub repository connection and trigger in
 
 - event: push to branch
 - branch expression: `^main$`
-- build configuration: `cloudbuild.yaml`
-- build service account: a dedicated least-privilege account
+- inline build configuration: `cloudbuild.main-webhook.yaml`
+- build service account: `caffemate-backend-build`, with explicit
+  `serviceAccountUser` access to the web, API, Worker, and migration identities
 
 The checked-in defaults can be overridden by trigger substitutions:
 
 | Substitution | Default | Purpose |
 | --- | --- | --- |
 | `_REGION` | `asia-northeast3` | Artifact Registry and Cloud Run region |
-| `_AR_REPOSITORY` | `caffemate-web` | Existing Docker repository |
-| `_IMAGE_NAME` | `web` | Container image name |
-| `_SERVICE_NAME` | `caffemate-web` | Cloud Run service name |
-| `_RUNTIME_SERVICE_ACCOUNT` | `caffemate-web-runtime@${PROJECT_ID}.iam.gserviceaccount.com` | Existing frontend runtime identity |
+| `_WEB_REPOSITORY` | `caffemate-web` | Existing frontend Docker repository |
+| `_BACKEND_REPOSITORY` | `caffemate-backend` | Existing backend Docker repository |
+| `_WEB_SERVICE` | `caffemate-web` | Frontend Cloud Run service |
+| `_API_SERVICE` | `caffemate-api` | Control API Cloud Run service |
+| `_WORKER_SERVICE` | `caffemate-worker` | Worker Cloud Run service |
+| `_MIGRATION_JOB` | `caffemate-migrate` | Migration Cloud Run job |
 
-`PROJECT_ID`, `COMMIT_SHA`, and `SHORT_SHA` are Cloud Build built-in
-substitutions. Images use the immutable commit SHA instead of `latest`.
+`PROJECT_ID` and `BUILD_ID` are Cloud Build built-in substitutions. Images use
+the immutable build id instead of `latest`; deployed resources record the full
+commit read from the cloned `main` checkout in their source revision labels.
 
 ## Required Google Cloud resources
 
