@@ -40,4 +40,15 @@ describe('ControlApiClient', () => {
 
     await expect(client.startFirstProposal('project-1')).rejects.toEqual(expect.objectContaining<Partial<ControlApiError>>({ status: 409, code: 'WORKFLOW_PRECONDITION_FAILED' }))
   })
+
+  it('loads the official preparation guide for the selected candidate', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ selection_id: 'selection-1', procedures: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const client = createControlApiClient(session, { baseUrl: 'https://api.example.test', fetchImpl })
+
+    await client.getPreparationGuide('project-1', 'selection-1')
+
+    expect(fetchImpl).toHaveBeenCalledWith('https://api.example.test/v1/projects/project-1/candidate-selections/selection-1/preparation-guide', expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: 'Bearer firebase-token' }),
+    }))
+  })
 })
