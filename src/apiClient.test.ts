@@ -68,4 +68,33 @@ describe('ControlApiClient', () => {
       body: expect.stringContaining('"expected_state_version":2'),
     }))
   })
+
+  it('uploads a document with signed headers and completes the revision', async () => {
+    const responses = [
+      new Response(JSON.stringify({
+        document_id: 'document-1', document_revision_id: 'revision-1', revision_number: 1,
+        object_path: 'projects/project-1/documents/document-1/revisions/revision-1/source.pdf',
+        upload_url: 'https://storage.example.test/signed', method: 'PUT',
+        required_headers: { 'Content-Type': 'application/pdf', 'x-goog-meta-caffemate-sha256': 'a'.repeat(64) },
+        expires_at: '2026-08-23T00:10:00Z', status: 'UPLOAD_PENDING',
+      }), { status: 201, headers: { 'Content-Type': 'application/json' } }),
+      new Response(null, { status: 200 }),
+      new Response(JSON.stringify({ status: 'SCAN_PENDING' }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    ]
+    const fetchImpl = vi.fn(async () => responses.shift()!)
+    const client = createControlApiClient(session, { baseUrl: 'https://api.example.test', fetchImpl, idempotencyKey: () => 'document-request-1' })
+    const file = new File(['%PDF-1.7'], 'lease.pdf', { type: 'application/pdf' })
+
+    const upload = await client.beginDocumentUpload('project-1', file, 'COMMERCIAL_LEASE', 'a'.repeat(64))
+    await client.uploadDocument(upload, file)
+    await client.completeDocumentUpload('project-1', upload.document_revision_id)
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(2, 'https://storage.example.test/signed', expect.objectContaining({
+      method: 'PUT', body: file,
+      headers: expect.objectContaining({ 'x-goog-meta-caffemate-sha256': 'a'.repeat(64) }),
+    }))
+    expect(fetchImpl).toHaveBeenNthCalledWith(3, 'https://api.example.test/v1/projects/project-1/documents/uploads:complete', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ document_revision_id: 'revision-1' }),
+    }))
+  })
 })
