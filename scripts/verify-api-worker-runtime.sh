@@ -4,11 +4,12 @@ set -eu
 project_id=${CAFFEMATE_GCP_PROJECT_ID:-}
 region=${CAFFEMATE_GCP_REGION:-asia-northeast3}
 source_revision=${CAFFEMATE_SOURCE_REVISION:-}
+document_bucket=${CAFFEMATE_DOCUMENT_BUCKET:-}
 
 . "$(dirname "$0")/build-provenance-helpers.sh"
 
-if [ -z "$project_id" ] || [ -z "$source_revision" ]; then
-  printf '%s\n' 'CAFFEMATE_GCP_PROJECT_ID and CAFFEMATE_SOURCE_REVISION are required' >&2
+if [ -z "$project_id" ] || [ -z "$source_revision" ] || [ -z "$document_bucket" ]; then
+  printf '%s\n' 'CAFFEMATE_GCP_PROJECT_ID, CAFFEMATE_SOURCE_REVISION and CAFFEMATE_DOCUMENT_BUCKET are required' >&2
   exit 2
 fi
 
@@ -45,12 +46,102 @@ printf '%s\n' 'PASS API and Worker use the same image digest'
 
 api_service_json=$(gcloud run services describe caffemate-api --project="$project_id" \
   --region="$region" --format=json)
+worker_service_json=$(gcloud run services describe caffemate-worker --project="$project_id" \
+  --region="$region" --format=json)
 configured_agent_project=$(printf '%s' "$api_service_json" | python3 -c \
   'import json,sys; print(next(row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "AGENT_RUNTIME_PROJECT_ID"))')
 configured_agent_resource=$(printf '%s' "$api_service_json" | python3 -c \
   'import json,sys; print(next(row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "AGENT_RUNTIME_RESOURCE_ID"))')
 configured_api_audience=$(printf '%s' "$api_service_json" | python3 -c \
   'import json,sys; print(next((row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "CONTROL_API_AUDIENCE"), ""))')
+configured_document_bucket=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; print(next((row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "DOCUMENT_BUCKET"), ""))')
+configured_document_signer=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; print(next((row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL"), ""))')
+configured_worker_document_bucket=$(printf '%s' "$worker_service_json" | python3 -c \
+  'import json,sys; print(next((row["value"] for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"] if row["name"] == "DOCUMENT_BUCKET"), ""))')
+[ "$document_bucket" = "${project_id}-caffemate-documents" ] || {
+  printf '%s\n' 'FAIL requested document bucket is not the pinned project bucket' >&2; exit 1;
+}
+[ "$configured_document_bucket" = "$document_bucket" ] \
+  && [ "$configured_worker_document_bucket" = "$document_bucket" ] || {
+  printf '%s\n' 'FAIL API or Worker document bucket differs from release input' >&2; exit 1;
+}
+[ "$configured_document_signer" = "$api_sa" ] || {
+  printf '%s\n' 'FAIL document signed URL identity differs from API runtime identity' >&2; exit 1;
+}
+printf '%s\n' 'PASS API and Worker pin the regional document bucket and signing identity'
+
+document_bucket_json=$(gcloud storage buckets describe "gs://${document_bucket}" \
+  --project="$project_id" --format=json)
+document_bucket_policy=$(gcloud storage buckets get-iam-policy "gs://${document_bucket}" \
+  --project="$project_id" --format=json)
+document_signer_policy=$(gcloud iam service-accounts get-iam-policy "$api_sa" \
+  --project="$project_id" --format=json)
+document_signer_role="projects/${project_id}/roles/caffemateDocumentUrlSigner"
+document_object_role="projects/${project_id}/roles/caffemateDocumentObjectAccess"
+document_reader_role="projects/${project_id}/roles/caffemateDocumentObjectReader"
+document_signer_role_json=$(gcloud iam roles describe caffemateDocumentUrlSigner \
+  --project="$project_id" --format=json)
+document_object_role_json=$(gcloud iam roles describe caffemateDocumentObjectAccess \
+  --project="$project_id" --format=json)
+document_reader_role_json=$(gcloud iam roles describe caffemateDocumentObjectReader \
+  --project="$project_id" --format=json)
+DOCUMENT_BUCKET_JSON="$document_bucket_json" DOCUMENT_BUCKET_POLICY="$document_bucket_policy" \
+DOCUMENT_SIGNER_POLICY="$document_signer_policy" DOCUMENT_SIGNER_ROLE="$document_signer_role" \
+DOCUMENT_OBJECT_ROLE="$document_object_role" DOCUMENT_READER_ROLE="$document_reader_role" \
+DOCUMENT_SIGNER_ROLE_JSON="$document_signer_role_json" \
+DOCUMENT_OBJECT_ROLE_JSON="$document_object_role_json" \
+DOCUMENT_READER_ROLE_JSON="$document_reader_role_json" API_SERVICE_ACCOUNT="$api_sa" \
+WORKER_SERVICE_ACCOUNT="caffemate-worker-runtime@${project_id}.iam.gserviceaccount.com" \
+REGION="$region" python3 - <<'PY'
+import json
+import os
+
+bucket = json.loads(os.environ["DOCUMENT_BUCKET_JSON"])
+assert bucket["location"].lower() == os.environ["REGION"]
+iam = bucket["iamConfiguration"]
+assert iam["uniformBucketLevelAccess"]["enabled"] is True
+assert iam["publicAccessPrevention"] == "enforced"
+cors = bucket.get("cors", [])
+assert len(cors) == 1
+assert set(cors[0]["method"]) == {"GET", "HEAD", "PUT"}
+assert set(cors[0]["responseHeader"]) == {
+    "Content-Type", "x-goog-meta-caffemate-sha256"
+}
+
+bucket_policy = json.loads(os.environ["DOCUMENT_BUCKET_POLICY"])
+api_member = f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}"
+worker_member = f"serviceAccount:{os.environ['WORKER_SERVICE_ACCOUNT']}"
+assert any(
+    row.get("role") == os.environ["DOCUMENT_OBJECT_ROLE"]
+    and api_member in row.get("members", [])
+    for row in bucket_policy.get("bindings", [])
+)
+assert any(
+    row.get("role") == os.environ["DOCUMENT_READER_ROLE"]
+    and worker_member in row.get("members", [])
+    for row in bucket_policy.get("bindings", [])
+)
+signer_policy = json.loads(os.environ["DOCUMENT_SIGNER_POLICY"])
+assert any(
+    row.get("role") == os.environ["DOCUMENT_SIGNER_ROLE"]
+    and api_member in row.get("members", [])
+    for row in signer_policy.get("bindings", [])
+)
+assert set(json.loads(os.environ["DOCUMENT_SIGNER_ROLE_JSON"])["includedPermissions"]) == {
+    "iam.serviceAccounts.signBlob"
+}
+assert set(json.loads(os.environ["DOCUMENT_OBJECT_ROLE_JSON"])["includedPermissions"]) == {
+    "storage.objects.create", "storage.objects.delete", "storage.objects.get"
+}
+assert set(json.loads(os.environ["DOCUMENT_READER_ROLE_JSON"])["includedPermissions"]) == {
+    "storage.objects.get"
+}
+print("PASS document bucket region, public access prevention, CORS and least-privilege IAM")
+PY
+unset document_bucket_json document_bucket_policy document_signer_policy
+unset document_signer_role_json document_object_role_json document_reader_role_json
 [ "$configured_api_audience" = "$api_url" ] || {
   printf '%s\n' 'FAIL Control API internal identity audience differs from canonical service URL' >&2
   exit 1
@@ -417,6 +508,97 @@ configured_db_ip_type=$(printf '%s' "$api_service_json" | python3 -c \
   'import json,sys; env={row["name"]:row.get("value") for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"]}; print(env["CLOUD_SQL_IP_TYPE"])')
 configured_policy=$(printf '%s' "$api_service_json" | python3 -c \
   'import json,sys; env={row["name"]:row.get("value") for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"]}; print(env["CAFFEMATE_POLICY_SNAPSHOT_ID"])')
+
+document_canary_job='caffemate-document-storage-canary'
+configure_document_canary_job() {
+  action=$1
+  gcloud run jobs "$action" "$document_canary_job" \
+    --project="$project_id" --region="$region" \
+    --image="$api_image" --service-account="$api_sa" \
+    --set-cloudsql-instances="$configured_instance" \
+    --set-env-vars="INSTANCE_CONNECTION_NAME=${configured_instance},DB_USER=${configured_db_user},DB_NAME=${configured_db_name},CLOUD_SQL_IP_TYPE=${configured_db_ip_type},CAFFEMATE_POLICY_SNAPSHOT_ID=${configured_policy},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${configured_agent_resource},DOCUMENT_BUCKET=${document_bucket},DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa}" \
+    --set-secrets='DB_PASS=caffemate-db-password:latest,AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest' \
+    --command=caffemate-api --args=verify-document-storage \
+    --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=5m \
+    --cpu=1 --memory=512Mi \
+    --labels="source-revision=${source_revision},managed-by=caffemate-verify" \
+    --quiet >/dev/null
+}
+if gcloud run jobs describe "$document_canary_job" \
+  --project="$project_id" --region="$region" >/dev/null 2>&1; then
+  configure_document_canary_job update
+else
+  configure_document_canary_job create
+fi
+document_canary_started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+gcloud run jobs execute "$document_canary_job" \
+  --project="$project_id" --region="$region" --wait --quiet >/dev/null
+document_canary_reports='[]'
+document_canary_log_attempt=0
+while [ "$document_canary_log_attempt" -lt 12 ]; do
+  document_canary_reports=$(gcloud logging read \
+    "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${document_canary_job}\" AND timestamp>=\"${document_canary_started_at}\" AND jsonPayload.status=\"verified\"" \
+    --project="$project_id" --limit=2 --format=json)
+  document_canary_report_count=$(printf '%s' "$document_canary_reports" | python3 -c \
+    'import json,sys; print(len(json.load(sys.stdin)))')
+  [ "$document_canary_report_count" -ge 1 ] && break
+  document_canary_log_attempt=$((document_canary_log_attempt + 1))
+  sleep 5
+done
+DOCUMENT_CANARY_REPORTS="$document_canary_reports" python3 - <<'PY'
+import json
+import os
+
+rows = [row.get("jsonPayload", {}) for row in json.loads(os.environ["DOCUMENT_CANARY_REPORTS"])]
+assert len(rows) == 1, f"expected one document canary report, got {len(rows)}"
+report = rows[0]
+assert report["upload_status"] == "SCAN_PENDING"
+assert report["scan_status"] == "READY_FOR_PARSING"
+assert report["extraction_status"] == "EXTRACTION_READY"
+assert report["download_bytes"] > 0
+assert len(report["agent_result_statuses"]) >= 1
+print("PASS signed upload, object validation, scan, Agent extraction and signed download")
+PY
+document_agent_generations='[]'
+document_agent_validations='[]'
+document_agent_log_attempt=0
+while [ "$document_agent_log_attempt" -lt 12 ]; do
+  document_agent_generations=$(gcloud logging read \
+    "timestamp>=\"${document_canary_started_at}\" AND jsonPayload.event=\"VERTEX_AGENT_GENERATION\" AND jsonPayload.task_type=\"DOCUMENT_EXTRACT\"" \
+    --project="$project_id" --limit=10 --format=json)
+  document_agent_validations=$(gcloud logging read \
+    "timestamp>=\"${document_canary_started_at}\" AND jsonPayload.event=\"AGENT_RESULT_VALIDATION\" AND jsonPayload.task_type=\"DOCUMENT_EXTRACT\"" \
+    --project="$project_id" --limit=10 --format=json)
+  document_agent_observed=$(DOCUMENT_AGENT_GENERATIONS="$document_agent_generations" \
+    DOCUMENT_AGENT_VALIDATIONS="$document_agent_validations" python3 - <<'PY'
+import json
+import os
+
+generations = json.loads(os.environ["DOCUMENT_AGENT_GENERATIONS"])
+validations = json.loads(os.environ["DOCUMENT_AGENT_VALIDATIONS"])
+print("ready" if generations and validations else "waiting")
+PY
+  )
+  [ "$document_agent_observed" = 'ready' ] && break
+  document_agent_log_attempt=$((document_agent_log_attempt + 1))
+  sleep 5
+done
+DOCUMENT_AGENT_GENERATIONS="$document_agent_generations" \
+DOCUMENT_AGENT_VALIDATIONS="$document_agent_validations" python3 - <<'PY'
+import json
+import os
+
+generations = [row.get("jsonPayload", {}) for row in json.loads(os.environ["DOCUMENT_AGENT_GENERATIONS"])]
+validations = [row.get("jsonPayload", {}) for row in json.loads(os.environ["DOCUMENT_AGENT_VALIDATIONS"])]
+assert generations, "DOCUMENT_EXTRACT generation was not observed"
+assert validations, "DOCUMENT_EXTRACT validation was not observed"
+assert all(row.get("http_status") == 200 for row in generations)
+assert all(row.get("finish_reason") == "STOP" for row in generations)
+assert all(row.get("repair_attempt") == 0 for row in generations)
+assert all(row.get("outcome") == "VALID" for row in validations)
+print("PASS DOCUMENT_EXTRACT Agent used one valid managed generation without repair")
+PY
+unset document_canary_reports document_agent_generations document_agent_validations
 
 first_proposal_job='caffemate-first-proposal-canary'
 configure_first_proposal_job() {

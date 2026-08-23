@@ -1,0 +1,11 @@
+[
+  {
+    "origin": [
+      "https://caffemate-web-hfgnuuc55q-du.a.run.app",
+      "https://caffemate-web-424808310695.asia-northeast3.run.app"
+    ],
+    "method": ["GET", "HEAD", "PUT"],
+    "responseHeader": ["Content-Type", "x-goog-meta-caffemate-sha256"],
+    "maxAgeSeconds": 3600
+  }
+]

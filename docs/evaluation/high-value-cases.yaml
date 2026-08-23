@@ -609,3 +609,31 @@ cases:
       - hydrated full AgentTaskResult contract test
       - before and after request byte, prompt token and 13-stage canary measurements
     pass_condition: 외부 AgentTaskResult 계약과 역할 분리를 유지하면서 모델이 Runtime-owned field를 보거나 생성하지 않고, 운영 세 Agent가 수리 없이 실제 실행된다.
+
+  - id: EV-034
+    title: 운영 문서 버킷과 Document Agent 경로가 설정 누락 없이 실제 왕복함
+    input: 선택된 후보에 연결할 소형 PDF 임대차 자료와 선언 MIME·크기·SHA-256
+    relevant_state:
+      document_bucket_region: asia-northeast3
+      document_type: COMMERCIAL_LEASE
+      agent_task_type: DOCUMENT_EXTRACT
+    trap: API route만 존재하고 DOCUMENT_BUCKET 또는 signed URL 서명 권한이 빠져 503이 되거나, 버킷 존재만으로 문서 파이프라인을 검증했다고 보고한다.
+    expected_behavior:
+      - API와 Worker는 같은 regional document bucket을 명시적으로 pin한다.
+      - 버킷은 uniform bucket-level access와 public access prevention을 강제한다.
+      - API는 장기 service-account key 없이 signBlob 권한으로 짧은 V4 PUT·GET URL을 만든다.
+      - 업로드 완료 시 실제 bytes의 magic MIME, 크기, SHA-256을 다시 계산한다.
+      - clean scan 결과 뒤 revision-bound ParserBlock만 수용한다.
+      - DOCUMENT_EXTRACT Agent가 managed Runtime에서 STOP, repair 0, VALID로 실행되고 extraction form을 만든다.
+      - signed GET bytes가 원본과 같고 canary object·DB state는 종료 시 제거된다.
+    forbidden_behavior:
+      - 공개 버킷 또는 영구 URL을 사용한다.
+      - 선언 Content-Type만 신뢰하고 실제 객체를 읽지 않는다.
+      - Agent를 호출하지 않은 고정 extraction form으로 성공을 가장한다.
+      - canary가 주입한 scan·parser 결과를 실제 scanner·parser provider가 배포됐다는 증거로 표현한다.
+    required_evidence:
+      - Cloud Storage bucket metadata and IAM read-back
+      - deployed Cloud Run Job canary report
+      - DOCUMENT_EXTRACT generation and validation telemetry
+      - signed PUT and GET byte equality
+    pass_condition: 운영 identity가 문서 전체 왕복과 실제 Document Agent 계약 검증을 한 번에 통과하고, 공개 접근·장기 키·잔존 canary 데이터가 없다.

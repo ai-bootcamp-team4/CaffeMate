@@ -50,6 +50,36 @@ def test_backend_deployment_contract_requires_operational_readback() -> None:
     assert "`pending`" in documentation
 
 
+def test_document_storage_deployment_is_pinned_and_verified_end_to_end() -> None:
+    deploy = (ROOT / "scripts" / "deploy-api-worker-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+    verifier = (ROOT / "scripts" / "verify-api-worker-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+    cors = json.loads(
+        (ROOT / "deploy" / "gcs" / "document-cors.json").read_text(encoding="utf-8")
+    )
+
+    assert "CAFFEMATE_DOCUMENT_BUCKET" in deploy
+    assert 'expected_document_bucket="${project_id}-caffemate-documents"' in deploy
+    assert "--uniform-bucket-level-access" in deploy
+    assert "--public-access-prevention" in deploy
+    assert "caffemateDocumentUrlSigner" in deploy
+    assert "iam.serviceAccounts.signBlob" in deploy
+    assert "caffemateDocumentObjectAccess" in deploy
+    assert "storage.objects.create,storage.objects.delete,storage.objects.get" in deploy
+    assert "DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa}" in deploy
+    assert "--args=verify-document-storage" in verifier
+    assert "DOCUMENT_EXTRACT" in verifier
+    assert "service-account-key" not in verifier
+    assert set(cors[0]["method"]) == {"GET", "HEAD", "PUT"}
+    assert set(cors[0]["responseHeader"]) == {
+        "Content-Type",
+        "x-goog-meta-caffemate-sha256",
+    }
+
+
 def test_backend_foundation_scripts_preserve_scope_and_secret_values() -> None:
     bootstrap = (ROOT / "scripts" / "bootstrap-backend-foundation.sh").read_text(
         encoding="utf-8"

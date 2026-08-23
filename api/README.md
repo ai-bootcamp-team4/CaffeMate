@@ -166,7 +166,10 @@ Cloud Storage V4 PUT URL을 발급한다. API가 강제하는 object path는
 `POST /internal/v1/documents/{revision}:scan-result`를 호출한다. clean 결과만
 `READY_FOR_PARSING`으로 전환하고 `DOCUMENT_PARSE_REQUESTED`를 발행한다. 감염 또는 의심 결과는
 `QUARANTINED`로 남는다. 사용자 다운로드 URL은 5분만 유효하며 격리·삭제 문서에는 발급하지
-않는다. 운영 구성에는 `DOCUMENT_BUCKET`이 필요하다.
+않는다. 운영 구성에는 `DOCUMENT_BUCKET`과
+`DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL`이 모두 필요하다. Cloud Run의 단기 access token과
+해당 identity의 `iam.serviceAccounts.signBlob`만으로 V4 URL을 만들며 장기 service-account key는
+생성하거나 컨테이너에 넣지 않는다.
 
 Parser Worker는 service identity로
 `POST /internal/v1/documents/{revision}:parser-result`에 revision이 고정된 ParserBlock과 anchor를

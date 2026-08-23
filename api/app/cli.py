@@ -16,6 +16,9 @@ from app.agents.runtime import (
 from app.agents.task_factory import compute_agent_input_digest
 from app.candidates.seed_registry import IndependentSeedRegistry
 from app.database import create_database_handle
+from app.documents.extraction import DocumentExtractionService
+from app.documents.service import DocumentService
+from app.documents.storage import GoogleCloudDocumentStorage
 from app.mcp.client import GoogleIdentityTokenProvider
 from app.mcp.preflight import McpManifestPreflight
 from app.mcp.scope import ScopeTokenSigner
@@ -25,6 +28,7 @@ from app.projects.service import ProjectService
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
 from app.settings import RuntimeSettings
+from app.verification.documents import DocumentStorageCanary, DocumentStorageCanaryError
 from app.verification.first_proposal import (
     FirstProposalCanary,
     FirstProposalCanaryError,
@@ -102,6 +106,7 @@ def main() -> None:
             "verify-agent-runtime",
             "verify-agent-runtime-iam",
             "verify-first-proposal",
+            "verify-document-storage",
         ],
     )
     parser.add_argument("--timeout-seconds", type=float, default=1200.0)
@@ -328,3 +333,50 @@ def main() -> None:
         finally:
             handle.close()
         print(json.dumps(canary_report.as_dict(), sort_keys=True))
+    elif arguments.command == "verify-document-storage":
+        settings = RuntimeSettings.from_environment()
+        if (
+            not settings.has_document_storage_configuration
+            or not settings.has_agent_runtime_configuration
+            or not settings.policy_snapshot_id
+        ):
+            parser.error(
+                "database, document storage, Agent Runtime and policy configuration required"
+            )
+        handle = create_database_handle(settings)
+        if handle is None:
+            parser.error("database configuration required")
+        storage = GoogleCloudDocumentStorage(
+            cast(str, settings.document_bucket),
+            signing_service_account_email=cast(
+                str, settings.document_signing_service_account_email
+            ),
+        )
+        runtime = AgentRuntimeHttpClient(
+            gcp_project_id=cast(str, settings.agent_runtime_project_id),
+            resource_id=cast(str, settings.agent_runtime_resource_id),
+            user_hmac_secret=cast(str, settings.agent_runtime_user_hmac_secret),
+            access_tokens=GoogleAccessTokenProvider(),
+            cleanup_sink=_StrictAgentCleanupSink(),
+        )
+        try:
+            document_report = DocumentStorageCanary(
+                engine=handle.engine,
+                documents=DocumentService(handle.engine, storage),
+                extraction=DocumentExtractionService(handle.engine, runtime),
+                storage=storage,
+                policy_snapshot_id=settings.policy_snapshot_id,
+                seed_registry_id=IndependentSeedRegistry.load_default().registry_id,
+            ).run()
+        except DocumentStorageCanaryError as error:
+            print(
+                json.dumps(
+                    {"status": "failed", "code": error.code, **error.details},
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from error
+        finally:
+            handle.close()
+        print(json.dumps(document_report.as_dict(), sort_keys=True))

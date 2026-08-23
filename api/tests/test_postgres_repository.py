@@ -54,6 +54,7 @@ from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
+from app.verification.documents import DocumentStorageCanary
 from app.verification.first_proposal import PostgresFirstProposalCanaryCleaner
 from app.workflows.area_resolution import AreaResolutionStageHandler
 from app.workflows.calculate_gate_rank import CalculateGateRankStageHandler
@@ -137,6 +138,7 @@ class RecordingOutboxDispatcher:
 class DocumentStorageFixture:
     def __init__(self) -> None:
         self.objects: dict[str, StoredObject] = {}
+        self.contents: dict[str, bytes] = {}
 
     def sign_upload(self, **kwargs: Any) -> str:
         return f"https://upload.invalid/{kwargs['object_path']}"
@@ -146,6 +148,30 @@ class DocumentStorageFixture:
 
     def sign_download(self, **kwargs: Any) -> str:
         return f"https://download.invalid/{kwargs['object_path']}"
+
+    def delete(self, *, object_path: str) -> None:
+        self.objects.pop(object_path, None)
+        self.contents.pop(object_path, None)
+
+
+class DocumentCanaryTransportFixture:
+    def __init__(self, storage: DocumentStorageFixture) -> None:
+        self._storage = storage
+
+    def put(self, url: str, *, content: bytes, headers: Mapping[str, str]) -> int:
+        object_path = url.removeprefix("https://upload.invalid/")
+        self._storage.contents[object_path] = content
+        self._storage.objects[object_path] = StoredObject(
+            content_type=headers["Content-Type"],
+            size_bytes=len(content),
+            sha256=hashlib.sha256(content).hexdigest(),
+        )
+        return 200
+
+    def get(self, url: str) -> tuple[int, bytes]:
+        object_path = url.removeprefix("https://download.invalid/")
+        content = self._storage.contents.get(object_path)
+        return (200, content) if content is not None else (404, b"")
 
 
 class DocumentExtractionAgentFixture:
@@ -2695,6 +2721,47 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
             {"revision_id": upload_body["document_revision_id"]},
         ).scalars().all()
     assert document_topics == ["DOCUMENT_SCAN_REQUESTED", "DOCUMENT_PARSE_REQUESTED"]
+
+
+def test_document_storage_canary_exercises_upload_agent_extraction_and_cleanup(
+    postgres_engine: Engine,
+) -> None:
+    storage = DocumentStorageFixture()
+    report = DocumentStorageCanary(
+        engine=postgres_engine,
+        documents=DocumentService(postgres_engine, storage),
+        extraction=DocumentExtractionService(
+            postgres_engine, DocumentExtractionAgentFixture()
+        ),
+        storage=storage,  # type: ignore[arg-type]
+        policy_snapshot_id="policy-v1",
+        seed_registry_id=IndependentSeedRegistry.load_default().registry_id,
+        transport=DocumentCanaryTransportFixture(storage),
+        new_id=lambda: "fixed",
+    ).run()
+
+    assert report.status == "verified"
+    assert report.upload_status == "SCAN_PENDING"
+    assert report.scan_status == "READY_FOR_PARSING"
+    assert report.extraction_status == "EXTRACTION_READY"
+    assert report.agent_result_statuses == ("COMPLETE",)
+    assert report.extracted_field_count == 1
+    assert report.download_bytes > 0
+    assert storage.objects == {}
+    assert storage.contents == {}
+    with postgres_engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT COUNT(*) FROM venture_projects "
+                "WHERE project_id='document-canary-fixed'"
+            )
+        ).scalar_one() == 0
+        assert connection.execute(
+            text(
+                "SELECT COUNT(*) FROM workflow_outbox "
+                "WHERE payload_json->>'project_id'='document-canary-fixed'"
+            )
+        ).scalar_one() == 0
 
 
 def test_invalid_result_contract_rolls_back_bundle_and_stage_checkpoint(
