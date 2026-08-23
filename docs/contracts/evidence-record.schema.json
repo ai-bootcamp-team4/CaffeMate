@@ -36,6 +36,10 @@
       "type": "string",
       "minLength": 1
     },
+    "metric": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
     "value": {
       "$ref": "./common-types.schema.json#/$defs/typedValue"
     },

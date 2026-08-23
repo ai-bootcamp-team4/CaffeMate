@@ -55,6 +55,10 @@ const result: ResultView = {
     rank: 1, rank_basis: 'NEXT_REVIEW_PRIORITY', is_primary_next_review: true,
     franchise: { brand_id: 'brand-1', eligibility: 'VERIFIED', availability_status: 'HQ_CONFIRMATION_REQUIRED', eligibility_evidence_refs: ['evidence-franchise'], disclosure_evidence_refs: [] },
     independent_model: null, evidence_refs: ['evidence-franchise'], assumption_refs: ['assumption-rent'],
+    market_signals: [
+      { signal_type: 'CAFE_COUNT', value: 208, unit: 'STORES', data_date: '2026-03-31', freshness_status: 'FRESH', source_title: '서울시 상권분석서비스', source_ref: 'https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do', evidence_id: 'evidence-market-cafes', caveat: '선택 지역에 연결된 행정동의 카페 업종 집계이며 개별 점포의 경쟁력을 뜻하지 않습니다.' },
+      { signal_type: 'ESTIMATED_SALES', value: 2_596_733_728, unit: 'KRW_PER_QUARTER_ESTIMATE', data_date: '2026-03-31', freshness_status: 'FRESH', source_title: '서울시 상권분석서비스', source_ref: 'https://data.seoul.go.kr/dataList/OA-15572/A/1/datasetView.do', evidence_id: 'evidence-market-sales', caveat: '선택 지역의 카페 업종 분기 추정매출 합계이며 신규 점포 예상매출이 아닙니다.' },
+    ],
     financial_summary: {
       initial_cash: { currency: 'KRW', low: 70_000_000, base: 80_000_000, high: 90_000_000, provenance_refs: ['evidence-cost'] },
       monthly_fixed_cost: { currency: 'KRW', low: 4_000_000, base: 5_000_000, high: 6_000_000, provenance_refs: ['evidence-cost'] },
@@ -170,6 +174,9 @@ describe('CaffeMate Control API integration', () => {
     fireEvent.click(screen.getByRole('tab', { name: '상권 신호' }))
     expect(screen.getByText('전국 기준 자료 없음')).toBeTruthy()
     expect(screen.getByText(/행정동 연결 정보 · 점포 추정 매출/)).toBeTruthy()
+    expect(screen.getByText('208개')).toBeTruthy()
+    expect(screen.getByText('2,596,733,728원')).toBeTruthy()
+    expect(screen.getAllByRole('link', { name: '공식 원문 보기' })).toHaveLength(2)
     expect(screen.queryByText('NO_NATIONWIDE_FACTS')).toBeNull()
     expect(screen.queryByText('administrative_dong_mapping')).toBeNull()
     expect(screen.queryByText('estimated_store_sales')).toBeNull()

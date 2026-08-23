@@ -263,10 +263,10 @@
         "input_schema_id": "caffemate.agent.evidence-plan-input.v1",
         "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:e2a525f42ee12e4e165dfb6ac2cf3763889b6f9de3c5e6693b4cc300e58cf1f6",
+        "input_digest": "sha256:d2844008b9feab75717529c418c1297360112592a94c4cc2a55cacc1611e8145",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
-        "tool_manifest_digest": "sha256:72ac3711d0b2500a90ef974bb7d6a11eaceff1c8108439624525f581202a184b",
+        "tool_manifest_digest": "sha256:0a16a2c31e21819e015f6b23de7e62b47576d1b80cbe44698b228a3008477e4c",
         "available_tool_catalog": [
           {
             "tool_name": "resolve_area",
@@ -377,7 +377,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:e2a525f42ee12e4e165dfb6ac2cf3763889b6f9de3c5e6693b4cc300e58cf1f6",
+        "input_digest": "sha256:d2844008b9feab75717529c418c1297360112592a94c4cc2a55cacc1611e8145",
         "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
         "status": "COMPLETE",
         "payload": {
@@ -477,10 +477,10 @@
         "input_schema_id": "caffemate.agent.evidence-plan-input.v1",
         "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:dc14d14a70676a34ab9809543bfa1cae63c3bde0542a9abb2d9df8d8287359a6",
+        "input_digest": "sha256:c2a482f2d16a64d51b88dee661a8b494afb311097dc5107a53dff2d6182a6a62",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
-        "tool_manifest_digest": "sha256:72ac3711d0b2500a90ef974bb7d6a11eaceff1c8108439624525f581202a184b",
+        "tool_manifest_digest": "sha256:0a16a2c31e21819e015f6b23de7e62b47576d1b80cbe44698b228a3008477e4c",
         "available_tool_catalog": [
           {
             "tool_name": "resolve_area",
@@ -591,7 +591,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:dc14d14a70676a34ab9809543bfa1cae63c3bde0542a9abb2d9df8d8287359a6",
+        "input_digest": "sha256:c2a482f2d16a64d51b88dee661a8b494afb311097dc5107a53dff2d6182a6a62",
         "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
         "status": "ABSTAIN",
         "payload": null,

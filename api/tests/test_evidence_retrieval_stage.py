@@ -470,6 +470,7 @@ def test_structured_metrics_become_claim_scoped_evidence_candidates() -> None:
     assert retrieval["completeness"] == "COMPLETE"
     record = retrieval["executed_actions"][0]["structured_result"]["evidence_records"][0]
     assert record["claim_type"] == "AREA_PROFILE"
+    assert record["metric"] == "RESIDENT_POPULATION"
     assert record["value"] == {"kind": "INTEGER", "value": 40000}
     assert record["unit"] == "PERSONS"
     assert record["source"]["authority"] == "PRIMARY_DATA"

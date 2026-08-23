@@ -179,6 +179,31 @@ function formatRange(range: ResultCandidate['financial_summary']['initial_cash']
   return `${formatWon(range.low)} ~ ${formatWon(range.high)} (기준 ${formatWon(range.base)})`
 }
 
+function marketSignalLabel(signal: NonNullable<ResultCandidate['market_signals']>[number]) {
+  return {
+    CAFE_COUNT: '카페 업종 점포',
+    OPEN_COUNT: '분기 신규 신고',
+    CLOSE_COUNT: '분기 폐업 신고',
+    CLOSURE_RATE: '분기 폐업 변화율',
+    ESTIMATED_SALES: '분기 상권 추정매출',
+  }[signal.signal_type]
+}
+
+function marketSignalValue(signal: NonNullable<ResultCandidate['market_signals']>[number]) {
+  if (signal.signal_type === 'ESTIMATED_SALES') return formatWon(signal.value)
+  if (signal.signal_type === 'CLOSURE_RATE') return `${signal.value.toLocaleString('ko-KR')}%`
+  return `${signal.value.toLocaleString('ko-KR')}개`
+}
+
+function formatDataDate(value: string | null) {
+  if (!value) return '기준일 확인 필요'
+  return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeZone: 'Asia/Seoul' }).format(new Date(`${value}T00:00:00+09:00`))
+}
+
+function isHttpSource(value: string) {
+  return /^https?:\/\//i.test(value)
+}
+
 function statusLabel(status: ResultCandidate['review_status']) {
   if (status === 'REVIEW_RECOMMENDED') return '검토 추천'
   if (status === 'CONDITIONAL_REVIEW') return '조건부 검토'
@@ -218,7 +243,8 @@ function OverviewPanel({ candidate }: { candidate: ResultCandidate }) {
 
 function MarketPanel({ project, candidate }: { project: Project; candidate: ResultCandidate }) {
   const area = project.state?.area
-  return <><header className="panel__header"><h2>상권 신호와 근거 상태</h2><p>확보되지 않은 상권 정보는 좋은 신호로 바꾸지 않습니다.</p></header><article className="surface"><div className="surface__head"><h3>{area?.display_name ?? '희망 지역 확인 중'}</h3><p>지역 확인 상태와 실제로 확보한 자료 범위를 표시합니다.</p></div><table className="data-table"><tbody><tr><th>지역 확인</th><td>{internalLabel(area?.resolution_status ?? 'UNRESOLVED')}</td></tr><tr><th>자료 범위</th><td>{internalLabel(area?.coverage_profile ?? 'UNKNOWN')}</td></tr><tr><th>지역 근거</th><td>{area?.evidence_ids.length ?? 0}건</td></tr><tr><th>후보 근거</th><td>{candidate.evidence_refs.length}건</td></tr><tr><th>아직 확보하지 못한 정보</th><td>{area?.unavailable_fields.length ? uniqueLabels(area.unavailable_fields, '추가 확인 항목').join(' · ') : '없음'}</td></tr></tbody></table><p className="table-note">상권 평균이나 추정치는 개별 점포의 실제 매출로 표시하지 않습니다.</p></article></>
+  const signals = candidate.market_signals ?? []
+  return <><header className="panel__header"><h2>상권 신호와 근거 상태</h2><p>확보되지 않은 상권 정보는 좋은 신호로 바꾸지 않습니다.</p></header><div className="section-stack"><article className="surface"><div className="surface__head"><h3>{area?.display_name ?? '희망 지역 확인 중'}</h3><p>지역 확인 상태와 실제로 확보한 자료 범위를 표시합니다.</p></div><table className="data-table"><tbody><tr><th>지역 확인</th><td>{internalLabel(area?.resolution_status ?? 'UNRESOLVED')}</td></tr><tr><th>자료 범위</th><td>{internalLabel(area?.coverage_profile ?? 'UNKNOWN')}</td></tr><tr><th>지역 근거</th><td>{area?.evidence_ids.length ?? 0}건</td></tr><tr><th>후보 근거</th><td>{candidate.evidence_refs.length}건</td></tr><tr><th>아직 확보하지 못한 정보</th><td>{area?.unavailable_fields.length ? uniqueLabels(area.unavailable_fields, '추가 확인 항목').join(' · ') : '없음'}</td></tr></tbody></table></article><article className="surface"><div className="surface__head"><h3>확인된 상권 수치</h3><p>후보 판단에 실제로 연결된 자료만 표시합니다.</p></div>{signals.length ? <ul className="market-signals">{signals.map((signal) => <li key={signal.evidence_id}><div className="market-signal__value"><span>{marketSignalLabel(signal)}</span><strong>{marketSignalValue(signal)}</strong></div><p>{signal.caveat}</p><div className="market-signal__source"><Badge tone={signal.freshness_status === 'FRESH' ? 'success' : 'warning'}>{signal.freshness_status === 'FRESH' ? '최신 기준 충족' : '기준일 확인 필요'}</Badge><span>{formatDataDate(signal.data_date)}</span>{isHttpSource(signal.source_ref) ? <a href={signal.source_ref} target="_blank" rel="noreferrer">공식 원문 보기</a> : <span>출처: {displayText(signal.source_title)}</span>}</div></li>)}</ul> : <p>현재 후보에 연결된 상권 수치가 없습니다. 확인되지 않은 값은 추정해서 채우지 않습니다.</p>}<p className="table-note">상권 평균이나 추정치는 개별 점포의 실제 매출로 표시하지 않습니다.</p></article></div></>
 }
 
 function FranchisePanel({ candidate }: { candidate: ResultCandidate }) {
