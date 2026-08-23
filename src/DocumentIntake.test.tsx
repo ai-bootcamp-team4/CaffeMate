@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DocumentIntake } from './DocumentIntake'
 import type { ControlApiClient, DocumentExtractionForm } from './apiClient'
 import { changedExtractionFields } from './documentExtractionValues'
@@ -46,7 +46,87 @@ const extractionForm: DocumentExtractionForm = {
   ],
 }
 
+afterEach(() => cleanup())
+
 describe('DocumentIntake', () => {
+  it('runs the bundled property document through the real upload and extraction path', async () => {
+    const fileArrayBuffer = Object.getOwnPropertyDescriptor(File.prototype, 'arrayBuffer')
+    Object.defineProperty(File.prototype, 'arrayBuffer', {
+      configurable: true,
+      value: async () => new TextEncoder().encode('demo property document').buffer,
+    })
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      blob: async () => new Blob(['demo property document'], { type: 'application/pdf' }),
+    } as Response)
+    const client = {
+      beginDocumentUpload: vi.fn().mockResolvedValue({
+        document_id: 'document-1',
+        document_revision_id: 'revision-1',
+        revision_number: 1,
+        object_path: 'demo/property.pdf',
+        upload_url: 'https://storage.example.test/upload',
+        method: 'PUT',
+        required_headers: { 'Content-Type': 'application/pdf' },
+        expires_at: '2026-08-24T01:00:00Z',
+        status: 'UPLOAD_PENDING',
+      }),
+      uploadDocument: vi.fn().mockResolvedValue(undefined),
+      completeDocumentUpload: vi.fn().mockResolvedValue(undefined),
+      getDocumentRevision: vi.fn().mockResolvedValue({ status: 'EXTRACTION_READY' }),
+      getDocumentExtractionForm: vi.fn().mockResolvedValue(extractionForm),
+    } as unknown as ControlApiClient
+
+    try {
+      render(
+        <DocumentIntake
+          client={client}
+          projectId="project-1"
+          enabled
+          onApplied={async () => undefined}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: '데모 자료로 검증하기' }))
+
+      await waitFor(() => expect(client.beginDocumentUpload).toHaveBeenCalled())
+      const [, uploadedFile, uploadedType] = vi.mocked(client.beginDocumentUpload).mock.calls[0]
+      expect(uploadedFile.name).toBe('05_demo_property_listing.pdf')
+      expect(uploadedType).toBe('PROPERTY_LISTING')
+      expect(client.uploadDocument).toHaveBeenCalled()
+      expect(await screen.findByText('자동으로 채운 값')).toBeTruthy()
+      expect(screen.getByDisplayValue('2200000')).toBeTruthy()
+    } finally {
+      fetchSpy.mockRestore()
+      if (fileArrayBuffer) Object.defineProperty(File.prototype, 'arrayBuffer', fileArrayBuffer)
+      else Reflect.deleteProperty(File.prototype, 'arrayBuffer')
+    }
+  })
+
+  it('keeps the demo action retryable when the bundled file cannot be loaded', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false } as Response)
+    const client = { beginDocumentUpload: vi.fn() } as unknown as ControlApiClient
+
+    try {
+      render(
+        <DocumentIntake
+          client={client}
+          projectId="project-1"
+          enabled
+          onApplied={async () => undefined}
+        />,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: '데모 자료로 검증하기' }))
+
+      expect((await screen.findByRole('alert')).textContent).toBe('데모 자료를 불러오지 못했어요. 잠시 뒤 다시 시도해 주세요.')
+      expect(client.beginDocumentUpload).not.toHaveBeenCalled()
+      expect((screen.getByRole('button', { name: '데모 자료로 검증하기' }) as HTMLButtonElement).disabled).toBe(false)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
   it('selects the matching document type for a bundled demo file', () => {
     render(
       <DocumentIntake

@@ -511,6 +511,8 @@
 .property-form__action p { color: var(--color-neutral); }
 .document-intake__upload { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); align-items: end; }
 .document-intake__upload .btn { min-height: 44px; justify-self: start; }
+.document-intake__upload-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; }
+.document-intake__demo-note { grid-column: 1 / -1; max-width: 66ch; color: var(--color-neutral); }
 .document-extraction-form { display: grid; gap: var(--space-md); }
 .document-extraction-form__intro { padding-block-end: var(--space-sm); border-block-end: var(--rule-thin) solid var(--color-rule); }
 .document-extraction-form__intro p, .document-extraction-field small, .document-intake__status { color: var(--color-neutral); }
@@ -531,6 +533,8 @@
   .preparation-hero .btn { width: 100%; }
   .property-form__head, .property-form { grid-template-columns: minmax(0, 1fr); }
   .document-intake__upload { grid-template-columns: minmax(0, 1fr); }
+  .document-intake__upload-actions, .document-intake__demo-note { grid-column: auto; }
+  .document-intake__upload-actions .btn { width: 100%; white-space: nowrap; }
   .property-form .field:first-child, .property-form__action { grid-column: auto; }
   .property-form__head .btn, .property-form__action .btn { width: 100%; }
 }
