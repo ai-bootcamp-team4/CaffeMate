@@ -34,42 +34,49 @@ const procedureOrder: ProcedureType[] = [
 const procedureCopy: Record<ProcedureType, {
   label: string
   fallbackAction: string
+  fallbackAuthority: string
   preparation: string
   caution: string
 }> = {
   FACILITY_REQUIREMENTS: {
     label: '시설 기준 확인',
     fallbackAction: '카페 영업에 필요한 점포 시설 기준을 확인해요.',
+    fallbackAuthority: '관할 구청 위생 담당 부서',
     preparation: '점포 도면, 면적과 현재 시설 정보',
     caution: '공사 전에 관할 기관에 현재 점포가 기준을 충족하는지 확인하세요.',
   },
   HYGIENE_EDUCATION: {
     label: '위생교육',
     fallbackAction: '영업신고에 필요한 위생교육을 이수해요.',
+    fallbackAuthority: '식품위생교육기관',
     preparation: '신청자 정보와 교육 신청에 필요한 정보',
     caution: '교육 대상과 인정 기간은 신청 전에 최신 안내를 확인하세요.',
   },
   FOOD_SERVICE_REPORT: {
     label: '휴게음식점 영업신고',
     fallbackAction: '카페 영업을 위한 영업신고 절차를 확인해요.',
+    fallbackAuthority: '관할 구청 위생 담당 부서',
     preparation: '점포 정보와 관할 기관이 안내하는 신고 서류',
     caution: '시설 기준과 위생교육 확인이 먼저 필요할 수 있어요.',
   },
   BUSINESS_REGISTRATION: {
     label: '사업자등록',
     fallbackAction: '카페 사업자등록에 필요한 신청 절차를 확인해요.',
+    fallbackAuthority: '관할 세무서 또는 국세청 홈택스',
     preparation: '사업자 정보와 사업장 관련 서류',
     caution: '영업신고와 사업자등록의 순서는 점포 상황에 맞춰 확인하세요.',
   },
   SIGNAGE: {
     label: '간판 신고 확인',
     fallbackAction: '설치할 간판의 신고 대상 여부를 확인해요.',
+    fallbackAuthority: '관할 구청 옥외광고물 담당 부서',
     preparation: '간판 크기, 위치와 설치 계획',
     caution: '건물과 지역에 따라 적용 기준이 달라질 수 있어요.',
   },
   FIRE_SAFETY: {
     label: '소방 안전 확인',
     fallbackAction: '점포에 적용되는 소방 안전 요건을 확인해요.',
+    fallbackAuthority: '관할 소방서',
     preparation: '점포 면적, 층과 소방시설 현황',
     caution: '점포 구조와 규모에 따라 필요한 확인이 달라질 수 있어요.',
   },
@@ -105,12 +112,30 @@ function concise(value: unknown, fallback: string): string {
   return sentence.length > 110 ? `${sentence.slice(0, 107).trimEnd()}…` : sentence
 }
 
+const unsafeActionPatterns = [
+  /https?:\/\//i,
+  /!\[|\]\(|\]\(#/,
+  /\b(?:href|src)=/i,
+  /(?:\*|\+)\s+\S/,
+  /새창으로\s*열림/,
+  /하위메뉴/,
+  /법령\s*제\d+조/,
+  /규제등록카드/,
+]
+
+function safeAction(value: unknown, fallback: string): string {
+  if (typeof value !== 'string' || unsafeActionPatterns.some((pattern) => pattern.test(value))) return fallback
+  const cleaned = cleanText(value)
+  if (!cleaned || cleaned.length > 60 || unsafeActionPatterns.some((pattern) => pattern.test(cleaned))) return fallback
+  return concise(cleaned, fallback)
+}
+
 function uniqueActions(procedure: ProcedureWithSources): string[] {
   const copy = procedureCopy[procedure.procedure_type]
   const seen = new Set<string>()
   const actions: string[] = []
   for (const step of [...procedure.steps].sort((left, right) => left.step_order - right.step_order)) {
-    const action = concise(step.title, copy.fallbackAction)
+    const action = safeAction(step.title, copy.fallbackAction)
     const key = action.replace(/[\s.,!?·:;()[\]-]/g, '').toLocaleLowerCase('ko-KR')
     if (!key || seen.has(key)) continue
     seen.add(key)
@@ -121,10 +146,11 @@ function uniqueActions(procedure: ProcedureWithSources): string[] {
 }
 
 function uniqueAuthorities(procedure: ProcedureWithSources): string {
+  const copy = procedureCopy[procedure.procedure_type]
   const values = procedure.steps
     .map((step) => concise(step.authority, ''))
-    .filter(Boolean)
-  return [...new Set(values)].join(' · ') || '관할 기관 확인 필요'
+    .filter((value) => value && value.length <= 30 && !/커피전문점|영업신고.*사업자등록/.test(value))
+  return [...new Set(values)].join(' · ') || copy.fallbackAuthority
 }
 
 function isOfficialUrl(value: unknown): value is string {
