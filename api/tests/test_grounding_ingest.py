@@ -13,6 +13,7 @@ from app.grounding.bigquery import BigQueryLoad, BigQueryRestClient
 from app.grounding.seoul_ingest import (
     CAFE_INDUSTRY_CODE,
     SeoulOpenApiClient,
+    approved_ingestion_exists,
     candidate_quarters,
     latest_period_rows,
     normalize_cafe_sales,
@@ -205,6 +206,39 @@ def test_immutable_upload_accepts_identical_retry_and_rejects_conflict() -> None
         )
 
 
+def test_approved_ingestion_retry_is_reused_only_for_matching_sources() -> None:
+    ingestion_id = "ingest"
+    periods = {"store": "20261"}
+    digests = {"store": "abc"}
+    bucket = FakeLookupBucket(
+        {
+            f"approvals/{ingestion_id}.json": {
+                "ingestion_id": ingestion_id,
+                "status": "APPROVED",
+            },
+            f"manifests/{ingestion_id}.json": {
+                "ingestion_id": ingestion_id,
+                "source_periods": periods,
+                "source_digests": digests,
+            },
+        }
+    )
+
+    assert approved_ingestion_exists(
+        bucket,
+        ingestion_id=ingestion_id,
+        periods=periods,
+        source_digests=digests,
+    )
+    with pytest.raises(RuntimeError, match="GROUNDING_APPROVED_SOURCE_CONFLICT"):
+        approved_ingestion_exists(
+            bucket,
+            ingestion_id=ingestion_id,
+            periods={"store": "20262"},
+            source_digests=digests,
+        )
+
+
 class FakeBlob:
     def __init__(self, *, existing: bytes, conflict: bool) -> None:
         self._existing = existing
@@ -227,6 +261,26 @@ class FakeBucket:
 
     def blob(self, _: str) -> FakeBlob:
         return self._blob
+
+
+class FakeLookupBlob:
+    def __init__(self, payload: dict[str, Any] | None) -> None:
+        self._payload = payload
+
+    def exists(self) -> bool:
+        return self._payload is not None
+
+    def download_as_bytes(self) -> bytes:
+        assert self._payload is not None
+        return json.dumps(self._payload).encode()
+
+
+class FakeLookupBucket:
+    def __init__(self, payloads: dict[str, dict[str, Any]]) -> None:
+        self._payloads = payloads
+
+    def blob(self, object_name: str) -> FakeLookupBlob:
+        return FakeLookupBlob(self._payloads.get(object_name))
 
 
 def _put_cp949(target: bytearray, start: int, end: int, value: str) -> None:
