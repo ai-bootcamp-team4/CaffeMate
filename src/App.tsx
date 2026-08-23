@@ -482,16 +482,18 @@ export default function App({ authGateway, apiFactory }: AppProps = {}) {
 
   const completeOnboarding = async (values: OnboardingValues, areaSelectionToken: string) => {
     if (!client || !project) throw new Error('프로젝트 연결이 준비되지 않았습니다.')
-    const confirmedProject = await client.confirmOnboarding(project.project_id, values, areaSelectionToken)
+    const confirmedProject = project.state
+      ? project
+      : await client.confirmOnboarding(project.project_id, values, areaSelectionToken)
     setProject(confirmedProject)
-    const workflow = await client.startFirstProposal(project.project_id)
-    const terminal = await waitForWorkflow(client, project.project_id, workflow, setProgress)
+    const workflow = await client.startFirstProposal(confirmedProject.project_id)
+    const terminal = await waitForWorkflow(client, confirmedProject.project_id, workflow, setProgress)
     if (terminal.status === 'WAITING_FOR_HUMAN') return
     if (!['SUCCEEDED', 'PARTIAL'].includes(terminal.status)) {
       const reasons = uniqueLabels(terminal.terminal_reason_codes).join(' · ')
       throw new Error(`첫 분석이 완료되지 않았습니다: ${internalLabel(terminal.status)}${reasons ? ` (${reasons})` : ''}`)
     }
-    const nextResult = await client.getResult(project.project_id)
+    const nextResult = await client.getResult(confirmedProject.project_id)
     setResult(nextResult); setScreen('result'); window.scrollTo({ top: 0 })
   }
 

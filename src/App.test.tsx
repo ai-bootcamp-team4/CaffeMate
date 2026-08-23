@@ -179,6 +179,33 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.queryByText(/가상 목업값/)).toBeNull()
   })
 
+  it('retries only FIRST_PROPOSAL after onboarding was already confirmed', async () => {
+    const { client } = setup()
+    vi.mocked(client.startFirstProposal)
+      .mockRejectedValueOnce(new Error('분석 서비스를 준비하지 못했습니다.'))
+      .mockResolvedValueOnce(workflow)
+
+    await enterOnboarding()
+    fireEvent.change(screen.getByLabelText('희망 지역'), { target: { value: '수원 원천동' } })
+    fireEvent.click(await screen.findByRole('option', { name: /경기도 수원시 영통구 원천동/ }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    fireEvent.change(screen.getByLabelText('현재 자기자금'), { target: { value: '8000' } })
+    fireEvent.click(screen.getByRole('radio', { name: /아직 미정/ }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    fireEvent.click(screen.getByRole('radio', { name: /둘 다 비교/ }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    fireEvent.click(screen.getByRole('radio', { name: /직접 전업 운영/ }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    fireEvent.click(screen.getByRole('button', { name: '분석 시작' }))
+
+    expect(await screen.findByText('분석 서비스를 준비하지 못했습니다.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '분석 시작' }))
+
+    expect(await screen.findByRole('heading', { name: '실제 검증 브랜드' })).toBeTruthy()
+    expect(client.confirmOnboarding).toHaveBeenCalledOnce()
+    expect(client.startFirstProposal).toHaveBeenCalledTimes(2)
+  })
+
   it('renders the primary proposal and two comparison proposals returned by the API', async () => {
     const comparisonResult: ResultView = {
       ...result,
