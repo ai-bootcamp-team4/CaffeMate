@@ -83,7 +83,12 @@ assert any(b["role"] == retriever_role and member in b.get("members", []) for b 
 direct_roles = {
     b["role"] for b in project_policy.get("bindings", []) if member in b.get("members", [])
 }
-assert direct_roles == {retriever_role, "roles/serviceusage.serviceUsageConsumer"}, direct_roles
+assert direct_roles == {
+    retriever_role,
+    "roles/serviceusage.serviceUsageConsumer",
+    "roles/bigquery.jobUser",
+    "roles/bigquery.dataViewer",
+}, direct_roles
 assert not any(
     b["role"] in {"roles/aiplatform.user", "roles/discoveryengine.viewer"}
     and member in b.get("members", [])
