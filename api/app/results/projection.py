@@ -120,6 +120,7 @@ def _project_candidate(
             set(_strings(proposal.get("assumption_refs")))
             | calculation_assumption_refs
         ),
+        "market_signals": _market_signals(grounded_refs, evidence_by_id),
         "financial_summary": {
             "initial_cash": _money_summary(
                 finance.get("initial_cash"),
@@ -162,6 +163,85 @@ def _project_candidate(
         ],
         "next_actions": _next_actions(review_status, material_missing),
     }
+    return projected
+
+
+_MARKET_SIGNAL_CLAIMS = {
+    "CAFE_COUNT": "AREA_CAFE_COMPETITION",
+    "OPEN_COUNT": "AREA_BUSINESS_CHURN",
+    "CLOSE_COUNT": "AREA_BUSINESS_CHURN",
+    "CLOSURE_RATE": "AREA_BUSINESS_CHURN",
+    "ESTIMATED_SALES": "AREA_DEMAND_SIGNALS",
+}
+
+_MARKET_SIGNAL_CAVEATS = {
+    "CAFE_COUNT": (
+        "선택 지역에 연결된 행정동의 카페 업종 집계이며 "
+        "개별 점포의 경쟁력을 뜻하지 않습니다."
+    ),
+    "OPEN_COUNT": "공식 신고 자료의 분기 신규 수치이며 실제 영업 시작 점포 수와 다를 수 있습니다.",
+    "CLOSE_COUNT": "공식 신고 자료의 분기 폐업 수치이며 개별 점포의 생존확률을 뜻하지 않습니다.",
+    "CLOSURE_RATE": "현재 점포 수와 분기 폐업 수로 계산한 상권 변화 지표이며 생존확률이 아닙니다.",
+    "ESTIMATED_SALES": (
+        "선택 지역의 카페 업종 분기 추정매출 합계이며 "
+        "신규 점포 예상매출이 아닙니다."
+    ),
+}
+
+
+def _market_signals(
+    grounded_refs: set[str],
+    evidence_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    candidates: dict[str, list[dict[str, Any]]] = {}
+    for evidence_id in sorted(grounded_refs):
+        record = evidence_by_id[evidence_id]
+        metric = record.get("metric")
+        if (
+            not isinstance(metric, str)
+            or _MARKET_SIGNAL_CLAIMS.get(metric) != record.get("claim_type")
+            or record.get("conflict_status") not in {"NONE", "RESOLVED"}
+        ):
+            continue
+        typed_value = record.get("value")
+        source = record.get("source")
+        if not isinstance(typed_value, dict) or not isinstance(source, dict):
+            continue
+        value = typed_value.get("value")
+        if not isinstance(value, int | float) or isinstance(value, bool):
+            continue
+        source_title = source.get("title")
+        source_ref = source.get("source_ref")
+        if not isinstance(source_title, str) or not isinstance(source_ref, str):
+            continue
+        candidates.setdefault(metric, []).append(
+            {
+                "signal_type": metric,
+                "value": value,
+                "unit": record.get("unit") if isinstance(record.get("unit"), str) else None,
+                "data_date": source.get("published_or_data_date"),
+                "freshness_status": record.get("freshness_status"),
+                "source_title": source_title,
+                "source_ref": source_ref,
+                "evidence_id": evidence_id,
+                "caveat": _MARKET_SIGNAL_CAVEATS[metric],
+            }
+        )
+
+    order = tuple(_MARKET_SIGNAL_CLAIMS)
+    projected: list[dict[str, Any]] = []
+    for metric in order:
+        values = candidates.get(metric, [])
+        if not values:
+            continue
+        values.sort(
+            key=lambda item: (
+                str(item.get("data_date") or ""),
+                str(item["evidence_id"]),
+            ),
+            reverse=True,
+        )
+        projected.append(values[0])
     return projected
 
 

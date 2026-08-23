@@ -374,6 +374,7 @@ class EvidenceRetrievalStageHandler:
             "evidence_id": f"structured-evidence:{evidence_digest}",
             "project_id": project_id,
             "claim_type": claim_type,
+            "metric": metric_name,
             "value": deepcopy(value),
             "value_kind": "DERIVED_RESULT" if derived else "EVIDENCED_FACT",
             "unit": unit,

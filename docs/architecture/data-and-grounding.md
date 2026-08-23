@@ -158,6 +158,10 @@ N0_NATIONWIDE_FACTS
   않는다.
 - 서울 외 지역 또는 공식 법정동→행정동 매핑은 존재하지만 서울 fact가 없는 지역은
   `NOT_FOUND`/`UNKNOWN`으로 남긴다.
+- 구조화 수치 EvidenceRecord는 Claim 종류와 별도로 원 공급자의 `metric` 식별자를 보존한다.
+  결과 API는 후보의 동결 근거에 실제로 포함된 카페 수·신규·폐업·폐업 변화율·상권 추정매출만
+  `market_signals`로 투영하며 값, 기준일, 신선도, 공식 원문과 지표별 주의 문구를 함께 반환한다.
+  결과 화면은 내부 Claim 코드나 Evidence id 대신 이 사용자용 투영값을 표시한다.
 
 ### Official Document RAG
 

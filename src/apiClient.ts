@@ -108,6 +108,17 @@ export interface ResultCandidate {
   independent_model: { model_id: string; adjusted_fields: string[] } | null
   evidence_refs: string[]
   assumption_refs?: string[]
+  market_signals?: Array<{
+    signal_type: 'CAFE_COUNT' | 'OPEN_COUNT' | 'CLOSE_COUNT' | 'CLOSURE_RATE' | 'ESTIMATED_SALES'
+    value: number
+    unit: string | null
+    data_date: string | null
+    freshness_status: 'FRESH' | 'STALE' | 'UNKNOWN' | 'NOT_APPLICABLE'
+    source_title: string
+    source_ref: string
+    evidence_id: string
+    caveat: string
+  }>
   financial_summary: {
     initial_cash: MoneyRange
     monthly_fixed_cost: MoneyRange

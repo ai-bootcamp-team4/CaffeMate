@@ -134,6 +134,12 @@
       },
       "uniqueItems": true
     },
+    "market_signals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/marketSignal"
+      }
+    },
     "financial_summary": {
       "type": "object",
       "additionalProperties": false,
@@ -346,6 +352,61 @@
     }
   ],
   "$defs": {
+    "marketSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signal_type",
+        "value",
+        "unit",
+        "data_date",
+        "freshness_status",
+        "source_title",
+        "source_ref",
+        "evidence_id",
+        "caveat"
+      ],
+      "properties": {
+        "signal_type": {
+          "enum": [
+            "CAFE_COUNT",
+            "OPEN_COUNT",
+            "CLOSE_COUNT",
+            "CLOSURE_RATE",
+            "ESTIMATED_SALES"
+          ]
+        },
+        "value": {
+          "type": "number"
+        },
+        "unit": {
+          "type": ["string", "null"]
+        },
+        "data_date": {
+          "type": ["string", "null"],
+          "format": "date"
+        },
+        "freshness_status": {
+          "enum": ["FRESH", "STALE", "UNKNOWN", "NOT_APPLICABLE"]
+        },
+        "source_title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "caveat": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "moneyRange": {
       "oneOf": [
         { "$ref": "#/$defs/knownMoneyRange" },
