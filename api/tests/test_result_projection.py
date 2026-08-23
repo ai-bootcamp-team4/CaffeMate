@@ -43,6 +43,43 @@ def market_evidence(
     return record
 
 
+def official_document_evidence(
+    evidence_id: str,
+    *,
+    claim_type: str,
+    source_ref: str = "https://easylaw.go.kr/coffee-registration",
+) -> dict[str, Any]:
+    record = evidence_record(evidence_id)
+    record.update(
+        {
+            "claim_type": claim_type,
+            "value": {
+                "kind": "STRING",
+                "value": "휴게음식점 영업 신고 후 사업자등록을 진행합니다.",
+            },
+        }
+    )
+    source = record["source"]
+    assert isinstance(source, dict)
+    source.update(
+        {
+            "title": "커피전문점 영업신고 및 사업자등록",
+            "source_ref": source_ref,
+            "authority": "PRIMARY_OFFICIAL",
+            "source_type": "WEB",
+            "published_or_data_date": "2026-07-15",
+            "document_version": "easylaw-csmSeq-706@2026-07-15",
+            "checksum": "sha256:" + "a" * 64,
+        }
+    )
+    record["original_anchor"] = {
+        "anchor_type": "SECTION",
+        "locator": f"{source_ref}#section=registration",
+        "excerpt_hash": "sha256:" + "b" * 64,
+    }
+    return record
+
+
 def test_projects_grounded_market_signals_with_source_and_caveat() -> None:
     calculated = CalculateGateRankStageHandler().execute(
         calculation_context(evidence_records=complete_independent_finance())
@@ -188,3 +225,59 @@ def test_does_not_project_unlinked_or_conflicting_market_evidence() -> None:
     )[0]
 
     assert projected["market_signals"] == []
+
+
+def test_projects_accepted_official_documents_and_explicit_gaps() -> None:
+    calculated = CalculateGateRankStageHandler().execute(
+        calculation_context(evidence_records=complete_independent_finance())
+    )["calculate_gate_rank"]
+    assert isinstance(calculated, dict)
+    candidate = calculated["candidates"][0]
+    records = calculated["evidence_records"]
+    procedure = official_document_evidence(
+        "evidence-official-procedure",
+        claim_type="CAFE_OPENING_REQUIRED_PROCEDURES",
+    )
+    candidate["proposal"]["evidence_refs"] = [procedure["evidence_id"]]
+
+    projected = project_candidate_results(
+        [candidate],
+        project_id="project-1",
+        state_version=1,
+        evidence_records=[*records, procedure],
+    )[0]
+
+    assert projected["official_documents"] == [
+        {
+            "title": "커피전문점 영업신고 및 사업자등록",
+            "source_ref": "https://easylaw.go.kr/coffee-registration",
+            "data_date": "2026-07-15",
+            "freshness_status": "FRESH",
+            "document_version": "easylaw-csmSeq-706@2026-07-15",
+            "excerpt": "휴게음식점 영업 신고 후 사업자등록을 진행합니다.",
+            "purposes": ["창업 절차 확인"],
+            "evidence_refs": ["evidence-official-procedure"],
+            "used_in_candidate": True,
+        }
+    ]
+    assert projected["official_document_gaps"] == ["계약 전 확인 공식 문서"]
+
+
+def test_official_document_search_miss_is_not_fabricated() -> None:
+    calculated = CalculateGateRankStageHandler().execute(calculation_context())[
+        "calculate_gate_rank"
+    ]
+    assert isinstance(calculated, dict)
+
+    projected = project_candidate_results(
+        [calculated["candidates"][0]],
+        project_id="project-1",
+        state_version=1,
+        evidence_records=calculated["evidence_records"],
+    )[0]
+
+    assert projected["official_documents"] == []
+    assert projected["official_document_gaps"] == [
+        "창업 절차 공식 문서",
+        "계약 전 확인 공식 문서",
+    ]

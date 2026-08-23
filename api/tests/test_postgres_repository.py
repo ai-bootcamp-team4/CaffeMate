@@ -1565,7 +1565,7 @@ def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
         "search_cafe_observations",
         *(["retrieve_official_documents"] * 4),
         "list_franchise_universe",
-        *(["retrieve_official_documents"] * 2),
+        *(["retrieve_official_documents"] * 6),
     ]
     assert runtime.task_types == [
         "EVIDENCE_ASSESS",

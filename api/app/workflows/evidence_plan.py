@@ -51,11 +51,14 @@ class DeterministicEvidencePlanner:
             "FRANCHISE_UNIVERSE_ELIGIBILITY": self._structured_rule(
                 self._franchise_universe
             ),
-            "FRANCHISE_DISCLOSURE_AVAILABILITY": self._structured_rule(
-                self._franchise_universe
+            "FRANCHISE_DISCLOSURE_AVAILABILITY": self._rag_rule(
+                self._franchise_disclosure
             ),
             "CAFE_OPENING_REQUIRED_PROCEDURES": self._rag_rule(
                 self._opening_procedures
+            ),
+            "CAFE_CONTRACT_REQUIRED_CHECKS": self._rag_rule(
+                self._contract_required_checks
             ),
         }
 
@@ -440,6 +443,38 @@ class DeterministicEvidencePlanner:
             ),
             as_of=as_of,
             source_families=["LAW", "GOVERNMENT_GUIDE", "OFFICIAL_PROCEDURE"],
+        )
+
+    @classmethod
+    def _franchise_disclosure(
+        cls, claim: dict[str, Any], as_of: date
+    ) -> tuple[ActionSpec, ActionSpec]:
+        del claim
+        return cls._official_search(
+            support_query=(
+                "카페 프랜차이즈 정보공개서 가맹금 로열티 필수품목 계약기간 공식 자료"
+            ),
+            counter_query=(
+                "카페 프랜차이즈 정보공개서 변경 등록 오래된 공개서 미확인 계약 조건 공식 자료"
+            ),
+            as_of=as_of,
+            source_families=["FRANCHISE_DISCLOSURE"],
+        )
+
+    @classmethod
+    def _contract_required_checks(
+        cls, claim: dict[str, Any], as_of: date
+    ) -> tuple[ActionSpec, ActionSpec]:
+        del claim
+        return cls._official_search(
+            support_query=(
+                "카페 창업 상가 임대차 계약 권리금 계약 가맹 계약 필수 확인 공식 기준"
+            ),
+            counter_query=(
+                "상가 임대차 계약 해지 원상복구 갱신 권리금 회수 제한 불리한 조항 공식 자료"
+            ),
+            as_of=as_of,
+            source_families=["LAW", "GOVERNMENT_GUIDE"],
         )
 
 

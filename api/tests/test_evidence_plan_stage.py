@@ -114,15 +114,15 @@ def test_complete_plan_is_generated_without_agent_runtime() -> None:
     plan = result["evidence_plan"]
     assert isinstance(plan, dict)
     assert plan["status"] == "COMPLETE"
-    assert len(plan["claims"]) == 9
-    assert len(plan["claim_plans"]) == 9
-    assert len(actions(result)) == 18
+    assert len(plan["claims"]) == 10
+    assert len(plan["claim_plans"]) == 10
+    assert len(actions(result)) == 20
     assert plan["missing_claim_ids"] == []
     assert plan["reason_codes"] == []
     assert plan["planner_trace"]["planner_version"] == PLANNER_VERSION
     assert plan["planner_trace"]["plan_digest"].startswith("sha256:")
     assert {action["action_id"] for action in actions(result)} == {
-        f"action-{index:02d}" for index in range(1, 19)
+        f"action-{index:02d}" for index in range(1, 21)
     }
 
 
@@ -176,8 +176,13 @@ def test_rules_use_typed_tools_for_each_claim() -> None:
             "retrieve_official_documents"
         },
         "claim:FRANCHISE_UNIVERSE_ELIGIBILITY": {"list_franchise_universe"},
-        "claim:FRANCHISE_DISCLOSURE_AVAILABILITY": {"list_franchise_universe"},
+        "claim:FRANCHISE_DISCLOSURE_AVAILABILITY": {
+            "retrieve_official_documents"
+        },
         "claim:CAFE_OPENING_REQUIRED_PROCEDURES": {
+            "retrieve_official_documents"
+        },
+        "claim:CAFE_CONTRACT_REQUIRED_CHECKS": {
             "retrieve_official_documents"
         },
     }
@@ -186,9 +191,9 @@ def test_rules_use_typed_tools_for_each_claim() -> None:
 @pytest.mark.parametrize(
     ("preference", "claim_count", "action_count"),
     [
-        (CafeTypePreference.OPEN_TO_BOTH, 9, 18),
-        (CafeTypePreference.INDEPENDENT_ONLY, 7, 14),
-        (CafeTypePreference.FRANCHISE_ONLY, 7, 14),
+        (CafeTypePreference.OPEN_TO_BOTH, 10, 20),
+        (CafeTypePreference.INDEPENDENT_ONLY, 8, 16),
+        (CafeTypePreference.FRANCHISE_ONLY, 8, 16),
     ],
 )
 def test_branch_preferences_keep_plan_within_bounded_action_budget(

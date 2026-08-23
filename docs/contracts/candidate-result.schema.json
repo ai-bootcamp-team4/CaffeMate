@@ -140,6 +140,20 @@
         "$ref": "#/$defs/marketSignal"
       }
     },
+    "official_documents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/officialDocument"
+      }
+    },
+    "official_document_gaps": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
     "financial_summary": {
       "type": "object",
       "additionalProperties": false,
@@ -408,6 +422,44 @@
           "type": "string",
           "minLength": 1
         }
+      }
+    },
+    "officialDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "source_ref",
+        "data_date",
+        "freshness_status",
+        "document_version",
+        "excerpt",
+        "purposes",
+        "evidence_refs",
+        "used_in_candidate"
+      ],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "source_ref": { "type": "string", "minLength": 1 },
+        "data_date": { "type": ["string", "null"], "format": "date" },
+        "freshness_status": {
+          "enum": ["FRESH", "STALE", "UNKNOWN", "NOT_APPLICABLE"]
+        },
+        "document_version": { "type": "string", "minLength": 1 },
+        "excerpt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "purposes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "used_in_candidate": { "type": "boolean" }
       }
     },
     "moneyRange": {
