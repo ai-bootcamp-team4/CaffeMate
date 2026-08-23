@@ -36,7 +36,18 @@ class CandidateAuditStageHandler:
                 agent_trace=None,
             )
 
-        task = self._task_factory.build_candidate_audit(context)
+        try:
+            task = self._task_factory.build_candidate_audit(context)
+        except ContractValidationError:
+            return self._result(
+                candidates=candidates,
+                audit_status="UNAVAILABLE",
+                agent_status="ABSTAIN",
+                candidate_audits=[],
+                global_findings=[],
+                reason_codes=["CANDIDATE_AUDIT_INPUT_UNAVAILABLE"],
+                agent_trace=None,
+            )
         try:
             result = self._runtime.invoke(task)
         except ExternalExecutionUnavailableError as error:
