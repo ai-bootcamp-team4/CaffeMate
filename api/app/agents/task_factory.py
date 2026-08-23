@@ -48,7 +48,7 @@ FEEDBACK_ALLOWED_FIELD_PATHS = (
     "/founder/target_area_input",
 )
 
-MAX_EVIDENCE_ASSESS_CANDIDATES_PER_ACTION = 3
+MAX_EVIDENCE_ASSESS_CANDIDATES_PER_ACTION = 1
 
 
 def compute_agent_input_digest(task: dict[str, Any]) -> str:
