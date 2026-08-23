@@ -25,8 +25,8 @@
     "runtime": {
       "service_name": "caffemate-mcp",
       "region": "asia-northeast3",
-      "source_revision": "c563479b5005054b5836ea29419b5b84a20d5b84",
-      "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-backend/mcp@sha256:8a70f3e1e91f96949cbba1c189c6e196f3f87617715fce298b35d1c26c6a575a"
+      "source_revision": "9d624a505bbfeae9b893de00de9d83190afdc4b4",
+      "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-backend/mcp@sha256:77bd2f2f1cb769408a05bc77add82aea722b7c92ba9dc00a321e3059efd84ca4"
     }
   },
   "mcp_manifest_digest": "sha256:72ac3711d0b2500a90ef974bb7d6a11eaceff1c8108439624525f581202a184b",
