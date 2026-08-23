@@ -185,6 +185,7 @@ N0_NATIONWIDE_FACTS
 - 검색은 Claim 분해, corpus routing, source·문서 revision·기준일 metadata filter, semantic retrieval, Vertex AI Ranking API rerank, 원문 anchor 복구, entailment·단위·scope 검증과 반대 근거 검색 순서로 수행한다.
 - MCP의 RAG connector는 공급자 중립 검색 hit와 `source_trace`를 반환한다. Control API의 `EVIDENCE_RETRIEVAL` adapter가 현재 Claim type·지리 범위·기준일과 결합해 schema-valid `EvidenceRecord` 후보를 만든다. 출처 trace와 연결되지 않는 hit는 후보로 만들지 않고 `PARTIAL`로 남긴다.
 - RAG hit는 검색 성공일 뿐 확정 근거가 아니다. `EVIDENCE_ASSESS`가 관계·범위·날짜·신선도·anchor·권위를 수용한 후보만 Evidence Freeze에 들어간다.
+- 정형 MCP 조회는 지연을 제한하기 위해 action별 대표 지표 한 개만 `EVIDENCE_ASSESS`에 전달한다. 대표 지표가 수용되면 Control API는 같은 action·Claim·지역 범위의 `PRIMARY_DATA`·`DATASET` 지표 중 신선하고 충돌이 없으며 row anchor와 checksum을 가진 형제 지표를 결정론적으로 함께 동결한다. 이 확장은 웹·RAG·사용자 문서에는 적용하지 않는다.
 - 계약번호·사업자번호·브랜드 id·금액·날짜 같은 exact field는 Cloud SQL의 typed lookup을 병렬 사용한다. 이 결과와 RAG context는 같은 `EvidenceRecord` 검증을 통과해야 한다.
 - RAG Engine이 제공하는 hybrid search는 선택한 vector backend와 서울 리전에서 실제 지원되는 경우에만 사용한다. 지원되지 않으면 semantic retrieval과 exact lookup을 결합하며 기능을 허위 표기하지 않는다.
 - `asia-northeast3`의 Preview 위험은 승인된 구현 제약이다. corpus 생성, Layout Parser import, retrieval, metadata filter와 rerank read-back을 배포 Gate로 둔다.

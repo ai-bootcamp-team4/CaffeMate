@@ -163,7 +163,88 @@ class EvidenceFreezeStageHandler:
                 and value.get("authority_status") == "ACCEPTABLE"
             ):
                 accepted.add(candidate_ref)
-        return accepted
+        return EvidenceFreezeStageHandler._include_structured_metric_siblings(
+            assessment,
+            records,
+            accepted,
+        )
+
+    @staticmethod
+    def _include_structured_metric_siblings(
+        assessment: dict[str, Any],
+        records: dict[str, dict[str, Any]],
+        accepted_ids: set[str],
+    ) -> set[str]:
+        """Keep trusted sibling metrics from an assessed structured read.
+
+        The assessment task intentionally receives one representative Evidence
+        record per physical MCP result to keep Agent latency bounded. When that
+        representative is accepted, the complete retrieval result still contains
+        other metrics from the same Claim-scoped official dataset action. Those
+        siblings are deterministic facts, not additional semantic assertions, so
+        they may enter the snapshot without another model call when every guard
+        below holds. RAG, web, user-document, stale and conflicting records never
+        use this expansion path.
+        """
+        expanded = set(accepted_ids)
+        for action in assessment["executed_actions"]:
+            if not isinstance(action, dict):
+                raise ContractValidationError("Executed Evidence action is invalid")
+            structured = action.get("structured_result")
+            values = structured.get("evidence_records") if isinstance(structured, dict) else None
+            if not isinstance(values, list):
+                raise ContractValidationError("Evidence records are missing")
+
+            action_records = [
+                records[value["evidence_id"]]
+                for value in values
+                if isinstance(value, dict)
+                and isinstance(value.get("evidence_id"), str)
+                and value["evidence_id"] in records
+            ]
+            representatives = [
+                record
+                for record in action_records
+                if record["evidence_id"] in accepted_ids
+                and EvidenceFreezeStageHandler._is_expandable_structured_metric(record)
+            ]
+            if not representatives:
+                continue
+
+            for record in action_records:
+                if not EvidenceFreezeStageHandler._is_expandable_structured_metric(record):
+                    continue
+                if any(
+                    record.get("claim_type") == representative.get("claim_type")
+                    and record.get("geographic_scope")
+                    == representative.get("geographic_scope")
+                    for representative in representatives
+                ):
+                    expanded.add(record["evidence_id"])
+        return expanded
+
+    @staticmethod
+    def _is_expandable_structured_metric(record: dict[str, Any]) -> bool:
+        source = record.get("source")
+        anchor = record.get("original_anchor")
+        return (
+            isinstance(record.get("metric"), str)
+            and bool(record["metric"])
+            and record.get("value_kind") in {"EVIDENCED_FACT", "DERIVED_RESULT"}
+            and record.get("freshness_status") in {"FRESH", "NOT_APPLICABLE"}
+            and record.get("conflict_status") in {"NONE", "RESOLVED"}
+            and isinstance(source, dict)
+            and source.get("authority") == "PRIMARY_DATA"
+            and source.get("source_type") == "DATASET"
+            and isinstance(source.get("source_ref"), str)
+            and bool(source["source_ref"])
+            and isinstance(source.get("checksum"), str)
+            and bool(source["checksum"])
+            and isinstance(anchor, dict)
+            and anchor.get("anchor_type") in {"DATASET_ROW", "CALCULATION"}
+            and isinstance(anchor.get("locator"), str)
+            and bool(anchor["locator"])
+        )
 
     @staticmethod
     def _validated_conflicts(
