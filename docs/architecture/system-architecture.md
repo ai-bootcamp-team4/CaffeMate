@@ -73,7 +73,7 @@ Evidence로 승격하지 않는다. 모델·endpoint·리전을 바꾸는 자동
 
 Agent 호출은 역할별로 최적화한다. Control API는 전체 MCP 저장본에서 의미 판정에 필요한 rerank
 상위 Evidence만 투영하고, Runtime은 task별 사고 수준·출력 토큰·deadline을 release manifest에서
-고정한다. `EVIDENCE_ASSESS`는 bounded 분류 작업이므로 `low` 사고 수준과 최대 2,048 출력 토큰,
+고정한다. `EVIDENCE_ASSESS`는 bounded 분류 작업이므로 `low` 사고 수준과 최대 16,384 출력 토큰,
 60초 deadline을 사용한다. Proposal과 Candidate Audit도 제한된 seed·Evidence·계산 snapshot을
 구조화하는 역할이며, 비용 계산·Gate·순위·계약 검증은 결정론적 코드가 담당한다. 따라서 두 역할은
 `low` 사고 수준과 최대 4,096 출력 토큰을 사용한다. 문서 추출은 긴 문서 block의 의미 연결이

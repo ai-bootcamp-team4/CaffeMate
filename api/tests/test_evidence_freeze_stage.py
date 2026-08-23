@@ -89,6 +89,33 @@ def test_snapshot_id_and_digest_are_deterministic_for_same_frozen_input() -> Non
     assert first == second
 
 
+def test_repeated_retrieval_of_same_evidence_ignores_only_observation_time() -> None:
+    value = freeze_context()
+    assessment = value.dependency_results["EVIDENCE_ASSESS"]["evidence_assessment"]
+    repeated_action = deepcopy(assessment["executed_actions"][0])
+    repeated_record = repeated_action["structured_result"]["evidence_records"][0]
+    repeated_record["retrieved_at"] = "2026-08-21T09:00:01Z"
+    repeated_record["source"]["source_observed_at"] = "2026-08-21T09:00:01Z"
+    assessment["executed_actions"].append(repeated_action)
+
+    output = EvidenceFreezeStageHandler().execute(value)["evidence_freeze"]
+
+    assert len(output["evidence_records"]) == 1
+    assert output["evidence_records"][0]["retrieved_at"] == "2026-08-21T09:00:00Z"
+
+
+def test_repeated_evidence_id_with_changed_content_is_rejected() -> None:
+    value = freeze_context()
+    assessment = value.dependency_results["EVIDENCE_ASSESS"]["evidence_assessment"]
+    repeated_action = deepcopy(assessment["executed_actions"][0])
+    repeated_record = repeated_action["structured_result"]["evidence_records"][0]
+    repeated_record["value"] = {"kind": "INTEGER", "value": 99999}
+    assessment["executed_actions"].append(repeated_action)
+
+    with pytest.raises(ContractValidationError, match="conflicting immutable records"):
+        EvidenceFreezeStageHandler().execute(value)
+
+
 def test_cross_project_record_is_rejected_before_checkpoint() -> None:
     with pytest.raises(ContractValidationError, match="crossed project scope"):
         EvidenceFreezeStageHandler().execute(freeze_context(cross_project=True))

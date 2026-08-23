@@ -588,11 +588,13 @@ action 하나를 만든다. `OPEN_TO_BOTH`의 최대 9개 Claim은 18개 논리 
 
 `EVIDENCE_ASSESS`는 근거 간 의미 관계와 충돌을 판단해야 하므로 Agent 역할을 유지한다. Control
 API는 동일 Claim·tool·request의 중복 논리 action 중 한 개만 Agent 입력에 넣고, action별 rerank
-상위 세 Evidence record와 대응 source trace만 전달하며 provider-specific `data` 행은 제거한다.
+상위 한 개 Evidence record와 대응 source trace만 전달하며 provider-specific `data` 행은 제거한다.
 완전한 `executed_actions`는 별도로 보존하고 정상 Agent 결과가 boundary validator를 통과한 뒤
-Evidence Freeze에 전달한다.
+Evidence Freeze에 전달한다. 같은 source row 또는 RAG chunk가 여러 query에서 반복 조회된 경우
+내용·source version·checksum이 같으면 한 Evidence로 합치고 호출별 observation time 차이는 충돌로
+취급하지 않는다. 그 밖의 값이 다르면 동일 Evidence id 충돌로 거절한다.
 
-이 단계는 `low` 사고 수준, 최대 2,048 출력 토큰, 60초 deadline으로 고정한다. output schema의
+이 단계는 `low` 사고 수준, 최대 16,384 출력 토큰, 60초 deadline으로 고정한다. output schema의
 `assessments`와 `evidence_refs` 최대 개수는 입력의 unique Evidence 수로, missing과 conflict 최대
 개수는 Claim 수로 제한한다. timeout·transport·`MAX_TOKENS` 실패는 가짜 Agent 결과로 바꾸지 않고
 원래 Runtime code를 가진 명시적 Stage 실패로 남긴다. 이미 완료된 MCP 조회를 Agent 실패 때문에

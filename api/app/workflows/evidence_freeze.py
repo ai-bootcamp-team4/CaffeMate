@@ -84,7 +84,8 @@ class EvidenceFreezeStageHandler:
         project_id: str,
     ) -> dict[str, dict[str, Any]]:
         records: dict[str, dict[str, Any]] = {}
-        digests: dict[str, bytes] = {}
+        immutable_digests: dict[str, bytes] = {}
+        canonical_records: dict[str, bytes] = {}
         for action in assessment["executed_actions"]:
             if not isinstance(action, dict):
                 raise ContractValidationError("Executed Evidence action is invalid")
@@ -101,14 +102,42 @@ class EvidenceFreezeStageHandler:
                 if value["project_id"] != project_id:
                     raise ContractValidationError("Evidence record crossed project scope")
                 evidence_id = value["evidence_id"]
-                digest = hashlib.sha256(rfc8785.dumps(value)).digest()
-                if evidence_id in digests and digests[evidence_id] != digest:
+                immutable_digest = hashlib.sha256(
+                    self._immutable_record_bytes(value)
+                ).digest()
+                canonical_record = rfc8785.dumps(value)
+                if (
+                    evidence_id in immutable_digests
+                    and immutable_digests[evidence_id] != immutable_digest
+                ):
                     raise ContractValidationError(
                         "Evidence id refers to conflicting immutable records"
                     )
-                records[evidence_id] = value
-                digests[evidence_id] = digest
+                if (
+                    evidence_id not in canonical_records
+                    or canonical_record < canonical_records[evidence_id]
+                ):
+                    records[evidence_id] = value
+                    canonical_records[evidence_id] = canonical_record
+                immutable_digests[evidence_id] = immutable_digest
         return records
+
+    @staticmethod
+    def _immutable_record_bytes(value: dict[str, Any]) -> bytes:
+        """Exclude per-call observation times from immutable Evidence identity.
+
+        The same source row or RAG chunk can be returned by support and counter
+        searches milliseconds apart. Its content, source version and checksum are
+        immutable; retrieval timestamps describe the calls, not different facts.
+        """
+        stable = dict(value)
+        stable.pop("retrieved_at", None)
+        source = stable.get("source")
+        if isinstance(source, dict):
+            stable["source"] = {
+                key: item for key, item in source.items() if key != "source_observed_at"
+            }
+        return rfc8785.dumps(stable)
 
     @staticmethod
     def _accepted_evidence_ids(
