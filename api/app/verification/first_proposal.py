@@ -146,6 +146,13 @@ class PostgresFirstProposalCanaryCleaner:
                     ),
                     {"project_id": project_id},
                 )
+                # Evidence snapshots point to both stage runs and evidence records with
+                # RESTRICT semantics. Remove the canary-owned snapshots first so the
+                # project cascade cannot encounter those cross-branch references.
+                connection.execute(
+                    text("DELETE FROM evidence_snapshots WHERE project_id=:project_id"),
+                    {"project_id": project_id},
+                )
                 connection.execute(
                     text(
                         "DELETE FROM venture_projects "
