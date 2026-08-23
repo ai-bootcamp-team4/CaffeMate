@@ -36,7 +36,7 @@ describe('task registry', () => {
     expect(TASK_REGISTRY.EVIDENCE_PLAN.thinkingLevel).toBe('low')
     expect(TASK_REGISTRY.EVIDENCE_ASSESS).toMatchObject({
       thinkingLevel: 'low',
-      maxOutputTokens: 2048,
+      maxOutputTokens: 16384,
       deadlineSeconds: 60,
     })
     expect(TASK_REGISTRY.PROPOSE_INDEPENDENT).toMatchObject({
