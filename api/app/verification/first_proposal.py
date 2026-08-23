@@ -90,6 +90,7 @@ class FirstProposalCanaryReport:
     elapsed_ms: int
     candidate_count: int
     candidate_case_types: tuple[str, ...]
+    market_signals: tuple[dict[str, object], ...]
     result_freshness: str
 
     def as_dict(self) -> dict[str, object]:
@@ -101,6 +102,7 @@ class FirstProposalCanaryReport:
             "elapsed_ms": self.elapsed_ms,
             "candidate_count": self.candidate_count,
             "candidate_case_types": list(self.candidate_case_types),
+            "market_signals": list(self.market_signals),
             "result_freshness": self.result_freshness,
         }
 
@@ -400,6 +402,48 @@ class FirstProposalCanary:
         )
         if not case_types:
             raise FirstProposalCanaryError("CANARY_CANDIDATE_TYPE_INVALID")
+        market_signals = sorted(
+            (
+                {
+                    key: signal[key]
+                    for key in (
+                        "signal_type",
+                        "value",
+                        "unit",
+                        "data_date",
+                        "source_ref",
+                    )
+                }
+                for candidate in result.candidates
+                for signal in candidate.get("market_signals", [])
+                if isinstance(signal, dict)
+                and all(
+                    key in signal
+                    for key in (
+                        "signal_type",
+                        "value",
+                        "unit",
+                        "data_date",
+                        "source_ref",
+                    )
+                )
+            ),
+            key=lambda signal: str(signal["signal_type"]),
+        )
+        required_signal_types = {"CAFE_COUNT", "OPEN_COUNT", "ESTIMATED_SALES"}
+        observed_signal_types = {
+            str(signal["signal_type"]) for signal in market_signals
+        }
+        if not required_signal_types <= observed_signal_types:
+            raise FirstProposalCanaryError(
+                "CANARY_GROUNDED_MARKET_SIGNALS_MISSING",
+                {
+                    "missing_signal_types": sorted(
+                        required_signal_types - observed_signal_types
+                    ),
+                    "observed_signal_types": sorted(observed_signal_types),
+                },
+            )
         return FirstProposalCanaryReport(
             status="verified",
             workflow_status=progress.status.value,
@@ -411,6 +455,7 @@ class FirstProposalCanary:
             ),
             candidate_count=len(result.candidates),
             candidate_case_types=tuple(case_types),
+            market_signals=tuple(market_signals),
             result_freshness=result.freshness.value,
         )
 

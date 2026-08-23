@@ -149,6 +149,29 @@ def result() -> ResultView:
                 "candidate_id": "candidate-1",
                 "case_type": "INDEPENDENT",
                 "rank": 1,
+                "market_signals": [
+                    {
+                        "signal_type": "CAFE_COUNT",
+                        "value": 208,
+                        "unit": "STORES",
+                        "data_date": "2026-03-31",
+                        "source_ref": "https://data.seoul.go.kr/store",
+                    },
+                    {
+                        "signal_type": "OPEN_COUNT",
+                        "value": 9,
+                        "unit": "STORES_PER_QUARTER",
+                        "data_date": "2026-03-31",
+                        "source_ref": "https://data.seoul.go.kr/store",
+                    },
+                    {
+                        "signal_type": "ESTIMATED_SALES",
+                        "value": 2_596_733_728,
+                        "unit": "KRW_PER_QUARTER_ESTIMATE",
+                        "data_date": "2026-03-31",
+                        "source_ref": "https://data.seoul.go.kr/sales",
+                    },
+                ],
             }
         ],
         primary_candidate_id="candidate-1",
@@ -181,6 +204,29 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
         "elapsed_ms": 0,
         "candidate_count": 1,
         "candidate_case_types": ["INDEPENDENT"],
+        "market_signals": [
+            {
+                "signal_type": "CAFE_COUNT",
+                "value": 208,
+                "unit": "STORES",
+                "data_date": "2026-03-31",
+                "source_ref": "https://data.seoul.go.kr/store",
+            },
+            {
+                "signal_type": "ESTIMATED_SALES",
+                "value": 2_596_733_728,
+                "unit": "KRW_PER_QUARTER_ESTIMATE",
+                "data_date": "2026-03-31",
+                "source_ref": "https://data.seoul.go.kr/sales",
+            },
+            {
+                "signal_type": "OPEN_COUNT",
+                "value": 9,
+                "unit": "STORES_PER_QUARTER",
+                "data_date": "2026-03-31",
+                "source_ref": "https://data.seoul.go.kr/store",
+            },
+        ],
         "result_freshness": "CURRENT",
     }
     assert projects.founder is not None
@@ -191,6 +237,27 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
     assert projects.area.source_revision == "MOIS_LEGAL_DONG_20260301"
     assert cleaner.calls == [("canary-project", "first-proposal-canary-probe")]
     assert not workflows.cancelled
+
+
+def test_canary_rejects_result_without_required_grounded_market_signals() -> None:
+    ungrounded = result()
+    ungrounded.candidates[0]["market_signals"] = []
+    cleaner = FakeCleaner()
+    canary = FirstProposalCanary(
+        projects=FakeProjects(),
+        workflows=FakeWorkflows(progress(WorkflowStatus.SUCCEEDED)),
+        results=FakeResults(ungrounded),
+        cleaner=cleaner,
+        new_id=lambda: "ungrounded",
+    )
+
+    with pytest.raises(
+        FirstProposalCanaryError,
+        match="CANARY_GROUNDED_MARKET_SIGNALS_MISSING",
+    ):
+        canary.run(timeout_seconds=10, poll_interval_seconds=1)
+
+    assert cleaner.calls == [("canary-project", "first-proposal-canary-ungrounded")]
 
 
 def test_canary_rejects_hidden_stage_retry_and_still_cleans() -> None:

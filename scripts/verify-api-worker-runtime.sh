@@ -678,6 +678,11 @@ assert report["max_stage_attempt"] == 1
 assert report["elapsed_ms"] <= 120_000, report
 assert report["candidate_count"] >= 1
 assert report["result_freshness"] == "CURRENT"
+signals = report.get("market_signals", [])
+required_signal_types = {"CAFE_COUNT", "OPEN_COUNT", "ESTIMATED_SALES"}
+assert required_signal_types <= {row.get("signal_type") for row in signals}, report
+assert all(row.get("value") is not None for row in signals)
+assert all(row.get("data_date") and row.get("source_ref") for row in signals)
 print("PASS FIRST_PROPOSAL traversed all 13 production stages to a current result card")
 PY
 unset canary_reports
