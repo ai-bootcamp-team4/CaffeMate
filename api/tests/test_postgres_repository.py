@@ -1845,6 +1845,63 @@ def test_first_proposal_canary_cleaner_removes_only_generated_project_artifacts(
         workflow_code=WorkflowCode.FIRST_PROPOSAL,
         idempotency_key="canary-workflow",
     )
+    with postgres_engine.begin() as connection:
+        freeze_stage_id = connection.execute(
+            text(
+                "SELECT stage_run_id FROM stage_runs "
+                "WHERE workflow_run_id=:run_id AND stage_code='EVIDENCE_FREEZE'"
+            ),
+            {"run_id": run.workflow_run_id},
+        ).scalar_one()
+        connection.execute(
+            text(
+                """
+                INSERT INTO evidence_records(
+                    project_id, evidence_id, record_json, record_digest, created_at
+                ) VALUES (
+                    :project_id, 'canary-evidence', CAST(:record_json AS JSONB),
+                    :record_digest, :created_at
+                )
+                """
+            ),
+            {
+                "project_id": canary.project_id,
+                "record_json": json.dumps({"canary": True}),
+                "record_digest": "a" * 64,
+                "created_at": datetime.now(UTC),
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO evidence_snapshots(
+                    evidence_snapshot_id, project_id, workflow_run_id,
+                    source_stage_run_id, snapshot_json, snapshot_digest, created_at
+                ) VALUES (
+                    'canary-snapshot', :project_id, :run_id, :stage_id,
+                    CAST(:snapshot_json AS JSONB), :snapshot_digest, :created_at
+                )
+                """
+            ),
+            {
+                "project_id": canary.project_id,
+                "run_id": run.workflow_run_id,
+                "stage_id": freeze_stage_id,
+                "snapshot_json": json.dumps({"canary": True}),
+                "snapshot_digest": "sha256:" + "b" * 64,
+                "created_at": datetime.now(UTC),
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO evidence_snapshot_records(
+                    evidence_snapshot_id, project_id, evidence_id
+                ) VALUES ('canary-snapshot', :project_id, 'canary-evidence')
+                """
+            ),
+            {"project_id": canary.project_id},
+        )
 
     PostgresFirstProposalCanaryCleaner(postgres_engine).cleanup(
         project_id=canary.project_id,
@@ -1854,6 +1911,14 @@ def test_first_proposal_canary_cleaner_removes_only_generated_project_artifacts(
     with postgres_engine.connect() as connection:
         assert connection.execute(
             text("SELECT COUNT(*) FROM venture_projects WHERE project_id=:project_id"),
+            {"project_id": canary.project_id},
+        ).scalar_one() == 0
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM evidence_snapshots WHERE project_id=:project_id"),
+            {"project_id": canary.project_id},
+        ).scalar_one() == 0
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM evidence_records WHERE project_id=:project_id"),
             {"project_id": canary.project_id},
         ).scalar_one() == 0
         assert connection.execute(
