@@ -425,7 +425,11 @@ class AgentRuntimeHttpClient:
                 json=body,
                 timeout=request_timeout,
             ) as response:
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError:
+                    await response.aread()
+                    raise
                 events = []
                 async for line in response.aiter_lines():
                     self._ensure_stream_budget(task)
