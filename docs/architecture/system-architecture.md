@@ -174,12 +174,24 @@ PostGIS는 행정동·생활권·점포 관측의 공간 결합에 사용한다.
 
 BigQuery는 분석·재생성 가능한 자료를 보관한다. 사용자별 transactional State를 저장하지 않는다.
 
+첫 운영 적재 경로는 공식 원천을 주기적으로 읽는 Cloud Run Job이다. 원 응답과 공급자 파일은
+별도 grounding 버킷의 digest 기반 불변 경로에 저장하고, 품질검사를 통과한 정규화 행만
+`caffemate_grounding` dataset에 versioned snapshot으로 추가한다. Cloud Scheduler는 공급자 갱신보다
+과도하게 자주 호출하지 않으며 서울 분기 자료는 주간 점검과 배포 전 수동 실행을 사용한다.
+MCP는 최신 `APPROVED` manifest가 가리키는 snapshot만 읽는다.
+
 ### Cloud Storage
 
 - 공식 원문 revision
 - 사용자 업로드 원본
 - OCR·layout parsing 산출물
 - checksum과 immutable source identity
+
+공개 grounding 원본은 사용자 문서 버킷과 분리된
+`${GCP_PROJECT_ID}-caffemate-grounding`에 저장한다. `raw/{ingestion_id}`,
+`manifests/{ingestion_id}.json`, `approvals/{ingestion_id}.json`을 사용하고 versioning과 uniform
+bucket-level access를 강제한다. 공개 원천이라도 API 비밀값이 포함된 요청 URL은 manifest와 로그에
+기록하지 않는다.
 
 사용자 문서는 project 경로와 IAM으로 격리한다. 영구 공개 URL을 만들지 않는다.
 
