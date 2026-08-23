@@ -177,6 +177,40 @@ export interface CandidateSelection {
   document_intake_enabled: boolean
 }
 
+export type ProcedureType = 'BUSINESS_REGISTRATION' | 'FOOD_SERVICE_REPORT' | 'FACILITY_REQUIREMENTS' | 'HYGIENE_EDUCATION' | 'SIGNAGE' | 'FIRE_SAFETY'
+
+export interface PreparationProcedure {
+  procedure_type: ProcedureType
+  status: 'OK' | 'PARTIAL' | 'STALE' | 'NOT_FOUND' | 'ERROR'
+  steps: Array<{
+    procedure_type: ProcedureType
+    step_order: number
+    title: string
+    required: boolean
+    authority: string
+    source_date: string
+    evidence_id: string
+  }>
+  missing_fields: string[]
+  conflicts: string[]
+  error_codes: string[]
+}
+
+export interface PreparationGuide {
+  project_id: string
+  selection_id: string
+  candidate_id: string
+  candidate_type: string
+  jurisdiction_code: string
+  jurisdiction_display_name: string | null
+  as_of: string
+  status: 'COMPLETE' | 'REVIEW_REQUIRED' | 'UNAVAILABLE'
+  procedures: PreparationProcedure[]
+  human_actions_only: boolean
+  external_submission_performed: boolean
+  generated_at: string
+}
+
 export interface ControlApiClient {
   createProject(): Promise<Project>
   listProjects(): Promise<Project[]>
@@ -189,6 +223,7 @@ export interface ControlApiClient {
   confirmFeedback(projectId: string, preview: FeedbackPreview): Promise<FeedbackResolution>
   cancelFeedback(projectId: string, previewId: string): Promise<FeedbackResolution>
   selectCandidate(projectId: string, result: ResultView, candidateId: string): Promise<CandidateSelection>
+  getPreparationGuide(projectId: string, selectionId: string): Promise<PreparationGuide>
 }
 
 export class ControlApiError extends Error {
@@ -265,6 +300,7 @@ export function createControlApiClient(
       method: 'POST',
       body: JSON.stringify({ result_bundle_id: result.result_bundle_id, candidate_id: candidateId, expected_head: result.current_head }),
     }, true),
+    getPreparationGuide: (projectId, selectionId) => request(`/v1/projects/${projectId}/candidate-selections/${selectionId}/preparation-guide`),
   }
 }
 

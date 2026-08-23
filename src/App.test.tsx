@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type { AuthGateway, AuthSession } from './auth'
-import type { AreaSearchResult, ControlApiClient, HeadFence, Project, ResultView, WorkflowProgress } from './apiClient'
+import type { AreaSearchResult, ControlApiClient, HeadFence, PreparationGuide, Project, ResultView, WorkflowProgress } from './apiClient'
 
 afterEach(cleanup)
 
@@ -79,8 +79,27 @@ const result: ResultView = {
 
 const workflow = { workflow_run_id: 'workflow-1', project_id: 'project-1', workflow_code: 'FIRST_PROPOSAL' as const, status: 'SUCCEEDED' as const, head, created_at: '2026-08-22T00:01:00Z', updated_at: '2026-08-22T00:02:00Z' }
 const progress: WorkflowProgress = { ...workflow, completed_stage_count: 9, total_stage_count: 9, current_stage_codes: [], terminal_reason_codes: [], human_review_requests: [], poll_after_ms: null }
+const preparationGuide: PreparationGuide = {
+  project_id: 'project-1',
+  selection_id: 'selection-1',
+  candidate_id: 'candidate-1',
+  candidate_type: 'FRANCHISE',
+  jurisdiction_code: '4111756000',
+  jurisdiction_display_name: '경기도 수원시 영통구 원천동',
+  as_of: '2026-08-23',
+  status: 'REVIEW_REQUIRED',
+  procedures: [{
+    procedure_type: 'HYGIENE_EDUCATION',
+    status: 'OK',
+    steps: [{ procedure_type: 'HYGIENE_EDUCATION', step_order: 1, title: '신규 영업자 위생교육 이수', required: true, authority: '관할 위생교육기관', source_date: '2026-08-23', evidence_id: 'evidence-procedure-1' }],
+    missing_fields: [], conflicts: [], error_codes: [],
+  }],
+  human_actions_only: true,
+  external_submission_performed: false,
+  generated_at: '2026-08-23T00:00:00Z',
+}
 
-function setup() {
+function setup(nextResult: ResultView = result) {
   const session: AuthSession = { uid: 'user-1', displayName: '민석', getIdToken: vi.fn(async () => 'id-token'), signOut: vi.fn(async () => undefined) }
   const authGateway: AuthGateway = { restoreSession: vi.fn(async () => null), signIn: vi.fn(async () => session) }
   const client: ControlApiClient = {
@@ -107,11 +126,12 @@ function setup() {
     confirmOnboarding: vi.fn(async () => project),
     startFirstProposal: vi.fn(async () => workflow),
     getWorkflow: vi.fn(async () => progress),
-    getResult: vi.fn(async () => result),
+    getResult: vi.fn(async () => nextResult),
     createFeedbackPreview: vi.fn(async () => { throw new Error('not used') }),
     confirmFeedback: vi.fn(async () => { throw new Error('not used') }),
     cancelFeedback: vi.fn(async () => { throw new Error('not used') }),
-    selectCandidate: vi.fn(async () => ({ selection_id: 'selection-1', candidate_id: 'candidate-1', required_evidence: [], property_intake_enabled: true, document_intake_enabled: true })),
+    selectCandidate: vi.fn(async () => ({ selection_id: 'selection-1', candidate_id: 'candidate-1', required_evidence: [{ code: 'LEASE', title: '점포 임대 조건', status: 'REQUIRED', reason: '보증금·월세·권리금을 실제 값으로 확인합니다.' }], property_intake_enabled: true, document_intake_enabled: true })),
+    getPreparationGuide: vi.fn(async () => preparationGuide),
   }
   render(<App authGateway={authGateway} apiFactory={() => client} />)
   return { authGateway, client }
@@ -158,12 +178,45 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.queryByText(/가상 목업값/)).toBeNull()
   })
 
+  it('renders the primary proposal and two comparison proposals returned by the API', async () => {
+    const comparisonResult: ResultView = {
+      ...result,
+      candidates: [
+        result.candidates[0],
+        { ...result.candidates[0], candidate_id: 'candidate-2', display_name: '소형 포장 중심 개인카페', rank: 2, is_primary_next_review: false },
+        { ...result.candidates[0], candidate_id: 'candidate-3', display_name: '좌석 중심 개인카페', rank: 3, is_primary_next_review: false },
+      ],
+    }
+    setup(comparisonResult)
+    await completeOnboarding()
+
+    expect(screen.getByText('검토 후보 3개')).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /소형 포장 중심 개인카페/ })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /좌석 중심 개인카페/ })).toBeTruthy()
+  })
+
   it('persists an explicit next-preparation selection through the API', async () => {
     const { client } = setup()
     await completeOnboarding()
-    fireEvent.click(screen.getByRole('button', { name: '실제 점포 비용으로 다시 보기' }))
+    fireEvent.click(screen.getByRole('button', { name: '이 안을 계속 검토하기' }))
     await waitFor(() => expect(client.selectCandidate).toHaveBeenCalledWith('project-1', result, 'candidate-1'))
-    expect(await screen.findByText(/다음 준비 대상으로 선택했습니다/)).toBeTruthy()
+    await waitFor(() => expect(client.getPreparationGuide).toHaveBeenCalledWith('project-1', 'selection-1'))
+    expect(await screen.findByRole('heading', { name: '실제 검증 브랜드의 실제 준비를 시작해요' })).toBeTruthy()
+    expect(screen.getByText('점포 임대 조건')).toBeTruthy()
+    expect(screen.getByText('신규 영업자 위생교육 이수')).toBeTruthy()
+    expect(screen.queryByText('다음 준비 완료')).toBeNull()
+  })
+
+  it('keeps the selected checklist usable when official procedure lookup fails', async () => {
+    const { client } = setup()
+    vi.mocked(client.getPreparationGuide).mockRejectedValueOnce(new Error('temporary procedure lookup failure'))
+    await completeOnboarding()
+
+    fireEvent.click(screen.getByRole('button', { name: '이 안을 계속 검토하기' }))
+
+    expect(await screen.findByRole('heading', { name: '실제 검증 브랜드의 실제 준비를 시작해요' })).toBeTruthy()
+    expect(screen.getByText('점포 임대 조건')).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '공식 절차 다시 확인하기' })).toBeTruthy()
   })
 
   it('shows the funding gap first and prepares a smaller-model feedback request', async () => {

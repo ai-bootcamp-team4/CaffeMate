@@ -8,7 +8,7 @@ from app.domain.errors import ContractValidationError
 from app.workflows.models import StageControl
 from app.workflows.stage_context import StageContext
 
-FIRST_PROPOSAL_RUNTIME_CANDIDATE_LIMIT = 1
+FIRST_PROPOSAL_RUNTIME_CANDIDATE_LIMIT = 3
 
 
 class CandidateInputProjection:

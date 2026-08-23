@@ -154,7 +154,7 @@ def test_default_registry_exposes_three_calculable_operating_models() -> None:
         "중소형 균형 개인카페",
         "좌석 중심 개인카페",
     ]
-    assert output["proposal_input"]["requested_candidate_count"] == 1
+    assert output["proposal_input"]["requested_candidate_count"] == 3
     assert selected_registry.get("independent-small-takeout-v1").finance_profile is not None
 
 
