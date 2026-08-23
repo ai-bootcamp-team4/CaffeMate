@@ -23,6 +23,7 @@ const handler = createCaffeMateMcpHttpHandler({
     officialCorpusResource: required('RAG_OFFICIAL_CORPUS_RESOURCE'),
     accessToken: () => googleCloud.accessToken(),
     jusoApiKey: process.env.JUSO_API_KEY,
+    groundingDatasetId: process.env.CAFFEMATE_GROUNDING_DATASET,
   }),
 })
 

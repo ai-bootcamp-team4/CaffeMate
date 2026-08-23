@@ -3,6 +3,8 @@
   "manifest_digest": "sha256:72ac3711d0b2500a90ef974bb7d6a11eaceff1c8108439624525f581202a184b",
   "tools": [
     "resolve_area",
+    "get_area_profile",
+    "search_cafe_observations",
     "retrieve_official_documents",
     "get_source_health"
   ]

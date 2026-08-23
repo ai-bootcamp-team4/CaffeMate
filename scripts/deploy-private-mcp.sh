@@ -57,6 +57,10 @@ gcloud projects add-iam-policy-binding "$project_id" \
   --member="serviceAccount:${runtime_sa}" --role="$mcp_retriever_role" --quiet >/dev/null
 gcloud projects add-iam-policy-binding "$project_id" \
   --member="serviceAccount:${runtime_sa}" --role='roles/serviceusage.serviceUsageConsumer' --quiet >/dev/null
+gcloud projects add-iam-policy-binding "$project_id" \
+  --member="serviceAccount:${runtime_sa}" --role='roles/bigquery.jobUser' --quiet >/dev/null
+gcloud projects add-iam-policy-binding "$project_id" \
+  --member="serviceAccount:${runtime_sa}" --role='roles/bigquery.dataViewer' --quiet >/dev/null
 remove_project_role_binding "serviceAccount:${runtime_sa}" 'roles/aiplatform.user'
 remove_project_role_binding "serviceAccount:${runtime_sa}" 'roles/discoveryengine.viewer'
 
@@ -86,7 +90,7 @@ fi
 
 gcloud run deploy "$service_name" --project="$project_id" --region="$region" --image="$image" \
   --service-account="$runtime_sa" --port=8080 --ingress=all --no-allow-unauthenticated \
-  --set-env-vars="MCP_AUDIENCE=${audience},MCP_ALLOWED_CALLER_EMAIL=${api_sa},CAFFEMATE_GCP_PROJECT_ID=${project_id},RAG_OFFICIAL_CORPUS_RESOURCE=${official_rag_corpus_resource}" \
+  --set-env-vars="MCP_AUDIENCE=${audience},MCP_ALLOWED_CALLER_EMAIL=${api_sa},CAFFEMATE_GCP_PROJECT_ID=${project_id},CAFFEMATE_GROUNDING_DATASET=caffemate_grounding,RAG_OFFICIAL_CORPUS_RESOURCE=${official_rag_corpus_resource}" \
   --set-secrets='MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest,JUSO_API_KEY=caffemate-juso-api-key:latest' \
   --cpu=1 --memory=512Mi --min=0 --max=10 \
   --labels="source-revision=${source_revision},build-id=${build_id},managed-by=caffemate-deploy" --quiet >/dev/null

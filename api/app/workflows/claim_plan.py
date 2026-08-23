@@ -67,7 +67,11 @@ class ClaimPlanStageHandler:
         # Keep claims complete, but expose only connectors that are wired in the
         # deployed FIRST_PROPOSAL retrieval path. Unsupported claims remain
         # explicit missing evidence instead of becoming guaranteed MCP errors.
-        allowed_tools = {"retrieve_official_documents"}
+        allowed_tools = {
+            "get_area_profile",
+            "retrieve_official_documents",
+            "search_cafe_observations",
+        }
         preference = context.state.founder.cafe_type_preference
         if preference in {
             CafeTypePreference.OPEN_TO_BOTH,

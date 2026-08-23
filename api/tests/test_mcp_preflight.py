@@ -116,7 +116,7 @@ def test_preflight_consumes_all_pages_and_matches_checked_in_digest() -> None:
     report = run(preflight(mock_transport()))
 
     assert report.protocol_revision == "2026-07-28"
-    assert report.tool_count == 3
+    assert report.tool_count == 5
     assert report.manifest_digest == (
         "72ac3711d0b2500a90ef974bb7d6a11eaceff1c8108439624525f581202a184b"
     )
