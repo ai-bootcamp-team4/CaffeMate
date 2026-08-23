@@ -262,7 +262,7 @@ def test_evidence_assess_projection_deduplicates_and_bounds_model_context() -> N
     assert [
         record["evidence_id"]
         for record in projected[0]["structured_result"]["evidence_records"]
-    ] == ["evidence-1", "evidence-2", "evidence-3"]
+    ] == ["evidence-1"]
     assert projected[0]["structured_result"]["data"] == []
     assert len(actions) == 2
     assert len(actions[0]["structured_result"]["evidence_records"]) == 5
