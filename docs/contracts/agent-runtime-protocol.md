@@ -113,7 +113,9 @@ Runtime 내부 session 삭제 완료까지 기다린다. 단지 동일 Runtime�
 
 운영 검증은 Control API identity로 ephemeral stream을 실제 호출해 session 생성·Agent 실행·typed
 final 검증·삭제가 모두 끝난 경우에만 통과한다. 이어 FIRST_PROPOSAL canary에서 세 역할의 generation
-telemetry와 validation telemetry가 모두 존재하고 Stage attempt가 1인지 확인한다. 2026-08-23
+telemetry와 validation telemetry가 모두 존재하고 Stage attempt가 1인지 확인한다. 별도
+`FRANCHISE_ONLY` canary는 결과가 프랜차이즈 후보만 포함하며, 검토 가능한 후보에 실제 브랜드 ID,
+`VERIFIED` 개인 가맹 적격성, 유효한 순위가 있는지 확인한다. 2026-08-23
 첫 검증에서는 세 역할 모두 `STOP`, repair 0, `VALID`였고 13단계가 47.917초에 끝났다.
 semantic-only model output과 Runtime envelope hydration 배포 뒤 같은 검증은 39.620초에 끝났고,
 세 역할은 계속 `STOP`, repair 0, `VALID`를 유지했다. 이 수치 비교의 세부 request byte와 token은

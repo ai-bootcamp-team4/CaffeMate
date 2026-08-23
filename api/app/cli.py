@@ -19,6 +19,7 @@ from app.database import create_database_handle
 from app.documents.extraction import DocumentExtractionService
 from app.documents.service import DocumentService
 from app.documents.storage import GoogleCloudDocumentStorage
+from app.domain.models import CafeTypePreference
 from app.mcp.client import GoogleIdentityTokenProvider
 from app.mcp.preflight import McpManifestPreflight
 from app.mcp.scope import ScopeTokenSigner
@@ -115,6 +116,11 @@ def main() -> None:
         "--agent-fixture-id", default="evidence_plan-complete"
     )
     parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument(
+        "--cafe-type-preference",
+        choices=[preference.value for preference in CafeTypePreference],
+        default=CafeTypePreference.OPEN_TO_BOTH.value,
+    )
     arguments = parser.parse_args()
     if arguments.repeat < 1 or arguments.repeat > 20:
         parser.error("repeat must be between 1 and 20")
@@ -320,6 +326,9 @@ def main() -> None:
             ).run(
                 timeout_seconds=arguments.timeout_seconds,
                 poll_interval_seconds=arguments.poll_interval_seconds,
+                cafe_type_preference=CafeTypePreference(
+                    arguments.cafe_type_preference
+                ),
             )
         except FirstProposalCanaryError as error:
             print(

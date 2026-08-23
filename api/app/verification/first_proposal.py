@@ -84,24 +84,30 @@ class FirstProposalCanaryError(RuntimeError):
 @dataclass(frozen=True)
 class FirstProposalCanaryReport:
     status: str
+    requested_cafe_type_preference: str
     workflow_status: str
     stage_count: int
     max_stage_attempt: int
     elapsed_ms: int
     candidate_count: int
     candidate_case_types: tuple[str, ...]
+    franchise_candidate_brand_ids: tuple[str, ...]
     market_signals: tuple[dict[str, object], ...]
     result_freshness: str
 
     def as_dict(self) -> dict[str, object]:
         return {
             "status": self.status,
+            "requested_cafe_type_preference": self.requested_cafe_type_preference,
             "workflow_status": self.workflow_status,
             "stage_count": self.stage_count,
             "max_stage_attempt": self.max_stage_attempt,
             "elapsed_ms": self.elapsed_ms,
             "candidate_count": self.candidate_count,
             "candidate_case_types": list(self.candidate_case_types),
+            "franchise_candidate_brand_ids": list(
+                self.franchise_candidate_brand_ids
+            ),
             "market_signals": list(self.market_signals),
             "result_freshness": self.result_freshness,
         }
@@ -222,6 +228,7 @@ class FirstProposalCanary:
         *,
         timeout_seconds: float,
         poll_interval_seconds: float,
+        cafe_type_preference: CafeTypePreference = CafeTypePreference.OPEN_TO_BOTH,
     ) -> FirstProposalCanaryReport:
         if timeout_seconds <= 0 or poll_interval_seconds <= 0:
             raise ValueError("Canary timeout and poll interval must be positive")
@@ -242,7 +249,7 @@ class FirstProposalCanary:
                     target_area_input="서울특별시 마포구 망원동",
                     own_funds_krw=70_000_000,
                     borrowing_intent=BorrowingIntent.UNDECIDED,
-                    cafe_type_preference=CafeTypePreference.OPEN_TO_BOTH,
+                    cafe_type_preference=cafe_type_preference,
                     operation_mode=OperationMode.DIRECT_FULL_TIME,
                     preferences=["대학가 생활권", "개인카페와 프랜차이즈 비교"],
                 ),
@@ -280,6 +287,7 @@ class FirstProposalCanary:
                 user_id=user_id,
                 workflow_run_id=workflow.workflow_run_id,
                 progress=progress,
+                cafe_type_preference=cafe_type_preference,
             )
         except Exception:
             if project is not None and workflow is not None:
@@ -330,6 +338,7 @@ class FirstProposalCanary:
         user_id: str,
         workflow_run_id: str,
         progress: WorkflowProgress,
+        cafe_type_preference: CafeTypePreference,
     ) -> FirstProposalCanaryReport:
         if progress.status != WorkflowStatus.SUCCEEDED:
             raise FirstProposalCanaryError(
@@ -400,12 +409,41 @@ class FirstProposalCanary:
                 if candidate.get("case_type") in {"INDEPENDENT", "FRANCHISE"}
             }
         )
-        required_case_types = {"INDEPENDENT", "FRANCHISE"}
-        missing_case_types = sorted(required_case_types - set(case_types))
-        if missing_case_types:
+        expected_case_types = {
+            CafeTypePreference.OPEN_TO_BOTH: {"INDEPENDENT", "FRANCHISE"},
+            CafeTypePreference.INDEPENDENT_ONLY: {"INDEPENDENT"},
+            CafeTypePreference.FRANCHISE_ONLY: {"FRANCHISE"},
+        }[cafe_type_preference]
+        if set(case_types) != expected_case_types:
             raise FirstProposalCanaryError(
                 "CANARY_CANDIDATE_TYPE_INVALID",
-                {"missing_candidate_case_types": missing_case_types},
+                {
+                    "requested_cafe_type_preference": cafe_type_preference.value,
+                    "expected_candidate_case_types": sorted(expected_case_types),
+                    "observed_candidate_case_types": case_types,
+                },
+            )
+        franchise_brand_ids = sorted(
+            {
+                str(franchise["brand_id"])
+                for candidate in result.candidates
+                if candidate.get("case_type") == "FRANCHISE"
+                and candidate.get("review_status")
+                in {"REVIEW_RECOMMENDED", "CONDITIONAL_REVIEW"}
+                and isinstance(candidate.get("rank"), int)
+                and isinstance((franchise := candidate.get("franchise")), dict)
+                and franchise.get("eligibility") == "VERIFIED"
+                and isinstance(franchise.get("brand_id"), str)
+                and franchise["brand_id"]
+            }
+        )
+        if "FRANCHISE" in expected_case_types and not franchise_brand_ids:
+            raise FirstProposalCanaryError(
+                "CANARY_VERIFIED_FRANCHISE_CANDIDATE_MISSING",
+                {
+                    "requested_cafe_type_preference": cafe_type_preference.value,
+                    "candidate_count": len(result.candidates),
+                },
             )
         market_signals = sorted(
             (
@@ -460,6 +498,7 @@ class FirstProposalCanary:
             )
         return FirstProposalCanaryReport(
             status="verified",
+            requested_cafe_type_preference=cafe_type_preference.value,
             workflow_status=progress.status.value,
             stage_count=len(progress.stages),
             max_stage_attempt=max(stage.attempt for stage in progress.stages),
@@ -469,6 +508,7 @@ class FirstProposalCanary:
             ),
             candidate_count=len(result.candidates),
             candidate_case_types=tuple(case_types),
+            franchise_candidate_brand_ids=tuple(franchise_brand_ids),
             market_signals=tuple(market_signals),
             result_freshness=result.freshness.value,
         )

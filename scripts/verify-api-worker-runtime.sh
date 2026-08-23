@@ -602,14 +602,16 @@ unset document_canary_reports document_agent_generations document_agent_validati
 first_proposal_job='caffemate-first-proposal-canary'
 configure_first_proposal_job() {
   action=$1
-  gcloud run jobs "$action" "$first_proposal_job" \
+  job_name=$2
+  cafe_type_preference=$3
+  gcloud run jobs "$action" "$job_name" \
     --project="$project_id" --region="$region" \
     --image="$api_image" --service-account="$api_sa" \
     --set-cloudsql-instances="$configured_instance" \
     --set-env-vars="INSTANCE_CONNECTION_NAME=${configured_instance},DB_USER=${configured_db_user},DB_NAME=${configured_db_name},CLOUD_SQL_IP_TYPE=${configured_db_ip_type},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},CAFFEMATE_POLICY_SNAPSHOT_ID=${configured_policy}" \
     --set-secrets='DB_PASS=caffemate-db-password:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
     --command=caffemate-api \
-    --args='verify-first-proposal,--timeout-seconds=1200,--poll-interval-seconds=3' \
+    --args="verify-first-proposal,--timeout-seconds=1200,--poll-interval-seconds=3,--cafe-type-preference=${cafe_type_preference}" \
     --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=25m \
     --cpu=1 --memory=512Mi \
     --labels="source-revision=${source_revision},managed-by=caffemate-verify" \
@@ -617,9 +619,17 @@ configure_first_proposal_job() {
 }
 if gcloud run jobs describe "$first_proposal_job" \
   --project="$project_id" --region="$region" >/dev/null 2>&1; then
-  configure_first_proposal_job update
+  configure_first_proposal_job update "$first_proposal_job" OPEN_TO_BOTH
 else
-  configure_first_proposal_job create
+  configure_first_proposal_job create "$first_proposal_job" OPEN_TO_BOTH
+fi
+
+franchise_proposal_job='caffemate-franchise-proposal-canary'
+if gcloud run jobs describe "$franchise_proposal_job" \
+  --project="$project_id" --region="$region" >/dev/null 2>&1; then
+  configure_first_proposal_job update "$franchise_proposal_job" FRANCHISE_ONLY
+else
+  configure_first_proposal_job create "$franchise_proposal_job" FRANCHISE_ONLY
 fi
 
 canary_started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -672,6 +682,7 @@ rows = json.loads(os.environ["CANARY_REPORTS"])
 assert len(rows) == 1, f"expected one FIRST_PROPOSAL canary report, got {len(rows)}"
 report = rows[0]["jsonPayload"]
 assert report["status"] == "verified"
+assert report["requested_cafe_type_preference"] == "OPEN_TO_BOTH"
 assert report["workflow_status"] == "SUCCEEDED"
 assert report["stage_count"] == 13
 assert report["max_stage_attempt"] == 1
@@ -696,6 +707,70 @@ assert all(row.get("data_date") and row.get("source_ref") for row in signals)
 print("PASS FIRST_PROPOSAL traversed all 13 production stages to a current result card")
 PY
 unset canary_reports
+
+franchise_canary_started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+franchise_canary_status_file=$(mktemp)
+franchise_canary_wait_log=$(mktemp)
+cleanup_franchise_canary_files() {
+  rm -f "$franchise_canary_status_file" "$franchise_canary_wait_log"
+}
+trap 'cleanup_canary_files; cleanup_franchise_canary_files' EXIT HUP INT TERM
+(
+  if gcloud run jobs execute "$franchise_proposal_job" \
+    --project="$project_id" --region="$region" --wait --quiet >"$franchise_canary_wait_log" 2>&1; then
+    printf '0\n' >"$franchise_canary_status_file"
+  else
+    printf '%s\n' "$?" >"$franchise_canary_status_file"
+  fi
+) &
+franchise_canary_wait_pid=$!
+franchise_canary_attempt=0
+while [ ! -s "$franchise_canary_status_file" ] && [ "$franchise_canary_attempt" -lt 240 ]; do
+  gcloud scheduler jobs run caffemate-outbox-drain \
+    --project="$project_id" --location="$region" --quiet >/dev/null
+  franchise_canary_attempt=$((franchise_canary_attempt + 1))
+  sleep 5
+done
+wait "$franchise_canary_wait_pid" || true
+franchise_canary_exit=$(cat "$franchise_canary_status_file")
+if [ "$franchise_canary_exit" != '0' ]; then
+  sed -n '1,120p' "$franchise_canary_wait_log" >&2
+  printf '%s\n' 'FAIL FRANCHISE_ONLY FIRST_PROPOSAL canary Cloud Run Job' >&2
+  exit 1
+fi
+franchise_canary_reports='[]'
+franchise_canary_log_attempt=0
+while [ "$franchise_canary_log_attempt" -lt 12 ]; do
+  franchise_canary_reports=$(gcloud logging read \
+    "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${franchise_proposal_job}\" AND timestamp>=\"${franchise_canary_started_at}\" AND jsonPayload.status=\"verified\"" \
+    --project="$project_id" --limit=1 --order=desc --format=json)
+  franchise_canary_report_count=$(printf '%s' "$franchise_canary_reports" | python3 -c \
+    'import json,sys; print(len(json.load(sys.stdin)))')
+  [ "$franchise_canary_report_count" -ge 1 ] && break
+  franchise_canary_log_attempt=$((franchise_canary_log_attempt + 1))
+  sleep 5
+done
+FRANCHISE_CANARY_REPORTS="$franchise_canary_reports" python3 - <<'PY'
+import json
+import os
+
+rows = json.loads(os.environ["FRANCHISE_CANARY_REPORTS"])
+assert len(rows) == 1, f"expected one FRANCHISE_ONLY canary report, got {len(rows)}"
+report = rows[0]["jsonPayload"]
+assert report["status"] == "verified"
+assert report["requested_cafe_type_preference"] == "FRANCHISE_ONLY"
+assert report["workflow_status"] == "SUCCEEDED"
+assert report["stage_count"] == 13
+assert report["max_stage_attempt"] == 1
+assert report["elapsed_ms"] <= 120_000, report
+assert report["candidate_count"] >= 1
+assert set(report.get("candidate_case_types", [])) == {"FRANCHISE"}, report
+assert report.get("franchise_candidate_brand_ids"), report
+assert report["result_freshness"] == "CURRENT"
+print("PASS FRANCHISE_ONLY reached a ranked verified real-brand candidate")
+PY
+unset franchise_canary_reports
+cleanup_franchise_canary_files
 
 first_proposal_generation_logs='[]'
 first_proposal_validation_logs='[]'
@@ -733,10 +808,16 @@ FIRST_PROPOSAL_VALIDATION_LOGS="$first_proposal_validation_logs" python3 - <<'PY
 import json
 import os
 
-required = {"EVIDENCE_ASSESS", "PROPOSE_INDEPENDENT", "CANDIDATE_AUDIT"}
+required = {
+    "EVIDENCE_ASSESS",
+    "PROPOSE_INDEPENDENT",
+    "PROPOSE_FRANCHISE",
+    "CANDIDATE_AUDIT",
+}
 token_budgets = {
     "EVIDENCE_ASSESS": 6_000,
     "PROPOSE_INDEPENDENT": 4_500,
+    "PROPOSE_FRANCHISE": 4_500,
     "CANDIDATE_AUDIT": 6_500,
 }
 generation_rows = [
@@ -770,6 +851,8 @@ for row in validation_rows:
     assert row.get("repair_attempt") == 0, row
     assert row.get("outcome") == "VALID", row
     if row.get("task_type") == "PROPOSE_INDEPENDENT":
+        assert row.get("candidate_proposal_count", 0) >= 1, row
+    if row.get("task_type") == "PROPOSE_FRANCHISE":
         assert row.get("candidate_proposal_count", 0) >= 1, row
     if row.get("task_type") == "CANDIDATE_AUDIT":
         assert row.get("candidate_audit_count", 0) >= 1, row
