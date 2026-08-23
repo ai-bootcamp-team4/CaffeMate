@@ -77,7 +77,11 @@ Agent 호출은 역할별로 최적화한다. Control API는 전체 MCP 저장�
 60초 deadline을 사용한다. Proposal과 Candidate Audit도 제한된 seed·Evidence·계산 snapshot을
 구조화하는 역할이며, 비용 계산·Gate·순위·계약 검증은 결정론적 코드가 담당한다. 따라서 두 역할은
 `low` 사고 수준과 최대 4,096 출력 토큰을 사용한다. 문서 추출은 긴 문서 block의 의미 연결이
-필요하므로 `medium`을 유지한다. Runtime은 task type, 요청 byte, 지연, 종료 사유와 provider token usage만
+필요하므로 `medium`을 유지한다. 모델 입력에서는 역할 판단에 필요 없는 task·invocation·project,
+full head, digest, deadline과 output Schema id를 제거하고, 모델 출력도 semantic field 여섯 개만
+허용한다. Runtime이 이 불변 envelope를 검증된 `AgentTask`에서 결합하므로 외부
+`AgentTaskResult` 계약과 full-head fence는 유지되면서 모델의 복사 작업과 spoofing surface가
+사라진다. Runtime은 task type, 요청 byte, 지연, 종료 사유와 provider token usage만
 구조화 log로 남기며 사용자 입력·Evidence 본문·프로젝트·세션 식별자는 기록하지 않는다. 모델
 출력의 Schema·echo·의미 검증은 Runtime 내부에서 이뤄지므로, 거절된 첫 출력은 같은 관리형 실행
 안에서 validator error를 사용해 한 번만 수리한다. 두 번째 실패를 반복 생성이나 성공값으로

@@ -96,6 +96,11 @@ describe('Vertex role response schema projection', () => {
     expect(responseSchema.properties?.missing_claim_ids.maxItems).toBe(0)
     expect(responseSchema.properties?.reason_codes.maxItems).toBe(5)
     expect(responseSchema.properties?.warnings.maxItems).toBe(5)
+    expect(responseSchema.properties).not.toHaveProperty('task_id')
+    expect(responseSchema.properties).not.toHaveProperty('invocation_id')
+    expect(responseSchema.properties).not.toHaveProperty('head_fence_seen')
+    expect(responseSchema.properties).not.toHaveProperty('input_digest')
+    expect(responseSchema.properties).not.toHaveProperty('output_schema_id')
     expect(JSON.stringify(responseSchema).length).toBeLessThan(6_000)
   })
 

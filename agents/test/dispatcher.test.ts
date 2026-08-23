@@ -171,6 +171,6 @@ describe('deterministic dispatcher', () => {
     const child = vi.fn(async () => ({ ...makeIntentResult(task), task_id: 'other-task' }))
 
     await expect(dispatchAgentTask(task, { INTENT_INTERPRETER: child })).rejects.toThrow('RESULT_ECHO_MISMATCH')
-    expect(child).toHaveBeenCalledTimes(2)
+    expect(child).toHaveBeenCalledTimes(1)
   })
 })

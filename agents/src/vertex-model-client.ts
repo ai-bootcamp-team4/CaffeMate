@@ -101,8 +101,17 @@ async function providerErrorSummary(response: Response): Promise<{ status?: stri
   }
 }
 
-function nullableStringSchema(): Record<string, unknown> {
-  return { anyOf: [{ type: 'string' }, { type: 'null' }] }
+export function buildAgentModelInput(task: AgentTask): Record<string, unknown> {
+  return {
+    task_type: task.task_type,
+    repair_attempt: task.repair_attempt,
+    input_artifacts: task.input_artifacts,
+    available_tool_catalog: task.available_tool_catalog,
+    payload: task.payload,
+    ...(task.repair_context === undefined
+      ? {}
+      : { repair_context: task.repair_context }),
+  }
 }
 
 /**
@@ -123,17 +132,6 @@ export function buildAgentTaskResultResponseJsonSchema(task: AgentTask): Record<
     type: 'object',
     additionalProperties: false,
     propertyOrdering: [
-      'schema_version',
-      'task_id',
-      'invocation_id',
-      'agent_name',
-      'task_type',
-      'workflow_run_id',
-      'stage_run_id',
-      'venture_project_id',
-      'head_fence_seen',
-      'input_digest',
-      'output_schema_id',
       'status',
       'payload',
       'evidence_refs',
@@ -142,17 +140,6 @@ export function buildAgentTaskResultResponseJsonSchema(task: AgentTask): Record<
       'warnings',
     ],
     required: [
-      'schema_version',
-      'task_id',
-      'invocation_id',
-      'agent_name',
-      'task_type',
-      'workflow_run_id',
-      'stage_run_id',
-      'venture_project_id',
-      'head_fence_seen',
-      'input_digest',
-      'output_schema_id',
       'status',
       'payload',
       'evidence_refs',
@@ -161,40 +148,6 @@ export function buildAgentTaskResultResponseJsonSchema(task: AgentTask): Record<
       'warnings',
     ],
     properties: {
-      schema_version: { type: 'string', enum: [task.schema_version] },
-      task_id: { type: 'string', enum: [task.task_id] },
-      invocation_id: { type: 'string', enum: [task.invocation_id] },
-      agent_name: { type: 'string', enum: [task.agent_name] },
-      task_type: { type: 'string', enum: [task.task_type] },
-      workflow_run_id: { type: 'string', enum: [task.workflow_run_id] },
-      stage_run_id: { type: 'string', enum: [task.stage_run_id] },
-      venture_project_id: { type: 'string', enum: [task.venture_project_id] },
-      head_fence_seen: {
-        type: 'object',
-        additionalProperties: false,
-        required: [
-          'workflow_generation',
-          'state_version',
-          'founder_snapshot_id',
-          'area_snapshot_id',
-          'evidence_snapshot_id',
-          'policy_snapshot_id',
-          'index_generation_id',
-          'seed_registry_id',
-        ],
-        properties: {
-          workflow_generation: { type: 'integer' },
-          state_version: { type: 'integer' },
-          founder_snapshot_id: nullableStringSchema(),
-          area_snapshot_id: nullableStringSchema(),
-          evidence_snapshot_id: nullableStringSchema(),
-          policy_snapshot_id: { type: 'string' },
-          index_generation_id: nullableStringSchema(),
-          seed_registry_id: nullableStringSchema(),
-        },
-      },
-      input_digest: { type: 'string', enum: [task.input_digest] },
-      output_schema_id: { type: 'string', enum: [task.output_schema_id] },
       status: {
         type: 'string',
         enum: ['COMPLETE', 'NEEDS_EVIDENCE', 'NEEDS_HUMAN', 'ABSTAIN', 'INVALID'],
@@ -239,7 +192,7 @@ export class VertexAgentModelClient implements AgentModelClient {
     const endpoint = vertexGenerationEndpoint(this.options.projectId, this.options.region, invocation.model)
     const requestBody = JSON.stringify(buildVertexGenerationRequest({
       systemInstruction: invocation.systemInstruction,
-      userText: canonicalizeJson(invocation.task),
+      userText: canonicalizeJson(buildAgentModelInput(invocation.task)),
       responseJsonSchema: buildAgentTaskResultResponseJsonSchema(invocation.task),
       thinkingLevel: invocation.thinkingLevel,
       maxOutputTokens: invocation.maxOutputTokens,

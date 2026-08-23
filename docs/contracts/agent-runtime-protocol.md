@@ -176,7 +176,7 @@ Control API가 수용하는 final event는 다음 조건을 모두 만족해야 
 - 사용자 token, MCP credential, database credential과 raw secret을 Agent 입력에 넣지 않는다.
 - runtime의 Agent identity에는 모델 호출과 자체 session 외에 MCP, Cloud SQL, BigQuery, Cloud Storage, Secret Manager 권한을 주지 않는다.
 
-전송 adapter는 `AgentTask` 검증·digest 재계산, session 수명주기, IAM 호출, final event 선택, JSON parsing, `AgentTaskResult`와 의미 규칙 검증을 담당한다. session event 전문은 일반 log에 남기지 않고 trace id·latency·status·digest만 남긴다.
+전송 adapter는 `AgentTask` 검증·digest 재계산, session 수명주기, IAM 호출, final event 선택, JSON parsing, `AgentTaskResult`와 의미 규칙 검증을 담당한다. 모델에는 역할 수행에 필요한 `task_type`, payload, input artifact, 허용 tool catalog와 repair context만 투영한다. task·invocation·project·full head·digest·output Schema 같은 불변 envelope는 모델이 생성하지 않으며 Runtime이 검증된 `AgentTask`에서 결합한다. session event 전문은 일반 log에 남기지 않고 trace id·latency·status·digest만 남긴다.
 
 ## 5. 논리 요청 계약
 
@@ -258,6 +258,13 @@ payload
 
 기계 구조는 `agent-task-result.schema.json`을 따른다.
 
+모델의 provider response Schema는 아래 항목 중 `status`, `payload`, `evidence_refs`,
+`missing_claim_ids`, `reason_codes`, `warnings`만 허용한다. Runtime-owned envelope field를 모델이
+반환하면 `MODEL_SEMANTIC_ENVELOPE_INVALID`로 거절한다. Runtime은 검증된 요청에서 나머지 필드를
+결정론적으로 결합한 뒤에만 아래 외부 `AgentTaskResult`를 만들고 전체 Schema·의미 검증을 수행한다.
+따라서 아래의 `echoed`는 “LLM이 복사했다”는 뜻이 아니라 “Runtime이 수용한 요청과 byte-equivalent한
+값만 외부 결과에 존재한다”는 뜻이다.
+
 ```yaml
 schema_version: "1.0.0"
 task_id: echoed
@@ -298,6 +305,7 @@ warnings: []
 GCP transport success
 → final event exactly one
 → JSON parse
+→ semantic-only model output, Runtime envelope hydration
 → AgentTaskResult Schema
 → task·invocation·agent·type·venture project·full head·digest echo
 → registered role payload Schema
@@ -307,7 +315,7 @@ GCP transport success
 → downstream deterministic calculation
 ```
 
-- echo 또는 full head mismatch는 repair하지 않고 `FENCE_MISMATCH`로 폐기한다.
+- 외부 결과의 echo 또는 full head mismatch는 repair하지 않고 `FENCE_MISMATCH`로 폐기한다. 정상 Runtime 경로에서는 모델이 이 필드를 생성하지 않으므로 mismatch 자체가 Runtime·transport 계약 위반이다.
 - Agent가 입력에 없던 Evidence id·brand id·document anchor를 반환하면 `UNSUPPORTED_REFERENCE`로 폐기한다.
 - `COMPLETE`인데 required payload가 비었으면 Schema 실패다.
 - 자유 문장, Markdown code fence, JSON 앞뒤 prose와 추가 top-level field는 허용하지 않는다.
@@ -602,10 +610,12 @@ validator error code만 포함한다. 원문 응답, 사용자 입력, validator
 식별자는 기록하지 않는다. 운영자는 generation의 지연·종료 사유와 validation의 실패 원인을 함께
 조회하여 transport 재시도, model-output repair, 최종 거절을 구분한다.
 
-Runtime dispatcher는 모델 출력을 외부로 보내기 전에 전체 Schema·echo·의미 검증을 수행한다.
+Runtime dispatcher는 semantic-only 모델 출력에 검증된 요청 envelope를 결합한 뒤 외부로 보내기
+전에 전체 Schema·echo·의미 검증을 수행한다.
 따라서 이 검증에서 거절된 출력은 Control API까지 도달하지 않으며, 외부 adapter만으로는 repair할
-수 없다. Dispatcher는 최초 출력이 `RESULT_SCHEMA_INVALID`, `RESULT_ECHO_MISMATCH` 또는
-`RESULT_SEMANTIC_INVALID`일 때 같은 관리형 실행 안에서 한 번만 repair한다. repair 입력은 원래
+수 없다. Dispatcher는 최초 출력이 `RESULT_SCHEMA_INVALID` 또는 `RESULT_SEMANTIC_INVALID`일 때
+같은 관리형 실행 안에서 한 번만 repair한다. 모델은 echo field를 생성할 권한이 없으므로
+`RESULT_ECHO_MISMATCH`는 정상적인 모델 수리 대상이 아니다. repair 입력은 원래
 task id·invocation id·input digest를 유지하고 `repair_attempt=1`, 이전 출력 digest와 최대 50개
 validator error를 추가한다. 두 번째 출력도 실패하면 세 번째 생성을 하지 않고 원래의 명시적
 Runtime 실패로 종료한다. transport retry와 이 model-output repair는 서로 다른 예산이다.

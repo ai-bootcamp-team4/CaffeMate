@@ -14,7 +14,7 @@
   },
   "allow_global_fallback": false,
   "network_mode": "GCP_CONNECTED",
-  "prompt_bundle_digest": "sha256:3511471d1935c294727afa245d93f4c0da9dd37944fcd2db1a09a640e0d81083",
+  "prompt_bundle_digest": "sha256:86ebcc94a879b088689fabaa96342dd6f1b61ac0b0facd1341355c61675dd10f",
   "agent_contract_bundle_digest": "sha256:e8f87fa7a9c48aef33811088c52d7fbf4fc30fae4a6ed42aa415c6d8b2450efa",
   "mcp": {
     "protocol_revision": "2026-07-28",
@@ -49,7 +49,7 @@
         "content_digest": "sha256:f44af895c9dd771ba22d3890016928ba8bfaa3ed2306d9cd0a5b5bb6ee9d9c34"
       }
     ],
-    "sealed_evaluation_digest": "sha256:fa2d41ebde9c21057da6fdccd88c2ec79aaa94fba62458d9827ab88e868e24e4"
+    "sealed_evaluation_digest": "sha256:4e9c09595a5afbce24681021035b38817c8abf88e3b9b298df951cedc69b4cf9"
   },
   "tasks": {
     "INTENT_DELTA": {

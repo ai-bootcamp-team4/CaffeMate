@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import fixtureMatrix from '../fixtures/task-matrix.json'
 import { buildModelInvocation } from '../src/model-executor'
-import { safeGenerationTelemetry, VertexAgentModelClient, VertexAgentModelError } from '../src/vertex-model-client'
+import {
+  buildAgentModelInput,
+  safeGenerationTelemetry,
+  VertexAgentModelClient,
+  VertexAgentModelError,
+} from '../src/vertex-model-client'
 import type { AgentTask } from '../src/types'
 
 const PROJECT_ID = 'proj-aj20-211200020328'
@@ -39,24 +44,14 @@ describe('Vertex Agent model client', () => {
             type: 'object',
             additionalProperties: false,
             required: expect.arrayContaining([
-              'schema_version',
-              'task_id',
-              'invocation_id',
-              'agent_name',
-              'task_type',
-              'head_fence_seen',
-              'input_digest',
-              'output_schema_id',
               'status',
               'payload',
+              'evidence_refs',
+              'missing_claim_ids',
+              'reason_codes',
+              'warnings',
             ]),
             properties: {
-              schema_version: { type: 'string', enum: ['1.0.0'] },
-              task_id: { type: 'string', enum: ['task-1-complete'] },
-              invocation_id: { type: 'string', enum: ['inv-1-complete'] },
-              agent_name: { type: 'string', enum: ['INTENT_INTERPRETER'] },
-              task_type: { type: 'string', enum: ['INTENT_DELTA'] },
-              output_schema_id: { type: 'string', enum: ['caffemate.agent.intent-result.v1'] },
               status: {
                 type: 'string',
                 enum: ['COMPLETE', 'NEEDS_EVIDENCE', 'NEEDS_HUMAN', 'ABSTAIN', 'INVALID'],
@@ -82,6 +77,13 @@ describe('Vertex Agent model client', () => {
           },
         },
       })
+      const contents = body.contents as Array<{ parts: Array<{ text: string }> }>
+      const modelInput = JSON.parse(String(contents[0]?.parts[0]?.text)) as Record<string, unknown>
+      expect(modelInput).toEqual(buildAgentModelInput(task()))
+      expect(modelInput).not.toHaveProperty('task_id')
+      expect(modelInput).not.toHaveProperty('invocation_id')
+      expect(modelInput).not.toHaveProperty('head_fence')
+      expect(modelInput).not.toHaveProperty('input_digest')
       expect((body.generationConfig as Record<string, unknown>).temperature).toBeUndefined()
       return Response.json({
         candidates: [{
@@ -333,7 +335,6 @@ describe('Vertex Agent model client', () => {
             role: 'model',
             parts: [{
               text: JSON.stringify({
-                task_type: 'EVIDENCE_PLAN',
                 payload: {
                   claim_plans: [{
                     support_actions: [{

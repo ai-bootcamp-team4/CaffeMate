@@ -23,7 +23,6 @@ export class AgentDispatchError extends Error {
 
 const REPAIRABLE_RESULT_CODES = new Set([
   'RESULT_SCHEMA_INVALID',
-  'RESULT_ECHO_MISMATCH',
   'RESULT_SEMANTIC_INVALID',
 ])
 

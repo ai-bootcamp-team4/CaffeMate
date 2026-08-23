@@ -1,6 +1,13 @@
 import { buildSystemInstruction, PROMPTS, type RolePromptVersion } from './prompts'
 import { AGENT_MODEL, TASK_REGISTRY, type AgentThinkingLevel } from './registry'
-import type { AgentExecutor, AgentExecutorMap, AgentName, AgentTask, AgentTaskResult } from './types'
+import type {
+  AgentExecutor,
+  AgentExecutorMap,
+  AgentName,
+  AgentSemanticResult,
+  AgentTask,
+  AgentTaskResult,
+} from './types'
 
 export interface AgentModelInvocation {
   model: string
@@ -70,7 +77,16 @@ export function buildModelInvocation(
   }
 }
 
-function parseJsonResult(text: string): AgentTaskResult {
+const SEMANTIC_RESULT_KEYS = new Set([
+  'status',
+  'payload',
+  'evidence_refs',
+  'missing_claim_ids',
+  'reason_codes',
+  'warnings',
+])
+
+function parseJsonResult(text: string): AgentSemanticResult {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
@@ -80,7 +96,39 @@ function parseJsonResult(text: string): AgentTaskResult {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new AgentModelError('MODEL_JSON_INVALID', 'model response must be exactly one JSON object')
   }
-  return parsed as AgentTaskResult
+  const unexpected = Object.keys(parsed).filter((key) => !SEMANTIC_RESULT_KEYS.has(key))
+  if (unexpected.length > 0) {
+    throw new AgentModelError(
+      'MODEL_SEMANTIC_ENVELOPE_INVALID',
+      `model response contains Runtime-owned fields: ${unexpected.slice(0, 10).join(',')}`,
+    )
+  }
+  return parsed as AgentSemanticResult
+}
+
+export function hydrateAgentTaskResult(
+  task: AgentTask,
+  semantic: AgentSemanticResult,
+): AgentTaskResult {
+  return {
+    schema_version: task.schema_version,
+    task_id: task.task_id,
+    invocation_id: task.invocation_id,
+    agent_name: task.agent_name,
+    task_type: task.task_type,
+    workflow_run_id: task.workflow_run_id,
+    stage_run_id: task.stage_run_id,
+    venture_project_id: task.venture_project_id,
+    head_fence_seen: structuredClone(task.head_fence),
+    input_digest: task.input_digest,
+    output_schema_id: task.output_schema_id,
+    status: semantic.status,
+    payload: semantic.payload,
+    evidence_refs: semantic.evidence_refs,
+    missing_claim_ids: semantic.missing_claim_ids,
+    reason_codes: semantic.reason_codes,
+    warnings: semantic.warnings,
+  }
 }
 
 async function executeModelTask(
@@ -96,7 +144,7 @@ async function executeModelTask(
   if (response.kind === 'SAFETY_BLOCKED') {
     throw new AgentModelError('SAFETY_BLOCKED', 'model invocation was blocked by the provider safety layer')
   }
-  return parseJsonResult(response.text)
+  return hydrateAgentTaskResult(task, parseJsonResult(response.text))
 }
 
 function executorFor(

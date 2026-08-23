@@ -581,3 +581,27 @@ cases:
       - managed Runtime generation and validation telemetry
       - 13-stage production canary before and after elapsed time
     pass_condition: 세 역할이 각각 격리된 ephemeral session으로 실제 실행되고 삭제 불확실성이 0인 상태에서 13단계를 한 번에 완주하며, 동일 기준선보다 end-to-end 시간이 감소한다.
+
+  - id: EV-033
+    title: 모델 semantic 출력과 Runtime 불변 envelope의 권한 분리
+    input: full head와 digest를 포함한 유효 AgentTask 및 해당 역할의 semantic 결과
+    relevant_state:
+      runtime_tool_policy: NO_DIRECT_TOOL_CALLS
+      repair_attempt: 0
+    trap: 모델에게 task id, invocation id, project id, full head, digest와 output Schema id를 다시 생성하게 해 토큰을 낭비하거나 spoofing 가능한 결과로 수용한다.
+    expected_behavior:
+      - 모델 입력에는 역할 판단에 필요한 payload, input artifact, 허용 tool catalog와 repair context만 존재한다.
+      - provider response Schema는 status, payload, evidence_refs, missing_claim_ids, reason_codes, warnings만 허용한다.
+      - Runtime이 검증된 AgentTask에서 불변 envelope를 결합한다.
+      - 결합된 AgentTaskResult는 기존 전체 Schema, full-head echo와 의미 검증을 모두 통과한다.
+      - 운영 canary에서 세 Agent가 repair 0, STOP, VALID로 결과 카드를 생성한다.
+    forbidden_behavior:
+      - 모델이 반환한 task id, invocation id, project id, head, digest 또는 Schema id를 신뢰한다.
+      - envelope 제거를 이유로 Control API의 full-head fence 검증을 생략한다.
+      - 모델 semantic 오류를 Runtime envelope로 덮어 COMPLETE로 만든다.
+    required_evidence:
+      - model input projection unit test
+      - Runtime-owned field injection rejection test
+      - hydrated full AgentTaskResult contract test
+      - before and after request byte, prompt token and 13-stage canary measurements
+    pass_condition: 외부 AgentTaskResult 계약과 역할 분리를 유지하면서 모델이 Runtime-owned field를 보거나 생성하지 않고, 운영 세 Agent가 수리 없이 실제 실행된다.

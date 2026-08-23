@@ -23,6 +23,17 @@ function completeFixture(taskType: string) {
   return structuredClone(item) as unknown as { task: AgentTask; result: AgentTaskResult }
 }
 
+function semanticResult(result: AgentTaskResult) {
+  return {
+    status: result.status,
+    payload: result.payload,
+    evidence_refs: result.evidence_refs,
+    missing_claim_ids: result.missing_claim_ids,
+    reason_codes: result.reason_codes,
+    warnings: result.warnings,
+  }
+}
+
 describe('local model-backed Agent executors', () => {
   it('requires an approved model configuration and exposes no tool surface to the model', () => {
     const { task } = completeFixture('PROPOSE_INDEPENDENT')
@@ -67,7 +78,7 @@ describe('local model-backed Agent executors', () => {
     const { task, result } = completeFixture('EVIDENCE_PLAN')
     const generate = vi.fn(async (invocation: AgentModelInvocation) => {
       expect(invocation.taskType).toBe('EVIDENCE_PLAN')
-      return { kind: 'TEXT' as const, text: JSON.stringify(result) }
+      return { kind: 'TEXT' as const, text: JSON.stringify(semanticResult(result)) }
     })
     const client: AgentModelClient = { generate }
 
@@ -87,13 +98,13 @@ describe('local model-backed Agent executors', () => {
     const { task, result } = completeFixture('CANDIDATE_AUDIT')
     const invalid = {
       ...result,
-      status: 'NEEDS_EVIDENCE',
+      status: 'NEEDS_EVIDENCE' as const,
       missing_claim_ids: [],
       reason_codes: ['INSUFFICIENT_CONTEXT'],
     }
     const generate = vi.fn(async (invocation: AgentModelInvocation) => ({
       kind: 'TEXT' as const,
-      text: JSON.stringify(invocation.repairAttempt === 0 ? invalid : result),
+      text: JSON.stringify(semanticResult(invocation.repairAttempt === 0 ? invalid : result)),
     }))
 
     const repaired = await dispatchAgentTask(
@@ -122,7 +133,7 @@ describe('local model-backed Agent executors', () => {
     invalid.payload = { ...invalid.payload, candidate_audits: [] }
     const generate = vi.fn(async (invocation: AgentModelInvocation) => ({
       kind: 'TEXT' as const,
-      text: JSON.stringify(invocation.repairAttempt === 0 ? invalid : result),
+      text: JSON.stringify(semanticResult(invocation.repairAttempt === 0 ? invalid : result)),
     }))
 
     const repaired = await dispatchAgentTask(
@@ -149,7 +160,7 @@ describe('local model-backed Agent executors', () => {
     }
     const generate = vi.fn(async (invocation: AgentModelInvocation) => ({
       kind: 'TEXT' as const,
-      text: JSON.stringify(invocation.repairAttempt === 0 ? invalid : result),
+      text: JSON.stringify(semanticResult(invocation.repairAttempt === 0 ? invalid : result)),
     }))
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
 
@@ -188,6 +199,26 @@ describe('local model-backed Agent executors', () => {
     if (!executor) throw new Error('missing intent executor')
 
     await expect(executor(task)).rejects.toMatchObject({ code: 'MODEL_JSON_INVALID' })
+  })
+
+  it('rejects model attempts to generate Runtime-owned envelope fields', async () => {
+    const { task, result } = completeFixture('INTENT_DELTA')
+    const client: AgentModelClient = {
+      generate: async () => ({
+        kind: 'TEXT',
+        text: JSON.stringify({
+          ...semanticResult(result),
+          task_id: 'model-controlled-task',
+          head_fence_seen: { workflow_generation: 999 },
+        }),
+      }),
+    }
+    const executor = createModelExecutors(client, APPROVED_MODEL).INTENT_INTERPRETER
+    if (!executor) throw new Error('missing intent executor')
+
+    await expect(executor(task)).rejects.toMatchObject({
+      code: 'MODEL_SEMANTIC_ENVELOPE_INVALID',
+    })
   })
 
   it('surfaces a safety block as a transport outcome instead of an Agent status', async () => {
