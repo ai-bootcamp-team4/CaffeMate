@@ -8,13 +8,15 @@ IAM을 생성하지 않으며 기존 Secret Manager, Cloud SQL, VPC와 service I
 
 - region: `asia-northeast3`
 - event: `main` push
-- config: `cloudbuild.backend.yaml`
-- image tag: immutable `COMMIT_SHA`
+- config: `cloudbuild.main-webhook.yaml`
+- image tag: immutable Cloud Build `BUILD_ID`, with the full cloned Git commit
+  recorded in every Cloud Run source revision label
 - deploy order: image push → migration job update·실행 → API → Worker
 
-기존 frontend trigger와 분리한다. backend 관련 경로가 바뀔 때만 실행하도록 trigger의
-included files를 제한할 수 있지만, 정확성 때문에 `api/**`, `worker/**`, `docs/contracts/**`,
-`deploy/backend.Dockerfile`, `cloudbuild.backend.yaml`, `api/uv.lock`은 모두 포함해야 한다.
+현재 GitHub 연결은 하나의 검증된 webhook을 사용하므로 frontend와 backend를 같은 trigger에서
+배포한다. 두 image build는 병렬로 실행하며 backend migration과 service 배포는 순서를 지킨다.
+`cloudbuild.backend.yaml`은 연결형 GitHub trigger를 도입할 때 사용할 수 있는 별도 설정으로
+유지한다.
 
 ## Pre-provisioned resources
 
