@@ -116,16 +116,13 @@ def test_complete_plan_is_generated_without_agent_runtime() -> None:
     assert plan["status"] == "COMPLETE"
     assert len(plan["claims"]) == 9
     assert len(plan["claim_plans"]) == 9
-    assert len(actions(result)) == 14
-    assert plan["missing_claim_ids"] == [
-        "claim:FRANCHISE_UNIVERSE_ELIGIBILITY",
-        "claim:FRANCHISE_DISCLOSURE_AVAILABILITY",
-    ]
-    assert plan["reason_codes"] == ["MCP_CAPABILITY_UNAVAILABLE"]
+    assert len(actions(result)) == 18
+    assert plan["missing_claim_ids"] == []
+    assert plan["reason_codes"] == []
     assert plan["planner_trace"]["planner_version"] == PLANNER_VERSION
     assert plan["planner_trace"]["plan_digest"].startswith("sha256:")
     assert {action["action_id"] for action in actions(result)} == {
-        f"action-{index:02d}" for index in range(1, 15)
+        f"action-{index:02d}" for index in range(1, 19)
     }
 
 
@@ -178,8 +175,8 @@ def test_rules_use_typed_tools_for_each_claim() -> None:
         "claim:INDEPENDENT_OPERATING_COST_BENCHMARK": {
             "retrieve_official_documents"
         },
-        "claim:FRANCHISE_UNIVERSE_ELIGIBILITY": set(),
-        "claim:FRANCHISE_DISCLOSURE_AVAILABILITY": set(),
+        "claim:FRANCHISE_UNIVERSE_ELIGIBILITY": {"list_franchise_universe"},
+        "claim:FRANCHISE_DISCLOSURE_AVAILABILITY": {"list_franchise_universe"},
         "claim:CAFE_OPENING_REQUIRED_PROCEDURES": {
             "retrieve_official_documents"
         },
@@ -189,9 +186,9 @@ def test_rules_use_typed_tools_for_each_claim() -> None:
 @pytest.mark.parametrize(
     ("preference", "claim_count", "action_count"),
     [
-        (CafeTypePreference.OPEN_TO_BOTH, 9, 14),
+        (CafeTypePreference.OPEN_TO_BOTH, 9, 18),
         (CafeTypePreference.INDEPENDENT_ONLY, 7, 14),
-        (CafeTypePreference.FRANCHISE_ONLY, 7, 10),
+        (CafeTypePreference.FRANCHISE_ONLY, 7, 14),
     ],
 )
 def test_branch_preferences_keep_plan_within_bounded_action_budget(
@@ -217,14 +214,14 @@ def test_unknown_claim_type_is_a_nonretryable_contract_failure() -> None:
         EvidencePlanStageHandler().execute(context)
 
 
-def test_rule_without_a_production_connector_becomes_explicit_missing_evidence() -> None:
+def test_franchise_claims_use_the_production_catalog_connector() -> None:
     context = stage_context(CafeTypePreference.FRANCHISE_ONLY)
     result = EvidencePlanStageHandler().execute(context)
     plan = result["evidence_plan"]
     assert isinstance(plan, dict)
 
-    assert "claim:FRANCHISE_UNIVERSE_ELIGIBILITY" in plan["missing_claim_ids"]
-    assert not any(
+    assert "claim:FRANCHISE_UNIVERSE_ELIGIBILITY" not in plan["missing_claim_ids"]
+    assert any(
         action["tool_name"] == "list_franchise_universe" for action in actions(result)
     )
 
