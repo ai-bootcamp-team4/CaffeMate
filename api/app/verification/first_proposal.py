@@ -230,7 +230,7 @@ class FirstProposalCanary:
                 user_id=user_id,
                 idempotency_key=f"{canary_id}:onboarding",
                 founder=FounderState(
-                    target_area_input="경기도 수원시 영통구 원천동",
+                    target_area_input="서울특별시 마포구 망원동",
                     own_funds_krw=70_000_000,
                     borrowing_intent=BorrowingIntent.UNDECIDED,
                     cafe_type_preference=CafeTypePreference.OPEN_TO_BOTH,
@@ -239,18 +239,18 @@ class FirstProposalCanary:
                 ),
                 area=AreaState(
                     resolution_status=AreaResolutionStatus.RESOLVED,
-                    area_id="legal-dong:4111710200",
+                    area_id="legal-dong:1144012300",
                     scope_type=AreaScopeType.LEGAL_DONG,
-                    administrative_code="4111710200",
-                    legal_dong_code="4111710200",
+                    administrative_code="1144012300",
+                    legal_dong_code="1144012300",
                     administrative_dong_codes=[],
                     mapping_status=AreaMappingStatus.UNVERIFIED,
                     candidate_set_completeness=CandidateSetCompleteness.UNVERIFIED,
                     source_revision="MOIS_LEGAL_DONG_20260301",
-                    display_name="경기도 수원시 영통구 원천동",
+                    display_name="서울특별시 마포구 망원동",
                     boundary_version=None,
-                    coverage_profile=CoverageProfile.N0_NATIONWIDE_FACTS,
-                    unavailable_fields=["administrative_dong_mapping"],
+                    coverage_profile=CoverageProfile.R2_REGIONAL_CONNECTOR,
+                    unavailable_fields=[],
                 ),
             )
             workflow = self._workflows.start(
