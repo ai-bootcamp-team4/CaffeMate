@@ -247,6 +247,26 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.queryByText(/가상 목업값/)).toBeNull()
   })
 
+  it('explains finance ranges without contradicting document-backed values', async () => {
+    setup({
+      ...result,
+      candidates: result.candidates.map((candidate) => ({
+        ...candidate,
+        financial_summary: {
+          ...candidate.financial_summary,
+          unknown_cost_fields: [],
+        },
+      })),
+    })
+    await completeOnboarding()
+
+    fireEvent.click(screen.getByRole('tab', { name: '필요자금' }))
+
+    expect(screen.getByText('확인된 값과 확인 전 기본 가정을 구분하여 계산한 참고 범위입니다.')).toBeTruthy()
+    expect(screen.getByText(/실제 자료로 확인된 값은 반영하고, 확인 전 값은 기본 가정으로 구분했어요/)).toBeTruthy()
+    expect(screen.queryByText('실제 점포나 견적이 아닌 기본 운영 모델의 참고 범위입니다.')).toBeNull()
+  })
+
   it('retries only FIRST_PROPOSAL after onboarding was already confirmed', async () => {
     const { client } = setup()
     vi.mocked(client.startFirstProposal)
@@ -304,6 +324,7 @@ describe('CaffeMate Control API integration', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '결과 비교로 돌아가기' }))
     expect(screen.getByRole('button', { name: '준비 자료 보기' })).toBeTruthy()
+    expect(screen.getByText('실제 검증 브랜드의 준비 자료를 확인할 수 있어요.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: '선택한 안의 준비 자료 보기' })).toBeNull()
   })
 
