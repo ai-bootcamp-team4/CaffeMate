@@ -149,9 +149,7 @@ export function buildAgentTaskResultResponseJsonSchema(task: AgentTask): Record<
     : proposalOutput
       ? {
           type: 'array',
-          items: proposalEvidenceIds.length > 0
-            ? { type: 'string', enum: proposalEvidenceIds }
-            : { type: 'string' },
+          items: { type: 'string' },
           maxItems: proposalEvidenceIds.length,
         }
     : { type: 'array', items: { type: 'string' }, ...(intentOutput ? { maxItems: 0 } : {}) }
@@ -160,9 +158,7 @@ export function buildAgentTaskResultResponseJsonSchema(task: AgentTask): Record<
     : proposalOutput
       ? {
           type: 'array',
-          items: proposalClaimIds.length > 0
-            ? { type: 'string', enum: proposalClaimIds }
-            : { type: 'string' },
+          items: { type: 'string' },
           maxItems: proposalClaimIds.length,
         }
     : { type: 'array', items: { type: 'string' }, ...(intentOutput ? { maxItems: 0 } : {}) }
