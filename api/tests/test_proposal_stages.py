@@ -311,7 +311,7 @@ def test_boundary_rejection_becomes_local_unavailable_output() -> None:
     assert "PROPOSAL_PARTIAL_AGENT_OUTPUT_INVALID" in result["franchise_proposal"]["reason_codes"]
 
 
-def test_one_branch_runtime_failure_becomes_local_abstention() -> None:
+def test_one_branch_runtime_failure_uses_seed_fallback() -> None:
     def unavailable(_task: dict[str, Any]) -> dict[str, Any]:
         raise ExternalExecutionUnavailableError("runtime unavailable")
 
@@ -323,21 +323,28 @@ def test_one_branch_runtime_failure_becomes_local_abstention() -> None:
 
     assert result["stage_control"] == {
         "disposition": "CONTINUE",
-        "reason_codes": ["PROPOSAL_RUNTIME_UNAVAILABLE"],
+        "reason_codes": ["PROPOSAL_RUNTIME_UNAVAILABLE_SEED_FALLBACK"],
     }
-    assert result["independent_proposal"]["candidate_proposals"] == []
+    output = result["independent_proposal"]
+    assert output["status"] == "NEEDS_EVIDENCE"
+    assert len(output["candidate_proposals"]) == 3
+    assert {value["case_type"] for value in output["candidate_proposals"]} == {
+        "INDEPENDENT"
+    }
 
 
-def test_runtime_failure_is_retried_before_branch_abstains() -> None:
+def test_runtime_failure_does_not_retry_the_whole_stage() -> None:
     def unavailable(_task: dict[str, Any]) -> dict[str, Any]:
         raise ExternalExecutionUnavailableError("runtime unavailable")
 
     runtime = FakeRuntime(unavailable)
 
-    with pytest.raises(ExternalExecutionUnavailableError):
-        ProposalStageHandler.independent(runtime).execute(
-            proposal_context("PROPOSE_INDEPENDENT")
-        )
+    result = ProposalStageHandler.independent(runtime).execute(
+        proposal_context("PROPOSE_INDEPENDENT")
+    )
+
+    assert result["independent_proposal"]["status"] == "NEEDS_EVIDENCE"
+    assert len(runtime.tasks) == 3
 
 
 def test_agent_rank_fields_are_ignored_without_killing_branch() -> None:

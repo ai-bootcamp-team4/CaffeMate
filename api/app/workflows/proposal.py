@@ -10,8 +10,6 @@ from app.domain.models import CafeTypePreference
 from app.workflows.models import StageControl, StageDisposition
 from app.workflows.stage_context import StageContext
 
-PROPOSAL_RUNTIME_MAX_ATTEMPTS = 3
-
 
 class ProposalStageHandler:
     def __init__(
@@ -100,17 +98,22 @@ class ProposalStageHandler:
         tasks = self._build_tasks(self._task_factory, context)
         results, failures = self._invoke_parallel(tasks)
         if not results:
-            if failures and context.lease.attempt < PROPOSAL_RUNTIME_MAX_ATTEMPTS:
-                raise failures[0]
-            unavailable_reasons = ["PROPOSAL_RUNTIME_UNAVAILABLE"]
+            unavailable_reasons = ["PROPOSAL_RUNTIME_UNAVAILABLE_SEED_FALLBACK"]
             return self._result(
                 control=StageControl(reason_codes=unavailable_reasons),
-                status="ABSTAIN",
-                candidate_proposals=[],
-                evidence_refs=[],
+                status="NEEDS_EVIDENCE",
+                candidate_proposals=self._fallback_proposals(candidates),
+                evidence_refs=sorted(
+                    {
+                        evidence_ref
+                        for candidate in candidates
+                        for evidence_ref in candidate.get("evidence_refs", [])
+                        if isinstance(evidence_ref, str)
+                    }
+                ),
                 missing_claim_ids=[],
                 reason_codes=unavailable_reasons,
-                warnings=[],
+                warnings=["Agent Runtime 응답을 받지 못해 검증된 기본 모델로 계속합니다."],
                 agent_traces=[self._trace(task) for task in tasks],
                 proposal_input=proposal_input,
             )
@@ -196,6 +199,57 @@ class ProposalStageHandler:
                 except ExternalExecutionUnavailableError as error:
                     failures.append(error)
         return results, failures
+
+    def _fallback_proposals(self, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        proposals: list[dict[str, Any]] = []
+        for candidate in candidates:
+            proposal_id = candidate.get("proposal_id")
+            display_name = candidate.get("display_name")
+            if not isinstance(proposal_id, str) or not isinstance(display_name, str):
+                continue
+            if self._task_type == "PROPOSE_INDEPENDENT":
+                source_id = candidate.get("model_id")
+                evidence_refs: list[str] = []
+                assumption_refs = [
+                    value
+                    for value in candidate.get("support_refs", [])
+                    if isinstance(value, str)
+                ]
+                missing_fields: list[str] = []
+                warning = "실제 점포 조건을 입력하면 비용과 적합성을 다시 계산합니다."
+                case_type = "INDEPENDENT"
+            else:
+                source_id = candidate.get("brand_id")
+                evidence_refs = [
+                    value
+                    for value in candidate.get("evidence_refs", [])
+                    if isinstance(value, str)
+                ]
+                assumption_refs = []
+                missing_fields = [
+                    value
+                    for value in candidate.get("missing_fields", [])
+                    if isinstance(value, str)
+                ]
+                warning = "본사 출점 가능 여부와 최신 가맹 조건을 확인해야 합니다."
+                case_type = "FRANCHISE"
+            if not isinstance(source_id, str):
+                continue
+            proposals.append(
+                {
+                    "proposal_id": proposal_id,
+                    "case_type": case_type,
+                    "display_name": display_name,
+                    "seed_or_brand_id": source_id,
+                    "adjusted_parameters": [],
+                    "claim_refs": [],
+                    "evidence_refs": evidence_refs,
+                    "assumption_refs": assumption_refs,
+                    "missing_fields": missing_fields,
+                    "warnings": [warning],
+                }
+            )
+        return proposals
 
     @staticmethod
     def _aggregate_status(statuses: list[str], *, has_failures: bool) -> str:
