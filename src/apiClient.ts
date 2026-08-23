@@ -109,7 +109,7 @@ export interface ResultCandidate {
   evidence_refs: string[]
   assumption_refs?: string[]
   market_signals?: Array<{
-    signal_type: 'CAFE_COUNT' | 'OPEN_COUNT' | 'CLOSE_COUNT' | 'CLOSURE_RATE' | 'ESTIMATED_SALES'
+    signal_type: 'CAFE_COUNT' | 'OPEN_COUNT' | 'CLOSE_COUNT' | 'CLOSURE_RATE' | 'ESTIMATED_SALES' | 'FOOT_TRAFFIC' | 'RESIDENT_POPULATION' | 'WORKER_POPULATION'
     value: number
     unit: string | null
     data_date: string | null

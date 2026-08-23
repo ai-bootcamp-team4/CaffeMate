@@ -186,12 +186,17 @@ function marketSignalLabel(signal: NonNullable<ResultCandidate['market_signals']
     CLOSE_COUNT: '분기 폐업 신고',
     CLOSURE_RATE: '분기 폐업 변화율',
     ESTIMATED_SALES: '분기 상권 추정매출',
+    FOOT_TRAFFIC: '분기 추정 유동인구',
+    RESIDENT_POPULATION: '거주인구',
+    WORKER_POPULATION: '직장인구',
   }[signal.signal_type]
 }
 
 function marketSignalValue(signal: NonNullable<ResultCandidate['market_signals']>[number]) {
   if (signal.signal_type === 'ESTIMATED_SALES') return formatWon(signal.value)
   if (signal.signal_type === 'CLOSURE_RATE') return `${signal.value.toLocaleString('ko-KR')}%`
+  if (signal.signal_type === 'FOOT_TRAFFIC') return `${signal.value.toLocaleString('ko-KR')}명·회`
+  if (signal.signal_type === 'RESIDENT_POPULATION' || signal.signal_type === 'WORKER_POPULATION') return `${signal.value.toLocaleString('ko-KR')}명`
   return `${signal.value.toLocaleString('ko-KR')}개`
 }
 

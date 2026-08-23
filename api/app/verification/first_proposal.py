@@ -430,7 +430,16 @@ class FirstProposalCanary:
             ),
             key=lambda signal: str(signal["signal_type"]),
         )
-        required_signal_types = {"CAFE_COUNT", "OPEN_COUNT", "ESTIMATED_SALES"}
+        required_signal_types = {
+            "CAFE_COUNT",
+            "OPEN_COUNT",
+            "CLOSE_COUNT",
+            "CLOSURE_RATE",
+            "ESTIMATED_SALES",
+            "FOOT_TRAFFIC",
+            "RESIDENT_POPULATION",
+            "WORKER_POPULATION",
+        }
         observed_signal_types = {
             str(signal["signal_type"]) for signal in market_signals
         }

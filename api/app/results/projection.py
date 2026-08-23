@@ -172,6 +172,9 @@ _MARKET_SIGNAL_CLAIMS = {
     "CLOSE_COUNT": "AREA_BUSINESS_CHURN",
     "CLOSURE_RATE": "AREA_BUSINESS_CHURN",
     "ESTIMATED_SALES": "AREA_DEMAND_SIGNALS",
+    "FOOT_TRAFFIC": "AREA_DEMAND_SIGNALS",
+    "RESIDENT_POPULATION": "AREA_DEMAND_SIGNALS",
+    "WORKER_POPULATION": "AREA_DEMAND_SIGNALS",
 }
 
 _MARKET_SIGNAL_CAVEATS = {
@@ -186,6 +189,9 @@ _MARKET_SIGNAL_CAVEATS = {
         "선택 지역의 카페 업종 분기 추정매출 합계이며 "
         "신규 점포 예상매출이 아닙니다."
     ),
+    "FOOT_TRAFFIC": "선택 지역의 분기 추정 유동인구이며 고유 방문자 수가 아닙니다.",
+    "RESIDENT_POPULATION": "선택 지역에 연결된 행정동의 거주인구 합계입니다.",
+    "WORKER_POPULATION": "선택 지역에 연결된 행정동의 직장인구 합계입니다.",
 }
 
 
@@ -194,11 +200,18 @@ def _market_signals(
     evidence_by_id: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     candidates: dict[str, list[dict[str, Any]]] = {}
-    for evidence_id in sorted(grounded_refs):
+    grounded_claim_types = {
+        record.get("claim_type")
+        for evidence_id in grounded_refs
+        if (record := evidence_by_id[evidence_id]).get("conflict_status")
+        in {"NONE", "RESOLVED"}
+    }
+    for evidence_id in sorted(evidence_by_id):
         record = evidence_by_id[evidence_id]
         metric = record.get("metric")
         if (
             not isinstance(metric, str)
+            or record.get("claim_type") not in grounded_claim_types
             or _MARKET_SIGNAL_CLAIMS.get(metric) != record.get("claim_type")
             or record.get("conflict_status") not in {"NONE", "RESOLVED"}
         ):

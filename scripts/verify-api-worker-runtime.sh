@@ -679,7 +679,16 @@ assert report["elapsed_ms"] <= 120_000, report
 assert report["candidate_count"] >= 1
 assert report["result_freshness"] == "CURRENT"
 signals = report.get("market_signals", [])
-required_signal_types = {"CAFE_COUNT", "OPEN_COUNT", "ESTIMATED_SALES"}
+required_signal_types = {
+    "CAFE_COUNT",
+    "OPEN_COUNT",
+    "CLOSE_COUNT",
+    "CLOSURE_RATE",
+    "ESTIMATED_SALES",
+    "FOOT_TRAFFIC",
+    "RESIDENT_POPULATION",
+    "WORKER_POPULATION",
+}
 assert required_signal_types <= {row.get("signal_type") for row in signals}, report
 assert all(row.get("value") is not None for row in signals)
 assert all(row.get("data_date") and row.get("source_ref") for row in signals)

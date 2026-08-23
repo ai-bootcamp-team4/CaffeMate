@@ -15,7 +15,7 @@
   "allow_global_fallback": false,
   "network_mode": "GCP_CONNECTED",
   "prompt_bundle_digest": "sha256:86ebcc94a879b088689fabaa96342dd6f1b61ac0b0facd1341355c61675dd10f",
-  "agent_contract_bundle_digest": "sha256:bacd6754f0893191a7c71af1fb2588ac2f3902a0df4c60db09b05a933f40ca46",
+  "agent_contract_bundle_digest": "sha256:ff610b476ae05e4bac7c41dfe054ea7e4480918c6fef133bce93e49e5520c001",
   "mcp": {
     "protocol_revision": "2026-07-28",
     "server_sdk": "@modelcontextprotocol/server@2.0.0",
