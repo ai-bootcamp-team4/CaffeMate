@@ -18,6 +18,17 @@ function fixture(id: string): { task: AgentTask; result: AgentTaskResult } {
   return structuredClone(item) as unknown as { task: AgentTask; result: AgentTaskResult }
 }
 
+function semanticResult(result: AgentTaskResult) {
+  return {
+    status: result.status,
+    payload: result.payload,
+    evidence_refs: result.evidence_refs,
+    missing_claim_ids: result.missing_claim_ids,
+    reason_codes: result.reason_codes,
+    warnings: result.warnings,
+  }
+}
+
 async function collect(generator: AsyncGenerator<unknown, void, undefined>): Promise<unknown[]> {
   const events: unknown[] = []
   for await (const event of generator) events.push(event)
@@ -43,7 +54,10 @@ describe('ADK Agent Runtime adapter', () => {
 
   it('routes one validated task to exactly one role child and emits exactly one final child-authored JSON event', async () => {
     const selected = fixture('intent_delta-complete')
-    const generate = vi.fn(async () => ({ kind: 'TEXT' as const, text: JSON.stringify(selected.result) }))
+    const generate = vi.fn(async () => ({
+      kind: 'TEXT' as const,
+      text: JSON.stringify(semanticResult(selected.result)),
+    }))
     const root = createCaffeMateAdkRoot({
       modelClient: { generate },
       approvedModel: () => approvedModel,

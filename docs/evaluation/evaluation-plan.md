@@ -164,7 +164,7 @@ LLM Judge는 다음에 보조적으로 사용할 수 있다.
 
 ### Runtime contract
 
-- `AgentTask`와 `AgentTaskResult`의 task·invocation·venture project·full head·digest echo가 일치
+- Runtime이 검증된 `AgentTask`에서 결합한 `AgentTaskResult`의 task·invocation·venture project·full head·digest가 일치하며 모델 출력에는 이 field가 없음
 - 일곱 task type이 정확한 child Agent 하나로만 dispatch되고 다른 author·복수 final·function part는 거절
 - 관리형 session create→run→delete가 배포 service account로 통과하고 cleanup 실패가 durable retry됨
 - repair 호출이 새 session에서도 이전 response·digest·validator error를 받음

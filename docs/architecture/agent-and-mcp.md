@@ -99,7 +99,7 @@ Document Analyst
 - 요청은 [Agent Task Schema](../contracts/agent-task.schema.json)를 따른다.
 - 결과는 [Agent Task Result Schema](../contracts/agent-task-result.schema.json)를 따른다.
 - `runtime_tool_policy`는 첫 구현에서 항상 `NO_DIRECT_TOOL_CALLS`다.
-- `task_id`, `invocation_id`, venture project, full head, input digest와 output Schema를 결과에서 echo하고 Control API가 대조한다.
+- 모델은 역할 payload와 status·근거 참조만 생성한다. Runtime이 검증된 요청에서 `task_id`, `invocation_id`, venture project, full head, input digest와 output Schema를 결합하고 Control API가 다시 대조한다.
 - 자유 문장 설명은 typed payload를 대체하지 못한다.
 
 ## MCP의 역할
