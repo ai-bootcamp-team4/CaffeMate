@@ -275,6 +275,15 @@ class GroundingIngestor:
         periods["resident"] = latest_period(raw_rows["resident"])
         source_digests = {name: sha256(payload) for name, payload in sorted(raw.items())}
         ingestion_id = sha256(canonical_json({"periods": periods, "digests": source_digests}))[:24]
+        bucket = self._storage.bucket(self._config.bucket_name)
+        if approved_ingestion_exists(
+            bucket,
+            ingestion_id=ingestion_id,
+            periods=periods,
+            source_digests=source_digests,
+        ):
+            print(json.dumps({"status": "ALREADY_APPROVED", "ingestion_id": ingestion_id}))
+            return ingestion_id
 
         mapping_revision, mapping_rows = parse_mois_mapping(raw["mapping_zip"])
         normalized = {
@@ -310,7 +319,6 @@ class GroundingIngestor:
         }
         validate_normalized(normalized, periods=periods)
 
-        bucket = self._storage.bucket(self._config.bucket_name)
         source_uris: dict[str, str] = {}
         for name, payload in raw.items():
             suffix = "zip" if name == "mapping_zip" else "ndjson"
@@ -637,6 +645,32 @@ def upload_immutable(bucket: Any, object_name: str, payload: bytes) -> None:
         existing = blob.download_as_bytes()
         if sha256(existing) != sha256(payload):
             raise RuntimeError(f"GROUNDING_IMMUTABLE_OBJECT_CONFLICT:{object_name}") from error
+
+
+def approved_ingestion_exists(
+    bucket: Any,
+    *,
+    ingestion_id: str,
+    periods: Mapping[str, str],
+    source_digests: Mapping[str, str],
+) -> bool:
+    approval_blob = bucket.blob(f"approvals/{ingestion_id}.json")
+    if not approval_blob.exists():
+        return False
+    manifest_blob = bucket.blob(f"manifests/{ingestion_id}.json")
+    if not manifest_blob.exists():
+        raise RuntimeError(f"GROUNDING_APPROVED_MANIFEST_MISSING:{ingestion_id}")
+    approval = json.loads(approval_blob.download_as_bytes())
+    manifest = json.loads(manifest_blob.download_as_bytes())
+    if approval != {"ingestion_id": ingestion_id, "status": "APPROVED"}:
+        raise RuntimeError(f"GROUNDING_APPROVAL_INVALID:{ingestion_id}")
+    if (
+        manifest.get("ingestion_id") != ingestion_id
+        or manifest.get("source_periods") != dict(periods)
+        or manifest.get("source_digests") != dict(source_digests)
+    ):
+        raise RuntimeError(f"GROUNDING_APPROVED_SOURCE_CONFLICT:{ingestion_id}")
+    return True
 
 
 def main() -> None:
