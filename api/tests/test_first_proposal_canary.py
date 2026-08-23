@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.domain.models import Project
+from app.domain.models import CoverageProfile, Project
 from app.results.models import AuditStatus, ResultFreshness, ResultView
 from app.verification.first_proposal import FirstProposalCanary, FirstProposalCanaryError
 from app.workflows.first_proposal import FirstProposalStage
@@ -184,9 +184,10 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
         "result_freshness": "CURRENT",
     }
     assert projects.founder is not None
-    assert projects.founder.target_area_input == "경기도 수원시 영통구 원천동"
+    assert projects.founder.target_area_input == "서울특별시 마포구 망원동"
     assert projects.area is not None
-    assert projects.area.administrative_code == "4111710200"
+    assert projects.area.administrative_code == "1144012300"
+    assert projects.area.coverage_profile == CoverageProfile.R2_REGIONAL_CONNECTOR
     assert projects.area.source_revision == "MOIS_LEGAL_DONG_20260301"
     assert cleaner.calls == [("canary-project", "first-proposal-canary-probe")]
     assert not workflows.cancelled
