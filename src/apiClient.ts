@@ -236,6 +236,77 @@ export interface PreparationGuide {
   generated_at: string
 }
 
+export type DocumentType = 'COMMERCIAL_LEASE' | 'FRANCHISE_DISCLOSURE' | 'FRANCHISE_AGREEMENT' | 'INTERIOR_QUOTE' | 'EQUIPMENT_QUOTE' | 'PROPERTY_LISTING' | 'LOAN_TERMS' | 'BUSINESS_PROCEDURE' | 'OTHER'
+export type DocumentRevisionStatus = 'UPLOAD_PENDING' | 'VALIDATING' | 'SCAN_PENDING' | 'READY_FOR_PARSING' | 'PARSING' | 'EXTRACTION_READY' | 'APPLIED' | 'EXTRACTION_FAILED' | 'QUARANTINED' | 'DELETED'
+
+export interface SignedDocumentUpload {
+  document_id: string
+  document_revision_id: string
+  revision_number: number
+  object_path: string
+  upload_url: string
+  method: 'PUT'
+  required_headers: Record<string, string>
+  expires_at: string
+  status: DocumentRevisionStatus
+}
+
+export interface DocumentRevision {
+  document_id: string
+  document_revision_id: string
+  project_id: string
+  revision_number: number
+  document_type: DocumentType
+  original_filename: string
+  content_type: string
+  size_bytes: number
+  sha256: string
+  status: DocumentRevisionStatus
+  failure_codes: string[]
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+}
+
+export interface DocumentExtractionField {
+  field_id: string
+  claim_type: string
+  label: string
+  raw_value_text: string | null
+  extracted_value: string | number | boolean | null
+  current_value: string | number | boolean | null
+  unit: string | null
+  materiality: string
+  extraction_status: 'AUTO_FILLED' | 'REVIEW_REQUIRED' | 'UNRESOLVED'
+  edit_status: 'UNCHANGED' | 'EDITED' | 'CLEARED'
+  anchor: { page_index: number; section_path: string | null } | null
+  warnings: string[]
+}
+
+export interface DocumentExtractionForm {
+  form_id: string
+  project_id: string
+  document_id: string
+  document_revision_id: string
+  expected_state_version: number
+  form_status: string
+  fields: DocumentExtractionField[]
+  apply_label: string
+  form_digest: string | null
+  applied_state_version: number | null
+}
+
+export interface ExtractionFormApplication {
+  application_id: string
+  project_id: string
+  document_revision_id: string
+  applied_state_version: number
+  recompute_workflow_run_id: string
+  claims: Array<Record<string, unknown>>
+  conflicts: Array<Record<string, unknown>>
+  requires_human_review: boolean
+}
+
 export interface ControlApiClient {
   createProject(): Promise<Project>
   listProjects(): Promise<Project[]>
@@ -250,6 +321,13 @@ export interface ControlApiClient {
   selectCandidate(projectId: string, result: ResultView, candidateId: string): Promise<CandidateSelection>
   getPreparationGuide(projectId: string, selectionId: string): Promise<PreparationGuide>
   applyPropertyTerms(projectId: string, selectionId: string, expectedStateVersion: number, terms: PropertyTermsInput): Promise<PropertyTermsApplication>
+  beginDocumentUpload(projectId: string, file: File, documentType: DocumentType, sha256: string): Promise<SignedDocumentUpload>
+  uploadDocument(upload: SignedDocumentUpload, file: File): Promise<void>
+  completeDocumentUpload(projectId: string, documentRevisionId: string): Promise<DocumentRevision>
+  getDocumentRevision(projectId: string, documentRevisionId: string): Promise<DocumentRevision>
+  getDocumentExtractionForm(projectId: string, documentRevisionId: string): Promise<DocumentExtractionForm>
+  updateDocumentExtractionForm(projectId: string, form: DocumentExtractionForm, edits: Array<{ field_id: string; value: string | number | boolean | null }>): Promise<DocumentExtractionForm>
+  applyDocumentExtractionForm(projectId: string, form: DocumentExtractionForm): Promise<ExtractionFormApplication>
 }
 
 export class ControlApiError extends Error {
@@ -331,7 +409,31 @@ export function createControlApiClient(
       method: 'POST',
       body: JSON.stringify({ expected_state_version: expectedStateVersion, terms }),
     }, true),
+    beginDocumentUpload: (projectId, file, documentType, sha256) => request(`/v1/projects/${projectId}/documents/uploads`, {
+      method: 'POST',
+      body: JSON.stringify({ document_type: documentType, filename: file.name, content_type: file.type, size_bytes: file.size, sha256 }),
+    }, true),
+    uploadDocument: async (upload, file) => {
+      const response = await fetchImpl(upload.upload_url, { method: upload.method, body: file, headers: upload.required_headers })
+      if (!response.ok) throw new ControlApiError(response.status, 'DOCUMENT_UPLOAD_FAILED', `파일 전송에 실패했습니다. (${response.status})`)
+    },
+    completeDocumentUpload: (projectId, documentRevisionId) => request(`/v1/projects/${projectId}/documents/uploads:complete`, {
+      method: 'POST', body: JSON.stringify({ document_revision_id: documentRevisionId }),
+    }),
+    getDocumentRevision: (projectId, documentRevisionId) => request(`/v1/projects/${projectId}/documents/${documentRevisionId}`),
+    getDocumentExtractionForm: (projectId, documentRevisionId) => request(`/v1/projects/${projectId}/documents/${documentRevisionId}/extraction-form`),
+    updateDocumentExtractionForm: (projectId, form, edits) => request(`/v1/projects/${projectId}/documents/${form.document_revision_id}/extraction-form`, {
+      method: 'PUT', body: JSON.stringify({ expected_state_version: form.expected_state_version, edits }),
+    }),
+    applyDocumentExtractionForm: (projectId, form) => request(`/v1/projects/${projectId}/documents/${form.document_revision_id}/extraction-form:apply`, {
+      method: 'POST', body: JSON.stringify({ expected_state_version: form.expected_state_version, expected_form_digest: form.form_digest }),
+    }, true),
   }
+}
+
+export async function sha256File(file: File): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
 export const terminalWorkflowStatuses = new Set<WorkflowStatus>(['SUCCEEDED', 'PARTIAL', 'FAILED', 'CANCELLED', 'STALE', 'WAITING_FOR_HUMAN'])

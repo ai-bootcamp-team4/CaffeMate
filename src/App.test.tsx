@@ -133,6 +133,13 @@ function setup(nextResult: ResultView = result) {
     selectCandidate: vi.fn(async () => ({ selection_id: 'selection-1', candidate_id: 'candidate-1', selected_state_version: 2, required_evidence: [{ code: 'LEASE', title: '점포 임대 조건', status: 'REQUIRED', reason: '보증금·월세·권리금을 실제 값으로 확인합니다.' }], property_intake_enabled: true, document_intake_enabled: true })),
     getPreparationGuide: vi.fn(async () => preparationGuide),
     applyPropertyTerms: vi.fn(async (_projectId, _selectionId, _expectedStateVersion, terms) => ({ property_input_id: 'property-1', project_id: 'project-1', selection_id: 'selection-1', candidate_id: 'candidate-1', applied_state_version: 3, terms, previous_financial_summary: result.candidates[0].financial_summary, recompute_workflow: workflow, input_kind: 'USER_CONFIRMED_PROPERTY_TERMS' as const, is_demo_fixture: false, created_at: '2026-08-23T00:01:00Z' })),
+    beginDocumentUpload: vi.fn(async () => { throw new Error('not used') }),
+    uploadDocument: vi.fn(async () => { throw new Error('not used') }),
+    completeDocumentUpload: vi.fn(async () => { throw new Error('not used') }),
+    getDocumentRevision: vi.fn(async () => { throw new Error('not used') }),
+    getDocumentExtractionForm: vi.fn(async () => { throw new Error('not used') }),
+    updateDocumentExtractionForm: vi.fn(async () => { throw new Error('not used') }),
+    applyDocumentExtractionForm: vi.fn(async () => { throw new Error('not used') }),
   }
   render(<App authGateway={authGateway} apiFactory={() => client} />)
   return { authGateway, client }

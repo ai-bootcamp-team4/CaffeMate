@@ -495,6 +495,15 @@
 .property-form .field:first-child, .property-form__action { grid-column: 1 / -1; }
 .property-form__action { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; padding-block-start: var(--space-sm); border-block-start: var(--rule-thin) solid var(--color-rule); }
 .property-form__action p { color: var(--color-neutral); }
+.document-intake__upload { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); align-items: end; }
+.document-intake__upload .btn { min-height: 44px; justify-self: start; }
+.document-extraction-form { display: grid; gap: var(--space-md); }
+.document-extraction-form__intro { padding-block-end: var(--space-sm); border-block-end: var(--rule-thin) solid var(--color-rule); }
+.document-extraction-form__intro p, .document-extraction-field small, .document-intake__status { color: var(--color-neutral); }
+.document-extraction-field small { line-height: 1.45; }
+.document-intake__actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); padding-block-start: var(--space-sm); border-block-start: var(--rule-thin) solid var(--color-rule); }
+.document-intake__status, .document-intake__error { margin-block-start: var(--space-sm); }
+.document-intake__error { color: var(--color-error); }
 .property-comparison { display: grid; gap: var(--space-md); padding-block-start: var(--space-lg); border-block-start: var(--rule-strong) solid var(--color-ink); }
 .property-comparison > p, .procedure-unavailable p { color: var(--color-neutral); }
 .procedure-unavailable { display: grid; gap: var(--space-xs); padding: var(--space-md); border: var(--rule-thin) solid var(--color-rule); }
@@ -507,6 +516,7 @@
   .preparation-hero { grid-template-columns: minmax(0, 1fr); padding: var(--space-md); }
   .preparation-hero .btn { width: 100%; }
   .property-form__head, .property-form { grid-template-columns: minmax(0, 1fr); }
+  .document-intake__upload { grid-template-columns: minmax(0, 1fr); }
   .property-form .field:first-child, .property-form__action { grid-column: auto; }
   .property-form__head .btn, .property-form__action .btn { width: 100%; }
 }

@@ -409,6 +409,21 @@ class DocumentService:
             expires_at=expires_at,
         )
 
+    def get_revision(
+        self,
+        *,
+        project_id: str,
+        user_id: str,
+        document_revision_id: str,
+    ) -> DocumentRevision:
+        return self._revision(
+            self._load_owned(
+                project_id=project_id,
+                user_id=user_id,
+                document_revision_id=document_revision_id,
+            )
+        )
+
     def _signed_upload(self, row: RowMapping, *, expires_at: datetime) -> SignedUpload:
         content_type = row["declared_content_type"]
         sha256 = row["declared_sha256"]
@@ -536,4 +551,7 @@ class UnavailableDocumentService:
         raise PersistenceUnavailableError("Document storage is unavailable")
 
     def get_download(self, **_: Any) -> DocumentDownload:
+        raise PersistenceUnavailableError("Document storage is unavailable")
+
+    def get_revision(self, **_: Any) -> DocumentRevision:
         raise PersistenceUnavailableError("Document storage is unavailable")

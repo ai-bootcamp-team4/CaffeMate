@@ -852,6 +852,21 @@ def create_app(
         )
 
     @app.get(
+        "/v1/projects/{project_id}/documents/{document_revision_id}",
+        response_model=DocumentRevision,
+    )
+    def get_document_revision(
+        project_id: str,
+        document_revision_id: str,
+        user_id: Annotated[str, Depends(current_user)],
+    ) -> DocumentRevision:
+        return documents.get_revision(
+            project_id=project_id,
+            user_id=user_id,
+            document_revision_id=document_revision_id,
+        )
+
+    @app.get(
         "/v1/projects/{project_id}/documents/{document_revision_id}/download",
         response_model=DocumentDownload,
     )
