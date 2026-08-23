@@ -9,8 +9,6 @@ from google.oauth2 import id_token
 
 from worker.errors import StageExecutionError
 
-CONTROL_API_TIMEOUT_SECONDS = 70.0
-
 
 class IdentityTokenProvider(Protocol):
     def token_for(self, audience: str) -> str: ...
@@ -50,7 +48,7 @@ class ControlApiStageProcessor:
         remaining = (lease.lease_expires_at - self._now()).total_seconds()
         if remaining <= 2:
             raise TimeoutError("Stage lease has insufficient time for Control API execution")
-        timeout = min(CONTROL_API_TIMEOUT_SECONDS, remaining - 2)
+        timeout = remaining - 2
         try:
             token = self._token_provider.token_for(self._audience)
             response = self._client.post(

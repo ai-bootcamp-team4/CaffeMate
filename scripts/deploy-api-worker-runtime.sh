@@ -316,6 +316,7 @@ gcloud run deploy caffemate-api \
   --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CORS_ALLOWED_ORIGINS=https://caffemate-web-hfgnuuc55q-du.a.run.app;https://caffemate-web-424808310695.asia-northeast3.run.app,CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},WORKFLOW_STAGE_TOPIC_RESOURCE=${topic_resource},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},DOCUMENT_BUCKET=${document_bucket},DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa}${api_audience_env}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest,AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
   --port=8080 \
+  --timeout=600 \
   --ingress=all \
   --default-url \
   --invoker-iam-check \
@@ -358,6 +359,7 @@ gcloud run deploy caffemate-worker \
   --set-env-vars="${common_database_env},CONTROL_API_URL=${api_url},CONTROL_API_AUDIENCE=${api_url},WORKER_ID=caffemate-worker,PUBSUB_SUBSCRIPTION=${subscription_resource},WORKFLOW_STAGE_TOPIC_RESOURCE=${topic_resource},DOCUMENT_BUCKET=${document_bucket}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest' \
   --port=8080 \
+  --timeout=600 \
   --ingress=internal \
   --cpu=1 \
   --memory=512Mi \
@@ -397,7 +399,7 @@ if gcloud pubsub subscriptions describe "$subscription_id" \
     --push-endpoint="${worker_url}/internal/v1/pubsub/workflow-stages" \
     --push-auth-service-account="$push_sa" \
     --push-auth-token-audience="$worker_url" \
-    --ack-deadline=120 \
+    --ack-deadline=600 \
     --min-retry-delay=10s \
     --max-retry-delay=300s \
     --quiet >/dev/null
@@ -408,7 +410,7 @@ else
     --push-endpoint="${worker_url}/internal/v1/pubsub/workflow-stages" \
     --push-auth-service-account="$push_sa" \
     --push-auth-token-audience="$worker_url" \
-    --ack-deadline=120 \
+    --ack-deadline=600 \
     --min-retry-delay=10s \
     --max-retry-delay=300s \
     --expiration-period=never \

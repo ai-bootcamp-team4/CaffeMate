@@ -95,7 +95,7 @@ def test_untyped_control_api_503_remains_retryable() -> None:
     assert captured.value.retryable is True
 
 
-def test_control_api_timeout_allows_sixty_second_agent_deadline() -> None:
+def test_control_api_timeout_allows_slow_agent_stage() -> None:
     observed_timeout: dict[str, float] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -110,12 +110,12 @@ def test_control_api_timeout_allows_sixty_second_agent_deadline() -> None:
         now=lambda: datetime(2026, 8, 21, tzinfo=UTC),
     )
     extended_lease = stage_lease().model_copy(
-        update={"lease_expires_at": datetime(2026, 8, 21, 0, 1, 30, tzinfo=UTC)}
+        update={"lease_expires_at": datetime(2026, 8, 21, 0, 3, 30, tzinfo=UTC)}
     )
 
     processor.process(extended_lease)
 
-    assert observed_timeout["read"] == 70.0
+    assert observed_timeout["read"] == 208.0
 
 
 def test_invalid_success_response_is_terminal() -> None:
