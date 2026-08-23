@@ -6,6 +6,7 @@ import { createBigQueryGroundingConnectors } from './bigquery-grounding'
 import { createFranchiseCatalogConnector } from './franchise-catalog'
 import { mapOfficialRagContext } from './official-rag'
 import { createOfficialRagHealthSource } from './official-rag-health'
+import { createOfficialProcedureRagConnector } from './procedure-rag'
 import { createRagMcpConnectors } from './rag-connectors'
 import { MCP_PRODUCTION_TOOL_NAMES } from './manifest'
 import type { McpConnectorRegistry } from './router'
@@ -75,6 +76,10 @@ export function createProductionMcpConnectors(options: ProductionMcpConnectorOpt
     ...grounding,
     list_franchise_universe: createFranchiseCatalogConnector({ now }),
     retrieve_official_documents: rag.retrieve_official_documents,
+    get_official_procedure: createOfficialProcedureRagConnector({
+      retrieval,
+      now: () => now().toISOString(),
+    }),
   }
   const configured = Object.keys(connectors).sort()
   const expected = [...MCP_PRODUCTION_TOOL_NAMES].sort()

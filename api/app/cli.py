@@ -20,7 +20,7 @@ from app.documents.extraction import DocumentExtractionService
 from app.documents.service import DocumentService
 from app.documents.storage import GoogleCloudDocumentStorage
 from app.domain.models import CafeTypePreference
-from app.mcp.client import GoogleIdentityTokenProvider
+from app.mcp.client import GoogleIdentityTokenProvider, McpHttpClient
 from app.mcp.preflight import McpManifestPreflight
 from app.mcp.scope import ScopeTokenSigner
 from app.migrations import apply_migrations, verify_migrations
@@ -28,12 +28,19 @@ from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
+from app.selections.preparation import PreparationGuideService
+from app.selections.property import PropertyTermsService
+from app.selections.service import CandidateSelectionService
 from app.settings import RuntimeSettings
 from app.verification.documents import DocumentStorageCanary, DocumentStorageCanaryError
 from app.verification.first_proposal import (
     FirstProposalCanary,
     FirstProposalCanaryError,
     PostgresFirstProposalCanaryCleaner,
+)
+from app.verification.selected_candidate import (
+    SelectedCandidateCanary,
+    SelectedCandidateCanaryError,
 )
 from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import HeadFence
@@ -107,6 +114,7 @@ def main() -> None:
             "verify-agent-runtime",
             "verify-agent-runtime-iam",
             "verify-first-proposal",
+            "verify-selected-candidate",
             "verify-document-storage",
         ],
     )
@@ -342,6 +350,75 @@ def main() -> None:
         finally:
             handle.close()
         print(json.dumps(canary_report.as_dict(), sort_keys=True))
+    elif arguments.command == "verify-selected-candidate":
+        settings = RuntimeSettings.from_environment()
+        if not settings.has_mcp_configuration or not settings.policy_snapshot_id:
+            parser.error("database, MCP and policy snapshot configuration required")
+        handle = create_database_handle(settings)
+        if handle is None:
+            parser.error("database configuration required")
+        seed_registry = IndependentSeedRegistry.load_default()
+        preflight = McpManifestPreflight(
+            base_url=cast(str, settings.mcp_base_url),
+            audience=cast(str, settings.mcp_audience),
+            identity_provider=GoogleIdentityTokenProvider(),
+            scope_signer=ScopeTokenSigner(
+                secret=cast(str, settings.mcp_scope_hmac_secret),
+                issuer="caffemate-control-api",
+                audience="caffemate-mcp",
+            ),
+        )
+        projects = ProjectService(PostgresProjectRepository(handle.engine))
+        workflows = WorkflowService(
+            PostgresWorkflowRepository(
+                handle.engine,
+                policy_snapshot_id=settings.policy_snapshot_id,
+                seed_registry_id=seed_registry.registry_id,
+            ),
+            start_guard=FirstProposalStartGuard(
+                list(FirstProposalStage),
+                manifest_gate=McpManifestStartGate(
+                    preflight,
+                    policy_snapshot_id=settings.policy_snapshot_id,
+                    seed_registry_id=seed_registry.registry_id,
+                ),
+            ),
+        )
+        try:
+            mcp_client = McpHttpClient(
+                base_url=cast(str, settings.mcp_base_url),
+                audience=cast(str, settings.mcp_audience),
+                identity_provider=GoogleIdentityTokenProvider(),
+                scope_signer=ScopeTokenSigner(
+                    secret=cast(str, settings.mcp_scope_hmac_secret),
+                    issuer="caffemate-control-api",
+                    audience="caffemate-mcp",
+                ),
+            )
+            selected_canary_report = SelectedCandidateCanary(
+                projects=projects,
+                workflows=workflows,
+                results=ResultService(PostgresResultRepository(handle.engine)),
+                selections=CandidateSelectionService(handle.engine),
+                preparation_guides=PreparationGuideService(handle.engine, mcp_client),
+                property_terms=PropertyTermsService(handle.engine),
+                cleaner=PostgresFirstProposalCanaryCleaner(handle.engine),
+            ).run(
+                timeout_seconds=arguments.timeout_seconds,
+                poll_interval_seconds=arguments.poll_interval_seconds,
+            )
+        except SelectedCandidateCanaryError as error:
+            print(
+                json.dumps(
+                    {"status": "failed", "code": error.code, **error.details},
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from error
+        finally:
+            handle.close()
+        print(json.dumps(selected_canary_report.as_dict(), sort_keys=True))
     elif arguments.command == "verify-document-storage":
         settings = RuntimeSettings.from_environment()
         if (
