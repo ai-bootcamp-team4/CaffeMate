@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol, cast
 
+import google.auth
+from google.auth.credentials import Credentials
+from google.auth.transport.requests import Request
 from google.cloud import storage  # type: ignore[attr-defined]
 
 
@@ -30,9 +33,39 @@ class DocumentStorage(Protocol):
     def sign_download(self, *, object_path: str, expires_at: datetime) -> str: ...
 
 
+class AccessTokenProvider(Protocol):
+    def token(self) -> str: ...
+
+
+class GoogleAccessTokenProvider:
+    def __init__(self, credentials: Credentials | None = None) -> None:
+        self._credentials = credentials or google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )[0]
+
+    def token(self) -> str:
+        if not self._credentials.valid or not self._credentials.token:
+            self._credentials.refresh(Request())  # type: ignore[no-untyped-call]
+        token = self._credentials.token
+        if not isinstance(token, str) or not token:
+            raise RuntimeError("Document signed URL access token is unavailable")
+        return token
+
+
 class GoogleCloudDocumentStorage:
-    def __init__(self, bucket_name: str, *, client: storage.Client | None = None) -> None:
+    def __init__(
+        self,
+        bucket_name: str,
+        *,
+        signing_service_account_email: str,
+        client: storage.Client | None = None,
+        access_tokens: AccessTokenProvider | None = None,
+    ) -> None:
+        if not signing_service_account_email:
+            raise ValueError("Document signing service account email is required")
         self._bucket = (client or storage.Client()).bucket(bucket_name)
+        self._signing_service_account_email = signing_service_account_email
+        self._access_tokens = access_tokens or GoogleAccessTokenProvider()
 
     def sign_upload(
         self,
@@ -48,6 +81,8 @@ class GoogleCloudDocumentStorage:
             method="PUT",
             content_type=content_type,
             headers={"x-goog-meta-caffemate-sha256": sha256},
+            service_account_email=self._signing_service_account_email,
+            access_token=self._access_tokens.token(),
         ))
 
     def inspect(self, *, object_path: str) -> StoredObject | None:
@@ -88,7 +123,12 @@ class GoogleCloudDocumentStorage:
             version="v4",
             expiration=expires_at,
             method="GET",
+            service_account_email=self._signing_service_account_email,
+            access_token=self._access_tokens.token(),
         ))
+
+    def delete(self, *, object_path: str) -> None:
+        self._bucket.blob(object_path).delete()
 
 
 def short_expiry(minutes: int = 10) -> datetime:

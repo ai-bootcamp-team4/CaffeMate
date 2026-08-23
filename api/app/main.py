@@ -391,10 +391,15 @@ def create_app(
 
     if document_service is not None:
         documents = document_service
-    elif database_handle is not None and settings.document_bucket:
+    elif database_handle is not None and settings.has_document_storage_configuration:
         documents = DocumentService(
             database_handle.engine,
-            GoogleCloudDocumentStorage(settings.document_bucket),
+            GoogleCloudDocumentStorage(
+                cast(str, settings.document_bucket),
+                signing_service_account_email=cast(
+                    str, settings.document_signing_service_account_email
+                ),
+            ),
         )
     else:
         documents = UnavailableDocumentService()

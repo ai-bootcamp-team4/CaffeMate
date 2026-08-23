@@ -6,11 +6,12 @@ region=${CAFFEMATE_GCP_REGION:-asia-northeast3}
 source_revision=${CAFFEMATE_SOURCE_REVISION:-}
 instance_id=${CAFFEMATE_DB_INSTANCE_ID:-caffemate-postgres}
 agent_runtime_resource_id=${CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID:-}
+document_bucket=${CAFFEMATE_DOCUMENT_BUCKET:-}
 
 . "$(dirname "$0")/iam-role-helpers.sh"
 
-if [ -z "$project_id" ] || [ -z "$source_revision" ] || [ -z "$agent_runtime_resource_id" ]; then
-  printf '%s\n' 'CAFFEMATE_GCP_PROJECT_ID, CAFFEMATE_SOURCE_REVISION and CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID are required' >&2
+if [ -z "$project_id" ] || [ -z "$source_revision" ] || [ -z "$agent_runtime_resource_id" ] || [ -z "$document_bucket" ]; then
+  printf '%s\n' 'CAFFEMATE_GCP_PROJECT_ID, CAFFEMATE_SOURCE_REVISION, CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID and CAFFEMATE_DOCUMENT_BUCKET are required' >&2
   exit 2
 fi
 if [ "$region" != 'asia-northeast3' ] || [ "${#source_revision}" -ne 40 ]; then
@@ -81,6 +82,12 @@ session_manager_role="projects/${project_id}/roles/${session_manager_role_id}"
 release_verifier_role_id='caffemateReleaseVerifier'
 release_verifier_role="projects/${project_id}/roles/${release_verifier_role_id}"
 release_verifier_sa="caffemate-release-verifier@${project_id}.iam.gserviceaccount.com"
+document_signer_role_id='caffemateDocumentUrlSigner'
+document_signer_role="projects/${project_id}/roles/${document_signer_role_id}"
+document_object_role_id='caffemateDocumentObjectAccess'
+document_object_role="projects/${project_id}/roles/${document_object_role_id}"
+document_reader_role_id='caffemateDocumentObjectReader'
+document_reader_role="projects/${project_id}/roles/${document_reader_role_id}"
 
 ensure_project_custom_role \
   "$runtime_invoker_role_id" \
@@ -97,6 +104,21 @@ ensure_project_custom_role \
   'CaffeMate AI Release Verifier' \
   'Read and execute the bounded Agent, RAG, embedding and reranker release probes.' \
   'aiplatform.endpoints.predict,aiplatform.ragCorpora.get,aiplatform.ragCorpora.list,aiplatform.ragCorpora.query,aiplatform.ragFiles.get,aiplatform.ragFiles.list,aiplatform.reasoningEngines.get,aiplatform.reasoningEngines.list,aiplatform.reasoningEngines.query,discoveryengine.rankingConfigs.rank,run.services.get,storage.objects.get'
+ensure_project_custom_role \
+  "$document_signer_role_id" \
+  'CaffeMate Document URL Signer' \
+  'Sign only short-lived document upload and download URLs.' \
+  'iam.serviceAccounts.signBlob'
+ensure_project_custom_role \
+  "$document_object_role_id" \
+  'CaffeMate Document Object Access' \
+  'Create, inspect, download and delete objects only inside the document bucket.' \
+  'storage.objects.create,storage.objects.delete,storage.objects.get'
+ensure_project_custom_role \
+  "$document_reader_role_id" \
+  'CaffeMate Document Object Reader' \
+  'Read document objects for scanner and parser workers.' \
+  'storage.objects.get'
 
 remove_project_role_binding "$agent_runtime_identity" 'roles/aiplatform.expressUser'
 remove_project_role_binding "$agent_runtime_identity" 'roles/serviceusage.serviceUsageConsumer'
@@ -201,6 +223,43 @@ assert not any(
 PY
 unset access_token agent_runtime_json agent_runtime_identity agent_runtime_policy
 
+expected_document_bucket="${project_id}-caffemate-documents"
+if [ "$document_bucket" != "$expected_document_bucket" ]; then
+  printf 'document bucket must be the pinned regional bucket %s\n' \
+    "$expected_document_bucket" >&2
+  exit 2
+fi
+if ! gcloud storage buckets describe "gs://${document_bucket}" \
+  --project="$project_id" >/dev/null 2>&1; then
+  gcloud storage buckets create "gs://${document_bucket}" \
+    --project="$project_id" \
+    --location="$region" \
+    --uniform-bucket-level-access \
+    --public-access-prevention \
+    --quiet >/dev/null
+fi
+gcloud storage buckets update "gs://${document_bucket}" \
+  --project="$project_id" \
+  --uniform-bucket-level-access \
+  --public-access-prevention \
+  --cors-file="deploy/gcs/document-cors.json" \
+  --quiet >/dev/null
+gcloud storage buckets add-iam-policy-binding "gs://${document_bucket}" \
+  --project="$project_id" \
+  --member="serviceAccount:${api_sa}" \
+  --role="$document_object_role" \
+  --quiet >/dev/null
+gcloud storage buckets add-iam-policy-binding "gs://${document_bucket}" \
+  --project="$project_id" \
+  --member="serviceAccount:${worker_sa}" \
+  --role="$document_reader_role" \
+  --quiet >/dev/null
+gcloud iam service-accounts add-iam-policy-binding "$api_sa" \
+  --project="$project_id" \
+  --member="serviceAccount:${api_sa}" \
+  --role="$document_signer_role" \
+  --quiet >/dev/null
+
 create_service_account() {
   account_id=$1
   display_name=$2
@@ -254,7 +313,7 @@ gcloud run deploy caffemate-api \
   --image="$image" \
   --service-account="$api_sa" \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CORS_ALLOWED_ORIGINS=https://caffemate-web-hfgnuuc55q-du.a.run.app;https://caffemate-web-424808310695.asia-northeast3.run.app,CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},WORKFLOW_STAGE_TOPIC_RESOURCE=${topic_resource},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url}${api_audience_env}" \
+  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CORS_ALLOWED_ORIGINS=https://caffemate-web-hfgnuuc55q-du.a.run.app;https://caffemate-web-424808310695.asia-northeast3.run.app,CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},WORKFLOW_STAGE_TOPIC_RESOURCE=${topic_resource},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},DOCUMENT_BUCKET=${document_bucket},DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa}${api_audience_env}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest,AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
   --port=8080 \
   --ingress=all \
@@ -296,7 +355,7 @@ gcloud run deploy caffemate-worker \
   --command=uvicorn \
   --args=worker.main:app,--host,0.0.0.0,--port,8080 \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},CONTROL_API_URL=${api_url},CONTROL_API_AUDIENCE=${api_url},WORKER_ID=caffemate-worker,PUBSUB_SUBSCRIPTION=${subscription_resource},WORKFLOW_STAGE_TOPIC_RESOURCE=${topic_resource}" \
+  --set-env-vars="${common_database_env},CONTROL_API_URL=${api_url},CONTROL_API_AUDIENCE=${api_url},WORKER_ID=caffemate-worker,PUBSUB_SUBSCRIPTION=${subscription_resource},WORKFLOW_STAGE_TOPIC_RESOURCE=${topic_resource},DOCUMENT_BUCKET=${document_bucket}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest' \
   --port=8080 \
   --ingress=internal \

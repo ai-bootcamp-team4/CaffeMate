@@ -25,6 +25,7 @@ class RuntimeSettings:
     mcp_audience: str | None
     mcp_scope_hmac_secret: str | None
     document_bucket: str | None
+    document_signing_service_account_email: str | None
     cors_allowed_origins: tuple[str, ...] = ()
 
     @classmethod
@@ -53,6 +54,9 @@ class RuntimeSettings:
             mcp_audience=os.getenv("MCP_AUDIENCE"),
             mcp_scope_hmac_secret=os.getenv("MCP_SCOPE_HMAC_SECRET"),
             document_bucket=os.getenv("DOCUMENT_BUCKET"),
+            document_signing_service_account_email=os.getenv(
+                "DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL"
+            ),
             cors_allowed_origins=tuple(
                 origin.strip()
                 for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(";")
@@ -84,3 +88,12 @@ class RuntimeSettings:
     @property
     def has_mcp_configuration(self) -> bool:
         return all((self.mcp_base_url, self.mcp_audience, self.mcp_scope_hmac_secret))
+
+    @property
+    def has_document_storage_configuration(self) -> bool:
+        return all(
+            (
+                self.document_bucket,
+                self.document_signing_service_account_email,
+            )
+        )

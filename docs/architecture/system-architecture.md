@@ -183,6 +183,20 @@ BigQuery는 분석·재생성 가능한 자료를 보관한다. 사용자별 tra
 
 사용자 문서는 project 경로와 IAM으로 격리한다. 영구 공개 URL을 만들지 않는다.
 
+운영 원본 버킷은 `${GCP_PROJECT_ID}-caffemate-documents` 하나로 고정하고 API·Worker와 같은
+`asia-northeast3`에 둔다. uniform bucket-level access와 public access prevention을 강제한다.
+브라우저는 API가 발급한 10분 V4 PUT URL과 5분 GET URL만 사용한다. API identity에는 이 전용
+버킷의 object create·get·delete만, Worker에는 get만 허용한다. URL 서명은 장기 JSON key 대신
+Cloud Run access token과 API identity 자신에 대한 `iam.serviceAccounts.signBlob` 한 권한을
+사용한다. 이 선택은 비밀키 배포를 없애면서도 브라우저가 대용량 원본을 API 메모리를 거치지 않고
+직접 전송하게 한다.
+
+배포 검증은 버킷 존재 확인으로 끝내지 않는다. 같은 backend image와 API identity의 일회성 Job이
+signed PUT, magic·크기·SHA-256 재검증, clean scan 결과, ParserBlock 제출,
+`DOCUMENT_EXTRACT` Agent의 typed 결과 검증, extraction form 생성, signed GET과 canary object·DB
+정리까지 수행한다. 스캔·파서 결과를 이 canary가 명시적으로 주입하는 것은 provider 자체를
+구현했다는 뜻이 아니라 Control API 양쪽 integration contract와 Agent 경계를 검증한다는 뜻이다.
+
 ### Vertex AI RAG Engine
 
 - 공식 문서·정보공개서와 project-private 문서 corpus

@@ -126,9 +126,11 @@ revision=$(git rev-parse HEAD)
 CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
 CAFFEMATE_SOURCE_REVISION="$revision" \
 CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID='<numeric-reasoning-engine-id>' \
+CAFFEMATE_DOCUMENT_BUCKET='proj-aj20-211200020328-caffemate-documents' \
   ./scripts/deploy-api-worker-runtime.sh
 CAFFEMATE_GCP_PROJECT_ID=proj-aj20-211200020328 \
 CAFFEMATE_SOURCE_REVISION="$revision" \
+CAFFEMATE_DOCUMENT_BUCKET='proj-aj20-211200020328-caffemate-documents' \
   ./scripts/verify-api-worker-runtime.sh
 ```
 
@@ -171,6 +173,8 @@ bootstrap 시 기존 service와 migration job에 설정하고 배포 전후 read
 - API의 `MCP_BASE_URL`, `MCP_AUDIENCE`
 - API와 MCP에만 주입하는 Secret Manager 기반 `MCP_SCOPE_HMAC_SECRET`
 - Worker의 `PUBSUB_SUBSCRIPTION`, `WORKFLOW_STAGE_TOPIC_RESOURCE`
+- API·Worker의 regional `DOCUMENT_BUCKET`과 API의
+  `DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL`
 
 Migration job은 API 시작 명령을 사용하지 않고 `caffemate-api migrate`를 한 task, 재시도 0으로
 실행한다. 실패하면 API와 Worker 배포 단계로 진행하지 않는다.
@@ -187,6 +191,9 @@ Migration job은 API 시작 명령을 사용하지 않고 `caffemate-api migrate
 6. Worker 업무 endpoint가 internet과 권한 없는 identity에서 거절됨
 7. test Workflow outbox가 `PUBLISHED`가 되고 Pub/Sub push 뒤 stage event가 이어짐
 8. Control API identity로 Agent Runtime ephemeral stream의 session 생성·실행·typed final 검증·삭제 성공
+9. regional document bucket의 public access prevention·CORS·최소 권한 IAM read-back과,
+   signed upload → object 검증 → scan 결과 → parser 결과 → 실제 `DOCUMENT_EXTRACT` Agent →
+   extraction form → signed download canary 성공
 
 하나라도 확인하지 못하면 배포 상태는 `pending`이다.
 
