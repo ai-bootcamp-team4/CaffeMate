@@ -460,9 +460,9 @@ function OverviewPanel({
           <div className="decision-note" role="note">
             <strong>다른 카페안까지 모두 어렵다는 뜻은 아니에요.</strong>
             <p>
-              현재 선택된 {candidate.display_name}을 자기자금만으로 시작하기
-              어렵다는 뜻입니다. 더 작은 운영안이나 실제 점포 비용으로 다시
-              비교할 수 있어요.
+              현재 선택한 창업안은 {candidate.display_name}입니다. 이 안을
+              자기자금만으로 시작하기 어렵다는 뜻입니다. 더 작은 운영안이나
+              실제 점포 비용으로 다시 비교할 수 있어요.
             </p>
           </div>
         )}
@@ -1671,7 +1671,7 @@ function ResultScreen({
       setPreparationOpen(true);
       setPreparationGuide(null);
       setActionStatus(
-        `${selectionCandidate.display_name}을 선택했어요. 이제 실제 점포 조건이나 문서를 추가해 보세요.`,
+        `창업안 선택을 완료했어요: ${selectionCandidate.display_name}. 이제 실제 점포 조건이나 문서를 추가해 보세요.`,
       );
       window.scrollTo({ top: 0 });
       void loadPreparationGuide(next);
