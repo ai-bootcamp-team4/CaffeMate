@@ -90,7 +90,7 @@ def test_excluded_candidates_are_never_committed() -> None:
     }
 
 
-def test_no_reviewable_candidate_abstains_without_result_bundle() -> None:
+def test_no_reviewable_candidate_commits_current_exclusion_outcome() -> None:
     context = commit_context()
     audit = output_candidate_audit(context)
     for candidate in audit["candidates"]:
@@ -106,12 +106,29 @@ def test_no_reviewable_candidate_abstains_without_result_bundle() -> None:
 
     result = CommitResultStageHandler().execute(context)
 
-    assert "result_bundle" not in result
+    bundle = result["result_bundle"]
+    assert isinstance(bundle, dict)
+    assert bundle["outcome_status"] == "NO_REVIEWABLE_CANDIDATES"
+    assert bundle["primary_candidate_id"] is None
+    assert bundle["candidates"]
+    assert all(
+        candidate["review_status"] == "EXCLUDED"
+        and candidate["rank"] is None
+        and candidate["is_primary_next_review"] is False
+        for candidate in bundle["candidates"]
+    )
     stage_control = result["stage_control"]
     assert isinstance(stage_control, dict)
     assert stage_control == {
-        "disposition": "ABSTAIN",
+        "disposition": "CONTINUE",
+        "reason_codes": [],
+    }
+    assert result["commit_result"] == {
+        "status": "READY_TO_COMMIT",
         "reason_codes": ["NO_REVIEWABLE_CANDIDATES"],
+        "excluded_candidate_ids": sorted(
+            candidate["candidate_id"] for candidate in bundle["candidates"]
+        ),
     }
 
 

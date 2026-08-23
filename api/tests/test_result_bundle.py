@@ -84,6 +84,20 @@ def test_excluded_candidate_cannot_enter_visible_bundle() -> None:
         bundle(candidate(rank=None, primary=False, review_status="EXCLUDED"))
 
 
+def test_no_reviewable_bundle_preserves_excluded_candidate_as_current_outcome() -> None:
+    excluded = candidate(rank=None, primary=False, review_status="EXCLUDED")
+    excluded["rank_basis"] = "NOT_RANKED"
+    value = ResultBundlePayload(
+        candidates=[excluded],
+        primary_candidate_id=None,
+        audit_status="PASSED",
+        outcome_status="NO_REVIEWABLE_CANDIDATES",
+    )
+
+    value.validate_contracts(project_id="project-1", state_version=1)
+    assert value.primary_candidate_id is None
+
+
 def test_candidate_contract_and_authoritative_head_are_both_required() -> None:
     value = bundle(candidate())
     value.validate_contracts(project_id="project-1", state_version=1)

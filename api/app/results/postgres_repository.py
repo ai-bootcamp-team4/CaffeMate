@@ -84,6 +84,7 @@ class PostgresResultRepository:
             candidates=payload.candidates,
             primary_candidate_id=payload.primary_candidate_id,
             audit_status=payload.audit_status,
+            outcome_status=payload.outcome_status,
             created_at=row["created_at"],
             freshness=(
                 ResultFreshness.STALE

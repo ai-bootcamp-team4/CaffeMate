@@ -106,7 +106,7 @@ export function DocumentIntake({ client, projectId, enabled, onApplied }: {
       setStatus('확인한 값을 반영해 비용과 위험을 다시 계산하고 있어요.')
       const workflow = await client.getWorkflow(projectId, application.recompute_workflow_run_id)
       const progress = await waitForWorkflow(client, projectId, workflow)
-      if (progress.status !== 'SUCCEEDED' && progress.status !== 'PARTIAL') throw new Error('재계산을 완료하지 못했습니다.')
+      if (progress.status !== 'SUCCEEDED') throw new Error('재계산 일부를 완료하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.')
       await onApplied()
       setStatus('문서 값을 반영하고 창업안을 다시 계산했어요.')
     } catch (caught) {
