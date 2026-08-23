@@ -117,7 +117,9 @@ Agent를 고정 `ABSTAIN`으로 대체하지 않고 입력 투영, 출력 Schema
 배포 검증은 `OPEN_TO_BOTH`와 `FRANCHISE_ONLY`를 별도 Cloud Run Job으로 실행한다.
 `OPEN_TO_BOTH`는 개인카페와 프랜차이즈 후보가 모두 남아야 하며, `FRANCHISE_ONLY`는 개인카페
 후보가 섞이지 않고 실제 `brand_id`, `VERIFIED` 개인 가맹 적격성, 유효한 순위를 가진 검토 가능
-프랜차이즈 후보가 하나 이상이어야 통과한다.
+프랜차이즈 후보가 하나 이상이어야 통과한다. Stage 집합은 전체 enum이 아니라 동일한
+`cafe_type_preference`로 컴파일한 실제 Workflow plan과 정확히 일치해야 한다. 따라서
+`FRANCHISE_ONLY`가 개인카페 seed·proposal 단계를 실행하지 않는 것은 누락이 아니라 정상 경로다.
 
 2026-08-23 운영 전환 후 같은 조건의 13단계 canary는 47.917초에 `SUCCEEDED`와 `CURRENT`
 결과 카드 1건을 만들었다. 변경 전 54.611초보다 6.694초, 약 12% 짧다. Evidence Assess,
