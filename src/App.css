@@ -293,6 +293,20 @@
 .market-signal__source { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs) var(--space-sm); color: var(--color-neutral); font-size: var(--text-sm); }
 .market-signal__source a { min-height: 2.75rem; display: inline-flex; align-items: center; color: var(--color-accent); font-weight: 700; text-underline-offset: var(--space-2xs); white-space: nowrap; }
 .market-signal__source a:focus-visible { outline-color: var(--color-focus); }
+.official-documents { display: grid; gap: 0; padding: 0; list-style: none; }
+.official-documents li { display: grid; gap: var(--space-sm); padding-block: var(--space-md); border-block-end: var(--rule-thin) solid var(--color-rule); }
+.official-documents li:first-child { padding-block-start: 0; }
+.official-documents li:last-child { padding-block-end: 0; border-block-end: 0; }
+.official-document__head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-sm); align-items: start; }
+.official-document__head > div { display: grid; gap: var(--space-2xs); min-width: 0; }
+.official-document__head span { color: var(--color-accent); font-size: var(--text-sm); font-weight: 700; }
+.official-document__head strong { overflow-wrap: anywhere; }
+.official-documents p { max-width: 70ch; color: var(--color-neutral); }
+.official-document__source { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs) var(--space-sm); color: var(--color-neutral); font-size: var(--text-sm); }
+.official-document__source a { display: inline-flex; align-items: center; min-height: 2.75rem; color: var(--color-accent); font-weight: 700; text-underline-offset: var(--space-2xs); white-space: nowrap; }
+.official-document__source a:focus-visible { outline-color: var(--color-focus); }
+.document-gaps { display: grid; gap: var(--space-xs); padding: var(--space-md); border-inline-start: var(--rule-strong) solid var(--color-warning); background: var(--color-warning-soft); }
+.document-gaps ul { display: grid; gap: var(--space-2xs); padding-inline-start: var(--space-lg); }
 .fund-total { display: grid; gap: var(--space-xs); padding-block: var(--space-lg); border-block: var(--rule-strong) solid var(--color-ink); }
 .fund-total span { color: var(--color-neutral); }
 .fund-total strong { font-family: var(--font-display); font-size: var(--text-2xl); font-variant-numeric: tabular-nums; }

@@ -62,6 +62,18 @@ const result: ResultView = {
       { signal_type: 'RESIDENT_POPULATION', value: 37_068, unit: 'PERSONS', data_date: '2026-03-31', freshness_status: 'FRESH', source_title: '서울시 상권분석서비스', source_ref: 'https://data.seoul.go.kr/dataList/OA-22182/S/1/datasetView.do', evidence_id: 'evidence-market-resident', caveat: '선택 지역에 연결된 행정동의 거주인구 합계입니다.' },
       { signal_type: 'WORKER_POPULATION', value: 7_365, unit: 'PERSONS', data_date: '2026-03-31', freshness_status: 'FRESH', source_title: '서울시 상권분석서비스', source_ref: 'https://data.seoul.go.kr/dataList/OA-22184/A/1/datasetView.do', evidence_id: 'evidence-market-worker', caveat: '선택 지역에 연결된 행정동의 직장인구 합계입니다.' },
     ],
+    official_documents: [{
+      title: '커피전문점 영업신고 및 사업자등록',
+      source_ref: 'https://easylaw.go.kr/coffee-registration',
+      data_date: '2026-07-15',
+      freshness_status: 'FRESH',
+      document_version: 'easylaw-csmSeq-706@2026-07-15',
+      excerpt: '휴게음식점 영업 신고 후 사업자등록을 진행합니다.',
+      purposes: ['창업 절차 확인'],
+      evidence_refs: ['evidence-official-procedure'],
+      used_in_candidate: false,
+    }],
+    official_document_gaps: ['계약 전 확인 공식 문서', '정보공개서 공식 문서'],
     financial_summary: {
       initial_cash: { currency: 'KRW', low: 70_000_000, base: 80_000_000, high: 90_000_000, provenance_refs: ['evidence-cost'] },
       monthly_fixed_cost: { currency: 'KRW', low: 4_000_000, base: 5_000_000, high: 6_000_000, provenance_refs: ['evidence-cost'] },
@@ -328,5 +340,10 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.getByText('높은 위험 · 2개 항목')).toBeTruthy()
     expect(screen.queryByText('risk-1')).toBeNull()
     expect(screen.queryByText('risk-2')).toBeNull()
+    expect(screen.getByText('커피전문점 영업신고 및 사업자등록')).toBeTruthy()
+    expect(screen.getByText('휴게음식점 영업 신고 후 사업자등록을 진행합니다.')).toBeTruthy()
+    expect(screen.getByText('계약 전 확인 공식 문서')).toBeTruthy()
+    expect(screen.getByText('정보공개서 공식 문서')).toBeTruthy()
+    expect(screen.queryByText('evidence-official-procedure')).toBeNull()
   })
 })

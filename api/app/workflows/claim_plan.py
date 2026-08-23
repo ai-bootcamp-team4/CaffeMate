@@ -122,6 +122,14 @@ class ClaimPlanStageHandler:
                 "P365D",
             )
         )
+        claims.append(
+            self._claim(
+                "CAFE_CONTRACT_REQUIRED_CHECKS",
+                ClaimMateriality.MEDIUM,
+                national_scope,
+                "P365D",
+            )
+        )
         output = ClaimPlanOutput(
             claims=claims,
             planning_constraints=EvidencePlanningConstraints(

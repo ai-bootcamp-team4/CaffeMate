@@ -119,6 +119,18 @@ export interface ResultCandidate {
     evidence_id: string
     caveat: string
   }>
+  official_documents?: Array<{
+    title: string
+    source_ref: string
+    data_date: string | null
+    freshness_status: 'FRESH' | 'STALE' | 'UNKNOWN' | 'NOT_APPLICABLE'
+    document_version: string
+    excerpt: string
+    purposes: string[]
+    evidence_refs: string[]
+    used_in_candidate: boolean
+  }>
+  official_document_gaps?: string[]
   financial_summary: {
     initial_cash: MoneyRange
     monthly_fixed_cost: MoneyRange

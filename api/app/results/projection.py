@@ -121,6 +121,15 @@ def _project_candidate(
             | calculation_assumption_refs
         ),
         "market_signals": _market_signals(grounded_refs, evidence_by_id),
+        "official_documents": _official_documents(
+            case_type=case_type,
+            grounded_refs=grounded_refs,
+            evidence_by_id=evidence_by_id,
+        ),
+        "official_document_gaps": _official_document_gaps(
+            case_type=case_type,
+            evidence_by_id=evidence_by_id,
+        ),
         "financial_summary": {
             "initial_cash": _money_summary(
                 finance.get("initial_cash"),
@@ -193,6 +202,109 @@ _MARKET_SIGNAL_CAVEATS = {
     "RESIDENT_POPULATION": "선택 지역에 연결된 행정동의 거주인구 합계입니다.",
     "WORKER_POPULATION": "선택 지역에 연결된 행정동의 직장인구 합계입니다.",
 }
+
+_OFFICIAL_DOCUMENT_PURPOSES = {
+    "INDEPENDENT_STARTUP_COST_BENCHMARK": "창업 비용 참고",
+    "INDEPENDENT_OPERATING_COST_BENCHMARK": "운영 비용 참고",
+    "FRANCHISE_DISCLOSURE_AVAILABILITY": "정보공개서 확인",
+    "CAFE_OPENING_REQUIRED_PROCEDURES": "창업 절차 확인",
+    "CAFE_CONTRACT_REQUIRED_CHECKS": "계약 전 확인",
+}
+
+
+def _official_documents(
+    *,
+    case_type: str,
+    grounded_refs: set[str],
+    evidence_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    allowed_claims = {
+        "CAFE_OPENING_REQUIRED_PROCEDURES",
+        "CAFE_CONTRACT_REQUIRED_CHECKS",
+    }
+    if case_type == "INDEPENDENT":
+        allowed_claims.update(
+            {
+                "INDEPENDENT_STARTUP_COST_BENCHMARK",
+                "INDEPENDENT_OPERATING_COST_BENCHMARK",
+            }
+        )
+    else:
+        allowed_claims.add("FRANCHISE_DISCLOSURE_AVAILABILITY")
+
+    documents: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for evidence_id in sorted(evidence_by_id):
+        record = evidence_by_id[evidence_id]
+        claim_type = record.get("claim_type")
+        source = record.get("source")
+        anchor = record.get("original_anchor")
+        value = record.get("value")
+        if (
+            claim_type not in allowed_claims
+            or record.get("value_kind") != "EVIDENCED_FACT"
+            or record.get("conflict_status") not in {"NONE", "RESOLVED"}
+            or not isinstance(source, dict)
+            or source.get("authority") != "PRIMARY_OFFICIAL"
+            or not isinstance(anchor, dict)
+            or not isinstance(value, dict)
+        ):
+            continue
+        title = source.get("title")
+        source_ref = source.get("source_ref")
+        document_version = source.get("document_version")
+        locator = anchor.get("locator")
+        excerpt = value.get("value")
+        if not all(
+            isinstance(item, str) and item
+            for item in (title, source_ref, document_version, locator, excerpt)
+        ):
+            continue
+        key = (str(source_ref), str(document_version), str(locator))
+        projected = documents.setdefault(
+            key,
+            {
+                "title": title,
+                "source_ref": source_ref,
+                "data_date": source.get("published_or_data_date"),
+                "freshness_status": record.get("freshness_status"),
+                "document_version": document_version,
+                "excerpt": excerpt,
+                "purposes": [],
+                "evidence_refs": [],
+                "used_in_candidate": False,
+            },
+        )
+        purpose = _OFFICIAL_DOCUMENT_PURPOSES[str(claim_type)]
+        projected["purposes"] = sorted({*projected["purposes"], purpose})
+        projected["evidence_refs"] = sorted(
+            {*projected["evidence_refs"], evidence_id}
+        )
+        projected["used_in_candidate"] = (
+            projected["used_in_candidate"] or evidence_id in grounded_refs
+        )
+    return [documents[key] for key in sorted(documents)]
+
+
+def _official_document_gaps(
+    *,
+    case_type: str,
+    evidence_by_id: dict[str, dict[str, Any]],
+) -> list[str]:
+    expected = {
+        "CAFE_OPENING_REQUIRED_PROCEDURES": "창업 절차 공식 문서",
+        "CAFE_CONTRACT_REQUIRED_CHECKS": "계약 전 확인 공식 문서",
+    }
+    if case_type == "FRANCHISE":
+        expected["FRANCHISE_DISCLOSURE_AVAILABILITY"] = "정보공개서 공식 문서"
+    available_claims = {
+        record.get("claim_type")
+        for record in evidence_by_id.values()
+        if isinstance(record.get("source"), dict)
+        and record["source"].get("authority") == "PRIMARY_OFFICIAL"
+        and record.get("value_kind") == "EVIDENCED_FACT"
+        and record.get("conflict_status") in {"NONE", "RESOLVED"}
+    }
+    return [label for claim, label in expected.items() if claim not in available_claims]
 
 
 def _market_signals(
