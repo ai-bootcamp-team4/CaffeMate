@@ -14,7 +14,10 @@ IAM을 생성하지 않으며 기존 Secret Manager, Cloud SQL, VPC와 service I
 - deploy order: image push → migration job update·실행 → API → Worker
 
 현재 GitHub 연결은 하나의 검증된 webhook을 사용하므로 frontend와 backend를 같은 trigger에서
-배포한다. 두 image build는 병렬로 실행하며 backend migration과 service 배포는 순서를 지킨다.
+배포한다. 다만 `scripts/resolve-main-deploy-scope.sh`가 병합 커밋의 변경 경로를 확인하여 backend
+image 입력이 바뀐 경우에만 migration, API와 Worker 배포를 실행한다. frontend만 바뀌면 backend
+단계는 성공 상태로 즉시 건너뛴다. backend 배포가 선택된 경우에는 migration과 service 배포
+순서를 그대로 지킨다.
 `cloudbuild.backend.yaml`은 연결형 GitHub trigger를 도입할 때 사용할 수 있는 별도 설정으로
 유지한다.
 

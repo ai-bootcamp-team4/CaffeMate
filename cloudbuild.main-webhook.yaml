@@ -12,6 +12,7 @@ substitutions:
   _WORKER_RUNTIME_SERVICE_ACCOUNT: caffemate-worker-runtime@${PROJECT_ID}.iam.gserviceaccount.com
   _MIGRATION_JOB: caffemate-migrate
   _MIGRATION_SERVICE_ACCOUNT: caffemate-migrate@${PROJECT_ID}.iam.gserviceaccount.com
+  _DEPLOY_SCOPE: auto
 
 steps:
   - id: clone-main
@@ -20,44 +21,69 @@ steps:
     args:
       - -ceu
       - |
-        git clone --depth=1 --branch=main https://github.com/ai-bootcamp-team4/CaffeMate.git /workspace/repo
+        git clone --depth=2 --branch=main https://github.com/ai-bootcamp-team4/CaffeMate.git /workspace/repo
         git -C /workspace/repo rev-parse HEAD > /workspace/source-revision
+        bash /workspace/repo/scripts/resolve-main-deploy-scope.sh \
+          /workspace/repo /workspace "${_DEPLOY_SCOPE}"
 
   - id: build-web
     name: gcr.io/cloud-builders/docker
     waitFor: [clone-main]
+    entrypoint: bash
     args:
-      - build
-      - --tag
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_WEB_REPOSITORY}/${_WEB_IMAGE}:${BUILD_ID}
-      - /workspace/repo
+      - -ceu
+      - |
+        if [ "$$(cat /workspace/deploy-web)" != true ]; then
+          echo "Skipping Web build: no Web runtime inputs changed."
+          exit 0
+        fi
+        docker build \
+          --tag "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_WEB_REPOSITORY}/${_WEB_IMAGE}:${BUILD_ID}" \
+          /workspace/repo
 
   - id: build-backend
     name: gcr.io/cloud-builders/docker
     waitFor: [clone-main]
     env:
       - DOCKER_BUILDKIT=1
+    entrypoint: bash
     args:
-      - build
-      - --file
-      - /workspace/repo/deploy/backend.Dockerfile
-      - --tag
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}
-      - /workspace/repo
+      - -ceu
+      - |
+        if [ "$$(cat /workspace/deploy-backend)" != true ]; then
+          echo "Skipping Backend build: no Backend runtime inputs changed."
+          exit 0
+        fi
+        docker build \
+          --file /workspace/repo/deploy/backend.Dockerfile \
+          --tag "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}" \
+          /workspace/repo
 
   - id: push-web
     name: gcr.io/cloud-builders/docker
     waitFor: [build-web]
+    entrypoint: bash
     args:
-      - push
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_WEB_REPOSITORY}/${_WEB_IMAGE}:${BUILD_ID}
+      - -ceu
+      - |
+        if [ "$$(cat /workspace/deploy-web)" != true ]; then
+          echo "Skipping Web push."
+          exit 0
+        fi
+        docker push "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_WEB_REPOSITORY}/${_WEB_IMAGE}:${BUILD_ID}"
 
   - id: push-backend
     name: gcr.io/cloud-builders/docker
     waitFor: [build-backend]
+    entrypoint: bash
     args:
-      - push
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}
+      - -ceu
+      - |
+        if [ "$$(cat /workspace/deploy-backend)" != true ]; then
+          echo "Skipping Backend push."
+          exit 0
+        fi
+        docker push "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}"
 
   - id: deploy-web
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
@@ -66,6 +92,10 @@ steps:
     args:
       - -ceu
       - |
+        if [ "$$(cat /workspace/deploy-web)" != true ]; then
+          echo "Skipping Web deploy."
+          exit 0
+        fi
         revision="$$(cat /workspace/source-revision)"
         gcloud run deploy "${_WEB_SERVICE}" \
           --image="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_WEB_REPOSITORY}/${_WEB_IMAGE}:${BUILD_ID}" \
@@ -83,6 +113,10 @@ steps:
     args:
       - -ceu
       - |
+        if [ "$$(cat /workspace/deploy-backend)" != true ]; then
+          echo "Skipping migration job update."
+          exit 0
+        fi
         revision="$$(cat /workspace/source-revision)"
         gcloud run jobs update "${_MIGRATION_JOB}" \
           --image="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}" \
@@ -99,15 +133,18 @@ steps:
   - id: run-migrations
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     waitFor: [update-migration-job]
-    entrypoint: gcloud
+    entrypoint: bash
     args:
-      - run
-      - jobs
-      - execute
-      - ${_MIGRATION_JOB}
-      - --region=${_REGION}
-      - --wait
-      - --quiet
+      - -ceu
+      - |
+        if [ "$$(cat /workspace/deploy-backend)" != true ]; then
+          echo "Skipping migrations."
+          exit 0
+        fi
+        gcloud run jobs execute "${_MIGRATION_JOB}" \
+          --region="${_REGION}" \
+          --wait \
+          --quiet
 
   - id: deploy-api
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
@@ -116,6 +153,10 @@ steps:
     args:
       - -ceu
       - |
+        if [ "$$(cat /workspace/deploy-backend)" != true ]; then
+          echo "Skipping API deploy."
+          exit 0
+        fi
         revision="$$(cat /workspace/source-revision)"
         gcloud run deploy "${_API_SERVICE}" \
           --image="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}" \
@@ -134,6 +175,10 @@ steps:
     args:
       - -ceu
       - |
+        if [ "$$(cat /workspace/deploy-backend)" != true ]; then
+          echo "Skipping Worker deploy."
+          exit 0
+        fi
         revision="$$(cat /workspace/source-revision)"
         api_url="$$(gcloud run services describe '${_API_SERVICE}' \
           --region='${_REGION}' --format='value(status.url)')"
@@ -150,10 +195,6 @@ steps:
           --update-env-vars="CONTROL_API_URL=$${api_url},CONTROL_API_AUDIENCE=$${api_url}" \
           --update-labels="source-revision=$${revision},managed-by=cloud-build" \
           --quiet
-
-images:
-  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_WEB_REPOSITORY}/${_WEB_IMAGE}:${BUILD_ID}
-  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_BACKEND_REPOSITORY}/${_BACKEND_IMAGE}:${BUILD_ID}
 
 options:
   dynamicSubstitutions: true

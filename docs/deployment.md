@@ -2,9 +2,12 @@
 
 The main webhook trigger uses `cloudbuild.main-webhook.yaml` to deploy the Vite
 frontend and the FastAPI/Worker backend from the same cloned `main` revision.
-The web and backend images build in parallel. Backend deployment runs the
-migration job before updating the API and Worker. This prevents a merge from
-updating only the frontend while leaving an older backend revision live.
+The trigger first compares the merged commit with its parent and deploys only
+the runtime whose image inputs changed. Web-only changes build and deploy only
+the Web service. Backend changes build one shared backend image, run migrations,
+and update the API and Worker in order. Documentation-only changes finish as a
+no-op deployment. This avoids rebuilding the entire stack for a copy-only UI
+change while preserving the backend migration boundary.
 
 The frontend image still contains only the Vite `dist` output. Nginx listens
 on the Cloud Run `PORT`, serves `/_healthz` without application logic, and
@@ -32,10 +35,19 @@ The checked-in defaults can be overridden by trigger substitutions:
 | `_API_SERVICE` | `caffemate-api` | Control API Cloud Run service |
 | `_WORKER_SERVICE` | `caffemate-worker` | Worker Cloud Run service |
 | `_MIGRATION_JOB` | `caffemate-migrate` | Migration Cloud Run job |
+| `_DEPLOY_SCOPE` | `auto` | `auto`, `web`, `backend`, `all`, or `none` deployment scope |
 
 `PROJECT_ID` and `BUILD_ID` are Cloud Build built-in substitutions. Images use
-the immutable build id instead of `latest`; deployed resources record the full
-commit read from the cloned `main` checkout in their source revision labels.
+the immutable build id instead of `latest`; each deployed resource records the
+full commit that last changed its runtime inputs. Therefore Web and Backend
+source revision labels may intentionally differ after a path-scoped deployment.
+
+The checked-in path classifier is `scripts/resolve-main-deploy-scope.sh`.
+Changes under `src`, `public`, the frontend build files, or Nginx configuration
+select Web. Changes under `api`, `worker`, backend image inputs, runtime fixtures,
+or shared contracts select Backend. Test-only files and documentation outside
+the runtime contract are excluded. A manual recovery build may override
+`_DEPLOY_SCOPE`; normal GitHub pushes keep `auto`.
 
 ## Required Google Cloud resources
 

@@ -36,6 +36,66 @@ def test_backend_cloudbuild_preserves_order_and_security_boundaries() -> None:
     assert "COPY agents/fixtures ./agents/fixtures" in dockerfile
 
 
+def test_main_deploy_scope_selects_only_changed_runtime(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    output = tmp_path / "output"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
+
+    def commit_and_resolve(path: str, content: str) -> tuple[str, str]:
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", path], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-qm", f"change {path}"],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "bash",
+                str(ROOT / "scripts" / "resolve-main-deploy-scope.sh"),
+                str(repo),
+                str(output),
+                "auto",
+            ],
+            check=True,
+        )
+        return (
+            (output / "deploy-web").read_text(encoding="utf-8").strip(),
+            (output / "deploy-backend").read_text(encoding="utf-8").strip(),
+        )
+
+    assert commit_and_resolve("src/App.tsx", "web\n") == ("true", "false")
+    assert commit_and_resolve("api/app/main.py", "backend\n") == ("false", "true")
+    assert commit_and_resolve("src/App.test.tsx", "web test\n") == ("false", "false")
+    assert commit_and_resolve("api/tests/test_main.py", "api test\n") == (
+        "false",
+        "false",
+    )
+    assert commit_and_resolve("docs/notes.md", "docs\n") == ("false", "false")
+
+
+def test_main_cloudbuild_guards_web_and_backend_deployments() -> None:
+    config = (ROOT / "cloudbuild.main-webhook.yaml").read_text(encoding="utf-8")
+
+    assert "--depth=2" in config
+    assert "resolve-main-deploy-scope.sh" in config
+    assert "_DEPLOY_SCOPE: auto" in config
+    assert config.count("/workspace/deploy-web") >= 3
+    assert config.count("/workspace/deploy-backend") >= 6
+    assert "\nimages:\n" not in config
+
+
 def test_backend_deployment_contract_requires_operational_readback() -> None:
     documentation = (ROOT / "docs" / "backend-deployment.md").read_text(encoding="utf-8")
 
