@@ -4,6 +4,7 @@ from typing import Any
 from app.agents.boundary import validate_agent_boundary
 from app.agents.task_factory import AgentTaskFactory
 from app.documents.demo import DemoFixtureDocumentRuntime, demo_parser_request
+from app.documents.extraction import DocumentExtractionService
 from app.documents.models import DocumentRevision, DocumentRevisionStatus, DocumentType
 from app.workflows.models import HeadFence
 
@@ -87,3 +88,19 @@ def test_property_demo_fixture_extracts_editable_claims_without_runtime() -> Non
 
 def test_demo_fixture_requires_matching_document_type() -> None:
     assert demo_parser_request(revision(document_type=DocumentType.FRANCHISE_DISCLOSURE)) is None
+
+
+def test_property_demo_fixture_uses_user_facing_field_labels() -> None:
+    form = DocumentExtractionService._build_form(
+        form_id="form-1",
+        project_id="project-1",
+        document_id="document-1",
+        document_revision_id="revision-1",
+        expected_state_version=1,
+        claim_types=["ADDRESS", "AREA", "FLOOR"],
+        claims=[],
+        unresolved={"ADDRESS", "AREA", "FLOOR"},
+        document_risk_flags=set(),
+    )
+
+    assert [field.label for field in form.fields] == ["점포 주소", "면적", "층"]
