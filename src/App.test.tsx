@@ -243,6 +243,7 @@ describe('CaffeMate Control API integration', () => {
     expect(client.startFirstProposal).toHaveBeenCalledWith('project-1')
     expect(client.getWorkflow).toHaveBeenCalledWith('project-1', 'workflow-1')
     expect(screen.getByText('지금 예산에 맞는 운영안이나 실제 점포 비용으로 한 번 더 비교해 보세요.')).toBeTruthy()
+    expect(screen.getByText(/현재 선택한 창업안은 실제 검증 브랜드입니다\./)).toBeTruthy()
     expect(screen.getAllByText(/70,000,000원/).length).toBeGreaterThan(0)
     expect(screen.queryByText(/가상 목업값/)).toBeNull()
   })
