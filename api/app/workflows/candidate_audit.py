@@ -39,7 +39,17 @@ class CandidateAuditStageHandler:
         task = self._task_factory.build_candidate_audit(context)
         try:
             result = self._runtime.invoke(task)
-        except ExternalExecutionUnavailableError:
+        except ExternalExecutionUnavailableError as error:
+            if getattr(error, "runtime_code", None) == "RUNTIME_AGENT_OUTPUT_INVALID":
+                return self._result(
+                    candidates=task["payload"]["candidates"],
+                    audit_status="UNAVAILABLE",
+                    agent_status="ABSTAIN",
+                    candidate_audits=[],
+                    global_findings=[],
+                    reason_codes=["CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID"],
+                    agent_trace=self._trace(task),
+                )
             if context.lease.attempt < CANDIDATE_AUDIT_RUNTIME_MAX_ATTEMPTS:
                 raise
             return self._result(

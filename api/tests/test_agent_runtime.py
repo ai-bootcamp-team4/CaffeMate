@@ -659,6 +659,31 @@ def test_terminal_http_failures_are_not_retried(status_code: int, runtime_code: 
     assert calls == 1
 
 
+@pytest.mark.parametrize(
+    "provider_code",
+    [
+        "MODEL_JSON_INVALID",
+        "RESULT_SCHEMA_INVALID",
+        "RESULT_SEMANTIC_INVALID",
+        "RUNTIME_AGENT_OUTPUT_INVALID",
+    ],
+)
+def test_agent_output_rejection_is_not_misreported_as_request_invalid(
+    provider_code: str,
+) -> None:
+    task, _result = evidence_fixture()
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(400, json={"error": provider_code})
+
+    with pytest.raises(AgentRuntimeError, match="RUNTIME_AGENT_OUTPUT_INVALID"):
+        runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
+    assert calls == 1
+
+
 def test_safety_block_event_is_terminal_after_runtime_cleanup() -> None:
     task, _result = evidence_fixture()
     stream_calls = 0

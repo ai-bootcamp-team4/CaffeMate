@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from app.agents.runtime import AgentRuntimeError
 from app.agents.task_factory import AgentTaskFactory, compute_agent_input_digest
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 from app.workflows.calculate_gate_rank import CalculateGateRankStageHandler
@@ -300,6 +301,23 @@ def test_runtime_failure_retries_then_preserves_candidates_as_unavailable() -> N
     assert output["status"] == "UNAVAILABLE"
     assert output["candidates"][0]["rank"] == 1
     assert output["reason_codes"] == ["CANDIDATE_AUDIT_RUNTIME_UNAVAILABLE"]
+
+
+def test_repaired_agent_output_rejection_preserves_candidates_without_stage_retry() -> None:
+    def invalid_output(_task: dict[str, Any]) -> dict[str, Any]:
+        raise AgentRuntimeError("RUNTIME_AGENT_OUTPUT_INVALID")
+
+    runtime = FakeRuntime(invalid_output)
+    result = CandidateAuditStageHandler(runtime).execute(audit_context(attempt=1))
+
+    output = result["candidate_audit"]
+    assert isinstance(output, dict)
+    assert output["status"] == "UNAVAILABLE"
+    assert output["agent_status"] == "ABSTAIN"
+    assert output["candidates"][0]["rank"] == 1
+    assert output["reason_codes"] == ["CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID"]
+    assert result["stage_control"]["disposition"] == "CONTINUE"
+    assert len(runtime.tasks) == 1
 
 
 def test_no_calculated_candidates_abstains_without_runtime_call() -> None:

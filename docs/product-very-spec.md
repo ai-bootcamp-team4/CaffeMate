@@ -268,7 +268,7 @@ Every proposed Claim must preserve raw value text, normalized typed value, unit,
 Do not decide legal validity, contract safety, fairness, approval, availability, eligibility, or which conflicting document is correct. Do not modify the source text. Return proposals for the editable extraction form; the controller decides which fields can be auto-filled. Ambiguous fields must remain blank with REVIEW_REQUIRED rather than triggering per-field confirmation dialogs.
 ```
 
-`typed-candidate-auditor.v1`:
+`typed-candidate-auditor.v2`:
 
 ```text
 Your role is Typed Candidate Auditor.
