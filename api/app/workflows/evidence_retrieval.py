@@ -1,6 +1,8 @@
 import asyncio
 import hashlib
 from collections import defaultdict
+from copy import deepcopy
+from datetime import date
 from typing import Any, Protocol
 
 import rfc8785
@@ -13,6 +15,7 @@ from app.workflows.stage_context import StageContext
 
 MAX_CONCURRENT_MCP_CALLS = 8
 MCP_TIMEOUT_SECONDS = 30.0
+RAG_DOCUMENT_TOOLS = frozenset({"retrieve_official_documents", "retrieve_project_documents"})
 
 
 class EvidenceMcpClient(Protocol):
@@ -46,8 +49,9 @@ class EvidenceRetrievalStageHandler:
     def execute(self, context: StageContext) -> dict[str, object]:
         evidence_plan = self._load_plan(context)
         actions = self._validate_actions(evidence_plan)
+        claims = self._claims_by_id(evidence_plan)
         executed, failed, physical_call_count = asyncio.run(
-            self._execute_actions(context=context, actions=actions)
+            self._execute_actions(context=context, actions=actions, claims=claims)
         )
         completeness = self._completeness(
             planned=len(actions),
@@ -71,9 +75,7 @@ class EvidenceRetrievalStageHandler:
         dependency = context.dependency_results.get("EVIDENCE_PLAN")
         value = dependency.get("evidence_plan") if dependency else None
         if not isinstance(value, dict) or value.get("status") != "COMPLETE":
-            raise ContractValidationError(
-                "EVIDENCE_RETRIEVAL requires a complete Evidence Plan"
-            )
+            raise ContractValidationError("EVIDENCE_RETRIEVAL requires a complete Evidence Plan")
         if not isinstance(value.get("claims"), list) or not value["claims"]:
             raise ContractValidationError("Evidence Plan claims are missing")
         if not isinstance(value.get("claim_plans"), list) or not value["claim_plans"]:
@@ -111,9 +113,7 @@ class EvidenceRetrievalStageHandler:
                         action.get("claim_id") != plan["claim_id"]
                         or action.get("polarity") != polarity
                     ):
-                        raise ContractValidationError(
-                            "Evidence Plan action context is invalid"
-                        )
+                        raise ContractValidationError("Evidence Plan action context is invalid")
                     tool_name = action.get("tool_name")
                     arguments = action.get("typed_arguments")
                     if not isinstance(tool_name, str) or tool_name not in allowed_tools:
@@ -121,9 +121,7 @@ class EvidenceRetrievalStageHandler:
                     if not isinstance(arguments, dict):
                         raise ContractValidationError("Evidence Plan arguments are invalid")
                     self._contracts.validate_mcp_tool_input(tool_name, arguments)
-                    if action.get("tool_version") != self._contracts.mcp_tool_version(
-                        tool_name
-                    ):
+                    if action.get("tool_version") != self._contracts.mcp_tool_version(tool_name):
                         raise ContractValidationError("Evidence Plan tool version changed")
                     actions.append(action)
 
@@ -143,11 +141,24 @@ class EvidenceRetrievalStageHandler:
             raise ContractValidationError("Evidence Plan exceeds the per-claim action limit")
         return actions
 
+    @staticmethod
+    def _claims_by_id(evidence_plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        claims: dict[str, dict[str, Any]] = {}
+        for value in evidence_plan["claims"]:
+            if not isinstance(value, dict):
+                raise ContractValidationError("Evidence Claim is invalid")
+            claim_id = value.get("claim_id")
+            if not isinstance(claim_id, str) or not claim_id or claim_id in claims:
+                raise ContractValidationError("Evidence Claim id is invalid")
+            claims[claim_id] = value
+        return claims
+
     async def _execute_actions(
         self,
         *,
         context: StageContext,
         actions: list[dict[str, Any]],
+        claims: dict[str, dict[str, Any]],
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
         grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for action in actions:
@@ -170,17 +181,22 @@ class EvidenceRetrievalStageHandler:
                     )
             except McpClientError as error:
                 return [], [
-                    self._failed_action(action, error.mcp_code)
-                    for action in grouped_actions
+                    self._failed_action(action, error.mcp_code) for action in grouped_actions
                 ]
             return (
-                [self._executed_action(action, outcome) for action in grouped_actions],
+                [
+                    self._executed_action(
+                        action,
+                        outcome,
+                        claim=claims[action["claim_id"]],
+                        project_id=context.project_id,
+                    )
+                    for action in grouped_actions
+                ],
                 [],
             )
 
-        results = await asyncio.gather(
-            *(execute_group(group) for group in grouped.values())
-        )
+        results = await asyncio.gather(*(execute_group(group) for group in grouped.values()))
         executed = [item for success, _ in results for item in success]
         failed = [item for _, failures in results for item in failures]
         executed.sort(key=lambda value: value["action_id"])
@@ -196,19 +212,204 @@ class EvidenceRetrievalStageHandler:
         }
         return hashlib.sha256(rfc8785.dumps(value)).hexdigest()
 
-    @staticmethod
     def _executed_action(
+        self,
         action: dict[str, Any],
         outcome: McpCallOutcome,
+        *,
+        claim: dict[str, Any],
+        project_id: str,
     ) -> dict[str, Any]:
+        structured_result = deepcopy(outcome.structured_content)
+        if action["tool_name"] in RAG_DOCUMENT_TOOLS:
+            self._attach_rag_evidence_candidates(
+                structured_result,
+                action=action,
+                claim=claim,
+                project_id=project_id,
+            )
+            self._contracts.validate_mcp_tool_result(action["tool_name"], structured_result)
         return {
             "action_id": action["action_id"],
             "claim_id": action["claim_id"],
             "polarity": action["polarity"],
             "tool_name": action["tool_name"],
             "request_id": outcome.request_id,
-            "structured_result": outcome.structured_content,
+            "structured_result": structured_result,
         }
+
+    @classmethod
+    def _attach_rag_evidence_candidates(
+        cls,
+        structured_result: dict[str, Any],
+        *,
+        action: dict[str, Any],
+        claim: dict[str, Any],
+        project_id: str,
+    ) -> None:
+        hits = structured_result.get("data")
+        source_trace = structured_result.get("source_trace")
+        observed_at = structured_result.get("observed_at")
+        if not isinstance(hits, list) or not isinstance(source_trace, list):
+            raise ContractValidationError("RAG Evidence result is invalid")
+        if not isinstance(observed_at, str):
+            raise ContractValidationError("RAG Evidence observation time is invalid")
+
+        records: list[dict[str, Any]] = []
+        unmapped_hit = False
+        for hit in hits:
+            if not isinstance(hit, dict):
+                raise ContractValidationError("RAG Evidence hit is invalid")
+            trace = cls._source_trace_for_hit(hit, source_trace)
+            if trace is None:
+                unmapped_hit = True
+                continue
+            records.append(
+                cls._rag_evidence_record(
+                    hit,
+                    trace=trace,
+                    action=action,
+                    claim=claim,
+                    project_id=project_id,
+                    observed_at=observed_at,
+                )
+            )
+
+        structured_result["evidence_records"] = records
+        if unmapped_hit:
+            missing = structured_result.get("missing_fields")
+            if not isinstance(missing, list):
+                raise ContractValidationError("RAG Evidence missing fields are invalid")
+            structured_result["missing_fields"] = sorted({*missing, "rag_hit_source_trace"})
+            structured_result["status"] = "PARTIAL"
+
+    @staticmethod
+    def _source_trace_for_hit(
+        hit: dict[str, Any], source_trace: list[Any]
+    ) -> dict[str, Any] | None:
+        anchor = hit.get("anchor")
+        if not isinstance(anchor, str):
+            return None
+        valid_traces = [value for value in source_trace if isinstance(value, dict)]
+        matching = [
+            value
+            for value in valid_traces
+            if isinstance(value.get("source_ref"), str) and anchor.startswith(value["source_ref"])
+        ]
+        if len(matching) == 1:
+            return matching[0]
+        return None
+
+    @classmethod
+    def _rag_evidence_record(
+        cls,
+        hit: dict[str, Any],
+        *,
+        trace: dict[str, Any],
+        action: dict[str, Any],
+        claim: dict[str, Any],
+        project_id: str,
+        observed_at: str,
+    ) -> dict[str, Any]:
+        claim_type = claim.get("claim_type")
+        geographic_scope = claim.get("geographic_scope")
+        if not isinstance(claim_type, str) or not isinstance(geographic_scope, dict):
+            raise ContractValidationError("RAG Evidence Claim context is invalid")
+        excerpt = hit.get("excerpt")
+        anchor = hit.get("anchor")
+        title = hit.get("title")
+        source_date = hit.get("source_date")
+        hit_evidence_id = hit.get("evidence_id")
+        document_revision_id = hit.get("document_revision_id")
+        if (
+            not isinstance(excerpt, str)
+            or not excerpt
+            or not isinstance(anchor, str)
+            or not anchor
+            or not isinstance(title, str)
+            or not title
+            or not isinstance(hit_evidence_id, str)
+            or not hit_evidence_id
+            or not isinstance(document_revision_id, str)
+            or not document_revision_id
+            or (source_date is not None and not isinstance(source_date, str))
+        ):
+            raise ContractValidationError("RAG Evidence hit fields are invalid")
+
+        freshness_status = cls._freshness_status(
+            source_date,
+            as_of=action["date_constraints"]["as_of"],
+            max_age_days=action["date_constraints"]["max_age_days"],
+        )
+        missing_context = [] if source_date is not None else ["SOURCE_DATE_UNKNOWN"]
+        source_ref = trace.get("source_ref")
+        checksum = trace.get("content_digest")
+        if not isinstance(source_ref, str) or not source_ref:
+            raise ContractValidationError("RAG Evidence source reference is invalid")
+        if not isinstance(checksum, str) or not checksum:
+            raise ContractValidationError("RAG Evidence source digest is invalid")
+
+        identity: dict[str, Any] = {
+            "project_id": project_id,
+            "claim_id": action["claim_id"],
+            "claim_type": claim_type,
+            "geographic_scope": geographic_scope,
+            "retrieval_evidence_id": hit_evidence_id,
+            "document_revision_id": document_revision_id,
+        }
+        evidence_digest = hashlib.sha256(rfc8785.dumps(identity)).hexdigest()
+        excerpt_digest = hashlib.sha256(excerpt.encode()).hexdigest()
+        official = action["tool_name"] == "retrieve_official_documents"
+        return {
+            "schema_version": "2.0.0",
+            "evidence_id": f"rag-evidence:{evidence_digest}",
+            "project_id": project_id,
+            "claim_type": claim_type,
+            "value": {"kind": "STRING", "value": excerpt},
+            "value_kind": "EVIDENCED_FACT",
+            "unit": None,
+            "geographic_scope": deepcopy(geographic_scope),
+            "source": {
+                "title": title,
+                "source_ref": source_ref,
+                "authority": "PRIMARY_OFFICIAL" if official else "USER_ARTIFACT",
+                "source_type": "WEB" if official else "USER_DOCUMENT",
+                "published_or_data_date": source_date,
+                "source_observed_at": observed_at,
+                "document_version": document_revision_id,
+                "checksum": checksum,
+            },
+            "original_anchor": {
+                "anchor_type": "SECTION",
+                "locator": anchor,
+                "excerpt_hash": f"sha256:{excerpt_digest}",
+            },
+            "freshness_status": freshness_status,
+            "conflict_status": "NONE",
+            "retrieved_at": observed_at,
+            "missing_context": missing_context,
+            "durable_evidence_refs": [hit_evidence_id, document_revision_id],
+        }
+
+    @staticmethod
+    def _freshness_status(
+        source_date: str | None,
+        *,
+        as_of: str,
+        max_age_days: int | None,
+    ) -> str:
+        if source_date is None:
+            return "UNKNOWN"
+        try:
+            source = date.fromisoformat(source_date)
+            decision_date = date.fromisoformat(as_of)
+        except ValueError as error:
+            raise ContractValidationError("RAG Evidence date is invalid") from error
+        if source > decision_date:
+            return "UNKNOWN"
+        if max_age_days is None:
+            return "NOT_APPLICABLE"
+        return "FRESH" if (decision_date - source).days <= max_age_days else "STALE"
 
     @staticmethod
     def _failed_action(action: dict[str, Any], code: str) -> dict[str, Any]:
@@ -229,7 +430,5 @@ class EvidenceRetrievalStageHandler:
     ) -> str:
         if failed or len(executed) != planned:
             return "UNAVAILABLE" if not executed else "PARTIAL"
-        statuses = {
-            value["structured_result"].get("status") for value in executed
-        }
+        statuses = {value["structured_result"].get("status") for value in executed}
         return "COMPLETE" if statuses == {"OK"} else "PARTIAL"

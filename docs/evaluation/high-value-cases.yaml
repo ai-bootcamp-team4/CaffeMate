@@ -637,3 +637,31 @@ cases:
       - DOCUMENT_EXTRACT generation and validation telemetry
       - signed PUT and GET byte equality
     pass_condition: 운영 identity가 문서 전체 왕복과 실제 Document Agent 계약 검증을 한 번에 통과하고, 공개 접근·장기 키·잔존 canary 데이터가 없다.
+
+  - id: EV-035
+    title: RAG 검색 hit가 Claim 근거 후보로 전달되지 않는 연결 회귀
+    input: 공식 RAG가 source trace, 문서 revision, anchor, excerpt와 기준일이 있는 hit를 반환함
+    relevant_state:
+      workflow_code: FIRST_PROPOSAL
+      current_stage: EVIDENCE_RETRIEVAL
+      tool_name: retrieve_official_documents
+    trap: MCP data에는 hit가 있지만 evidence_records가 비어 있고 EVIDENCE_ASSESS projection은 provider data를 제거해 Agent가 후보 0건을 받는다.
+    expected_behavior:
+      - Control API가 action의 Claim type, 지리 범위와 기준일을 hit에 결합한다.
+      - project, Claim id·type, 범위, retrieval evidence id와 document revision에 묶인 결정적 Evidence id를 만든다.
+      - 동일 Claim의 중복 물리 검색은 byte-identical Evidence 후보를 재사용한다.
+      - 기준일 이후 문서와 날짜 미상 문서는 FRESH로 표시하지 않는다.
+      - source trace와 연결할 수 없는 hit는 Evidence 후보로 만들지 않고 결과를 PARTIAL로 남긴다.
+      - EVIDENCE_ASSESS에는 상위 Evidence 후보가 전달되고 provider data 행은 제거된다.
+      - Evidence Freeze는 Agent가 수용한 후보만 영구 snapshot에 포함한다.
+    forbidden_behavior:
+      - 검색 hit를 Agent 검토 없이 확정 Evidence로 저장한다.
+      - excerpt 또는 source id가 없는 가짜 Evidence를 만든다.
+      - 다른 Claim과 범위에 같은 id이지만 다른 내용인 immutable record를 만든다.
+      - 검색 hit가 있는데도 빈 Evidence 후보로 정상 완료한다.
+    required_evidence:
+      - RAG connector result fixture
+      - Evidence Retrieval adapter unit test
+      - EVIDENCE_ASSESS bounded task payload
+      - Evidence Freeze acceptance test
+    pass_condition: 공식 RAG hit가 schema-valid Claim-scoped 후보로 Agent에 전달되고, trace 누락과 날짜 불일치가 확정 근거로 살아남지 않는다.

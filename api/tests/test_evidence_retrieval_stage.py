@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from app.agents.task_factory import AgentTaskFactory
 from app.domain.errors import ContractValidationError
 from app.domain.models import (
     AreaResolutionStatus,
@@ -34,6 +35,29 @@ def action(action_id: str, polarity: str, *, source_id: str = "area-profile") ->
             "as_of": "2026-08-21",
         },
         "required_authority": ["PRIMARY_DATA"],
+        "date_constraints": {"as_of": "2026-08-21", "max_age_days": 365},
+        "scope_constraints": {
+            "scope_type": "ADMINISTRATIVE_AREA",
+            "scope_id": "41117550",
+            "boundary_version": "2026-01",
+        },
+    }
+
+
+def rag_action(action_id: str, polarity: str) -> dict[str, Any]:
+    return {
+        "action_id": action_id,
+        "claim_id": "claim:AREA_PROFILE",
+        "polarity": polarity,
+        "tool_name": "retrieve_official_documents",
+        "tool_version": "1.0.0",
+        "typed_arguments": {
+            "query": "카페 영업 신고 공식 절차",
+            "source_families": ["GOVERNMENT_GUIDE"],
+            "as_of": "2026-08-21",
+            "limit": 5,
+        },
+        "required_authority": ["PRIMARY_OFFICIAL"],
         "date_constraints": {"as_of": "2026-08-21", "max_age_days": 365},
         "scope_constraints": {
             "scope_type": "ADMINISTRATIVE_AREA",
@@ -108,7 +132,9 @@ def context(*, support: list[dict[str, Any]], counter: list[dict[str, Any]]) -> 
                         "as_of": "2026-08-21",
                         "max_actions_per_claim": 2,
                         "max_total_actions": 4,
-                        "allowed_tools": ["get_source_health"],
+                        "allowed_tools": sorted(
+                            {value["tool_name"] for value in [*support, *counter]}
+                        ),
                     },
                     "claim_plans": [
                         {
@@ -161,6 +187,59 @@ class FakeMcpClient:
         return McpCallOutcome(
             request_id=request_id,
             tool_name="get_source_health",
+            tool_version="1.0.0",
+            status="OK",
+            is_complete=True,
+            structured_content=content,
+        )
+
+
+class FakeRagMcpClient:
+    def __init__(self, *, source_trace: bool = True) -> None:
+        self.source_trace = source_trace
+
+    async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+        request_id = "request-rag"
+        source_ref = "https://example.go.kr/cafe-guide"
+        content = {
+            "schema_version": "1.0.0",
+            "request_id": request_id,
+            "tool_name": "retrieve_official_documents",
+            "tool_version": "1.0.0",
+            "status": "OK",
+            "project_id": "project-1",
+            "evidence_records": [],
+            "missing_fields": [],
+            "conflicts": [],
+            "source_trace": (
+                [
+                    {
+                        "source_id": "official-cafe-guide",
+                        "source_ref": source_ref,
+                        "data_date": "2026-08-01",
+                        "retrieved_at": "2026-08-21T09:00:00Z",
+                        "content_digest": "sha256:" + "a" * 64,
+                    }
+                ]
+                if self.source_trace
+                else []
+            ),
+            "error_codes": [],
+            "observed_at": "2026-08-21T09:00:00Z",
+            "data": [
+                {
+                    "document_revision_id": "guide@2026-08-01",
+                    "title": "카페 영업 신고 안내",
+                    "anchor": f"{source_ref}#section=registration",
+                    "excerpt": "휴게음식점 영업 신고 후 사업자등록을 진행합니다.",
+                    "source_date": "2026-08-01",
+                    "evidence_id": "rag:file-1:chunk-1",
+                }
+            ],
+        }
+        return McpCallOutcome(
+            request_id=request_id,
+            tool_name="retrieve_official_documents",
             tool_version="1.0.0",
             status="OK",
             is_complete=True,
@@ -222,9 +301,7 @@ def test_tampered_tool_arguments_are_rejected_before_any_call() -> None:
     invalid["typed_arguments"] = {"source_ids": []}
 
     with pytest.raises(ContractValidationError):
-        EvidenceRetrievalStageHandler(client).execute(
-            context(support=[invalid], counter=[])
-        )
+        EvidenceRetrievalStageHandler(client).execute(context(support=[invalid], counter=[]))
     assert client.calls == []
 
 
@@ -239,3 +316,91 @@ def test_duplicate_action_ids_are_rejected_before_any_call() -> None:
             )
         )
     assert client.calls == []
+
+
+def test_rag_hits_become_claim_scoped_evidence_candidates_before_assessment() -> None:
+    value = context(
+        support=[rag_action("action-01", "SUPPORT")],
+        counter=[rag_action("action-02", "COUNTER")],
+    )
+
+    result = EvidenceRetrievalStageHandler(FakeRagMcpClient()).execute(value)
+
+    retrieval = result["evidence_retrieval"]
+    assert isinstance(retrieval, dict)
+    assert retrieval["physical_call_count"] == 1
+    assert retrieval["completeness"] == "COMPLETE"
+    executed = retrieval["executed_actions"]
+    assert isinstance(executed, list)
+    assert len(executed) == 2
+    support_record = executed[0]["structured_result"]["evidence_records"][0]
+    counter_record = executed[1]["structured_result"]["evidence_records"][0]
+    assert support_record == counter_record
+    assert support_record["evidence_id"].startswith("rag-evidence:")
+    assert support_record["claim_type"] == "AREA_PROFILE"
+    assert support_record["project_id"] == "project-1"
+    assert support_record["value"] == {
+        "kind": "STRING",
+        "value": "휴게음식점 영업 신고 후 사업자등록을 진행합니다.",
+    }
+    assert support_record["source"]["authority"] == "PRIMARY_OFFICIAL"
+    assert support_record["source"]["checksum"] == "sha256:" + "a" * 64
+    assert support_record["freshness_status"] == "FRESH"
+    assert support_record["durable_evidence_refs"] == [
+        "rag:file-1:chunk-1",
+        "guide@2026-08-01",
+    ]
+
+    value.lease = value.lease.model_copy(
+        update={"stage_run_id": "assess-1", "stage_code": "EVIDENCE_ASSESS"}
+    )
+    value.dependency_results = {"EVIDENCE_RETRIEVAL": result}
+    task = AgentTaskFactory(
+        now=lambda: datetime(2026, 8, 21, 9, 1, tzinfo=UTC),
+        new_invocation_id=lambda: "invocation-assess",
+    ).build_evidence_assess(value)
+    projected_result = task["payload"]["executed_actions"][0]["structured_result"]
+    assert projected_result["data"] == []
+    assert projected_result["evidence_records"] == [support_record]
+
+
+def test_rag_hit_without_source_trace_is_not_promoted_to_evidence() -> None:
+    value = context(
+        support=[rag_action("action-01", "SUPPORT")],
+        counter=[],
+    )
+
+    result = EvidenceRetrievalStageHandler(FakeRagMcpClient(source_trace=False)).execute(value)
+
+    retrieval = result["evidence_retrieval"]
+    assert isinstance(retrieval, dict)
+    assert retrieval["completeness"] == "PARTIAL"
+    structured = retrieval["executed_actions"][0]["structured_result"]
+    assert structured["status"] == "PARTIAL"
+    assert structured["evidence_records"] == []
+    assert structured["missing_fields"] == ["rag_hit_source_trace"]
+
+
+@pytest.mark.parametrize(
+    ("source_date", "max_age_days", "expected"),
+    [
+        ("2026-08-01", 365, "FRESH"),
+        ("2024-08-01", 365, "STALE"),
+        ("2026-09-01", 365, "UNKNOWN"),
+        (None, 365, "UNKNOWN"),
+        ("2026-08-01", None, "NOT_APPLICABLE"),
+    ],
+)
+def test_rag_candidate_freshness_is_deterministic(
+    source_date: str | None,
+    max_age_days: int | None,
+    expected: str,
+) -> None:
+    assert (
+        EvidenceRetrievalStageHandler._freshness_status(
+            source_date,
+            as_of="2026-08-21",
+            max_age_days=max_age_days,
+        )
+        == expected
+    )
