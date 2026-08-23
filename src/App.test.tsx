@@ -28,9 +28,9 @@ const project: Project = {
     area: {
       resolution_status: 'RESOLVED',
       display_name: '수원시 영통구 원천동',
-      coverage_profile: 'R2_REGIONAL_CONNECTOR',
+      coverage_profile: 'NO_NATIONWIDE_FACTS',
       evidence_ids: ['evidence-area'],
-      unavailable_fields: ['estimated_store_sales'],
+      unavailable_fields: ['administrative_dong_mapping', 'estimated_store_sales'],
     },
     updated_at: '2026-08-22T00:01:00Z',
   },
@@ -61,7 +61,10 @@ const result: ResultView = {
       break_even_monthly_sales_krw: 15_000_000, required_daily_orders: 80, unknown_cost_fields: ['premium'],
     },
     missing_fields: [{ field: 'royalty', impact: '월 고정비가 바뀝니다.', next_check: '본사에 확인합니다.' }],
-    risks: [{ risk_id: 'risk-1', severity: 'HIGH', summary: '출점 가능 여부가 확인되지 않았습니다.', evidence_refs: [] }],
+    risks: [
+      { risk_id: 'risk-1', severity: 'HIGH', summary: '출점 가능 여부가 확인되지 않았습니다.', evidence_refs: [] },
+      { risk_id: 'risk-2', severity: 'HIGH', summary: '출점 가능 여부가 확인되지 않았습니다.', evidence_refs: [] },
+    ],
     counterfactuals: [{ variable: 'rent', condition: '월세 15% 감소', decision_impact: '검토 우선순위가 상승합니다.' }],
     next_actions: ['본사 출점 가능 여부 확인'],
   }],
@@ -151,8 +154,39 @@ describe('CaffeMate Control API integration', () => {
   it('persists an explicit next-preparation selection through the API', async () => {
     const { client } = setup()
     await completeOnboarding()
-    fireEvent.click(screen.getByRole('button', { name: '다음 준비 대상으로 선택' }))
+    fireEvent.click(screen.getByRole('button', { name: '대상 선택' }))
     await waitFor(() => expect(client.selectCandidate).toHaveBeenCalledWith('project-1', result, 'candidate-1'))
     expect(await screen.findByText(/다음 준비 대상으로 선택했습니다/)).toBeTruthy()
+  })
+
+  it('keeps internal result codes and identifiers out of user-facing panels', async () => {
+    setup()
+    await completeOnboarding()
+
+    expect(screen.getByText('본사 확인 필요')).toBeTruthy()
+    expect(screen.queryByText('HQ_CONFIRMATION_REQUIRED')).toBeNull()
+    expect(screen.queryByText('evidence-franchise')).toBeNull()
+
+    fireEvent.click(screen.getByRole('tab', { name: '상권 신호' }))
+    expect(screen.getByText('전국 기준 자료 없음')).toBeTruthy()
+    expect(screen.getByText(/행정동 연결 정보 · 점포 추정 매출/)).toBeTruthy()
+    expect(screen.queryByText('NO_NATIONWIDE_FACTS')).toBeNull()
+    expect(screen.queryByText('administrative_dong_mapping')).toBeNull()
+    expect(screen.queryByText('estimated_store_sales')).toBeNull()
+
+    fireEvent.click(screen.getByRole('tab', { name: '가맹 조건' }))
+    expect(screen.getByText('확인 완료')).toBeTruthy()
+    expect(screen.getByText('본사 확인 필요')).toBeTruthy()
+    expect(screen.queryByText('brand-1')).toBeNull()
+    expect(screen.queryByText('VERIFIED')).toBeNull()
+
+    fireEvent.click(screen.getByRole('tab', { name: '필요자금' }))
+    expect(screen.getByText('권리금·영업권')).toBeTruthy()
+    expect(screen.queryByText('premium')).toBeNull()
+
+    fireEvent.click(screen.getByRole('tab', { name: '위험과 검증' }))
+    expect(screen.getByText('높은 위험 · 2개 항목')).toBeTruthy()
+    expect(screen.queryByText('risk-1')).toBeNull()
+    expect(screen.queryByText('risk-2')).toBeNull()
   })
 })
