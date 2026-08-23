@@ -215,6 +215,41 @@ def test_franchise_with_missing_disclosure_remains_ranked_conditional() -> None:
     assert "FRANCHISE_AREA_AVAILABILITY_UNCONFIRMED" in franchise["decision"]["reason_codes"]
 
 
+def test_ediya_uses_official_opening_costs_and_provisional_operating_ranges() -> None:
+    context = calculation_context(include_franchise=True)
+    branch = context.dependency_results["PROPOSE_FRANCHISE"]["franchise_proposal"]
+    proposal_input = branch["proposal_input"]
+    source = proposal_input["franchise_universe"][0]
+    source["brand_id"] = "kr-ediya-coffee"
+    source["display_name"] = "이디야커피"
+    proposal = branch["candidate_proposals"][0]
+    proposal["seed_or_brand_id"] = "kr-ediya-coffee"
+    proposal["display_name"] = "이디야커피"
+
+    output = CalculateGateRankStageHandler().execute(context)["calculate_gate_rank"]
+
+    ediya = next(value for value in output["candidates"] if value["source_id"] == "kr-ediya-coffee")
+    assert ediya["finance"]["initial_cash"] == {
+        "low": 183_321_000,
+        "base": 220_321_000,
+        "high": 278_321_000,
+    }
+    assert ediya["finance"]["monthly_fixed_cost"] == {
+        "low": 10_500_000,
+        "base": 14_700_000,
+        "high": 22_500_000,
+    }
+    assert ediya["finance"]["unknown_cost_fields"] == []
+    assert ediya["finance"]["break_even_monthly_sales_krw"] == 22_615_385
+    assert ediya["finance"]["required_daily_orders"] == "137.07"
+    assert ediya["calculation_evidence_refs"]
+    assert any(
+        value["source"]["authority"] == "COMPANY_OFFICIAL"
+        for value in output["evidence_records"]
+        if value.get("geographic_scope", {}).get("scope_id") == "kr-ediya-coffee"
+    )
+
+
 def test_conflicting_cost_evidence_is_not_auto_resolved() -> None:
     records = complete_independent_finance()
     records.append(money_evidence(CostCategory.DEPOSIT, 9_000_000, suffix="conflict"))
@@ -254,9 +289,7 @@ def test_confirmed_document_cost_overrides_benchmark_but_open_conflict_stays_unk
     ]
 
     output = CalculateGateRankStageHandler().execute(context)["calculate_gate_rank"]
-    selected = next(
-        value for value in output["candidates"] if value["source_id"] == source_id
-    )
+    selected = next(value for value in output["candidates"] if value["source_id"] == source_id)
     assert selected["finance"]["initial_cash"] == {
         "low": 52_000_000,
         "base": 52_000_000,
@@ -265,9 +298,7 @@ def test_confirmed_document_cost_overrides_benchmark_but_open_conflict_stays_unk
 
     context.document_claims[0]["has_open_conflict"] = True
     conflicted = CalculateGateRankStageHandler().execute(context)["calculate_gate_rank"]
-    candidate = next(
-        value for value in conflicted["candidates"] if value["source_id"] == source_id
-    )
+    candidate = next(value for value in conflicted["candidates"] if value["source_id"] == source_id)
     assert candidate["finance"]["initial_cash"] == {
         "low": None,
         "base": None,

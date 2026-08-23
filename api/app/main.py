@@ -28,6 +28,7 @@ from app.auth import (
 )
 from app.candidates.seed_registry import IndependentSeedRegistry
 from app.database import DatabaseHandle, create_database_handle
+from app.documents.demo import DemoFixtureDocumentRuntime, demo_parser_request
 from app.documents.extraction import (
     DocumentExtractionService,
     UnavailableDocumentExtractionService,
@@ -422,7 +423,7 @@ def create_app(
         document_extraction = document_extraction_service
     elif database_handle is not None and configured_agent_runtime is not None:
         document_extraction = DocumentExtractionService(
-            database_handle.engine, configured_agent_runtime
+            database_handle.engine, DemoFixtureDocumentRuntime(configured_agent_runtime)
         )
     else:
         document_extraction = UnavailableDocumentExtractionService()
@@ -845,7 +846,25 @@ def create_app(
         request: CompleteDocumentUploadRequest,
         user_id: Annotated[str, Depends(current_user)],
     ) -> DocumentRevision:
-        return documents.complete_upload(
+        completed = documents.complete_upload(
+            project_id=project_id,
+            user_id=user_id,
+            document_revision_id=request.document_revision_id,
+        )
+        parser_request = demo_parser_request(completed)
+        if parser_request is None or completed.status.value != "SCAN_PENDING":
+            return completed
+        documents.record_scan_result(
+            project_id=project_id,
+            document_revision_id=request.document_revision_id,
+            clean=True,
+            threat_codes=[],
+        )
+        document_extraction.accept_parser_result(
+            document_revision_id=request.document_revision_id,
+            request=parser_request,
+        )
+        return documents.get_revision(
             project_id=project_id,
             user_id=user_id,
             document_revision_id=request.document_revision_id,

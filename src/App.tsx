@@ -173,7 +173,18 @@ function displayText(value: string) {
 }
 
 function userError(error: unknown, fallback: string) {
-  return error instanceof Error ? displayText(error.message) : fallback;
+  if (!(error instanceof Error)) return fallback;
+  if (/failed to fetch|network|load failed/i.test(error.message)) {
+    return "서버 연결이 잠시 끊겼어요. 같은 화면에서 다시 시도해 주세요.";
+  }
+  if (/candidate result is stale|must be regenerated/i.test(error.message)) {
+    return "입력 조건이 바뀌었어요. 최신 조건으로 다시 계산한 뒤 선택해 주세요.";
+  }
+  const message = displayText(error.message);
+  return !/[가-힣]/.test(message) ||
+    /\b(?:candidate|result|state|workflow|contract)\b/i.test(message)
+    ? fallback
+    : message;
 }
 
 function displayValue(value: unknown): string {
@@ -1603,16 +1614,52 @@ function ResultScreen({
   const select = async () => {
     setSelectionBusy(true);
     try {
+      let selectionResult = result;
+      let selectionCandidate = activeCandidate;
+      if (selectionResult.freshness === "STALE") {
+        setActionStatus("변경된 조건으로 창업안을 다시 계산하고 있어요.");
+        const workflow = await client.startFirstProposal(project.project_id);
+        const terminal = await waitForWorkflow(
+          client,
+          project.project_id,
+          workflow,
+          (progress) =>
+            setActionStatus(
+              `최신 조건 반영 ${progress.completed_stage_count}/${progress.total_stage_count}`,
+            ),
+        );
+        if (!["SUCCEEDED", "PARTIAL"].includes(terminal.status)) {
+          throw new Error(
+            "최신 조건 반영을 완료하지 못했습니다. 이 프로젝트에서 다시 시도해 주세요.",
+          );
+        }
+        const refreshed = await client.getResult(project.project_id);
+        const source = candidateSource(activeCandidate);
+        const refreshedIndex = refreshed.candidates.findIndex(
+          (candidate) => candidateSource(candidate) === source,
+        );
+        setResult(refreshed);
+        setActivePanel("overview");
+        if (refreshedIndex < 0) {
+          setActiveCandidateIndex(0);
+          throw new Error(
+            "선택한 창업안은 최신 조건에서 제외됐습니다. 새 결과를 확인해 주세요.",
+          );
+        }
+        setActiveCandidateIndex(refreshedIndex);
+        selectionResult = refreshed;
+        selectionCandidate = refreshed.candidates[refreshedIndex];
+      }
       const next = await client.selectCandidate(
         project.project_id,
-        result,
-        activeCandidate.candidate_id,
+        selectionResult,
+        selectionCandidate.candidate_id,
       );
       setSelection(next);
       setPreparationOpen(true);
       setPreparationGuide(null);
       setActionStatus(
-        `${activeCandidate.display_name}을 검토 대상으로 선택했습니다.`,
+        `${selectionCandidate.display_name}을 선택했어요. 이제 실제 점포 조건이나 문서를 추가해 보세요.`,
       );
       window.scrollTo({ top: 0 });
       void loadPreparationGuide(next);
@@ -1692,8 +1739,8 @@ function ResultScreen({
   if (!activeCandidate)
     return (
       <main className="analysis-stage">
-        <h1>표시할 후보가 없습니다</h1>
-        <p>결과 계약을 다시 확인해 주세요.</p>
+        <h1>분석할 창업안을 만들지 못했어요</h1>
+        <p>희망 지역과 자금 조건을 확인한 뒤 다시 분석해 주세요.</p>
       </main>
     );
 
@@ -1747,7 +1794,7 @@ function ResultScreen({
                 </p>
                 <h2 id="candidatePickerTitle">추천안부터 살펴보세요</h2>
               </div>
-              <p>모든 후보는 같은 결과 계약으로 비교합니다.</p>
+              <p>모든 후보를 같은 자금과 운영 기준으로 비교했어요.</p>
             </div>
             <div
               className="candidate-tabs"
@@ -1814,10 +1861,8 @@ function ResultScreen({
             <div className="demo-notice" role="note">
               <span className="demo-notice__mark">!</span>
               <p>
-                현재 결과는 이전 상태를 기준으로 생성되었습니다. 변경된 항목:{" "}
-                {uniqueLabels(result.stale_head_dimensions, "결과 기준").join(
-                  " · ",
-                )}
+                입력 조건이 바뀌었어요. 이 안을 선택하면 최신 조건으로 다시
+                계산한 뒤 같은 프로젝트에서 계속 검토할 수 있어요.
               </p>
             </div>
           )}
@@ -1949,7 +1994,7 @@ function ResultScreen({
       <footer className="footer">
         <strong>CaffeMate</strong>
         <span>계약과 최종 창업 결정을 대신하지 않습니다.</span>
-        <span>결과 기준 {result.current_head.state_version}번째 변경</span>
+        <span>현재 입력과 확인된 자료를 기준으로 계산했어요.</span>
       </footer>
     </div>
   );

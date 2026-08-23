@@ -43,8 +43,8 @@ describe('local agent release manifest', () => {
       runtime: {
         service_name: 'caffemate-mcp',
         region: 'asia-northeast3',
-        source_revision: '0158386ff462883e193ef3c26dcf43f7cb3cb768',
-        image_uri: 'asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-backend/mcp@sha256:275141d9bbc9653ab715644b6b807539fc0e85ca1483ed42dc5eb36bb4ac7e82',
+        source_revision: '067bb843196362af12fd43c226ff788440f65fc2',
+        image_uri: 'asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-backend/mcp@sha256:8f8e1b02ce20c83d086de83d0c79918159d54c84565b06973250c22a72fb0515',
       },
     })
     const checkedInMcpManifestDigest = readFileSync('docs/contracts/mcp-tool-manifest.sha256', 'utf8').split(/\s+/)[0]
