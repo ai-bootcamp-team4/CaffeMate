@@ -160,6 +160,35 @@ async function completeOnboarding() {
 }
 
 describe('CaffeMate Control API integration', () => {
+  it('lists saved projects after sign-in and resumes a saved result without creating a project', async () => {
+    const { client } = setup()
+    vi.mocked(client.listProjects).mockResolvedValueOnce([project])
+
+    fireEvent.click(screen.getByRole('button', { name: /내 카페 창업 분석 시작하기/ }))
+
+    expect(await screen.findByRole('heading', { name: '이어서 살펴볼 카페 창업안을 선택하세요.' })).toBeTruthy()
+    expect(screen.getByText('수원시 영통구 원천동')).toBeTruthy()
+    expect(client.createProject).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '이어보기' }))
+
+    expect(await screen.findByRole('heading', { name: '실제 검증 브랜드' })).toBeTruthy()
+    expect(client.getResult).toHaveBeenCalledWith('project-1')
+    expect(client.startFirstProposal).not.toHaveBeenCalled()
+  })
+
+  it('creates a separate project from the saved project catalogue', async () => {
+    const { client } = setup()
+    vi.mocked(client.listProjects).mockResolvedValueOnce([project])
+
+    fireEvent.click(screen.getByRole('button', { name: /내 카페 창업 분석 시작하기/ }))
+    await screen.findByRole('heading', { name: '이어서 살펴볼 카페 창업안을 선택하세요.' })
+    fireEvent.click(screen.getByRole('button', { name: '새 분석 만들기' }))
+
+    expect(await screen.findByRole('heading', { name: '창업을 고민 중인 지역을 알려주세요.' })).toBeTruthy()
+    expect(client.createProject).toHaveBeenCalledOnce()
+  })
+
   it('requires Google sign-in before creating a project', async () => {
     const { authGateway, client } = setup()
     await enterOnboarding()

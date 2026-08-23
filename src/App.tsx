@@ -1,9 +1,11 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 import Onboarding from './Onboarding'
 import Welcome from './Welcome'
+import ProjectChooser from './ProjectChooser'
 import { createFirebaseAuthGateway, type AuthGateway, type AuthSession } from './auth'
 import {
   createControlApiClient,
+  ControlApiError,
   waitForWorkflow,
   type CandidateSelection,
   type ControlApiClient,
@@ -19,7 +21,7 @@ import {
 import type { OnboardingValues } from './onboardingState'
 
 type PanelName = 'overview' | 'market' | 'franchise' | 'funds' | 'risks'
-type AppScreen = 'welcome' | 'onboarding' | 'result'
+type AppScreen = 'welcome' | 'projects' | 'onboarding' | 'result'
 
 const panels: Array<{ id: PanelName; label: string }> = [
   { id: 'overview', label: '판단 요약' },
@@ -465,19 +467,59 @@ export default function App({ authGateway, apiFactory }: AppProps = {}) {
   const [screen, setScreen] = useState<AppScreen>('welcome')
   const [client, setClient] = useState<ControlApiClient | null>(null)
   const [project, setProject] = useState<Project | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
   const [result, setResult] = useState<ResultView | null>(null)
   const [loginBusy, setLoginBusy] = useState(false)
   const [loginError, setLoginError] = useState('')
   const [progress, setProgress] = useState<WorkflowProgress | null>(null)
+  const [projectBusyId, setProjectBusyId] = useState<string | null>(null)
+  const [projectError, setProjectError] = useState('')
+
+  const connectSession = async (session: AuthSession) => {
+    const nextClient = apiFactory ? apiFactory(session) : createControlApiClient(session)
+    const savedProjects = await nextClient.listProjects()
+    setClient(nextClient)
+    if (savedProjects.length) {
+      setProjects(savedProjects); setScreen('projects'); window.scrollTo({ top: 0 }); return
+    }
+    const nextProject = await nextClient.createProject()
+    setProject(nextProject); setScreen('onboarding'); window.scrollTo({ top: 0 })
+  }
 
   const start = async () => {
     setLoginBusy(true); setLoginError('')
     try {
       const session = await auth.signIn()
-      const nextClient = apiFactory ? apiFactory(session) : createControlApiClient(session)
-      const nextProject = await nextClient.createProject()
-      setClient(nextClient); setProject(nextProject); setScreen('onboarding'); window.scrollTo({ top: 0 })
+      await connectSession(session)
     } catch (error) { setLoginError(userError(error, 'Google 로그인에 실패했습니다.')) } finally { setLoginBusy(false) }
+  }
+
+  const createProject = async () => {
+    if (!client) return
+    setLoginBusy(true); setProjectError('')
+    try {
+      const nextProject = await client.createProject()
+      setProject(nextProject); setProjects((current) => [...current, nextProject]); setScreen('onboarding'); window.scrollTo({ top: 0 })
+    } catch (error) { setProjectError(userError(error, '새 창업 검토를 만들지 못했습니다.')) } finally { setLoginBusy(false) }
+  }
+
+  const resumeProject = async (nextProject: Project) => {
+    if (!client) return
+    setProjectBusyId(nextProject.project_id); setProjectError(''); setProject(nextProject); setProgress(null)
+    try {
+      if (!nextProject.state) { setScreen('onboarding'); window.scrollTo({ top: 0 }); return }
+      try {
+        const savedResult = await client.getResult(nextProject.project_id)
+        setResult(savedResult); setScreen('result'); window.scrollTo({ top: 0 }); return
+      } catch (error) {
+        if (!(error instanceof ControlApiError) || error.status !== 404) throw error
+        const workflow = await client.startFirstProposal(nextProject.project_id)
+        const terminal = await waitForWorkflow(client, nextProject.project_id, workflow, setProgress)
+        if (!['SUCCEEDED', 'PARTIAL'].includes(terminal.status)) throw new Error('저장된 분석을 이어서 완료하지 못했습니다.', { cause: error })
+        const savedResult = await client.getResult(nextProject.project_id)
+        setResult(savedResult); setScreen('result'); window.scrollTo({ top: 0 })
+      }
+    } catch (error) { setProjectError(userError(error, '저장된 창업 검토를 불러오지 못했습니다.')) } finally { setProjectBusyId(null) }
   }
 
   const completeOnboarding = async (values: OnboardingValues, areaSelectionToken: string) => {
@@ -498,6 +540,7 @@ export default function App({ authGateway, apiFactory }: AppProps = {}) {
   }
 
   if (screen === 'welcome') return <Welcome onStart={start} busy={loginBusy} error={loginError} />
+  if (screen === 'projects') return <ProjectChooser projects={projects} busyProjectId={projectBusyId} creating={loginBusy} error={projectError} onResume={(nextProject) => void resumeProject(nextProject)} onCreate={() => void createProject()} />
   if (screen === 'onboarding') return <><Onboarding onComplete={completeOnboarding} searchAreas={async (query) => {
     if (!client || !project) throw new Error('프로젝트 연결이 준비되지 않았습니다.')
     return (await client.searchAreas(project.project_id, query)).candidates

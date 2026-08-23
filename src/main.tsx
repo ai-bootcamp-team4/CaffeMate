@@ -5,6 +5,7 @@ import './index.css'
 import './App.css'
 import './Onboarding.css'
 import './Welcome.css'
+import './ProjectChooser.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

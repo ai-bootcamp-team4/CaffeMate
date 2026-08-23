@@ -1,6 +1,13 @@
 [
   {
     "date": "2026-08-23",
+    "macrostructure": "Catalogue",
+    "theme": "studied-DNA",
+    "enrichment": "none",
+    "brief": "로그인 후 저장된 창업 검토 프로젝트 선택과 재개"
+  },
+  {
+    "date": "2026-08-23",
     "macrostructure": "Workbench",
     "theme": "studied-DNA",
     "enrichment": "none",
