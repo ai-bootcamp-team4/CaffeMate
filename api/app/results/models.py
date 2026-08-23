@@ -20,10 +20,16 @@ class ResultFreshness(StrEnum):
     STALE = "STALE"
 
 
+class ResultOutcomeStatus(StrEnum):
+    REVIEWABLE_CANDIDATES = "REVIEWABLE_CANDIDATES"
+    NO_REVIEWABLE_CANDIDATES = "NO_REVIEWABLE_CANDIDATES"
+
+
 class ResultBundlePayload(StrictModel):
     candidates: list[dict[str, Any]] = Field(min_length=1, max_length=3)
-    primary_candidate_id: str = Field(min_length=1)
+    primary_candidate_id: str | None = Field(default=None, min_length=1)
     audit_status: AuditStatus
+    outcome_status: ResultOutcomeStatus = ResultOutcomeStatus.REVIEWABLE_CANDIDATES
 
     @model_validator(mode="after")
     def rank_and_primary_are_consistent(self) -> "ResultBundlePayload":
@@ -35,8 +41,25 @@ class ResultBundlePayload(StrictModel):
             raise ValueError("Every result candidate requires candidate_id")
         if len(candidate_ids) != len(set(candidate_ids)):
             raise ValueError("Result candidate ids must be unique")
-        if any(candidate.get("review_status") == "EXCLUDED" for candidate in self.candidates):
-            raise ValueError("Excluded candidates cannot enter the current result bundle")
+        excluded = [
+            candidate.get("review_status") == "EXCLUDED"
+            for candidate in self.candidates
+        ]
+        if self.outcome_status == ResultOutcomeStatus.NO_REVIEWABLE_CANDIDATES:
+            if not all(excluded):
+                raise ValueError("A no-reviewable result may contain only excluded candidates")
+            if self.primary_candidate_id is not None:
+                raise ValueError("A no-reviewable result cannot declare a primary candidate")
+            if any(candidate.get("rank") is not None for candidate in self.candidates):
+                raise ValueError("Excluded result candidates cannot have a rank")
+            if any(
+                candidate.get("is_primary_next_review") is not False
+                for candidate in self.candidates
+            ):
+                raise ValueError("Excluded result candidates cannot be marked primary")
+            return self
+        if any(excluded):
+            raise ValueError("Excluded candidates require a no-reviewable result")
         ranks = [candidate.get("rank") for candidate in self.candidates]
         if ranks != list(range(1, len(self.candidates) + 1)):
             raise ValueError("Result candidates must be ordered by contiguous rank")
@@ -76,8 +99,9 @@ class ResultBundle(StrictModel):
     workflow_run_id: str
     head: HeadFence
     candidates: list[dict[str, Any]]
-    primary_candidate_id: str
+    primary_candidate_id: str | None
     audit_status: AuditStatus
+    outcome_status: ResultOutcomeStatus = ResultOutcomeStatus.REVIEWABLE_CANDIDATES
     created_at: datetime
 
 

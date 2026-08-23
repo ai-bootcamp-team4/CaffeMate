@@ -651,6 +651,13 @@ Control API에서 다시 거절되는 split validation을 막을 수 있다.
 후보·결정론적 계산·순위를 보존하고 `CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID`로 감사 미확보 상태를
 기록한다. 요청 계약 위반, 인증 실패, transport 장애는 이 경로로 숨기지 않는다.
 
+`COMMIT_RESULT`는 검토 가능한 후보가 한 개 이상이면 연속 순위와 주력 후보를 가진 일반 결과를
+저장한다. 확인된 필수 조건 위반으로 모든 후보가 제외되면 `ABSTAIN`으로 이전 결과를 남기지 않고,
+`NO_REVIEWABLE_CANDIDATES` 결과를 현재 full head에 저장한다. 이 결과는 제외 후보와 계산·근거를
+보존하지만 순위와 주력 후보를 두지 않는다. 따라서 문서 일괄 반영 후 화면은 이전 추천이 아니라
+왜 현재 조건에서 진행하기 어려운지와 어떤 조건을 바꿀지를 보여준다. `PARTIAL` Workflow는 완성된
+재계산 결과로 취급하지 않는다.
+
 ### 9.2 RESULT_FEEDBACK
 
 ```text

@@ -279,6 +279,8 @@ function capitalDecision(
 }
 
 function resultStatus(project: Project, candidate: ResultCandidate) {
+  if (candidate.review_status === "EXCLUDED")
+    return "이 조건으로는 진행하기 어려워요";
   if (capitalDecision(project, candidate).needsPlanChange)
     return "지금 예산에는 조금 큰 안이에요";
   return statusLabel(candidate.review_status);
@@ -402,11 +404,14 @@ function OverviewPanel({
   candidate: ResultCandidate;
 }) {
   const capital = capitalDecision(project, candidate);
+  const excluded = candidate.review_status === "EXCLUDED";
   return (
     <>
       <header className="panel__header">
         <h2>
-          {capital.needsPlanChange
+          {excluded
+            ? "문서 조건을 반영하니 지금 예산에는 맞지 않아요"
+            : capital.needsPlanChange
             ? "지금 예산에서 가능한 방법부터 찾아볼게요"
             : "지금 조건에서 살펴볼 만한 안이에요"}
         </h2>
@@ -429,7 +434,11 @@ function OverviewPanel({
             </Badge>
             <strong>{candidate.display_name}</strong>
             <p>
-              {capital.needsPlanChange && capital.minimumGap != null
+              {excluded && capital.minimumGap != null
+                ? `확인한 점포 조건으로 계산하면 최소 ${formatWon(capital.minimumGap)}이 부족해요. 규모나 점포 조건을 바꾸어 다시 비교해 보세요.`
+                : excluded
+                  ? "확인한 문서 조건이 현재 자금이나 필수 조건과 맞지 않아요. 조건을 바꾸어 다시 비교해 보세요."
+                : capital.needsPlanChange && capital.minimumGap != null
                 ? `최소 ${formatWon(capital.minimumGap)}을 더 마련하거나, 카페 규모와 비용을 줄여야 해요.`
                 : displayText(candidate.summary)}
             </p>
@@ -447,9 +456,9 @@ function OverviewPanel({
             )}
           </div>
         </div>
-        {capital.needsPlanChange && (
+        {(excluded || capital.needsPlanChange) && (
           <div className="decision-note" role="note">
-            <strong>카페 창업 전체가 어렵다는 뜻은 아니에요.</strong>
+            <strong>다른 카페안까지 모두 어렵다는 뜻은 아니에요.</strong>
             <p>
               현재 선택된 {candidate.display_name}을 자기자금만으로 시작하기
               어렵다는 뜻입니다. 더 작은 운영안이나 실제 점포 비용으로 다시
@@ -1581,6 +1590,9 @@ function ResultScreen({
   const [feedbackSuggestion, setFeedbackSuggestion] = useState("");
   const candidates = result.candidates;
   const activeCandidate = candidates[activeCandidateIndex] ?? candidates[0];
+  const noReviewable =
+    result.outcome_status === "NO_REVIEWABLE_CANDIDATES" ||
+    candidates.every((candidate) => candidate.review_status === "EXCLUDED");
   const capital = activeCandidate
     ? capitalDecision(project, activeCandidate)
     : null;
@@ -1628,7 +1640,7 @@ function ResultScreen({
               `최신 조건 반영 ${progress.completed_stage_count}/${progress.total_stage_count}`,
             ),
         );
-        if (!["SUCCEEDED", "PARTIAL"].includes(terminal.status)) {
+        if (terminal.status !== "SUCCEEDED") {
           throw new Error(
             "최신 조건 반영을 완료하지 못했습니다. 이 프로젝트에서 다시 시도해 주세요.",
           );
@@ -1688,9 +1700,11 @@ function ResultScreen({
           `점포 조건 재계산 ${progress.completed_stage_count}/${progress.total_stage_count}`,
         ),
     );
-    if (!["SUCCEEDED", "PARTIAL"].includes(terminal.status))
+    if (terminal.status !== "SUCCEEDED")
       throw new Error("점포 조건 재계산을 완료하지 못했습니다.");
     const nextResult = await client.getResult(project.project_id);
+    if (nextResult.freshness !== "CURRENT")
+      throw new Error("점포 조건 반영 결과를 최신 상태로 저장하지 못했습니다.");
     const source = candidateSource(activeCandidate);
     const nextIndex = nextResult.candidates.findIndex(
       (nextCandidate) => candidateSource(nextCandidate) === source,
@@ -1720,6 +1734,8 @@ function ResultScreen({
   };
   const refreshAfterDocument = async () => {
     const nextResult = await client.getResult(project.project_id);
+    if (nextResult.freshness !== "CURRENT")
+      throw new Error("문서 반영 결과를 최신 상태로 저장하지 못했습니다.");
     const source = candidateSource(activeCandidate);
     const nextIndex = nextResult.candidates.findIndex(
       (nextCandidate) => candidateSource(nextCandidate) === source,
@@ -1734,7 +1750,14 @@ function ResultScreen({
           }
         : current,
     );
-    setActionStatus("문서에서 확인한 값으로 창업안을 다시 계산했습니다.");
+    const excluded = nextResult.candidates.every(
+      (candidate) => candidate.review_status === "EXCLUDED",
+    );
+    setActionStatus(
+      excluded
+        ? "문서 조건을 반영하니 현재 예산에는 맞지 않았어요. 조건을 바꾸어 다시 비교할 수 있어요."
+        : "문서에서 확인한 값으로 창업안을 다시 계산했습니다.",
+    );
   };
   if (!activeCandidate)
     return (
@@ -1790,9 +1813,11 @@ function ResultScreen({
             <div className="candidate-picker__head">
               <div>
                 <p className="candidate-picker__count">
-                  검토 후보 {candidates.length}개
+                  {noReviewable ? "조건 변경이 필요한 안" : "검토 후보"} {candidates.length}개
                 </p>
-                <h2 id="candidatePickerTitle">추천안부터 살펴보세요</h2>
+                <h2 id="candidatePickerTitle">
+                  {noReviewable ? "현재 조건에서 어려운 이유를 확인하세요" : "추천안부터 살펴보세요"}
+                </h2>
               </div>
               <p>모든 후보를 같은 자금과 운영 기준으로 비교했어요.</p>
             </div>
@@ -1820,7 +1845,7 @@ function ResultScreen({
                   }}
                 >
                   <span className="candidate-tab__number">
-                    {candidate.rank ? `${candidate.rank}순위` : "순위 없음"}
+                    {candidate.rank ? `${candidate.rank}순위` : "현재 제외"}
                   </span>
                   <strong>{candidate.display_name}</strong>
                   <small>
@@ -1852,7 +1877,9 @@ function ResultScreen({
             </div>
             <h1 id="pageTitle">{activeCandidate.display_name}</h1>
             <p className="intro__lede">
-              {capital?.needsPlanChange
+              {activeCandidate.review_status === "EXCLUDED"
+                ? "문서에서 확인한 점포 비용이 현재 자금 조건을 넘었어요. 비용이나 운영 규모를 바꾸어 다시 비교해 보세요."
+                : capital?.needsPlanChange
                 ? "지금 예산에 맞는 운영안이나 실제 점포 비용으로 한 번 더 비교해 보세요."
                 : displayText(activeCandidate.summary)}
             </p>
@@ -1930,6 +1957,24 @@ function ResultScreen({
                       조건 바꾸기
                     </button>
                   </>
+                ) : activeCandidate.review_status === "EXCLUDED" ? (
+                  <button
+                    className="btn btn--primary"
+                    onClick={() => {
+                      setFeedbackSuggestion(
+                        "현재 자기자금에 맞도록 점포 비용이나 카페 규모를 줄인 안으로 다시 보고 싶어요.",
+                      );
+                      setActionStatus(
+                        "바꿀 조건을 준비했어요. 내용을 확인한 뒤 다시 비교해 주세요.",
+                      );
+                      window.setTimeout(
+                        () => document.getElementById("feedbackInput")?.focus(),
+                        0,
+                      );
+                    }}
+                  >
+                    조건 바꾸어 다시 비교하기
+                  </button>
                 ) : capital?.needsPlanChange ? (
                   <>
                     <button

@@ -150,8 +150,9 @@ export interface ResultView {
   workflow_run_id: string
   head: HeadFence
   candidates: ResultCandidate[]
-  primary_candidate_id: string
+  primary_candidate_id: string | null
   audit_status: 'PASSED' | 'REQUIRES_HUMAN' | 'UNAVAILABLE'
+  outcome_status?: 'REVIEWABLE_CANDIDATES' | 'NO_REVIEWABLE_CANDIDATES'
   created_at: string
   freshness: 'CURRENT' | 'STALE'
   stale_head_dimensions: string[]

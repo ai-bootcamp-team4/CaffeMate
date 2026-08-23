@@ -269,6 +269,7 @@ class SelectedCandidateCanary:
                 first_result.workflow_run_id != active_workflow.workflow_run_id
                 or first_result.freshness != ResultFreshness.CURRENT
                 or not first_result.candidates
+                or first_result.primary_candidate_id is None
             ):
                 raise SelectedCandidateCanaryError("SOURCE_RESULT_INVALID")
             selection = self._selections.select(

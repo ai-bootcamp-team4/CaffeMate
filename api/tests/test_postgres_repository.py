@@ -2497,6 +2497,27 @@ def result_payload(*, project_id: str, state_version: int = 1) -> dict[str, obje
     }
 
 
+def excluded_result_payload(*, project_id: str, state_version: int = 1) -> dict[str, object]:
+    candidate = valid_candidate(project_id=project_id, state_version=state_version)
+    candidate.update(
+        {
+            "review_status": "EXCLUDED",
+            "reason_codes": ["INITIAL_CAPITAL_EXCEEDS_AVAILABLE_FUNDS"],
+            "rank": None,
+            "rank_basis": "NOT_RANKED",
+            "is_primary_next_review": False,
+        }
+    )
+    return {
+        "result_bundle": {
+            "candidates": [candidate],
+            "primary_candidate_id": None,
+            "audit_status": "PASSED",
+            "outcome_status": "NO_REVIEWABLE_CANDIDATES",
+        }
+    }
+
+
 def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
     repository: PostgresProjectRepository,
     postgres_engine: Engine,
@@ -2982,6 +3003,45 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
             {"revision_id": upload_body["document_revision_id"]},
         ).scalars().all()
     assert document_topics == ["DOCUMENT_SCAN_REQUESTED", "DOCUMENT_PARSE_REQUESTED"]
+
+
+def test_excluded_recompute_outcome_replaces_previous_current_result(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    project, stage_id, input_digest, _workflows = create_commit_stage(
+        repository, postgres_engine
+    )
+    execution = PostgresStageExecutionRepository(
+        postgres_engine,
+        new_result_id=lambda: "result-excluded",
+    )
+    lease = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-1",
+        expected_input_digest=input_digest,
+    )
+    assert lease is not None
+
+    assert (
+        execution.checkpoint(
+            stage_run_id=stage_id,
+            lease_token=lease.lease_token,
+            input_digest=lease.input_digest,
+            result=excluded_result_payload(project_id=project.project_id),
+        )
+        == CheckpointOutcome.APPLIED
+    )
+
+    loaded = ResultService(PostgresResultRepository(postgres_engine)).get_current(
+        project_id=project.project_id,
+        user_id="user-1",
+    )
+    assert loaded.result_bundle_id == "result-excluded"
+    assert loaded.freshness.value == "CURRENT"
+    assert loaded.outcome_status.value == "NO_REVIEWABLE_CANDIDATES"
+    assert loaded.primary_candidate_id is None
+    assert loaded.candidates[0]["review_status"] == "EXCLUDED"
 
 
 def test_document_storage_canary_exercises_upload_agent_extraction_and_cleanup(

@@ -406,7 +406,27 @@ describe('CaffeMate Control API integration', () => {
       application_id: 'application-1', project_id: 'project-1', document_revision_id: 'revision-1', applied_state_version: 3,
       recompute_workflow_run_id: 'workflow-1', claims: [], conflicts: [], requires_human_review: false,
     })
-    vi.mocked(client.getResult).mockResolvedValueOnce({ ...result, current_head: { ...head, state_version: 3 } })
+    const recomputedHead = { ...head, state_version: 3, workflow_generation: 2 }
+    const excludedResult: ResultView = {
+      ...result,
+      result_bundle_id: 'result-after-document',
+      workflow_run_id: 'workflow-document-recompute',
+      head: recomputedHead,
+      current_head: recomputedHead,
+      primary_candidate_id: null,
+      outcome_status: 'NO_REVIEWABLE_CANDIDATES',
+      candidates: [{
+        ...result.candidates[0],
+        candidate_id: 'candidate-after-document',
+        state_version: 3,
+        review_status: 'EXCLUDED',
+        reason_codes: ['INITIAL_CAPITAL_EXCEEDS_AVAILABLE_FUNDS'],
+        rank: null,
+        rank_basis: 'NOT_RANKED',
+        is_primary_next_review: false,
+      }],
+    }
+    vi.mocked(client.getResult).mockResolvedValueOnce(excludedResult)
 
     const file = new File(['test'], 'lease.pdf', { type: 'application/pdf' })
     Object.defineProperty(file, 'arrayBuffer', { value: async () => new TextEncoder().encode('test').buffer })
@@ -420,6 +440,10 @@ describe('CaffeMate Control API integration', () => {
     await waitFor(() => expect(client.updateDocumentExtractionForm).toHaveBeenCalledWith('project-1', extractionForm, [{ field_id: 'monthly_rent_krw', value: 2_000_000 }]))
     await waitFor(() => expect(client.applyDocumentExtractionForm).toHaveBeenCalledWith('project-1', appliedForm))
     expect(await screen.findByText('문서 값을 반영하고 창업안을 다시 계산했어요.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '결과 비교로 돌아가기' }))
+    expect(await screen.findByRole('heading', { name: '문서 조건을 반영하니 지금 예산에는 맞지 않아요' })).toBeTruthy()
+    expect(screen.getByText('문서 조건을 반영하니 현재 예산에는 맞지 않았어요. 조건을 바꾸어 다시 비교할 수 있어요.')).toBeTruthy()
+    expect(screen.queryByText('입력 조건이 바뀌었어요.')).toBeNull()
   })
 
   it('keeps the selected checklist usable when official procedure lookup fails', async () => {

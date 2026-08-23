@@ -3,8 +3,8 @@ from typing import Any
 from app.contracts.schema_registry import ContractRegistry
 from app.domain.errors import ContractValidationError
 from app.domain.models import CafeTypePreference
-from app.results.models import AuditStatus, ResultBundlePayload
-from app.workflows.models import StageControl, StageDisposition
+from app.results.models import AuditStatus, ResultBundlePayload, ResultOutcomeStatus
+from app.workflows.models import StageControl
 from app.workflows.stage_context import StageContext
 
 
@@ -40,13 +40,26 @@ class CommitResultStageHandler:
         self._validate_audit_consistency(audit, audit_status, candidates)
         if not reviewable:
             reason_codes = ["NO_REVIEWABLE_CANDIDATES"]
+            excluded = candidates[:3]
+            try:
+                payload = ResultBundlePayload(
+                    candidates=excluded,
+                    primary_candidate_id=None,
+                    audit_status=audit_status,
+                    outcome_status=ResultOutcomeStatus.NO_REVIEWABLE_CANDIDATES,
+                )
+                payload.validate_contracts(
+                    project_id=context.project_id,
+                    state_version=context.lease.head.state_version,
+                    contracts=self._contracts,
+                )
+            except ValueError as error:
+                raise ContractValidationError(str(error)) from error
             return {
-                "stage_control": StageControl(
-                    disposition=StageDisposition.ABSTAIN,
-                    reason_codes=reason_codes,
-                ).model_dump(mode="json"),
+                "stage_control": StageControl().model_dump(mode="json"),
+                "result_bundle": payload.model_dump(mode="json"),
                 "commit_result": {
-                    "status": "ABSTAIN",
+                    "status": "READY_TO_COMMIT",
                     "reason_codes": reason_codes,
                     "excluded_candidate_ids": sorted(
                         candidate["candidate_id"] for candidate in candidates
