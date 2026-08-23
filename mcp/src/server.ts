@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createMcpHandler, fromJsonSchema, McpServer } from '@modelcontextprotocol/server'
-import { getMcpToolDefinitions } from './manifest'
+import { getMcpToolDefinition, getMcpToolDefinitions, type McpToolName } from './manifest'
 import { McpToolRouter, type McpConnectorRegistry, type McpScopeContext } from './router'
 import { getToolInputJsonSchema, getToolOutputJsonSchema } from './tool-schemas'
 
@@ -48,14 +48,19 @@ interface McpRequestContext {
   signal: AbortSignal
 }
 
-function buildMcpServer(router: McpToolRouter, requestContext: McpRequestContext): McpServer {
+function buildMcpServer(
+  router: McpToolRouter,
+  requestContext: McpRequestContext,
+  advertisedToolNames: readonly McpToolName[],
+): McpServer {
   const { scope } = requestContext
   const server = new McpServer(
     { name: 'caffemate-mcp', version: '1.0.0' },
     { capabilities: { tools: {} } },
   )
 
-  for (const definition of getMcpToolDefinitions()) {
+  const advertised = new Set(advertisedToolNames)
+  for (const definition of getMcpToolDefinitions().filter((tool) => advertised.has(tool.name))) {
     server.registerTool(
       definition.name,
       {
@@ -102,13 +107,21 @@ function authorizationResponse(error: McpAuthorizationError): Response {
 }
 
 export function createCaffeMateMcpHttpHandler(options: CaffeMateMcpServerOptions): CaffeMateMcpHttpHandler {
+  const advertisedToolNames = Object.entries(options.connectors)
+    .filter((entry): entry is [McpToolName, NonNullable<(typeof options.connectors)[McpToolName]>] => (
+      typeof entry[1] === 'function' && getMcpToolDefinition(entry[0]) !== undefined
+    ))
+    .map(([name]) => name)
+  if (advertisedToolNames.length !== Object.keys(options.connectors).length) {
+    throw new Error('MCP_CONNECTOR_REGISTRY_INVALID')
+  }
   const router = new McpToolRouter(options.connectors)
   const scopeStorage = new AsyncLocalStorage<McpRequestContext>()
   const handler = createMcpHandler(
     () => {
       const requestContext = scopeStorage.getStore()
       if (!requestContext) throw new Error('MCP_SCOPE_CONTEXT_MISSING')
-      return buildMcpServer(router, requestContext)
+      return buildMcpServer(router, requestContext, advertisedToolNames)
     },
     { legacy: 'reject' },
   )

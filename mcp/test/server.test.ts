@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getMcpToolDefinitions, MCP_TOOL_NAMES } from '../src/manifest'
+import { getMcpToolDefinitions } from '../src/manifest'
 import { McpAuthorizationError, createCaffeMateMcpHttpHandler } from '../src/server'
 import { getToolInputJsonSchema, getToolOutputJsonSchema } from '../src/tool-schemas'
 
@@ -90,9 +90,14 @@ describe('CaffeMate MCP 2026-07-28 HTTP boundary', () => {
     expect(digest).toBe(recorded)
   })
 
-  it('serves exactly the fixed 10 read-only tools to a modern pinned client', async () => {
+  it('advertises only connectors that are actually callable in this server instance', async () => {
     const handler = createCaffeMateMcpHttpHandler({
-      connectors: {},
+      connectors: {
+        resolve_area: async (_input, scope) => resolveAreaResult(
+          scope.ventureProjectId,
+          scope.requestId,
+        ),
+      },
       authorize: async (request) => {
         expect(request.headers.get('X-CaffeMate-Scope-Token')).toBe('scope-ok')
         return { ventureProjectId: 'project-1', workflowRunId: 'wf-1' }
@@ -104,7 +109,7 @@ describe('CaffeMate MCP 2026-07-28 HTTP boundary', () => {
     await client.connect(transport)
     const listed = await client.listTools()
 
-    expect(listed.tools.map((tool) => tool.name)).toEqual(MCP_TOOL_NAMES)
+    expect(listed.tools.map((tool) => tool.name)).toEqual(['resolve_area'])
     for (const tool of listed.tools) {
       expect(tool._meta?.['com.caffemate/toolVersion']).toBe('1.0.0')
       expect(tool.annotations?.readOnlyHint).toBe(true)

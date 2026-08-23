@@ -34,6 +34,9 @@ class McpManifestCatalog:
             Path(__file__).resolve().parents[3] / "docs" / "contracts"
         )
         self._manifest = self._read_json("mcp-tool-manifest.json")
+        self._production_capabilities = self._read_json(
+            "mcp-production-capabilities.json"
+        )
         self._schema_documents = {
             path.name: json.loads(path.read_text(encoding="utf-8"))
             for path in self._directory.glob("*.schema.json")
@@ -54,6 +57,28 @@ class McpManifestCatalog:
             "manifest_version": self._manifest["manifest_version"],
             "protocol_revision": self._manifest["protocol_revision"],
             "tools": tools,
+        }
+
+    def production_projection(self) -> dict[str, Any]:
+        full = self.projection()
+        production_names = self._production_capabilities.get("tools")
+        if (
+            self._production_capabilities.get("schema_version") != "1.0.0"
+            or not isinstance(production_names, list)
+            or not production_names
+            or any(not isinstance(name, str) for name in production_names)
+            or len(production_names) != len(set(production_names))
+            or self._production_capabilities.get("manifest_digest")
+            != f"sha256:{self.expected_digest()}"
+        ):
+            raise McpClientError("MCP_PRODUCTION_CAPABILITIES_INVALID")
+        tools_by_name = {tool["name"]: tool for tool in full["tools"]}
+        if any(name not in tools_by_name for name in production_names):
+            raise McpClientError("MCP_PRODUCTION_CAPABILITIES_INVALID")
+        return {
+            "manifest_version": full["manifest_version"],
+            "protocol_revision": full["protocol_revision"],
+            "tools": [tools_by_name[name] for name in production_names],
         }
 
     def expected_digest(self) -> str:
@@ -182,7 +207,7 @@ class McpManifestPreflight:
                 raise nested from error
             raise McpClientError("MCP_PREFLIGHT_TRANSPORT_ERROR") from error
 
-        expected = self._catalog.projection()
+        expected = self._catalog.production_projection()
         observed = {
             "manifest_version": expected["manifest_version"],
             "protocol_revision": PROTOCOL_REVISION,

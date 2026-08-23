@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto'
 import { GoogleAuth } from 'google-auth-library'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { MCP_TOOL_NAMES } from './manifest'
+import { MCP_PRODUCTION_TOOL_NAMES } from './manifest'
 
 function required(name: string): string {
   const value = process.env[name]
@@ -44,7 +44,8 @@ try {
   await client.connect(new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`), { fetch: authenticatedFetch }))
   const listed = await client.listTools()
   const names = listed.tools.map((tool) => tool.name)
-  if (names.length !== MCP_TOOL_NAMES.length || MCP_TOOL_NAMES.some((name) => !names.includes(name))) {
+  if (names.length !== MCP_PRODUCTION_TOOL_NAMES.length
+    || MCP_PRODUCTION_TOOL_NAMES.some((name) => !names.includes(name))) {
     throw new Error('MCP_MANIFEST_MISMATCH')
   }
   const result = await client.callTool({
