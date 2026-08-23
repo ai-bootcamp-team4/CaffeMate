@@ -170,8 +170,8 @@ export default function Onboarding({
     setValues((current) => ({ ...current, targetAreaInput: suggestion.display_name }))
     setSelectedArea(suggestion)
     setIsLocationListOpen(false)
-    setLocationLookupStatus(`${suggestion.display_name}을(를) 분석 지역으로 선택했습니다.`)
-    setMessage(`${suggestion.display_name}을(를) 희망 지역으로 선택했어요.`)
+    setLocationLookupStatus(`분석 지역을 선택했습니다: ${suggestion.display_name}.`)
+    setMessage(`희망 지역을 선택했어요: ${suggestion.display_name}.`)
   }
 
   const updateFunds = (rawValue: string) => {
