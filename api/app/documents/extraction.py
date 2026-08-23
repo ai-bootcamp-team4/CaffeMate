@@ -110,6 +110,9 @@ CLAIM_TYPES: dict[str, tuple[str, ...]] = {
 }
 
 LABELS = {
+    "ADDRESS": "점포 주소",
+    "AREA": "면적",
+    "FLOOR": "층",
     "LEASE_DEPOSIT": "보증금",
     "MONTHLY_RENT": "월세",
     "MANAGEMENT_FEE": "관리비",
