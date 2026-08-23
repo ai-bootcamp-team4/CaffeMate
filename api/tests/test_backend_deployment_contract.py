@@ -70,6 +70,10 @@ def test_document_storage_deployment_is_pinned_and_verified_end_to_end() -> None
     assert "caffemateDocumentObjectAccess" in deploy
     assert "storage.objects.create,storage.objects.delete,storage.objects.get" in deploy
     assert "DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa}" in deploy
+    assert 'bucket["uniform_bucket_level_access"] is True' in verifier
+    assert 'bucket["public_access_prevention"] == "enforced"' in verifier
+    assert 'bucket.get("cors_config", [])' in verifier
+    assert 'bucket["iamConfiguration"]' not in verifier
     assert "--args=verify-document-storage" in verifier
     assert "DOCUMENT_EXTRACT" in verifier
     assert "service-account-key" not in verifier
