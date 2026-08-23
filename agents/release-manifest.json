@@ -14,8 +14,8 @@
   },
   "allow_global_fallback": false,
   "network_mode": "GCP_CONNECTED",
-  "prompt_bundle_digest": "sha256:86ebcc94a879b088689fabaa96342dd6f1b61ac0b0facd1341355c61675dd10f",
-  "agent_contract_bundle_digest": "sha256:ff610b476ae05e4bac7c41dfe054ea7e4480918c6fef133bce93e49e5520c001",
+  "prompt_bundle_digest": "sha256:ffea3d0f3d352c2234feeebde03d94b1ef7d32bead595e061ddf762e56bcf19f",
+  "agent_contract_bundle_digest": "sha256:d713c23b8ece9197329e7406fdc7c2607fe0e1f0b49e48c5dc693f6089a2b332",
   "mcp": {
     "protocol_revision": "2026-07-28",
     "server_sdk": "@modelcontextprotocol/server@2.0.0",

@@ -2,89 +2,99 @@
   "schema_version": "1.0.0",
   "models": [
     {
-      "model_id": "independent-owner-operated-v1",
-      "display_name": "창업자 직접 운영 개인카페",
-      "allowed_operation_modes": [
-        "DIRECT_FULL_TIME",
-        "DIRECT_PART_TIME",
-        "UNDECIDED"
-      ],
+      "model_id": "independent-small-takeout-v1",
+      "display_name": "소형 포장 중심 개인카페",
+      "allowed_operation_modes": ["DIRECT_FULL_TIME", "DIRECT_PART_TIME", "UNDECIDED"],
       "minimum_own_funds_krw": null,
       "allowed_parameters": [
-        {
-          "field_path": "operations.seats",
-          "value_kind": "INTEGER",
-          "unit": "seat",
-          "minimum": null,
-          "maximum": null
-        },
-        {
-          "field_path": "operations.takeout_share",
-          "value_kind": "DECIMAL",
-          "unit": "ratio",
-          "minimum": 0,
-          "maximum": 1
-        },
-        {
-          "field_path": "operations.menu_complexity",
-          "value_kind": "STRING",
-          "unit": null,
-          "minimum": null,
-          "maximum": null
-        },
-        {
-          "field_path": "operations.open_hours_per_day",
-          "value_kind": "DECIMAL",
-          "unit": "hour",
-          "minimum": 1,
-          "maximum": 24
-        }
+        {"field_path": "operations.seats", "value_kind": "INTEGER", "unit": "seat", "minimum": 0, "maximum": 12},
+        {"field_path": "operations.takeout_share", "value_kind": "DECIMAL", "unit": "ratio", "minimum": 0.65, "maximum": 1},
+        {"field_path": "operations.menu_complexity", "value_kind": "STRING", "unit": null, "minimum": null, "maximum": null},
+        {"field_path": "operations.open_hours_per_day", "value_kind": "DECIMAL", "unit": "hour", "minimum": 8, "maximum": 12}
       ],
-      "support_refs": [
-        "seed-assumption:independent-owner-operated-v1"
-      ]
+      "finance_profile": {
+        "cost_ranges": {
+          "DEPOSIT": {"low": 20000000, "base": 35000000, "high": 60000000},
+          "ACQUISITION_OR_PREMIUM": {"low": 0, "base": 10000000, "high": 30000000},
+          "CONSTRUCTION": {"low": 20000000, "base": 32000000, "high": 48000000},
+          "EQUIPMENT": {"low": 18000000, "base": 26000000, "high": 38000000},
+          "PREOPENING": {"low": 2000000, "base": 4000000, "high": 6000000},
+          "OPENING_INVENTORY": {"low": 1500000, "base": 2500000, "high": 4000000},
+          "CONTINGENCY": {"low": 6000000, "base": 10000000, "high": 16000000},
+          "OPERATING_RESERVE": {"low": 12000000, "base": 20000000, "high": 30000000},
+          "MONTHLY_OCCUPANCY": {"low": 2500000, "base": 4000000, "high": 6500000},
+          "MONTHLY_LABOR": {"low": 1000000, "base": 2500000, "high": 5000000},
+          "MONTHLY_OTHER_FIXED": {"low": 700000, "base": 1100000, "high": 1800000}
+        },
+        "contribution_margin_bps": 6800,
+        "operating_days_per_month": 26,
+        "average_ticket_krw": 6500
+      },
+      "support_refs": ["declared-assumption:independent-small-takeout-v1"]
     },
     {
-      "model_id": "independent-employee-led-v1",
-      "display_name": "직원 중심 운영 개인카페",
-      "allowed_operation_modes": [
-        "EMPLOYEE_LED",
-        "UNDECIDED"
-      ],
+      "model_id": "independent-balanced-v1",
+      "display_name": "중소형 균형 개인카페",
+      "allowed_operation_modes": ["DIRECT_FULL_TIME", "DIRECT_PART_TIME", "EMPLOYEE_LED", "UNDECIDED"],
       "minimum_own_funds_krw": null,
       "allowed_parameters": [
-        {
-          "field_path": "operations.seats",
-          "value_kind": "INTEGER",
-          "unit": "seat",
-          "minimum": null,
-          "maximum": null
-        },
-        {
-          "field_path": "operations.takeout_share",
-          "value_kind": "DECIMAL",
-          "unit": "ratio",
-          "minimum": 0,
-          "maximum": 1
-        },
-        {
-          "field_path": "operations.menu_complexity",
-          "value_kind": "STRING",
-          "unit": null,
-          "minimum": null,
-          "maximum": null
-        },
-        {
-          "field_path": "operations.staff_count",
-          "value_kind": "INTEGER",
-          "unit": "person",
-          "minimum": 1,
-          "maximum": null
-        }
+        {"field_path": "operations.seats", "value_kind": "INTEGER", "unit": "seat", "minimum": 10, "maximum": 28},
+        {"field_path": "operations.takeout_share", "value_kind": "DECIMAL", "unit": "ratio", "minimum": 0.35, "maximum": 0.7},
+        {"field_path": "operations.menu_complexity", "value_kind": "STRING", "unit": null, "minimum": null, "maximum": null},
+        {"field_path": "operations.open_hours_per_day", "value_kind": "DECIMAL", "unit": "hour", "minimum": 9, "maximum": 14},
+        {"field_path": "operations.staff_count", "value_kind": "INTEGER", "unit": "person", "minimum": 1, "maximum": 4}
       ],
-      "support_refs": [
-        "seed-assumption:independent-employee-led-v1"
-      ]
+      "finance_profile": {
+        "cost_ranges": {
+          "DEPOSIT": {"low": 30000000, "base": 50000000, "high": 80000000},
+          "ACQUISITION_OR_PREMIUM": {"low": 0, "base": 20000000, "high": 50000000},
+          "CONSTRUCTION": {"low": 35000000, "base": 55000000, "high": 85000000},
+          "EQUIPMENT": {"low": 25000000, "base": 38000000, "high": 55000000},
+          "PREOPENING": {"low": 3000000, "base": 5000000, "high": 8000000},
+          "OPENING_INVENTORY": {"low": 2000000, "base": 4000000, "high": 6000000},
+          "CONTINGENCY": {"low": 10000000, "base": 17000000, "high": 28000000},
+          "OPERATING_RESERVE": {"low": 20000000, "base": 30000000, "high": 45000000},
+          "MONTHLY_OCCUPANCY": {"low": 4000000, "base": 6500000, "high": 10000000},
+          "MONTHLY_LABOR": {"low": 2500000, "base": 5000000, "high": 9000000},
+          "MONTHLY_OTHER_FIXED": {"low": 1000000, "base": 1800000, "high": 3000000}
+        },
+        "contribution_margin_bps": 6500,
+        "operating_days_per_month": 26,
+        "average_ticket_krw": 7000
+      },
+      "support_refs": ["declared-assumption:independent-balanced-v1"]
+    },
+    {
+      "model_id": "independent-seating-focused-v1",
+      "display_name": "좌석 중심 개인카페",
+      "allowed_operation_modes": ["DIRECT_FULL_TIME", "EMPLOYEE_LED", "UNDECIDED"],
+      "minimum_own_funds_krw": null,
+      "allowed_parameters": [
+        {"field_path": "operations.seats", "value_kind": "INTEGER", "unit": "seat", "minimum": 24, "maximum": 50},
+        {"field_path": "operations.takeout_share", "value_kind": "DECIMAL", "unit": "ratio", "minimum": 0.15, "maximum": 0.45},
+        {"field_path": "operations.menu_complexity", "value_kind": "STRING", "unit": null, "minimum": null, "maximum": null},
+        {"field_path": "operations.open_hours_per_day", "value_kind": "DECIMAL", "unit": "hour", "minimum": 10, "maximum": 15},
+        {"field_path": "operations.staff_count", "value_kind": "INTEGER", "unit": "person", "minimum": 2, "maximum": 7}
+      ],
+      "finance_profile": {
+        "cost_ranges": {
+          "DEPOSIT": {"low": 40000000, "base": 70000000, "high": 110000000},
+          "ACQUISITION_OR_PREMIUM": {"low": 0, "base": 30000000, "high": 70000000},
+          "CONSTRUCTION": {"low": 55000000, "base": 85000000, "high": 130000000},
+          "EQUIPMENT": {"low": 30000000, "base": 45000000, "high": 65000000},
+          "PREOPENING": {"low": 4000000, "base": 7000000, "high": 10000000},
+          "OPENING_INVENTORY": {"low": 3000000, "base": 5000000, "high": 8000000},
+          "CONTINGENCY": {"low": 15000000, "base": 25000000, "high": 40000000},
+          "OPERATING_RESERVE": {"low": 25000000, "base": 40000000, "high": 60000000},
+          "MONTHLY_OCCUPANCY": {"low": 6000000, "base": 9000000, "high": 14000000},
+          "MONTHLY_LABOR": {"low": 5000000, "base": 9000000, "high": 15000000},
+          "MONTHLY_OTHER_FIXED": {"low": 1500000, "base": 2500000, "high": 4000000}
+        },
+        "contribution_margin_bps": 6200,
+        "operating_days_per_month": 27,
+        "average_ticket_krw": 7500
+      },
+      "support_refs": ["declared-assumption:independent-seating-focused-v1"]
     }
   ]
 }

@@ -285,7 +285,7 @@ def create_app(
         FirstProposalStage.EVIDENCE_FREEZE: EvidenceFreezeStageHandler(),
         FirstProposalStage.INDEPENDENT_SEED: IndependentSeedStageHandler(seed_registry),
         FirstProposalStage.FRANCHISE_ELIGIBILITY: FranchiseEligibilityStageHandler(),
-        FirstProposalStage.CALCULATE_GATE_RANK: CalculateGateRankStageHandler(),
+        FirstProposalStage.CALCULATE_GATE_RANK: CalculateGateRankStageHandler(seed_registry),
         FirstProposalStage.COMMIT_RESULT: CommitResultStageHandler(),
     }
     if configured_mcp_client is not None:

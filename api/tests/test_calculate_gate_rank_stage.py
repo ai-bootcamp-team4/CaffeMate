@@ -1,6 +1,7 @@
 from copy import deepcopy
 from typing import Any
 
+from app.candidates.seed_registry import IndependentSeedRegistry
 from app.domain.models import BorrowingIntent
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
@@ -140,6 +141,31 @@ def test_grounded_costs_produce_exact_finance_gate_and_recommended_rank() -> Non
     assert candidate["decision"]["review_status"] == "REVIEW_RECOMMENDED"
     assert candidate["decision"]["rank"] == 1
     assert output["primary_candidate_id"] == candidate["candidate_id"]
+
+
+def test_registered_seed_assumptions_make_first_proposal_calculable() -> None:
+    registry = IndependentSeedRegistry.load_default()
+    output = CalculateGateRankStageHandler(registry).execute(calculation_context())[
+        "calculate_gate_rank"
+    ]
+
+    candidate = output["candidates"][0]
+    assert candidate["display_name"] == "소형 포장 중심 개인카페"
+    assert candidate["finance"]["initial_cash"] == {
+        "low": 79_500_000,
+        "base": 139_500_000,
+        "high": 232_000_000,
+    }
+    assert candidate["finance"]["monthly_fixed_cost"] == {
+        "low": 4_200_000,
+        "base": 7_600_000,
+        "high": 13_300_000,
+    }
+    assert candidate["finance"]["unknown_cost_fields"] == []
+    assert all(
+        line["provenance"] in {"ASSUMPTION", "DERIVED"}
+        for line in candidate["finance_input"]["initial_cost_lines"]
+    )
 
 
 def test_confirmed_unfunded_minimum_excludes_and_emits_reversal_amount() -> None:

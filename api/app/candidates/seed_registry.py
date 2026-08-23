@@ -6,6 +6,12 @@ import rfc8785
 from pydantic import Field, model_validator
 
 from app.domain.models import FounderState, OperationMode, StrictModel
+from app.finance.models import (
+    INITIAL_COST_CATEGORIES,
+    MONTHLY_FIXED_COST_CATEGORIES,
+    CostCategory,
+    MoneyRange,
+)
 
 
 class AllowedParameter(StrictModel):
@@ -24,12 +30,38 @@ class AllowedParameter(StrictModel):
         return self
 
 
+class IndependentFinanceProfile(StrictModel):
+    """Versioned, explicitly provisional finance inputs for a seed model.
+
+    These values keep the first proposal calculable before a user supplies an
+    actual lease or quote. They are assumptions, never external Evidence.
+    """
+
+    cost_ranges: dict[CostCategory, MoneyRange]
+    contribution_margin_bps: int = Field(ge=1, le=10_000)
+    operating_days_per_month: int = Field(ge=1, le=31)
+    average_ticket_krw: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_complete_profile(self) -> "IndependentFinanceProfile":
+        required = (
+            INITIAL_COST_CATEGORIES | MONTHLY_FIXED_COST_CATEGORIES
+        ) - {CostCategory.FRANCHISE_INITIAL_FEES}
+        if set(self.cost_ranges) != required:
+            raise ValueError("independent finance profile must cover every non-franchise cost")
+        for category, amount in self.cost_ranges.items():
+            if None in (amount.low, amount.base, amount.high):
+                raise ValueError(f"finance profile cost range is incomplete: {category.value}")
+        return self
+
+
 class IndependentSeedDefinition(StrictModel):
     model_id: str = Field(min_length=1, max_length=128)
     display_name: str = Field(min_length=1)
     allowed_operation_modes: list[OperationMode] = Field(min_length=1)
     minimum_own_funds_krw: int | None = Field(default=None, ge=0)
     allowed_parameters: list[AllowedParameter] = Field(min_length=1)
+    finance_profile: IndependentFinanceProfile | None = None
     support_refs: list[str] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -81,3 +113,9 @@ class IndependentSeedRegistry:
                 or founder.own_funds_krw >= model.minimum_own_funds_krw
             )
         ]
+
+    def get(self, model_id: str) -> IndependentSeedDefinition | None:
+        return next(
+            (model for model in self._document.models if model.model_id == model_id),
+            None,
+        )

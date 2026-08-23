@@ -12,6 +12,7 @@ from app.candidates.models import (
     RiskSignal,
 )
 from app.candidates.ranking import rank_candidates
+from app.candidates.seed_registry import IndependentFinanceProfile, IndependentSeedRegistry
 from app.domain.errors import ContractValidationError
 from app.domain.models import CaseType, FranchiseEligibility, OperationMode
 from app.finance.calculator import calculate_finance, evaluate_capital_gate
@@ -31,6 +32,9 @@ from app.workflows.stage_context import StageContext
 
 
 class CalculateGateRankStageHandler:
+    def __init__(self, seed_registry: IndependentSeedRegistry | None = None) -> None:
+        self._seed_registry = seed_registry
+
     def execute(self, context: StageContext) -> dict[str, object]:
         calculated: list[dict[str, Any]] = []
         decision_inputs: list[CandidateDecisionInput] = []
@@ -81,6 +85,11 @@ class CalculateGateRankStageHandler:
                 evidence_records = [
                     *base_evidence_records,
                     *self._document_evidence(
+                        context=context,
+                        case_type=case_type,
+                        source_id=source_id,
+                    ),
+                    *self._seed_assumption_evidence(
                         context=context,
                         case_type=case_type,
                         source_id=source_id,
@@ -252,6 +261,104 @@ class CalculateGateRankStageHandler:
             )
         return records
 
+    def _seed_assumption_evidence(
+        self,
+        *,
+        context: StageContext,
+        case_type: CaseType,
+        source_id: str,
+    ) -> list[dict[str, Any]]:
+        profile = self._seed_finance_profile(case_type, source_id)
+        if profile is None:
+            return []
+
+        values: list[tuple[str, dict[str, Any], str | None]] = []
+        for category, amount in sorted(
+            profile.cost_ranges.items(), key=lambda item: item[0].value
+        ):
+            values.append(
+                (
+                    f"INDEPENDENT_COST_{category.value}",
+                    {
+                        "kind": "MONEY_RANGE",
+                        "currency": "KRW",
+                        **amount.model_dump(mode="json"),
+                    },
+                    "KRW",
+                )
+            )
+        values.extend(
+            [
+                (
+                    "CONTRIBUTION_MARGIN_BPS",
+                    {"kind": "INTEGER", "value": profile.contribution_margin_bps},
+                    "basis_point",
+                ),
+                (
+                    "OPERATING_DAYS_PER_MONTH",
+                    {"kind": "INTEGER", "value": profile.operating_days_per_month},
+                    "day/month",
+                ),
+                (
+                    "AVERAGE_TICKET_KRW",
+                    {"kind": "INTEGER", "value": profile.average_ticket_krw},
+                    "KRW/order",
+                ),
+            ]
+        )
+        timestamp = context.state.updated_at.isoformat().replace("+00:00", "Z")
+        records: list[dict[str, Any]] = []
+        for claim_type, value, unit in values:
+            digest = hashlib.sha256(
+                rfc8785.dumps(
+                    {
+                        "seed_registry_id": context.lease.head.seed_registry_id,
+                        "source_id": source_id,
+                        "claim_type": claim_type,
+                        "value": value,
+                    }
+                )
+            ).hexdigest()
+            records.append(
+                {
+                    "schema_version": "2.0.0",
+                    "evidence_id": f"seed-assumption-{digest[:40]}",
+                    "project_id": context.project_id,
+                    "claim_type": claim_type,
+                    "value": value,
+                    "value_kind": "DECLARED_ASSUMPTION",
+                    "unit": unit,
+                    "geographic_scope": {
+                        "scope_type": "CASE",
+                        "scope_id": source_id,
+                        "boundary_version": None,
+                    },
+                    "source": {
+                        "title": f"{source_id} 등록 모델 임시 계산값",
+                        "source_ref": f"seed://{source_id}/{claim_type}",
+                        "authority": "SECONDARY",
+                        "source_type": "DATASET",
+                        "published_or_data_date": None,
+                        "source_observed_at": None,
+                        "document_version": context.lease.head.seed_registry_id,
+                        "checksum": digest,
+                    },
+                    "original_anchor": {
+                        "anchor_type": "CALCULATION",
+                        "locator": f"seed:{source_id}:{claim_type}",
+                        "excerpt_hash": None,
+                    },
+                    "freshness_status": "NOT_APPLICABLE",
+                    "conflict_status": "NONE",
+                    "retrieved_at": timestamp,
+                    "missing_context": [
+                        "실제 매물·견적 입력 전 사용하는 등록 모델 임시 범위"
+                    ],
+                    "durable_evidence_refs": [],
+                }
+            )
+        return records
+
     def _calculate_candidate(
         self,
         *,
@@ -266,11 +373,13 @@ class CalculateGateRankStageHandler:
         if not isinstance(proposal_id, str) or not isinstance(source_id, str):
             raise ContractValidationError("Proposal identity is invalid")
         candidate_id = self._candidate_id(context, proposal_id)
+        seed_finance_profile = self._seed_finance_profile(case_type, source_id)
         finance_input, finance_conflicts, calculation_evidence_refs = self._finance_input(
             case_type=case_type,
             source_id=source_id,
             proposal_id=proposal_id,
             evidence_records=evidence_records,
+            seed_finance_profile=seed_finance_profile,
         )
         finance = calculate_finance(finance_input)
         capital_gate = evaluate_capital_gate(
@@ -285,9 +394,15 @@ class CalculateGateRankStageHandler:
             case_type=case_type,
             source=source,
         )
-        proposal_missing = {
-            value for value in proposal.get("missing_fields", []) if isinstance(value, str)
-        }
+        proposal_missing = (
+            set()
+            if seed_finance_profile is not None
+            else {
+                value
+                for value in proposal.get("missing_fields", [])
+                if isinstance(value, str)
+            }
+        )
         material_missing = sorted(proposal_missing | set(finance.unknown_cost_fields))
         risks = self._risks(
             candidate_id=candidate_id,
@@ -356,6 +471,7 @@ class CalculateGateRankStageHandler:
         source_id: str,
         proposal_id: str,
         evidence_records: list[dict[str, Any]],
+        seed_finance_profile: IndependentFinanceProfile | None,
     ) -> tuple[FinanceInput, list[str], list[str]]:
         conflicts: list[str] = []
         initial = [
@@ -366,6 +482,7 @@ class CalculateGateRankStageHandler:
                 proposal_id=proposal_id,
                 evidence_records=evidence_records,
                 conflicts=conflicts,
+                seed_finance_profile=seed_finance_profile,
             )
             for category in sorted(INITIAL_COST_CATEGORIES, key=lambda value: value.value)
         ]
@@ -377,6 +494,7 @@ class CalculateGateRankStageHandler:
                 proposal_id=proposal_id,
                 evidence_records=evidence_records,
                 conflicts=conflicts,
+                seed_finance_profile=seed_finance_profile,
             )
             for category in sorted(MONTHLY_FIXED_COST_CATEGORIES, key=lambda value: value.value)
         ]
@@ -387,6 +505,7 @@ class CalculateGateRankStageHandler:
             proposal_id,
             evidence_records,
             conflicts,
+            seed_finance_profile,
         )
         operating_days, operating_days_ref = self._scalar_value(
             case_type,
@@ -395,6 +514,7 @@ class CalculateGateRankStageHandler:
             proposal_id,
             evidence_records,
             conflicts,
+            seed_finance_profile,
         )
         average_ticket, average_ticket_ref = self._scalar_value(
             case_type,
@@ -403,6 +523,7 @@ class CalculateGateRankStageHandler:
             proposal_id,
             evidence_records,
             conflicts,
+            seed_finance_profile,
         )
         finance_input = FinanceInput(
             initial_cost_lines=initial,
@@ -438,6 +559,7 @@ class CalculateGateRankStageHandler:
         proposal_id: str,
         evidence_records: list[dict[str, Any]],
         conflicts: list[str],
+        seed_finance_profile: IndependentFinanceProfile | None,
     ) -> CostLine:
         if case_type == CaseType.INDEPENDENT and category == CostCategory.FRANCHISE_INITIAL_FEES:
             return CostLine(
@@ -460,7 +582,23 @@ class CalculateGateRankStageHandler:
             evidence_records,
         )
         if not matches:
+            if seed_finance_profile is not None:
+                amount = seed_finance_profile.cost_ranges.get(category)
+                if amount is not None:
+                    return CostLine(
+                        field_id=category.value,
+                        category=category,
+                        amount=amount,
+                        provenance=ValueProvenance.ASSUMPTION,
+                    )
             return self._unknown_cost(category)
+        grounded_or_confirmed = [
+            value
+            for value in matches
+            if value.get("value_kind") != "DECLARED_ASSUMPTION"
+        ]
+        if grounded_or_confirmed:
+            matches = grounded_or_confirmed
         user_confirmed = [
             value for value in matches if value.get("value_kind") == "USER_CONFIRMED_FACT"
         ]
@@ -530,6 +668,7 @@ class CalculateGateRankStageHandler:
         proposal_id: str,
         evidence_records: list[dict[str, Any]],
         conflicts: list[str],
+        seed_finance_profile: IndependentFinanceProfile | None,
     ) -> tuple[int | None, str | None]:
         claim_types = {field, f"CAFE_{field}", f"{case_type.value}_{field}"}
         values = [
@@ -541,11 +680,28 @@ class CalculateGateRankStageHandler:
             and isinstance(value["value"].get("value"), int)
             and self._scope_matches(value, source_id, proposal_id)
         ]
+        grounded_or_confirmed = [
+            value
+            for value in values
+            if value.get("value_kind") != "DECLARED_ASSUMPTION"
+        ]
+        if grounded_or_confirmed:
+            values = grounded_or_confirmed
         distinct = {value["value"]["value"] for value in values}
         if len(distinct) > 1:
             conflicts.append(f"VALUE_CONFLICT:{field}")
             return None, None
         if not values:
+            if seed_finance_profile is not None:
+                fallback = {
+                    "CONTRIBUTION_MARGIN_BPS": seed_finance_profile.contribution_margin_bps,
+                    "OPERATING_DAYS_PER_MONTH": (
+                        seed_finance_profile.operating_days_per_month
+                    ),
+                    "AVERAGE_TICKET_KRW": seed_finance_profile.average_ticket_krw,
+                }.get(field)
+                if fallback is not None:
+                    return fallback, None
             return None, None
         selected = min(values, key=self._evidence_priority)
         return int(selected["value"]["value"]), str(selected["evidence_id"])
@@ -581,6 +737,14 @@ class CalculateGateRankStageHandler:
         if value.get("value_kind") == "DECLARED_ASSUMPTION":
             return ValueProvenance.ASSUMPTION
         return ValueProvenance.FACT
+
+    def _seed_finance_profile(
+        self, case_type: CaseType, source_id: str
+    ) -> IndependentFinanceProfile | None:
+        if case_type != CaseType.INDEPENDENT or self._seed_registry is None:
+            return None
+        seed = self._seed_registry.get(source_id)
+        return seed.finance_profile if seed is not None else None
 
     @staticmethod
     def _founder_fit(
