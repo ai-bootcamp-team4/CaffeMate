@@ -5,7 +5,7 @@ import pytest
 from app.domain.models import CafeTypePreference, CoverageProfile, Project
 from app.results.models import AuditStatus, ResultFreshness, ResultView
 from app.verification.first_proposal import FirstProposalCanary, FirstProposalCanaryError
-from app.workflows.first_proposal import FirstProposalStage
+from app.workflows.first_proposal import compile_first_proposal_plan
 from app.workflows.models import (
     HeadFence,
     StageStatus,
@@ -110,11 +110,15 @@ def workflow_run(status: WorkflowStatus) -> WorkflowRun:
     )
 
 
-def progress(status: WorkflowStatus) -> WorkflowProgress:
+def progress(
+    status: WorkflowStatus,
+    *,
+    cafe_type_preference: CafeTypePreference = CafeTypePreference.OPEN_TO_BOTH,
+) -> WorkflowProgress:
     stages = [
         WorkflowStageProgress(
             stage_run_id=f"stage-{index}",
-            stage_code=stage.value,
+            stage_code=stage.code.value,
             status=(
                 StageStatus.SUCCEEDED
                 if status == WorkflowStatus.SUCCEEDED
@@ -124,7 +128,9 @@ def progress(status: WorkflowStatus) -> WorkflowProgress:
             updated_at=INSTANT,
             completed_at=INSTANT if status == WorkflowStatus.SUCCEEDED else None,
         )
-        for index, stage in enumerate(FirstProposalStage, start=1)
+        for index, stage in enumerate(
+            compile_first_proposal_plan(cafe_type_preference), start=1
+        )
     ]
     return WorkflowProgress(
         **workflow_run(status).model_dump(mode="python"),
@@ -334,7 +340,12 @@ def test_franchise_only_canary_requires_a_ranked_verified_real_brand() -> None:
 
     report = FirstProposalCanary(
         projects=projects,
-        workflows=FakeWorkflows(progress(WorkflowStatus.SUCCEEDED)),
+        workflows=FakeWorkflows(
+            progress(
+                WorkflowStatus.SUCCEEDED,
+                cafe_type_preference=CafeTypePreference.FRANCHISE_ONLY,
+            )
+        ),
         results=FakeResults(franchise_only),
         cleaner=FakeCleaner(),
         new_id=lambda: "franchise-only",
@@ -345,6 +356,7 @@ def test_franchise_only_canary_requires_a_ranked_verified_real_brand() -> None:
     )
 
     assert projects.founder.cafe_type_preference == CafeTypePreference.FRANCHISE_ONLY
+    assert report.stage_count == 11
     assert report.candidate_case_types == ("FRANCHISE",)
     assert report.franchise_candidate_brand_ids == ("kr-ediya-coffee",)
 
@@ -364,7 +376,12 @@ def test_franchise_only_canary_rejects_unverified_brand() -> None:
     ):
         FirstProposalCanary(
             projects=FakeProjects(),
-            workflows=FakeWorkflows(progress(WorkflowStatus.SUCCEEDED)),
+            workflows=FakeWorkflows(
+                progress(
+                    WorkflowStatus.SUCCEEDED,
+                    cafe_type_preference=CafeTypePreference.FRANCHISE_ONLY,
+                )
+            ),
             results=FakeResults(franchise_only),
             cleaner=FakeCleaner(),
             new_id=lambda: "unverified-franchise",

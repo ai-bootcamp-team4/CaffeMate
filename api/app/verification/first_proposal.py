@@ -20,7 +20,7 @@ from app.domain.models import (
     Project,
 )
 from app.results.models import ResultFreshness, ResultView
-from app.workflows.first_proposal import FirstProposalStage
+from app.workflows.first_proposal import compile_first_proposal_plan
 from app.workflows.models import WorkflowCode, WorkflowProgress, WorkflowRun, WorkflowStatus
 
 
@@ -353,7 +353,9 @@ class FirstProposalCanary:
                     ],
                 },
             )
-        expected_stages = {stage.value for stage in FirstProposalStage}
+        expected_stages = {
+            stage.code.value for stage in compile_first_proposal_plan(cafe_type_preference)
+        }
         observed_stages = {stage.stage_code for stage in progress.stages}
         unsuccessful = [
             stage.stage_code for stage in progress.stages if stage.status.value != "SUCCEEDED"
