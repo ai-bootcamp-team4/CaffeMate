@@ -185,20 +185,20 @@ def test_serious_advisory_finding_requires_human_without_mutating_rank() -> None
     assert "CANDIDATE_AUDIT_REQUIRES_HUMAN" in output["reason_codes"]
 
 
-def test_missing_candidate_coverage_is_rejected() -> None:
+def test_missing_candidate_coverage_preserves_candidates_as_unavailable() -> None:
     def missing_audit(task: dict[str, Any]) -> dict[str, Any]:
         result = audit_result(task)
         result["payload"]["candidate_audits"] = []
         return result
 
-    with pytest.raises(
-        ContractValidationError,
-        match="CANDIDATE_AUDIT_COVERAGE_INVALID",
-    ):
-        CandidateAuditStageHandler(FakeRuntime(missing_audit)).execute(audit_context())
+    result = CandidateAuditStageHandler(FakeRuntime(missing_audit)).execute(
+        audit_context()
+    )
+    assert result["candidate_audit"]["status"] == "UNAVAILABLE"
+    assert result["candidate_audit"]["candidates"]
 
 
-def test_unallocated_calculation_reference_is_rejected() -> None:
+def test_unallocated_calculation_reference_preserves_candidates() -> None:
     def forged_reference(task: dict[str, Any]) -> dict[str, Any]:
         finding = {
             "code": "FORGED_CALCULATION",
@@ -215,25 +215,24 @@ def test_unallocated_calculation_reference_is_rejected() -> None:
             findings=[finding],
         )
 
-    with pytest.raises(
-        ContractValidationError,
-        match="CANDIDATE_AUDIT_CALCULATION_REFERENCE_INVALID",
-    ):
-        CandidateAuditStageHandler(FakeRuntime(forged_reference)).execute(
-            audit_context()
-        )
+    result = CandidateAuditStageHandler(FakeRuntime(forged_reference)).execute(
+        audit_context()
+    )
+    assert result["candidate_audit"]["status"] == "UNAVAILABLE"
+    assert result["candidate_audit"]["candidates"]
 
 
-def test_agent_cannot_return_a_replacement_rank() -> None:
+def test_agent_replacement_rank_preserves_backend_candidates() -> None:
     def replacement_rank(task: dict[str, Any]) -> dict[str, Any]:
         result = audit_result(task)
         result["payload"]["candidate_audits"][0]["rank"] = 2
         return result
 
-    with pytest.raises(ContractValidationError, match="CONTRACT_SCHEMA_INVALID"):
-        CandidateAuditStageHandler(FakeRuntime(replacement_rank)).execute(
-            audit_context()
-        )
+    result = CandidateAuditStageHandler(FakeRuntime(replacement_rank)).execute(
+        audit_context()
+    )
+    assert result["candidate_audit"]["status"] == "UNAVAILABLE"
+    assert result["candidate_audit"]["candidates"][0]["rank"] == 1
 
 
 def test_tampered_finance_output_fails_deterministic_replay_before_runtime() -> None:
@@ -266,7 +265,7 @@ def test_ranked_franchise_requires_available_eligibility_evidence() -> None:
     assert runtime.tasks == []
 
 
-def test_pass_status_with_findings_is_rejected() -> None:
+def test_pass_status_with_findings_preserves_candidates() -> None:
     def incoherent(task: dict[str, Any]) -> dict[str, Any]:
         finding = {
             "code": "INCOHERENT",
@@ -279,11 +278,11 @@ def test_pass_status_with_findings_is_rejected() -> None:
         }
         return audit_result(task, findings=[finding])
 
-    with pytest.raises(
-        ContractValidationError,
-        match="CANDIDATE_AUDIT_STATUS_INCOHERENT",
-    ):
-        CandidateAuditStageHandler(FakeRuntime(incoherent)).execute(audit_context())
+    result = CandidateAuditStageHandler(FakeRuntime(incoherent)).execute(
+        audit_context()
+    )
+    assert result["candidate_audit"]["status"] == "UNAVAILABLE"
+    assert result["candidate_audit"]["candidates"]
 
 
 def test_runtime_failure_retries_then_preserves_candidates_as_unavailable() -> None:
