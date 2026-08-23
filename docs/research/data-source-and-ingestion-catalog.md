@@ -318,7 +318,7 @@ CaffeMate의 기본 경로는 요청 때마다 웹을 검색하는 방식이 아
 
 ## 6. 결과 카드의 빈 상태를 없애는 구현 순서 1~6
 
-1. **RAG hit를 EvidenceRecord 후보로 변환:** `retrieve_official_documents`의 hit마다 원문 id, anchor, excerpt, 원문 기준일, 지리 범위, Claim id를 가진 후보 record를 만든다. Agent에는 이 후보를 전달하고, Evidence Freeze는 Agent가 수용한 id만 확정한다. 검색 hit 자체를 사실로 자동 승격하지 않는다.
+1. **RAG hit를 EvidenceRecord 후보로 변환:** `retrieve_official_documents`의 hit마다 원문 id, anchor, excerpt, 원문 기준일과 `source_trace`를 반환하고, Control API의 `EVIDENCE_RETRIEVAL` adapter가 현재 Claim type·지리 범위·기준일을 결합해 후보 record를 만든다. Agent에는 이 후보를 전달하고, Evidence Freeze는 Agent가 수용한 id만 확정한다. 검색 hit 자체를 사실로 자동 승격하지 않는다. `source_trace`와 연결되지 않는 hit는 후보에서 제외하고 결과를 `PARTIAL`로 남긴다.
 2. **전국 지역·카페 관측 연결:** DS-001~006을 `get_area_profile`, `search_cafe_observations`, `search_business_events`에 연결한다. 첫 화면에는 지역, 카페 수, 최근 개·폐업, 데이터 기준일을 제공한다.
 3. **프랜차이즈 구조화 연결:** DS-013~014로 `list_franchise_universe`, `get_franchise_disclosure`를 구현한다. 공개서 등록 여부와 과거 평균값만 보여주며 개별 가맹 가능성은 UNKNOWN으로 둔다.
 4. **독립카페 손익분기 모델:** DS-010과 DS-015~018을 비용 기준선으로 연결하고, 매출 예측 대신 객단가·영업일·고정비 가정에 따른 손익분기 주문 수를 계산한다.

@@ -134,6 +134,8 @@ N0_NATIONWIDE_FACTS
 - 공식 corpus와 사용자 project corpus를 물리적으로 분리한다. 첫 구현에서 사용자 문서는 venture project별 허용 corpus 또는 명시적인 허용 file id 밖으로 검색할 수 없다.
 - RAG Engine의 Document AI Layout Parser 연동으로 제목·조항·표·목록 구조를 보존한 chunk를 생성한다. import 결과와 실패 목록은 Worker가 기록하고 불완전 generation을 검색에 사용하지 않는다.
 - 검색은 Claim 분해, corpus routing, source·문서 revision·기준일 metadata filter, semantic retrieval, Vertex AI Ranking API rerank, 원문 anchor 복구, entailment·단위·scope 검증과 반대 근거 검색 순서로 수행한다.
+- MCP의 RAG connector는 공급자 중립 검색 hit와 `source_trace`를 반환한다. Control API의 `EVIDENCE_RETRIEVAL` adapter가 현재 Claim type·지리 범위·기준일과 결합해 schema-valid `EvidenceRecord` 후보를 만든다. 출처 trace와 연결되지 않는 hit는 후보로 만들지 않고 `PARTIAL`로 남긴다.
+- RAG hit는 검색 성공일 뿐 확정 근거가 아니다. `EVIDENCE_ASSESS`가 관계·범위·날짜·신선도·anchor·권위를 수용한 후보만 Evidence Freeze에 들어간다.
 - 계약번호·사업자번호·브랜드 id·금액·날짜 같은 exact field는 Cloud SQL의 typed lookup을 병렬 사용한다. 이 결과와 RAG context는 같은 `EvidenceRecord` 검증을 통과해야 한다.
 - RAG Engine이 제공하는 hybrid search는 선택한 vector backend와 서울 리전에서 실제 지원되는 경우에만 사용한다. 지원되지 않으면 semantic retrieval과 exact lookup을 결합하며 기능을 허위 표기하지 않는다.
 - `asia-northeast3`의 Preview 위험은 승인된 구현 제약이다. corpus 생성, Layout Parser import, retrieval, metadata filter와 rerank read-back을 배포 Gate로 둔다.
@@ -152,6 +154,7 @@ deterministic Claim type routing
 → result fusion
 → rerank
 → page·table·API row anchor recovery
+→ Claim-scoped EvidenceRecord candidate adapter
 → entailment·unit·scope validation
 → counterevidence search
 → EvidenceRecord or ABSTAIN
