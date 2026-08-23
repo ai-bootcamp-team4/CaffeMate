@@ -620,29 +620,6 @@
                 },
                 "uniqueItems": true
               },
-              "finance_profile": {
-                "type": ["object", "null"],
-                "additionalProperties": false,
-                "required": ["cost_ranges", "contribution_margin_bps", "operating_days_per_month", "average_ticket_krw"],
-                "properties": {
-                  "cost_ranges": {
-                    "type": "object",
-                    "additionalProperties": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": ["low", "base", "high"],
-                      "properties": {
-                        "low": {"type": "integer", "minimum": 0},
-                        "base": {"type": "integer", "minimum": 0},
-                        "high": {"type": "integer", "minimum": 0}
-                      }
-                    }
-                  },
-                  "contribution_margin_bps": {"type": "integer", "minimum": 1, "maximum": 10000},
-                  "operating_days_per_month": {"type": "integer", "minimum": 1, "maximum": 31},
-                  "average_ticket_krw": {"type": "integer", "minimum": 1}
-                }
-              },
               "support_refs": {
                 "type": "array",
                 "items": { "type": "string" },
