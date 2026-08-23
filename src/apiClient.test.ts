@@ -51,4 +51,21 @@ describe('ControlApiClient', () => {
       headers: expect.objectContaining({ Authorization: 'Bearer firebase-token' }),
     }))
   })
+
+  it('saves user-confirmed property terms for deterministic recalculation', async () => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => new Response(init?.body as string, { status: 201, headers: { 'Content-Type': 'application/json' } }))
+    const client = createControlApiClient(session, { baseUrl: 'https://api.example.test', fetchImpl, idempotencyKey: () => 'property-request-1' })
+
+    await client.applyPropertyTerms('project-1', 'selection-1', 2, {
+      address: '데모 점포 · 실매물 아님', area_sqm: 33, floor: null,
+      deposit_krw: 30_000_000, monthly_rent_krw: 2_200_000,
+      management_fee_krw: 200_000, key_money_krw: 10_000_000,
+    })
+
+    expect(fetchImpl).toHaveBeenCalledWith('https://api.example.test/v1/projects/project-1/candidate-selections/selection-1/property-terms', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({ 'Idempotency-Key': 'property-request-1' }),
+      body: expect.stringContaining('"expected_state_version":2'),
+    }))
+  })
 })

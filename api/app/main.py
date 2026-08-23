@@ -103,12 +103,18 @@ from app.results.models import ResultView
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
 from app.results.unavailable_repository import UnavailableResultRepository
-from app.selections.models import CandidateSelection, SelectCandidateRequest
+from app.selections.models import (
+    ApplyPropertyTermsRequest,
+    CandidateSelection,
+    PropertyTermsApplication,
+    SelectCandidateRequest,
+)
 from app.selections.preparation import (
     PreparationGuide,
     PreparationGuideService,
     UnavailablePreparationGuideService,
 )
+from app.selections.property import PropertyTermsService, UnavailablePropertyTermsService
 from app.selections.service import (
     CandidateSelectionService,
     UnavailableCandidateSelectionService,
@@ -198,6 +204,7 @@ def create_app(
     preparation_guide_service: (
         PreparationGuideService | UnavailablePreparationGuideService | None
     ) = None,
+    property_terms_service: PropertyTermsService | UnavailablePropertyTermsService | None = None,
     document_service: DocumentService | UnavailableDocumentService | None = None,
     document_extraction_service: (
         DocumentExtractionService | UnavailableDocumentExtractionService | None
@@ -388,6 +395,13 @@ def create_app(
         )
     else:
         preparation_guides = UnavailablePreparationGuideService()
+
+    if property_terms_service is not None:
+        property_terms = property_terms_service
+    elif database_handle is not None:
+        property_terms = PropertyTermsService(database_handle.engine)
+    else:
+        property_terms = UnavailablePropertyTermsService()
 
     if document_service is not None:
         documents = document_service
@@ -781,6 +795,27 @@ def create_app(
             project_id=project_id,
             selection_id=selection_id,
             user_id=user_id,
+        )
+
+    @app.post(
+        "/v1/projects/{project_id}/candidate-selections/{selection_id}/property-terms",
+        response_model=PropertyTermsApplication,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def apply_property_terms(
+        project_id: str,
+        selection_id: str,
+        request: ApplyPropertyTermsRequest,
+        user_id: Annotated[str, Depends(current_user)],
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    ) -> PropertyTermsApplication:
+        return property_terms.apply(
+            project_id=project_id,
+            selection_id=selection_id,
+            user_id=user_id,
+            expected_state_version=request.expected_state_version,
+            terms=request.terms,
+            idempotency_key=idempotency_key,
         )
 
     @app.post(

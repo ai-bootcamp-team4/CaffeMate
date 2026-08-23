@@ -130,8 +130,9 @@ function setup(nextResult: ResultView = result) {
     createFeedbackPreview: vi.fn(async () => { throw new Error('not used') }),
     confirmFeedback: vi.fn(async () => { throw new Error('not used') }),
     cancelFeedback: vi.fn(async () => { throw new Error('not used') }),
-    selectCandidate: vi.fn(async () => ({ selection_id: 'selection-1', candidate_id: 'candidate-1', required_evidence: [{ code: 'LEASE', title: '점포 임대 조건', status: 'REQUIRED', reason: '보증금·월세·권리금을 실제 값으로 확인합니다.' }], property_intake_enabled: true, document_intake_enabled: true })),
+    selectCandidate: vi.fn(async () => ({ selection_id: 'selection-1', candidate_id: 'candidate-1', selected_state_version: 2, required_evidence: [{ code: 'LEASE', title: '점포 임대 조건', status: 'REQUIRED', reason: '보증금·월세·권리금을 실제 값으로 확인합니다.' }], property_intake_enabled: true, document_intake_enabled: true })),
     getPreparationGuide: vi.fn(async () => preparationGuide),
+    applyPropertyTerms: vi.fn(async (_projectId, _selectionId, _expectedStateVersion, terms) => ({ property_input_id: 'property-1', project_id: 'project-1', selection_id: 'selection-1', candidate_id: 'candidate-1', applied_state_version: 3, terms, previous_financial_summary: result.candidates[0].financial_summary, recompute_workflow: workflow, input_kind: 'USER_CONFIRMED_PROPERTY_TERMS' as const, is_demo_fixture: false, created_at: '2026-08-23T00:01:00Z' })),
   }
   render(<App authGateway={authGateway} apiFactory={() => client} />)
   return { authGateway, client }
@@ -201,10 +202,43 @@ describe('CaffeMate Control API integration', () => {
     fireEvent.click(screen.getByRole('button', { name: '이 안을 계속 검토하기' }))
     await waitFor(() => expect(client.selectCandidate).toHaveBeenCalledWith('project-1', result, 'candidate-1'))
     await waitFor(() => expect(client.getPreparationGuide).toHaveBeenCalledWith('project-1', 'selection-1'))
-    expect(await screen.findByRole('heading', { name: '실제 검증 브랜드의 실제 준비를 시작해요' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '실제 검증 브랜드에 점포 조건을 넣어보세요' })).toBeTruthy()
     expect(screen.getByText('점포 임대 조건')).toBeTruthy()
     expect(screen.getByText('신규 영업자 위생교육 이수')).toBeTruthy()
     expect(screen.queryByText('다음 준비 완료')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '결과 비교로 돌아가기' }))
+    expect(screen.getByRole('button', { name: '준비 자료 보기' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '선택한 안의 준비 자료 보기' })).toBeNull()
+  })
+
+  it('recalculates the selected candidate from six editable property terms', async () => {
+    const recalculated: ResultView = {
+      ...result,
+      result_bundle_id: 'result-2',
+      candidates: [{
+        ...result.candidates[0],
+        candidate_id: 'candidate-recalculated',
+        financial_summary: {
+          ...result.candidates[0].financial_summary,
+          initial_cash: { currency: 'KRW', low: 60_000_000, base: 70_000_000, high: 80_000_000, provenance_refs: ['property-1'] },
+          monthly_fixed_cost: { currency: 'KRW', low: 2_400_000, base: 2_400_000, high: 2_400_000, provenance_refs: ['property-1'] },
+        },
+      }],
+    }
+    const { client } = setup()
+    await completeOnboarding()
+    fireEvent.click(screen.getByRole('button', { name: '이 안을 계속 검토하기' }))
+    await screen.findByRole('heading', { name: '실제 검증 브랜드에 점포 조건을 넣어보세요' })
+    vi.mocked(client.getResult).mockResolvedValueOnce(recalculated)
+
+    fireEvent.click(screen.getByRole('button', { name: '데모 입력 예시 불러오기' }))
+    fireEvent.change(screen.getByLabelText('월세(만원)'), { target: { value: '200' } })
+    fireEvent.click(screen.getByRole('button', { name: '이 조건으로 비용 다시 계산' }))
+
+    await waitFor(() => expect(client.applyPropertyTerms).toHaveBeenCalledWith('project-1', 'selection-1', 2, expect.objectContaining({ monthly_rent_krw: 2_000_000, deposit_krw: 30_000_000 })))
+    expect(await screen.findByRole('heading', { name: '임시값과 점포 반영값 비교' })).toBeTruthy()
+    expect(screen.getByText('70,000,000원')).toBeTruthy()
   })
 
   it('keeps the selected checklist usable when official procedure lookup fails', async () => {
@@ -214,9 +248,9 @@ describe('CaffeMate Control API integration', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '이 안을 계속 검토하기' }))
 
-    expect(await screen.findByRole('heading', { name: '실제 검증 브랜드의 실제 준비를 시작해요' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '실제 검증 브랜드에 점포 조건을 넣어보세요' })).toBeTruthy()
     expect(screen.getByText('점포 임대 조건')).toBeTruthy()
-    expect(await screen.findByRole('button', { name: '공식 절차 다시 확인하기' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '다시 확인' })).toBeTruthy()
   })
 
   it('shows the funding gap first and prepares a smaller-model feedback request', async () => {

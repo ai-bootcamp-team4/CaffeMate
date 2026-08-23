@@ -63,12 +63,25 @@ class DocumentClaimsApplied(StrictModel):
     conflict_ids: list[str]
 
 
+class PropertyTermsApplied(StrictModel):
+    event_id: str
+    event_type: Literal["PROPERTY_TERMS_APPLIED"] = "PROPERTY_TERMS_APPLIED"
+    project_id: str
+    user_id: str
+    occurred_at: datetime
+    property_input_id: str
+    expected_state_version: int = Field(ge=1)
+    active_case_id: str
+    confirmed_claim_ids: list[str]
+
+
 DomainEvent = (
     ProjectCreated
     | OnboardingConfirmed
     | FeedbackChangeConfirmed
     | CandidateSelected
     | DocumentClaimsApplied
+    | PropertyTermsApplied
 )
 
 
