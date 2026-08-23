@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type { AuthGateway, AuthSession } from './auth'
+import { ControlApiError } from './apiClient'
 import type { AreaSearchResult, ControlApiClient, HeadFence, PreparationGuide, Project, ResultView, WorkflowProgress } from './apiClient'
 
 afterEach(cleanup)
@@ -189,11 +190,30 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.getByText('수원시 영통구 원천동')).toBeTruthy()
     expect(client.createProject).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: '이어보기' }))
+    fireEvent.click(screen.getByRole('button', { name: '계속하기' }))
 
     expect(await screen.findByRole('heading', { name: '실제 검증 브랜드' })).toBeTruthy()
     expect(client.getResult).toHaveBeenCalledWith('project-1')
     expect(client.startFirstProposal).not.toHaveBeenCalled()
+  })
+
+  it('moves a saved project without a result to visible analysis progress', async () => {
+    const { client } = setup()
+    vi.mocked(client.listProjects).mockResolvedValueOnce([project])
+    vi.mocked(client.getResult)
+      .mockRejectedValueOnce(new ControlApiError(404, 'RESULT_NOT_FOUND', '결과 없음'))
+      .mockResolvedValueOnce(result)
+    let finishWorkflow: ((value: WorkflowProgress) => void) | undefined
+    vi.mocked(client.getWorkflow).mockImplementationOnce(() => new Promise((resolve) => { finishWorkflow = resolve }))
+
+    fireEvent.click(screen.getByRole('button', { name: /내 카페 창업 분석 시작하기/ }))
+    await screen.findByRole('heading', { name: '이어서 살펴볼 카페 창업안을 선택하세요.' })
+    fireEvent.click(screen.getByRole('button', { name: '계속하기' }))
+
+    expect(await screen.findByRole('heading', { name: '저장된 조건으로 분석을 이어가고 있어요' })).toBeTruthy()
+    expect(screen.queryByText('불러오는 중')).toBeNull()
+    finishWorkflow?.(progress)
+    expect(await screen.findByRole('heading', { name: '실제 검증 브랜드' })).toBeTruthy()
   })
 
   it('creates a separate project from the saved project catalogue', async () => {

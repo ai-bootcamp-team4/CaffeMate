@@ -22,7 +22,7 @@ import {
 import type { OnboardingValues } from './onboardingState'
 
 type PanelName = 'overview' | 'market' | 'franchise' | 'funds' | 'risks'
-type AppScreen = 'welcome' | 'projects' | 'onboarding' | 'result'
+type AppScreen = 'welcome' | 'projects' | 'onboarding' | 'analysis' | 'result'
 
 const panels: Array<{ id: PanelName; label: string }> = [
   { id: 'overview', label: '판단 요약' },
@@ -524,6 +524,7 @@ export default function App({ authGateway, apiFactory }: AppProps = {}) {
         setResult(savedResult); setScreen('result'); window.scrollTo({ top: 0 }); return
       } catch (error) {
         if (!(error instanceof ControlApiError) || error.status !== 404) throw error
+        setScreen('analysis'); window.scrollTo({ top: 0 })
         const workflow = await client.startFirstProposal(nextProject.project_id)
         const terminal = await waitForWorkflow(client, nextProject.project_id, workflow, setProgress)
         if (!['SUCCEEDED', 'PARTIAL'].includes(terminal.status)) throw new Error('저장된 분석을 이어서 완료하지 못했습니다.', { cause: error })
@@ -552,6 +553,15 @@ export default function App({ authGateway, apiFactory }: AppProps = {}) {
 
   if (screen === 'welcome') return <Welcome onStart={start} busy={loginBusy} error={loginError} />
   if (screen === 'projects') return <ProjectChooser projects={projects} busyProjectId={projectBusyId} creating={loginBusy} error={projectError} onResume={(nextProject) => void resumeProject(nextProject)} onCreate={() => void createProject()} />
+  if (screen === 'analysis') return <main className="analysis-stage" aria-live="polite">
+    <div className="analysis-stage__pulse" aria-hidden="true"><span /><span /><span /></div>
+    <p className="stage-label">저장된 분석</p>
+    <h1>{projectError ? '분석을 이어서 완료하지 못했어요' : '저장된 조건으로 분석을 이어가고 있어요'}</h1>
+    <p>{projectError || '프로젝트 목록을 벗어나도 분석은 계속됩니다. 현재 단계를 확인해 주세요.'}</p>
+    {!projectError && <div className="analysis-checks" aria-label="분석 진행 항목"><span>지역 확인</span><span>비용 범위</span><span>후보 비교</span></div>}
+    {progress && <p className="workflow-progress">{`분석 진행 ${progress.completed_stage_count}/${progress.total_stage_count} · ${progress.current_stage_codes.length ? uniqueLabels(progress.current_stage_codes).join(' · ') : internalLabel(progress.status)}`}</p>}
+    {projectError && <button className="btn btn--accent" type="button" onClick={() => { setProjectError(''); setProgress(null); setScreen('projects'); window.scrollTo({ top: 0 }) }}>프로젝트 목록으로</button>}
+  </main>
   if (screen === 'onboarding') return <><Onboarding onComplete={completeOnboarding} searchAreas={async (query) => {
     if (!client || !project) throw new Error('프로젝트 연결이 준비되지 않았습니다.')
     return (await client.searchAreas(project.project_id, query)).candidates

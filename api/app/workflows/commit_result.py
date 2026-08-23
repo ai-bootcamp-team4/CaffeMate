@@ -2,6 +2,7 @@ from typing import Any
 
 from app.contracts.schema_registry import ContractRegistry
 from app.domain.errors import ContractValidationError
+from app.domain.models import CafeTypePreference
 from app.results.models import AuditStatus, ResultBundlePayload
 from app.workflows.models import StageControl, StageDisposition
 from app.workflows.stage_context import StageContext
@@ -53,7 +54,11 @@ class CommitResultStageHandler:
                 },
             }
 
-        selected = reviewable[:3]
+        selected = self._select_candidates(
+            reviewable,
+            context.state.founder.cafe_type_preference,
+        )
+        selected_ids = {candidate["candidate_id"] for candidate in selected}
         try:
             payload = ResultBundlePayload(
                 candidates=selected,
@@ -81,7 +86,9 @@ class CommitResultStageHandler:
                     if candidate.get("review_status") == "EXCLUDED"
                 ),
                 "omitted_candidate_ids": sorted(
-                    candidate["candidate_id"] for candidate in reviewable[3:]
+                    candidate["candidate_id"]
+                    for candidate in reviewable
+                    if candidate["candidate_id"] not in selected_ids
                 ),
                 "audit_status": audit_status.value,
             },
@@ -115,6 +122,56 @@ class CommitResultStageHandler:
                 "COMMIT_RESULT reviewable candidate requires a positive rank"
             )
         return rank
+
+    @staticmethod
+    def _select_candidates(
+        reviewable: list[dict[str, Any]],
+        preference: CafeTypePreference,
+    ) -> list[dict[str, Any]]:
+        selected = list(reviewable[:3])
+        if preference == CafeTypePreference.OPEN_TO_BOTH:
+            independent = next(
+                (
+                    candidate
+                    for candidate in reviewable
+                    if candidate.get("case_type") == "INDEPENDENT"
+                ),
+                None,
+            )
+            franchise = next(
+                (
+                    candidate
+                    for candidate in reviewable
+                    if candidate.get("case_type") == "FRANCHISE"
+                ),
+                None,
+            )
+            if independent is not None and franchise is not None:
+                required_ids = {
+                    independent["candidate_id"],
+                    franchise["candidate_id"],
+                    reviewable[0]["candidate_id"],
+                }
+                selected = [
+                    candidate
+                    for candidate in reviewable
+                    if candidate["candidate_id"] in required_ids
+                ]
+                selected_ids = {candidate["candidate_id"] for candidate in selected}
+                selected.extend(
+                    candidate
+                    for candidate in reviewable
+                    if candidate["candidate_id"] not in selected_ids
+                    and len(selected) < 3
+                )
+
+        normalized: list[dict[str, Any]] = []
+        for rank, candidate in enumerate(selected[:3], start=1):
+            projected = dict(candidate)
+            projected["rank"] = rank
+            projected["is_primary_next_review"] = rank == 1
+            normalized.append(projected)
+        return normalized
 
     @staticmethod
     def _validate_candidate_set(

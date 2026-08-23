@@ -71,7 +71,7 @@ export default function ProjectChooser({
               <div><dt>저장 기준</dt><dd>{project.state ? `${project.state.state_version}번째 변경` : '첫 입력 전'}</dd></div>
             </dl>
             <button className="btn btn--accent" type="button" onClick={() => onResume(project)} disabled={creating || busyProjectId !== null} aria-busy={isBusy}>
-              {isBusy ? '불러오는 중' : project.state ? '이어보기' : '입력 이어서'}
+              {isBusy ? '확인 중' : project.state ? '계속하기' : '입력 이어서'}
             </button>
           </article>
         })}
