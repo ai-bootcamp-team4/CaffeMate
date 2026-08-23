@@ -100,10 +100,9 @@ import os
 
 bucket = json.loads(os.environ["DOCUMENT_BUCKET_JSON"])
 assert bucket["location"].lower() == os.environ["REGION"]
-iam = bucket["iamConfiguration"]
-assert iam["uniformBucketLevelAccess"]["enabled"] is True
-assert iam["publicAccessPrevention"] == "enforced"
-cors = bucket.get("cors", [])
+assert bucket["uniform_bucket_level_access"] is True
+assert bucket["public_access_prevention"] == "enforced"
+cors = bucket.get("cors_config", [])
 assert len(cors) == 1
 assert set(cors[0]["method"]) == {"GET", "HEAD", "PUT"}
 assert set(cors[0]["responseHeader"]) == {
