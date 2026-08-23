@@ -120,7 +120,7 @@ def _project_candidate(
             set(_strings(proposal.get("assumption_refs")))
             | calculation_assumption_refs
         ),
-        "market_signals": _market_signals(grounded_refs, evidence_by_id),
+        "market_signals": _market_signals(evidence_by_id),
         "official_documents": _official_documents(
             case_type=case_type,
             grounded_refs=grounded_refs,
@@ -308,22 +308,14 @@ def _official_document_gaps(
 
 
 def _market_signals(
-    grounded_refs: set[str],
     evidence_by_id: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     candidates: dict[str, list[dict[str, Any]]] = {}
-    grounded_claim_types = {
-        record.get("claim_type")
-        for evidence_id in grounded_refs
-        if (record := evidence_by_id[evidence_id]).get("conflict_status")
-        in {"NONE", "RESOLVED"}
-    }
     for evidence_id in sorted(evidence_by_id):
         record = evidence_by_id[evidence_id]
         metric = record.get("metric")
         if (
             not isinstance(metric, str)
-            or record.get("claim_type") not in grounded_claim_types
             or _MARKET_SIGNAL_CLAIMS.get(metric) != record.get("claim_type")
             or record.get("conflict_status") not in {"NONE", "RESOLVED"}
         ):

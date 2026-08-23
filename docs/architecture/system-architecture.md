@@ -120,6 +120,9 @@ Agent를 고정 `ABSTAIN`으로 대체하지 않고 입력 투영, 출력 Schema
 프랜차이즈 후보가 하나 이상이어야 통과한다. Stage 집합은 전체 enum이 아니라 동일한
 `cafe_type_preference`로 컴파일한 실제 Workflow plan과 정확히 일치해야 한다. 따라서
 `FRANCHISE_ONLY`가 개인카페 seed·proposal 단계를 실행하지 않는 것은 누락이 아니라 정상 경로다.
+선택 지역의 수용된 상권 수치는 frozen Evidence Snapshot의 공통 컨텍스트이므로 Proposal Agent가
+후보별 `evidence_refs`에 같은 ID를 반복했는지와 무관하게 모든 후보 결과에 투영한다. 충돌하거나
+Snapshot에 수용되지 않은 자료는 계속 제외한다.
 
 2026-08-23 운영 전환 후 같은 조건의 13단계 canary는 47.917초에 `SUCCEEDED`와 `CURRENT`
 결과 카드 1건을 만들었다. 변경 전 54.611초보다 6.694초, 약 12% 짧다. Evidence Assess,

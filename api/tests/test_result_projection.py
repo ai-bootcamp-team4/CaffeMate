@@ -192,7 +192,7 @@ def test_projects_grounded_market_signals_with_source_and_caveat() -> None:
     }
 
 
-def test_does_not_project_unlinked_or_conflicting_market_evidence() -> None:
+def test_projects_frozen_area_signal_without_proposal_ref_but_excludes_conflict() -> None:
     calculated = CalculateGateRankStageHandler().execute(calculation_context())[
         "calculate_gate_rank"
     ]
@@ -224,7 +224,48 @@ def test_does_not_project_unlinked_or_conflicting_market_evidence() -> None:
         evidence_records=[linked, unlinked],
     )[0]
 
-    assert projected["market_signals"] == []
+    assert [signal["signal_type"] for signal in projected["market_signals"]] == [
+        "ESTIMATED_SALES"
+    ]
+    assert projected["market_signals"][0]["evidence_id"] == "evidence-unlinked-sales"
+
+
+def test_projects_frozen_area_signal_on_franchise_candidate() -> None:
+    area_signal = market_evidence(
+        "evidence-franchise-area-count",
+        claim_type="AREA_CAFE_COMPETITION",
+        metric="CAFE_COUNT",
+        value=208,
+        unit="STORES",
+        source_ref="https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
+    )
+    calculated = CalculateGateRankStageHandler().execute(
+        calculation_context(
+            evidence_records=[area_signal],
+            include_franchise=True,
+        )
+    )["calculate_gate_rank"]
+    assert isinstance(calculated, dict)
+    franchise = next(
+        candidate
+        for candidate in calculated["candidates"]
+        if candidate["case_type"] == "FRANCHISE"
+    )
+    assert area_signal["evidence_id"] not in franchise["proposal"]["evidence_refs"]
+
+    projected = project_candidate_results(
+        [franchise],
+        project_id="project-1",
+        state_version=1,
+        evidence_records=calculated["evidence_records"],
+    )[0]
+
+    assert [signal["signal_type"] for signal in projected["market_signals"]] == [
+        "CAFE_COUNT"
+    ]
+    assert projected["market_signals"][0]["evidence_id"] == (
+        "evidence-franchise-area-count"
+    )
 
 
 def test_projects_accepted_official_documents_and_explicit_gaps() -> None:
