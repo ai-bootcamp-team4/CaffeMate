@@ -77,7 +77,7 @@
       "output_schema_id": "caffemate.agent.evidence-assess-result.v1",
       "deadline_seconds": 60,
       "thinking_level": "low",
-      "max_output_tokens": 2048
+      "max_output_tokens": 16384
     },
     "PROPOSE_INDEPENDENT": {
       "agent_name": "PROPOSAL_AGENT",

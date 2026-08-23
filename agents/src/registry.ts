@@ -54,7 +54,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
     outputSchemaId: 'caffemate.agent.evidence-assess-result.v1',
     deadlineSeconds: 60,
     thinkingLevel: 'low',
-    maxOutputTokens: 2048,
+    maxOutputTokens: 16384,
   },
   PROPOSE_INDEPENDENT: {
     agentName: 'PROPOSAL_AGENT',
