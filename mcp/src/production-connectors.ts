@@ -3,6 +3,7 @@ import { RetrievalCoordinator } from '../../rag/src/retrieval'
 import { createVertexRagBackend } from '../../rag/src/vertex-rag-backend'
 import { createConnectorRegistry } from './connectors'
 import { createBigQueryGroundingConnectors } from './bigquery-grounding'
+import { createFranchiseCatalogConnector } from './franchise-catalog'
 import { mapOfficialRagContext } from './official-rag'
 import { createOfficialRagHealthSource } from './official-rag-health'
 import { createRagMcpConnectors } from './rag-connectors'
@@ -72,6 +73,7 @@ export function createProductionMcpConnectors(options: ProductionMcpConnectorOpt
   const connectors: McpConnectorRegistry = {
     ...base,
     ...grounding,
+    list_franchise_universe: createFranchiseCatalogConnector({ now }),
     retrieve_official_documents: rag.retrieve_official_documents,
   }
   const configured = Object.keys(connectors).sort()

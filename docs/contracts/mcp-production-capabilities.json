@@ -5,6 +5,7 @@
     "resolve_area",
     "get_area_profile",
     "search_cafe_observations",
+    "list_franchise_universe",
     "retrieve_official_documents",
     "get_source_health"
   ]

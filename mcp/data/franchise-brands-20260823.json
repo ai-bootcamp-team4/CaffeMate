@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0.0",
+  "data_date": "2026-08-23",
+  "brands": [
+    {
+      "brand_id": "kr-ediya-coffee",
+      "display_name": "이디야커피",
+      "source_id": "ediya-official-franchise",
+      "source_ref": "https://www.ediya.com/C/contents/franchise_01.html",
+      "source_title": "이디야커피 가맹점 개설 안내",
+      "source_anchor": "가맹 안내 및 예비 가맹점주 창업 설명회 안내",
+      "eligibility_evidence_id": "franchise-eligibility:kr-ediya-coffee:2026-08-23",
+      "individual_franchise_eligibility": "VERIFIED",
+      "disclosure_status": "MISSING"
+    },
+    {
+      "brand_id": "kr-mega-mgc-coffee",
+      "display_name": "메가MGC커피",
+      "source_id": "mega-mgc-official-franchise",
+      "source_ref": "https://www.mega-mgccoffee.com/",
+      "source_title": "메가MGC커피 공식 창업 안내",
+      "source_anchor": "FRANCHISE 및 창업상담 안내",
+      "eligibility_evidence_id": "franchise-eligibility:kr-mega-mgc-coffee:2026-08-23",
+      "individual_franchise_eligibility": "VERIFIED",
+      "disclosure_status": "MISSING"
+    }
+  ]
+}
