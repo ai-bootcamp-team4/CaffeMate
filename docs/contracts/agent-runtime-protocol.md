@@ -601,7 +601,7 @@ API는 동일 Claim·tool·request의 중복 논리 action 중 한 개만 Agent 
 Evidence Freeze에 전달한다. Agent가 대표 정형 지표를 수용하면 Control API는 같은 action·Claim·
 지리 범위의 `PRIMARY_DATA`·`DATASET` 형제 지표 중 신선하고 충돌이 없으며 dataset row 또는 계산
 anchor와 checksum을 가진 값만 결정론적으로 함께 동결한다. 이 확장은 RAG·웹·사용자 문서 후보에는
-적용하지 않는다. 같은 source row 또는 RAG chunk가 여러 query에서 반복 조회된 경우
+적용하지 않는다. 같은 source row 또는 RAG chunk가 여러 query나 후속 Workflow generation에서 반복 조회된 경우
 내용·source version·checksum이 같으면 한 Evidence로 합치고 호출별 observation time 차이는 충돌로
 취급하지 않는다. 그 밖의 값이 다르면 동일 Evidence id 충돌로 거절한다.
 

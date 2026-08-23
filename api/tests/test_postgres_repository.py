@@ -2276,6 +2276,165 @@ def test_first_proposal_dag_promotes_ready_stages_and_joins_both_branches(
     assert next_run.head.evidence_snapshot_id == expected_snapshot_id
 
 
+def checkpoint_first_proposal_through_evidence_freeze(
+    *,
+    postgres_engine: Engine,
+    execution: PostgresStageExecutionRepository,
+    run: WorkflowRun,
+    record: dict[str, object],
+) -> CheckpointOutcome:
+    for stage_code in (
+        "AREA_RESOLUTION",
+        "CLAIM_PLAN",
+        "EVIDENCE_PLAN",
+        "EVIDENCE_RETRIEVAL",
+        "EVIDENCE_ASSESS",
+    ):
+        with postgres_engine.connect() as connection:
+            stage = (
+                connection.execute(
+                    text(
+                        "SELECT stage_run_id, input_digest FROM stage_runs "
+                        "WHERE workflow_run_id=:workflow_run_id "
+                        "AND stage_code=:stage_code AND status='READY'"
+                    ),
+                    {"workflow_run_id": run.workflow_run_id, "stage_code": stage_code},
+                )
+                .mappings()
+                .one()
+            )
+        lease = execution.claim(
+            stage_run_id=stage["stage_run_id"],
+            worker_id="worker-evidence-rerun",
+            expected_input_digest=stage["input_digest"],
+        )
+        assert lease is not None
+        assert execution.checkpoint(
+            stage_run_id=stage["stage_run_id"],
+            lease_token=lease.lease_token,
+            input_digest=lease.input_digest,
+            result={"stage": stage_code},
+        ) == CheckpointOutcome.APPLIED
+
+    with postgres_engine.connect() as connection:
+        freeze_stage = (
+            connection.execute(
+                text(
+                    "SELECT stage_run_id, input_digest FROM stage_runs "
+                    "WHERE workflow_run_id=:workflow_run_id "
+                    "AND stage_code='EVIDENCE_FREEZE' AND status='READY'"
+                ),
+                {"workflow_run_id": run.workflow_run_id},
+            )
+            .mappings()
+            .one()
+        )
+    freeze_lease = execution.claim(
+        stage_run_id=freeze_stage["stage_run_id"],
+        worker_id="worker-evidence-rerun",
+        expected_input_digest=freeze_stage["input_digest"],
+    )
+    assert freeze_lease is not None
+    snapshot_body = {
+        "schema_version": "1.0.0",
+        "project_id": record["project_id"],
+        "workflow_run_id": run.workflow_run_id,
+        "source_stage_run_id": freeze_stage["stage_run_id"],
+        "evidence_records": [record],
+        "conflicts": [],
+        "missing_claim_ids": [],
+        "reason_codes": [],
+        "retrieval_completeness": "COMPLETE",
+        "franchise_universe": [],
+    }
+    snapshot_digest = hashlib.sha256(rfc8785.dumps(snapshot_body)).hexdigest()
+    return execution.checkpoint(
+        stage_run_id=freeze_stage["stage_run_id"],
+        lease_token=freeze_lease.lease_token,
+        input_digest=freeze_lease.input_digest,
+        result={
+            "evidence_freeze": {
+                "snapshot_id": f"evidence-{snapshot_digest[:40]}",
+                "snapshot_digest": f"sha256:{snapshot_digest}",
+                **snapshot_body,
+            }
+        },
+    )
+
+
+def test_saved_project_rerun_reuses_evidence_when_only_observation_time_changes(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    project = onboarded_project(repository)
+    workflows = WorkflowService(
+        PostgresWorkflowRepository(
+            postgres_engine, policy_snapshot_id="policy-v1", seed_registry_id="seed-v1"
+        )
+    )
+    execution = PostgresStageExecutionRepository(postgres_engine)
+    first_record = evidence_record("stable-evidence-id")
+    first_record["project_id"] = project.project_id
+
+    first_run = workflows.start(
+        project_id=project.project_id,
+        user_id="user-1",
+        workflow_code=WorkflowCode.FIRST_PROPOSAL,
+        idempotency_key="evidence-rerun-1",
+    )
+    assert checkpoint_first_proposal_through_evidence_freeze(
+        postgres_engine=postgres_engine,
+        execution=execution,
+        run=first_run,
+        record=first_record,
+    ) == CheckpointOutcome.APPLIED
+
+    second_record = deepcopy(first_record)
+    second_record["retrieved_at"] = "2026-08-23T12:05:00Z"
+    second_source = second_record["source"]
+    assert isinstance(second_source, dict)
+    second_source["source_observed_at"] = "2026-08-23T12:05:00Z"
+    second_run = workflows.start(
+        project_id=project.project_id,
+        user_id="user-1",
+        workflow_code=WorkflowCode.FIRST_PROPOSAL,
+        idempotency_key="evidence-rerun-2",
+    )
+
+    assert checkpoint_first_proposal_through_evidence_freeze(
+        postgres_engine=postgres_engine,
+        execution=execution,
+        run=second_run,
+        record=second_record,
+    ) == CheckpointOutcome.APPLIED
+
+    with postgres_engine.connect() as connection:
+        stored_count = connection.execute(
+            text(
+                "SELECT COUNT(*) FROM evidence_records "
+                "WHERE project_id=:project_id AND evidence_id=:evidence_id"
+            ),
+            {"project_id": project.project_id, "evidence_id": "stable-evidence-id"},
+        ).scalar_one()
+    assert stored_count == 1
+
+    changed_record = deepcopy(second_record)
+    changed_record["value"] = {"kind": "INTEGER", "value": 1001}
+    third_run = workflows.start(
+        project_id=project.project_id,
+        user_id="user-1",
+        workflow_code=WorkflowCode.FIRST_PROPOSAL,
+        idempotency_key="evidence-rerun-3",
+    )
+    with pytest.raises(ContractValidationError, match="different immutable record"):
+        checkpoint_first_proposal_through_evidence_freeze(
+            postgres_engine=postgres_engine,
+            execution=execution,
+            run=third_run,
+            record=changed_record,
+        )
+
+
 def valid_candidate(*, project_id: str, state_version: int = 1) -> dict[str, object]:
     initial_cash = {
         "currency": "KRW",

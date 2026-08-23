@@ -17,6 +17,7 @@ from app.contracts.schema_registry import (
     EvidenceContractValidator,
 )
 from app.domain.errors import ContractValidationError
+from app.evidence.identity import immutable_evidence_record_bytes
 from app.results.delta import build_result_decision_delta
 from app.results.models import ResultBundlePayload
 from app.workflows.evidence_freeze import EvidenceFreezeOutput
@@ -831,20 +832,32 @@ class PostgresStageExecutionRepository:
                     "created_at": created_at,
                 },
             )
-            stored_digest = connection.execute(
-                text(
-                    "SELECT record_digest FROM evidence_records "
-                    "WHERE project_id=:project_id AND evidence_id=:evidence_id"
-                ),
-                {
-                    "project_id": row["project_id"],
-                    "evidence_id": record["evidence_id"],
-                },
-            ).scalar_one()
-            if stored_digest != record_digest:
-                raise ContractValidationError(
-                    "Evidence id refers to a different immutable record"
+            stored = (
+                connection.execute(
+                    text(
+                        "SELECT record_digest, record_json FROM evidence_records "
+                        "WHERE project_id=:project_id AND evidence_id=:evidence_id"
+                    ),
+                    {
+                        "project_id": row["project_id"],
+                        "evidence_id": record["evidence_id"],
+                    },
                 )
+                .mappings()
+                .one()
+            )
+            if stored["record_digest"] != record_digest:
+                stored_record = stored["record_json"]
+                if isinstance(stored_record, str):
+                    stored_record = json.loads(stored_record)
+                if (
+                    not isinstance(stored_record, dict)
+                    or immutable_evidence_record_bytes(stored_record)
+                    != immutable_evidence_record_bytes(record)
+                ):
+                    raise ContractValidationError(
+                        "Evidence id refers to a different immutable record"
+                    )
         records_by_source: dict[str, set[str]] = {}
         for record in output.evidence_records:
             source = record.get("source")
