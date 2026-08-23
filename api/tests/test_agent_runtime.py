@@ -33,6 +33,11 @@ class FakeCleanupSink:
         self.calls.append(kwargs)
 
 
+class DeferredErrorStream(httpx.AsyncByteStream):
+    async def __aiter__(self):
+        yield b'{"error":"RUNTIME_AGENT_OUTPUT_INVALID"}'
+
+
 def test_runtime_iam_verifier_requires_query_and_rejects_mutation_permissions() -> None:
     requested: list[str] = []
 
@@ -682,6 +687,16 @@ def test_agent_output_rejection_is_not_misreported_as_request_invalid(
     with pytest.raises(AgentRuntimeError, match="RUNTIME_AGENT_OUTPUT_INVALID"):
         runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
     assert calls == 1
+
+
+def test_stream_http_failure_reads_deferred_body_before_classification() -> None:
+    task, _result = evidence_fixture()
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, stream=DeferredErrorStream())
+
+    with pytest.raises(AgentRuntimeError, match="RUNTIME_AGENT_OUTPUT_INVALID"):
+        runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
 
 
 def test_safety_block_event_is_terminal_after_runtime_cleanup() -> None:
