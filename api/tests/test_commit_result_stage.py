@@ -145,6 +145,32 @@ def test_only_first_three_ranked_candidates_are_committed() -> None:
     assert commit["omitted_candidate_ids"] == ["candidate-4"]
 
 
+def test_open_to_both_keeps_a_reviewable_franchise_in_the_result() -> None:
+    context = commit_context(include_franchise=True)
+    audit = output_candidate_audit(context)
+    franchise = next(
+        candidate for candidate in audit["candidates"]
+        if candidate["case_type"] == "FRANCHISE"
+    )
+    assert franchise["rank"] == 4
+
+    result = CommitResultStageHandler().execute(context)
+
+    bundle = result["result_bundle"]
+    assert isinstance(bundle, dict)
+    assert [candidate["rank"] for candidate in bundle["candidates"]] == [1, 2, 3]
+    assert {candidate["case_type"] for candidate in bundle["candidates"]} == {
+        "INDEPENDENT",
+        "FRANCHISE",
+    }
+    assert franchise["candidate_id"] in {
+        candidate["candidate_id"] for candidate in bundle["candidates"]
+    }
+    commit = result["commit_result"]
+    assert isinstance(commit, dict)
+    assert len(commit["omitted_candidate_ids"]) == 1
+
+
 def test_noncontiguous_rank_or_wrong_primary_is_rejected() -> None:
     context = commit_context(include_franchise=True)
     audit = output_candidate_audit(context)
