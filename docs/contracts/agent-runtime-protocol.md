@@ -114,7 +114,10 @@ Runtime 내부 session 삭제 완료까지 기다린다. 단지 동일 Runtime�
 운영 검증은 Control API identity로 ephemeral stream을 실제 호출해 session 생성·Agent 실행·typed
 final 검증·삭제가 모두 끝난 경우에만 통과한다. 이어 FIRST_PROPOSAL canary에서 세 역할의 generation
 telemetry와 validation telemetry가 모두 존재하고 Stage attempt가 1인지 확인한다. 2026-08-23
-검증에서는 세 역할 모두 `STOP`, repair 0, `VALID`였고 13단계가 47.917초에 끝났다.
+첫 검증에서는 세 역할 모두 `STOP`, repair 0, `VALID`였고 13단계가 47.917초에 끝났다.
+semantic-only model output과 Runtime envelope hydration 배포 뒤 같은 검증은 39.620초에 끝났고,
+세 역할은 계속 `STOP`, repair 0, `VALID`를 유지했다. 이 수치 비교의 세부 request byte와 token은
+`docs/architecture/system-architecture.md`에 기록한다.
 
 `async_get_release_identity`는 사용자 invocation 경로가 아닌 배포 preflight 전용 read-only class method다. session을 생성하거나 제품 State를 읽고 쓰지 않으며, 배포 artifact가 직접 계산한 `prompt_bundle_digest`와 `agent_contract_bundle_digest`만 반환한다. Control API의 정상 Agent 호출 순서는 위 세 class method만 사용한다.
 
