@@ -6,6 +6,7 @@ from app.domain.events import (
     FeedbackChangeConfirmed,
     OnboardingConfirmed,
     ProjectCreated,
+    PropertyTermsApplied,
 )
 from app.domain.models import (
     AreaResolutionStatus,
@@ -163,6 +164,43 @@ def reduce_venture_state(
                 ),
                 "venture_cases": cases,
                 "conflict_ids": sorted(set(current.conflict_ids) | set(event.conflict_ids)),
+                "updated_at": event.occurred_at,
+            },
+            deep=True,
+        )
+
+    if isinstance(event, PropertyTermsApplied):
+        if current is None or current.state_version != event.expected_state_version:
+            raise StateVersionConflictError("Property terms expected State version does not match")
+        if current.project_id != event.project_id or current.user_id != event.user_id:
+            raise StateVersionConflictError("Property terms crossed the State boundary")
+        if current.active_case_id != event.active_case_id:
+            raise StateVersionConflictError("Property terms crossed the active Venture Case")
+        cases = []
+        found = False
+        for venture_case in current.venture_cases:
+            if venture_case.case_id != event.active_case_id:
+                cases.append(venture_case)
+                continue
+            found = True
+            cases.append(
+                venture_case.model_copy(
+                    update={
+                        "maturity": CaseMaturity.PROPERTY_LINKED,
+                        "confirmed_claim_ids": sorted(
+                            set(venture_case.confirmed_claim_ids)
+                            | set(event.confirmed_claim_ids)
+                        ),
+                    }
+                )
+            )
+        if not found:
+            raise StateVersionConflictError("Active Venture Case does not exist")
+        return current.model_copy(
+            update={
+                "state_version": current.state_version + 1,
+                "status": VentureStatus.RECOMPUTE_REQUIRED,
+                "venture_cases": cases,
                 "updated_at": event.occurred_at,
             },
             deep=True,

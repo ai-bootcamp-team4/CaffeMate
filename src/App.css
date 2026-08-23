@@ -206,6 +206,14 @@
 .field[data-state="success"] textarea { border-color: var(--color-success); background: var(--color-success-soft); }
 .field[data-state="loading"] textarea { border-color: var(--color-info); background: var(--color-info-soft); cursor: progress; }
 .field textarea:disabled { opacity: .55; cursor: not-allowed; }
+.field input {
+  min-height: 3rem; padding: var(--space-xs) var(--space-sm); border: var(--rule-thin) solid var(--color-rule-strong);
+  border-radius: var(--radius-sm); outline: var(--rule-strong) solid var(--color-transparent); outline-offset: var(--space-3xs);
+  background: var(--color-surface); color: var(--color-ink);
+}
+.field input:hover { background: var(--color-paper-2); }
+.field input:focus-visible { outline-color: var(--color-focus); }
+.field input:disabled { opacity: .55; cursor: not-allowed; }
 .field__message { min-height: 1.5em; color: var(--color-neutral); font-size: var(--text-sm); }
 .field__message[data-tone="error"] { color: var(--color-error); }
 .field__message[data-tone="success"] { color: var(--color-success); }
@@ -480,6 +488,16 @@
 .procedure-row li span, .procedure-row > p { color: var(--color-neutral); font-size: var(--text-sm); }
 .preparation-side .decision-note { border-radius: var(--radius-md); }
 .warning-box .btn { margin-block-start: var(--space-sm); }
+.property-form__head { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+.demo-input-note { padding: var(--space-sm); border-inline-start: var(--rule-strong) solid var(--color-accent); background: var(--color-paper-2); color: var(--color-neutral); }
+.demo-input-note strong { color: var(--color-ink); }
+.property-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); }
+.property-form .field:first-child, .property-form__action { grid-column: 1 / -1; }
+.property-form__action { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; padding-block-start: var(--space-sm); border-block-start: var(--rule-thin) solid var(--color-rule); }
+.property-form__action p { color: var(--color-neutral); }
+.property-comparison { display: grid; gap: var(--space-md); padding-block-start: var(--space-lg); border-block-start: var(--rule-strong) solid var(--color-ink); }
+.property-comparison > p, .procedure-unavailable p { color: var(--color-neutral); }
+.procedure-unavailable { display: grid; gap: var(--space-xs); padding: var(--space-md); border: var(--rule-thin) solid var(--color-rule); }
 
 @media (min-width: 60rem) {
   .preparation-layout { grid-template-columns: minmax(0, 1.6fr) minmax(18rem, .7fr); }
@@ -488,6 +506,9 @@
 @media (max-width: 39.999rem) {
   .preparation-hero { grid-template-columns: minmax(0, 1fr); padding: var(--space-md); }
   .preparation-hero .btn { width: 100%; }
+  .property-form__head, .property-form { grid-template-columns: minmax(0, 1fr); }
+  .property-form .field:first-child, .property-form__action { grid-column: auto; }
+  .property-form__head .btn, .property-form__action .btn { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   .preparation-loading span { animation: none; }

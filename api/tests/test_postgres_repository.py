@@ -499,6 +499,7 @@ def test_migrations_are_idempotent(postgres_engine: Engine) -> None:
             "0015_outbox_dead_letter.sql",
             "0016_evidence_refresh.sql",
             "0017_outbox_reprocess_audit.sql",
+            "0018_candidate_property_intake.sql",
         ]
 
 
@@ -2694,6 +2695,26 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
             f"{bad_body['document_revision_id']}/download",
             headers={"Authorization": "Bearer valid-token"},
         )
+        property_terms = client.post(
+            f"/v1/projects/{project.project_id}/candidate-selections/"
+            f"{selected.json()['selection_id']}/property-terms",
+            headers={
+                "Authorization": "Bearer valid-token",
+                "Idempotency-Key": "property-terms-1",
+            },
+            json={
+                "expected_state_version": 4,
+                "terms": {
+                    "address": "서울 마포구 공덕동 데모 점포 · 실매물 아님",
+                    "area_sqm": 33,
+                    "floor": None,
+                    "deposit_krw": 30_000_000,
+                    "monthly_rent_krw": 2_200_000,
+                    "management_fee_krw": 200_000,
+                    "key_money_krw": 10_000_000,
+                },
+            },
+        )
     assert response.status_code == 200
     assert response.json()["result_bundle_id"] == "result-1"
     assert missing.status_code == 409
@@ -2787,6 +2808,10 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
         "CHECKSUM_MISMATCH",
     ]
     assert quarantined_download.status_code == 409
+    assert property_terms.status_code == 201, property_terms.json()
+    assert property_terms.json()["applied_state_version"] == 5
+    assert property_terms.json()["terms"]["monthly_rent_krw"] == 2_200_000
+    assert property_terms.json()["recompute_workflow"]["status"] == "QUEUED"
     with postgres_engine.connect() as connection:
         document_topics = connection.execute(
             text(

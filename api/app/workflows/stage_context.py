@@ -140,6 +140,53 @@ class PostgresStageContextRepository:
                 .mappings()
                 .all()
             )
+            property_rows = (
+                connection.execute(
+                    text(
+                        """
+                    SELECT DISTINCT ON (source_id)
+                           property_input_id, candidate_id, case_type, source_id,
+                           address, area_sqm, floor, deposit_krw,
+                           monthly_rent_krw, management_fee_krw, key_money_krw
+                    FROM candidate_property_intakes
+                    WHERE project_id=:project_id
+                    ORDER BY source_id, created_at DESC, property_input_id DESC
+                    """
+                    ),
+                    {"project_id": row["project_id"]},
+                )
+                .mappings()
+                .all()
+            )
+            direct_claims: list[dict[str, Any]] = []
+            for property_row in property_rows:
+                values = {
+                    "LEASE_DEPOSIT": property_row["deposit_krw"],
+                    "MONTHLY_RENT": property_row["monthly_rent_krw"],
+                    "MANAGEMENT_FEE": property_row["management_fee_krw"],
+                    "KEY_MONEY": property_row["key_money_krw"],
+                }
+                for claim_type, claim_value in values.items():
+                    if claim_value is None:
+                        continue
+                    direct_claims.append(
+                        {
+                            "claim_id": (
+                                f"property-input:{property_row['property_input_id']}:"
+                                f"{claim_type}"
+                            ),
+                            "case_id": property_row["candidate_id"],
+                            "case_type": property_row["case_type"],
+                            "source_id": property_row["source_id"],
+                            "claim_type": claim_type,
+                            "value_json": int(claim_value),
+                            "unit": "KRW",
+                            "materiality": "HIGH",
+                            "document_type": "PROPERTY_LISTING",
+                            "has_open_conflict": False,
+                            "input_kind": "USER_CONFIRMED_PROPERTY_TERMS",
+                        }
+                    )
             return StageContext(
                 lease=lease,
                 project_id=row["project_id"],
@@ -148,7 +195,10 @@ class PostgresStageContextRepository:
                     dependency["stage_code"]: dependency["result_json"]
                     for dependency in dependencies
                 },
-                document_claims=[dict(claim) for claim in document_claims],
+                document_claims=[
+                    *[dict(claim) for claim in document_claims],
+                    *direct_claims,
+                ],
             )
 
     @staticmethod

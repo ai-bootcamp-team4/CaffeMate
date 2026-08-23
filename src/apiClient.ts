@@ -172,9 +172,34 @@ export interface FeedbackResolution {
 export interface CandidateSelection {
   selection_id: string
   candidate_id: string
+  selected_state_version: number
   required_evidence: Array<{ code: string; title: string; status: string; reason: string }>
   property_intake_enabled: boolean
   document_intake_enabled: boolean
+}
+
+export interface PropertyTermsInput {
+  address: string
+  area_sqm: number
+  floor: string | null
+  deposit_krw: number
+  monthly_rent_krw: number
+  management_fee_krw: number
+  key_money_krw: number | null
+}
+
+export interface PropertyTermsApplication {
+  property_input_id: string
+  project_id: string
+  selection_id: string
+  candidate_id: string
+  applied_state_version: number
+  terms: PropertyTermsInput
+  previous_financial_summary: ResultCandidate['financial_summary']
+  recompute_workflow: WorkflowRun
+  input_kind: 'USER_CONFIRMED_PROPERTY_TERMS'
+  is_demo_fixture: boolean
+  created_at: string
 }
 
 export type ProcedureType = 'BUSINESS_REGISTRATION' | 'FOOD_SERVICE_REPORT' | 'FACILITY_REQUIREMENTS' | 'HYGIENE_EDUCATION' | 'SIGNAGE' | 'FIRE_SAFETY'
@@ -224,6 +249,7 @@ export interface ControlApiClient {
   cancelFeedback(projectId: string, previewId: string): Promise<FeedbackResolution>
   selectCandidate(projectId: string, result: ResultView, candidateId: string): Promise<CandidateSelection>
   getPreparationGuide(projectId: string, selectionId: string): Promise<PreparationGuide>
+  applyPropertyTerms(projectId: string, selectionId: string, expectedStateVersion: number, terms: PropertyTermsInput): Promise<PropertyTermsApplication>
 }
 
 export class ControlApiError extends Error {
@@ -301,6 +327,10 @@ export function createControlApiClient(
       body: JSON.stringify({ result_bundle_id: result.result_bundle_id, candidate_id: candidateId, expected_head: result.current_head }),
     }, true),
     getPreparationGuide: (projectId, selectionId) => request(`/v1/projects/${projectId}/candidate-selections/${selectionId}/preparation-guide`),
+    applyPropertyTerms: (projectId, selectionId, expectedStateVersion, terms) => request(`/v1/projects/${projectId}/candidate-selections/${selectionId}/property-terms`, {
+      method: 'POST',
+      body: JSON.stringify({ expected_state_version: expectedStateVersion, terms }),
+    }, true),
   }
 }
 
