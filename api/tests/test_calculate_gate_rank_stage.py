@@ -1,7 +1,9 @@
 from copy import deepcopy
 from typing import Any
 
+from app.agents.task_factory import AgentTaskFactory
 from app.candidates.seed_registry import IndependentSeedRegistry
+from app.contracts.schema_registry import ContractRegistry
 from app.domain.models import BorrowingIntent
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
@@ -295,6 +297,31 @@ def test_confirmed_document_cost_overrides_benchmark_but_open_conflict_stays_unk
         "base": 52_000_000,
         "high": 52_000_000,
     }
+    document_records = [
+        value
+        for value in output["evidence_records"]
+        if value["evidence_id"].startswith("document-evidence-")
+    ]
+    assert len(document_records) == 1
+    ContractRegistry().validate_evidence_record(document_records[0])
+    assert document_records[0]["source"]["authority"] == "USER_ARTIFACT"
+    assert document_records[0]["source"]["source_type"] == "USER_DOCUMENT"
+
+    audit_context = context.model_copy(
+        update={
+            "lease": context.lease.model_copy(
+                update={
+                    "stage_run_id": "stage-document-audit",
+                    "stage_code": "CANDIDATE_AUDIT",
+                }
+            ),
+            "dependency_results": {
+                "CALCULATE_GATE_RANK": {"calculate_gate_rank": output}
+            },
+        }
+    )
+    task = AgentTaskFactory().build_candidate_audit(audit_context)
+    assert task["payload"]["candidates"]
 
     context.document_claims[0]["has_open_conflict"] = True
     conflicted = CalculateGateRankStageHandler().execute(context)["calculate_gate_rank"]
@@ -305,6 +332,13 @@ def test_confirmed_document_cost_overrides_benchmark_but_open_conflict_stays_unk
         "high": None,
     }
     assert "DEPOSIT" in candidate["finance"]["unknown_cost_fields"]
+    conflict_records = [
+        value
+        for value in conflicted["evidence_records"]
+        if value["evidence_id"].startswith("document-conflict-")
+    ]
+    assert len(conflict_records) == 1
+    ContractRegistry().validate_evidence_record(conflict_records[0])
 
 
 def test_calculation_and_ranking_are_repeatable() -> None:

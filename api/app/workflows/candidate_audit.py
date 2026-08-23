@@ -4,6 +4,7 @@ from app.agents.boundary import validate_agent_boundary
 from app.agents.protocols import AgentRuntime
 from app.agents.task_factory import AgentTaskFactory
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
+from app.results.projection import project_candidate_results
 from app.workflows.models import StageControl
 from app.workflows.stage_context import StageContext
 
@@ -38,9 +39,23 @@ class CandidateAuditStageHandler:
 
         try:
             task = self._task_factory.build_candidate_audit(context)
-        except ContractValidationError:
+        except ContractValidationError as error:
+            evidence_records = calculated.get("evidence_records")
+            if not isinstance(evidence_records, list):
+                raise ContractValidationError(
+                    "CANDIDATE_AUDIT Evidence is invalid"
+                ) from error
+            try:
+                projected = project_candidate_results(
+                    candidates,
+                    project_id=context.project_id,
+                    state_version=context.lease.head.state_version,
+                    evidence_records=evidence_records,
+                )
+            except ContractValidationError:
+                projected = []
             return self._result(
-                candidates=candidates,
+                candidates=projected,
                 audit_status="UNAVAILABLE",
                 agent_status="ABSTAIN",
                 candidate_audits=[],
