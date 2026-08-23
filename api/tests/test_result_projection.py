@@ -14,7 +14,7 @@ def market_evidence(
     *,
     claim_type: str,
     metric: str,
-    value: int,
+    value: int | float,
     unit: str,
     source_ref: str,
     data_date: str = "2026-03-31",
@@ -24,7 +24,10 @@ def market_evidence(
         {
             "claim_type": claim_type,
             "metric": metric,
-            "value": {"kind": "INTEGER", "value": value},
+            "value": {
+                "kind": "INTEGER" if isinstance(value, int) else "DECIMAL",
+                "value": value,
+            },
             "unit": unit,
         }
     )
@@ -65,6 +68,22 @@ def test_projects_grounded_market_signals_with_source_and_caveat() -> None:
             source_ref="https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
         ),
         market_evidence(
+            "evidence-close-count",
+            claim_type="AREA_BUSINESS_CHURN",
+            metric="CLOSE_COUNT",
+            value=6,
+            unit="STORES_PER_QUARTER",
+            source_ref="https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
+        ),
+        market_evidence(
+            "evidence-closure-rate",
+            claim_type="AREA_BUSINESS_CHURN",
+            metric="CLOSURE_RATE",
+            value=2.88,
+            unit="PERCENT_DERIVED",
+            source_ref="https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
+        ),
+        market_evidence(
             "evidence-estimated-sales",
             claim_type="AREA_DEMAND_SIGNALS",
             metric="ESTIMATED_SALES",
@@ -72,9 +91,35 @@ def test_projects_grounded_market_signals_with_source_and_caveat() -> None:
             unit="KRW_PER_QUARTER_ESTIMATE",
             source_ref="https://data.seoul.go.kr/dataList/OA-15572/A/1/datasetView.do",
         ),
+        market_evidence(
+            "evidence-foot-traffic",
+            claim_type="AREA_DEMAND_SIGNALS",
+            metric="FOOT_TRAFFIC",
+            value=12_465_323,
+            unit="PERSON_VISITS_PER_QUARTER_ESTIMATE",
+            source_ref="https://data.seoul.go.kr/dataList/OA-15568/S/1/datasetView.do",
+        ),
+        market_evidence(
+            "evidence-resident-population",
+            claim_type="AREA_DEMAND_SIGNALS",
+            metric="RESIDENT_POPULATION",
+            value=37_068,
+            unit="PERSONS",
+            source_ref="https://data.seoul.go.kr/dataList/OA-22182/S/1/datasetView.do",
+        ),
+        market_evidence(
+            "evidence-worker-population",
+            claim_type="AREA_DEMAND_SIGNALS",
+            metric="WORKER_POPULATION",
+            value=7_365,
+            unit="PERSONS",
+            source_ref="https://data.seoul.go.kr/dataList/OA-22184/A/1/datasetView.do",
+        ),
     ]
     candidate["proposal"]["evidence_refs"] = [
-        record["evidence_id"] for record in market_records
+        "evidence-cafe-count",
+        "evidence-open-count",
+        "evidence-estimated-sales",
     ]
 
     projected = project_candidate_results(
@@ -87,7 +132,12 @@ def test_projects_grounded_market_signals_with_source_and_caveat() -> None:
     assert [signal["signal_type"] for signal in projected["market_signals"]] == [
         "CAFE_COUNT",
         "OPEN_COUNT",
+        "CLOSE_COUNT",
+        "CLOSURE_RATE",
         "ESTIMATED_SALES",
+        "FOOT_TRAFFIC",
+        "RESIDENT_POPULATION",
+        "WORKER_POPULATION",
     ]
     assert projected["market_signals"][0] == {
         "signal_type": "CAFE_COUNT",

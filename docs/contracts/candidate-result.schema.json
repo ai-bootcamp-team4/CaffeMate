@@ -373,7 +373,10 @@
             "OPEN_COUNT",
             "CLOSE_COUNT",
             "CLOSURE_RATE",
-            "ESTIMATED_SALES"
+            "ESTIMATED_SALES",
+            "FOOT_TRAFFIC",
+            "RESIDENT_POPULATION",
+            "WORKER_POPULATION"
           ]
         },
         "value": {

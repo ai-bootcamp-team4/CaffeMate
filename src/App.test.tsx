@@ -58,6 +58,9 @@ const result: ResultView = {
     market_signals: [
       { signal_type: 'CAFE_COUNT', value: 208, unit: 'STORES', data_date: '2026-03-31', freshness_status: 'FRESH', source_title: '서울시 상권분석서비스', source_ref: 'https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do', evidence_id: 'evidence-market-cafes', caveat: '선택 지역에 연결된 행정동의 카페 업종 집계이며 개별 점포의 경쟁력을 뜻하지 않습니다.' },
       { signal_type: 'ESTIMATED_SALES', value: 2_596_733_728, unit: 'KRW_PER_QUARTER_ESTIMATE', data_date: '2026-03-31', freshness_status: 'FRESH', source_title: '서울시 상권분석서비스', source_ref: 'https://data.seoul.go.kr/dataList/OA-15572/A/1/datasetView.do', evidence_id: 'evidence-market-sales', caveat: '선택 지역의 카페 업종 분기 추정매출 합계이며 신규 점포 예상매출이 아닙니다.' },
+      { signal_type: 'FOOT_TRAFFIC', value: 12_465_323, unit: 'PERSON_VISITS_PER_QUARTER_ESTIMATE', data_date: '2026-03-31', freshness_status: 'FRESH', source_title: '서울시 상권분석서비스', source_ref: 'https://data.seoul.go.kr/dataList/OA-15568/S/1/datasetView.do', evidence_id: 'evidence-market-foot', caveat: '선택 지역의 분기 추정 유동인구이며 고유 방문자 수가 아닙니다.' },
+      { signal_type: 'RESIDENT_POPULATION', value: 37_068, unit: 'PERSONS', data_date: '2026-03-31', freshness_status: 'FRESH', source_title: '서울시 상권분석서비스', source_ref: 'https://data.seoul.go.kr/dataList/OA-22182/S/1/datasetView.do', evidence_id: 'evidence-market-resident', caveat: '선택 지역에 연결된 행정동의 거주인구 합계입니다.' },
+      { signal_type: 'WORKER_POPULATION', value: 7_365, unit: 'PERSONS', data_date: '2026-03-31', freshness_status: 'FRESH', source_title: '서울시 상권분석서비스', source_ref: 'https://data.seoul.go.kr/dataList/OA-22184/A/1/datasetView.do', evidence_id: 'evidence-market-worker', caveat: '선택 지역에 연결된 행정동의 직장인구 합계입니다.' },
     ],
     financial_summary: {
       initial_cash: { currency: 'KRW', low: 70_000_000, base: 80_000_000, high: 90_000_000, provenance_refs: ['evidence-cost'] },
@@ -176,7 +179,10 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.getByText(/행정동 연결 정보 · 점포 추정 매출/)).toBeTruthy()
     expect(screen.getByText('208개')).toBeTruthy()
     expect(screen.getByText('2,596,733,728원')).toBeTruthy()
-    expect(screen.getAllByRole('link', { name: '공식 원문 보기' })).toHaveLength(2)
+    expect(screen.getByText('12,465,323명·회')).toBeTruthy()
+    expect(screen.getByText('37,068명')).toBeTruthy()
+    expect(screen.getByText('7,365명')).toBeTruthy()
+    expect(screen.getAllByRole('link', { name: '공식 원문 보기' })).toHaveLength(5)
     expect(screen.queryByText('NO_NATIONWIDE_FACTS')).toBeNull()
     expect(screen.queryByText('administrative_dong_mapping')).toBeNull()
     expect(screen.queryByText('estimated_store_sales')).toBeNull()
