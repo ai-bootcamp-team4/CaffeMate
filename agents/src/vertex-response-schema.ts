@@ -579,9 +579,7 @@ function proposalEvidenceIds(task: AgentTask): string[] {
 
 function boundedStringArray(schema: JsonObject, values: readonly string[]): void {
   schema.maxItems = values.length
-  schema.items = values.length > 0
-    ? { type: 'string', enum: [...values] }
-    : { type: 'string' }
+  schema.items = { type: 'string' }
 }
 
 function applyProposalBounds(projected: JsonObject, task: AgentTask): void {
@@ -618,7 +616,6 @@ function applyProposalBounds(projected: JsonObject, task: AgentTask): void {
     ? source.support_refs.filter((value): value is string => typeof value === 'string')
     : []
   boundedStringArray(assumptionRefs, assumptions)
-  if (assumptions.length > 0) assumptionRefs.minItems = assumptions.length
   const payload = asObject(task.payload)
   const claimIds = payload && Array.isArray(payload.claim_id_pool)
     ? payload.claim_id_pool.filter((value): value is string => typeof value === 'string')
