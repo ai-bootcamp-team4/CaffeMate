@@ -400,8 +400,13 @@ class FirstProposalCanary:
                 if candidate.get("case_type") in {"INDEPENDENT", "FRANCHISE"}
             }
         )
-        if not case_types:
-            raise FirstProposalCanaryError("CANARY_CANDIDATE_TYPE_INVALID")
+        required_case_types = {"INDEPENDENT", "FRANCHISE"}
+        missing_case_types = sorted(required_case_types - set(case_types))
+        if missing_case_types:
+            raise FirstProposalCanaryError(
+                "CANARY_CANDIDATE_TYPE_INVALID",
+                {"missing_candidate_case_types": missing_case_types},
+            )
         market_signals = sorted(
             (
                 {
