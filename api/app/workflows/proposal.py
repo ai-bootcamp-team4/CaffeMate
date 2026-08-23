@@ -122,6 +122,7 @@ class ProposalStageHandler:
         reason_codes: set[str] = set()
         warnings: set[str] = set()
         traces: list[dict[str, Any]] = []
+        invalid_output_count = 0
         for task, result in results:
             boundary = validate_agent_boundary(
                 task=task,
@@ -129,19 +130,20 @@ class ProposalStageHandler:
                 current_head=context.lease.head,
             )
             if not boundary.accepted:
-                codes = ",".join(error.code for error in boundary.errors)
-                raise ContractValidationError(
-                    f"{self._task_type} boundary rejected: {codes}"
-                )
+                invalid_output_count += 1
+                traces.append(self._trace(task))
+                continue
             status = result["status"]
             if status == "INVALID":
-                raise ContractValidationError(
-                    f"{self._task_type} Agent rejected its input"
-                )
+                invalid_output_count += 1
+                traces.append(self._trace(task))
+                continue
             payload = result["payload"] if isinstance(result["payload"], dict) else {}
             candidate_proposals = payload.get("candidate_proposals", [])
             if not isinstance(candidate_proposals, list):
-                raise ContractValidationError(f"{self._task_type} proposals are invalid")
+                invalid_output_count += 1
+                traces.append(self._trace(task))
+                continue
             if status not in {"ABSTAIN", "NEEDS_HUMAN"}:
                 proposals.extend(candidate_proposals)
             statuses.append(status)
@@ -153,7 +155,12 @@ class ProposalStageHandler:
 
         if failures:
             reason_codes.add("PROPOSAL_PARTIAL_RUNTIME_FAILURE")
-        status = self._aggregate_status(statuses, has_failures=bool(failures))
+        if invalid_output_count:
+            reason_codes.add("PROPOSAL_PARTIAL_AGENT_OUTPUT_INVALID")
+        status = self._aggregate_status(
+            statuses,
+            has_failures=bool(failures) or invalid_output_count > 0,
+        )
         control = self._stage_control(context, status, sorted(reason_codes))
         return self._result(
             control=control,

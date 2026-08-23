@@ -6,7 +6,7 @@ import pytest
 
 from app.agents.task_factory import AgentTaskFactory, compute_agent_input_digest
 from app.candidates.seed_registry import IndependentSeedRegistry
-from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
+from app.domain.errors import ExternalExecutionUnavailableError
 from app.domain.models import CafeTypePreference
 from app.workflows.candidate_inputs import (
     FranchiseEligibilityStageHandler,
@@ -296,7 +296,7 @@ def test_needs_human_waits_only_when_no_other_branch_can_continue() -> None:
     assert only["stage_control"]["disposition"] == "WAITING_FOR_HUMAN"
 
 
-def test_boundary_rejection_stops_proposal_before_stage_output() -> None:
+def test_boundary_rejection_becomes_local_unavailable_output() -> None:
     def invented_brand(task: dict[str, Any]) -> dict[str, Any]:
         result = proposal_result(task)
         result["payload"]["candidate_proposals"][0]["seed_or_brand_id"] = "invented-brand"
@@ -304,10 +304,11 @@ def test_boundary_rejection_stops_proposal_before_stage_output() -> None:
 
     runtime = FakeRuntime(invented_brand)
 
-    with pytest.raises(ContractValidationError, match="BRAND_REFERENCE_MISMATCH"):
-        ProposalStageHandler.franchise(runtime).execute(
-            proposal_context("PROPOSE_FRANCHISE")
-        )
+    result = ProposalStageHandler.franchise(runtime).execute(
+        proposal_context("PROPOSE_FRANCHISE")
+    )
+    assert result["franchise_proposal"]["candidate_proposals"] == []
+    assert "PROPOSAL_PARTIAL_AGENT_OUTPUT_INVALID" in result["franchise_proposal"]["reason_codes"]
 
 
 def test_one_branch_runtime_failure_becomes_local_abstention() -> None:
@@ -339,7 +340,7 @@ def test_runtime_failure_is_retried_before_branch_abstains() -> None:
         )
 
 
-def test_agent_cannot_return_rank_or_gate_fields() -> None:
+def test_agent_rank_fields_are_ignored_without_killing_branch() -> None:
     def authoritative_decision(task: dict[str, Any]) -> dict[str, Any]:
         result = proposal_result(task)
         result["payload"]["candidate_proposals"][0]["rank"] = 1
@@ -347,7 +348,8 @@ def test_agent_cannot_return_rank_or_gate_fields() -> None:
 
     runtime = FakeRuntime(authoritative_decision)
 
-    with pytest.raises(ContractValidationError, match="CONTRACT_SCHEMA_INVALID"):
-        ProposalStageHandler.independent(runtime).execute(
-            proposal_context("PROPOSE_INDEPENDENT")
-        )
+    result = ProposalStageHandler.independent(runtime).execute(
+        proposal_context("PROPOSE_INDEPENDENT")
+    )
+    assert result["independent_proposal"]["candidate_proposals"] == []
+    assert "PROPOSAL_PARTIAL_AGENT_OUTPUT_INVALID" in result["independent_proposal"]["reason_codes"]

@@ -361,6 +361,9 @@ class SelectedCandidateCanary:
                             "workflow_run_id": workflow_run_id,
                             "workflow_status": progress.status.value,
                             "terminal_reason_codes": progress.terminal_reason_codes,
+                            "stages": [
+                                stage.model_dump(mode="json") for stage in progress.stages
+                            ],
                         },
                     )
                 return progress
