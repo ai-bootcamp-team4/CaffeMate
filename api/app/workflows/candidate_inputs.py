@@ -8,6 +8,8 @@ from app.domain.errors import ContractValidationError
 from app.workflows.models import StageControl
 from app.workflows.stage_context import StageContext
 
+FIRST_PROPOSAL_RUNTIME_CANDIDATE_LIMIT = 1
+
 
 class CandidateInputProjection:
     @staticmethod
@@ -125,7 +127,10 @@ class IndependentSeedStageHandler:
                     "evidence_records": freeze["evidence_records"],
                     "claim_id_pool": freeze.get("missing_claim_ids", []),
                     "model_seeds": model_seeds,
-                    "requested_candidate_count": min(3, len(model_seeds)),
+                    "requested_candidate_count": min(
+                        FIRST_PROPOSAL_RUNTIME_CANDIDATE_LIMIT,
+                        len(model_seeds),
+                    ),
                 },
                 "reason_codes": reason_codes,
             },
