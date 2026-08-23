@@ -75,6 +75,28 @@ describe('PreparationProcedures', () => {
     expect(screen.getByRole<HTMLAnchorElement>('link', { name: '공식 원문 보기' }).href).toBe('https://www.nts.go.kr/official')
   })
 
+  it('replaces scraped markdown and legal-page navigation with user-facing procedure copy', () => {
+    const rawGuide = guide()
+    rawGuide.procedures[0].steps = [
+      {
+        ...rawGuide.procedures[0].steps[0],
+        title: ')](http://www.law.go.kr/example "새창으로 열림") * 커피전문점 * + 하위메뉴 보기',
+        authority: '커피전문점 영업신고 및 사업자등록',
+      },
+      {
+        ...rawGuide.procedures[0].steps[1],
+        title: '신고를 받은 기관은 영업신고증을 발급해야 합니다(![규제](# "규제등록카드"))「식품위생법 시행규칙」 제42조.',
+        authority: '커피전문점 영업신고 및 사업자등록',
+      },
+    ]
+
+    render(<PreparationProcedures guide={rawGuide} busy={false} error="" onRetry={() => undefined} />)
+
+    expect(screen.getByText('카페 사업자등록에 필요한 신청 절차를 확인해요.')).toBeTruthy()
+    expect(screen.getByText('관할 세무서 또는 국세청 홈택스')).toBeTruthy()
+    expect(screen.queryByText(/law\.go\.kr|하위메뉴|규제등록카드/)).toBeNull()
+  })
+
   it('shows a retry action only when loading failed without usable procedures', () => {
     const retry = vi.fn()
     render(<PreparationProcedures guide={null} busy={false} error="연결 실패" onRetry={retry} />)
