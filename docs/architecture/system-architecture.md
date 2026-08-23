@@ -123,6 +123,16 @@ Independent Proposal, Candidate Audit의 생성 시간은 각각 6.414초, 7.813
 측정이다. Proposal과 Critic의 독립 세션을 합치거나 managed Runtime을 우회하면 이 설계 결정을
 폐기할 정도의 품질·평가 이득이 먼저 증명되어야 한다.
 
+이어 semantic-only 모델 경계가 배포된 같은 날 운영 canary는 13단계를 39.620초에 끝냈다.
+직전 47.917초보다 8.297초, 약 17% 짧고 Stage attempt는 모두 1이었다. Evidence Assess,
+Independent Proposal, Candidate Audit의 요청 byte는 각각 12,902→10,049,
+10,107→7,199, 16,862→14,808로 줄었다. prompt token은 5,009→3,399,
+3,619→1,976, 5,628→4,179이고 모델 생성 시간은 6.414→2.957초,
+7.813→3.011초, 7.281→4.242초다. 세 출력은 모두 첫 응답에서 `HTTP 200`, `STOP`,
+`repair_attempt=0`, `VALID`였고 Proposal 후보 1건과 독립 Critic 감사 1건을 반환해
+`CURRENT` 결과 카드로 commit됐다. 이는 Agent를 생략한 속도 개선이 아니라 모델에게 맡기던
+불변 envelope 복사를 Runtime의 결정론적 책임으로 되돌린 결과다.
+
 Agent Runtime 검증용 13단계 canary는 실제 UI 계약처럼 이미 선택된 법정동 `AreaState`에서
 시작한다. 주소 공급자 장애 때문에 Agent가 한 번도 실행되지 않은 실패를 Agent 지연으로 집계하지
 않는다. 주소 검색 자체는 별도 MCP 검증에서 버전이 붙은 전국 법정동 자료의 무네트워크 조회와
