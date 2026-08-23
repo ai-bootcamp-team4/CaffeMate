@@ -46,7 +46,7 @@ Cloud Run Control API
 - Control API가 workflow, State version, 재시도 예산과 종료 조건을 소유한다.
 - Agent Runtime은 reasoning과 ADK Agent 실행을 담당하지만 persistent State를 쓰지 않는다.
 - 첫 구현에서 Agent Runtime은 MCP를 직접 호출하지 않으며 MCP invoke 권한, 원본 credential과 database write 권한을 갖지 않는다.
-- 결정론적 Evidence Plan은 고정 manifest와 별개인 production connector capability를 적용한다. 미배포 tool이 필요한 Claim은 실행하지 않고 missing Claim으로 전달하며, Agent가 connector 실패를 근거 부족처럼 해석하게 만들지 않는다.
+- 열 개 전체 Schema registry와 실제 production connector capability를 분리한다. MCP `tools/list`와 결정론적 Evidence Plan은 실제 배포된 세 connector만 사용한다. 미배포 tool이 필요한 Claim은 실행하지 않고 missing Claim으로 전달하며, Agent가 connector 실패를 근거 부족처럼 해석하게 만들지 않는다.
 - Control API의 결정론적 계획기가 Claim 종류를 고정된 support·counter read action으로 변환하고
   allowlist·scope·날짜·인자·호출 상한을 검증한 뒤 MCP를 호출한다.
 - Evidence Researcher는 실행·검증된 MCP·RAG 결과만 평가하며 read action을 생성하지 않는다.
@@ -110,7 +110,7 @@ MCP는 외부 자료와 project corpus를 호출하는 권한·schema 경계다.
 - Control API가 유일한 production MCP client다.
 - `structuredContent`만 tool output Schema로 검증해 다음 단계 입력으로 사용한다.
 
-고정 registry는 [MCP Tool Manifest](../contracts/mcp-tool-manifest.json), 각 input·output은 [MCP Tool Contract Schema](../contracts/mcp-tool-contracts.schema.json)가 권위값이다.
+고정 registry는 [MCP Tool Manifest](../contracts/mcp-tool-manifest.json), 각 input·output은 [MCP Tool Contract Schema](../contracts/mcp-tool-contracts.schema.json), 현재 광고 가능한 부분집합은 [Production Capability](../contracts/mcp-production-capabilities.json)가 권위값이다.
 
 | Tool | Input | Output | Scope |
 | --- | --- | --- | --- |

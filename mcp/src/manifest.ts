@@ -1,4 +1,5 @@
 import manifest from '../../docs/contracts/mcp-tool-manifest.json'
+import productionCapabilities from '../../docs/contracts/mcp-production-capabilities.json'
 
 export const MCP_TOOL_NAMES = [
   'resolve_area',
@@ -14,6 +15,17 @@ export const MCP_TOOL_NAMES = [
 ] as const
 
 export type McpToolName = typeof MCP_TOOL_NAMES[number]
+
+const productionNames = productionCapabilities.tools as string[]
+if (productionCapabilities.schema_version !== '1.0.0'
+  || new Set(productionNames).size !== productionNames.length
+  || productionNames.some((name) => !MCP_TOOL_NAMES.includes(name as McpToolName))) {
+  throw new Error('MCP_PRODUCTION_CAPABILITIES_INVALID')
+}
+
+export const MCP_PRODUCTION_TOOL_NAMES: readonly McpToolName[] = Object.freeze(
+  productionNames as McpToolName[],
+)
 
 export interface McpToolDefinition {
   name: McpToolName

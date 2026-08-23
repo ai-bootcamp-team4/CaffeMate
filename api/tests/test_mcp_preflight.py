@@ -63,7 +63,7 @@ def mock_transport(
     supported_versions: list[str] | None = None,
     repeated_cursor: bool = False,
 ) -> httpx2.MockTransport:
-    expected = McpManifestCatalog().projection()
+    expected = McpManifestCatalog().production_projection()
     served_tools = copy.deepcopy(tools if tools is not None else expected["tools"])
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -83,10 +83,10 @@ def mock_transport(
         else:
             cursor = body.get("params", {}).get("cursor")
             if cursor is None:
-                page = served_tools[:5]
-                next_cursor = "page-2" if len(served_tools) > 5 else None
+                page = served_tools[:2]
+                next_cursor = "page-2" if len(served_tools) > 2 else None
             else:
-                page = served_tools[5:]
+                page = served_tools[2:]
                 next_cursor = "page-2" if repeated_cursor else None
             result = {
                 "resultType": "complete",
@@ -116,7 +116,7 @@ def test_preflight_consumes_all_pages_and_matches_checked_in_digest() -> None:
     report = run(preflight(mock_transport()))
 
     assert report.protocol_revision == "2026-07-28"
-    assert report.tool_count == 10
+    assert report.tool_count == 3
     assert report.manifest_digest == (
         "72ac3711d0b2500a90ef974bb7d6a11eaceff1c8108439624525f581202a184b"
     )
@@ -124,7 +124,7 @@ def test_preflight_consumes_all_pages_and_matches_checked_in_digest() -> None:
 
 @pytest.mark.parametrize("mutation", ["missing", "extra", "schema", "version"])
 def test_preflight_rejects_any_manifest_drift(mutation: str) -> None:
-    tools = copy.deepcopy(McpManifestCatalog().projection()["tools"])
+    tools = copy.deepcopy(McpManifestCatalog().production_projection()["tools"])
     if mutation == "missing":
         tools.pop()
     elif mutation == "extra":

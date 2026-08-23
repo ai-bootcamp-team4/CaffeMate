@@ -5,6 +5,7 @@ import { createConnectorRegistry } from './connectors'
 import { mapOfficialRagContext } from './official-rag'
 import { createOfficialRagHealthSource } from './official-rag-health'
 import { createRagMcpConnectors } from './rag-connectors'
+import { MCP_PRODUCTION_TOOL_NAMES } from './manifest'
 import type { McpConnectorRegistry } from './router'
 
 export interface ProductionMcpConnectorOptions {
@@ -58,8 +59,14 @@ export function createProductionMcpConnectors(options: ProductionMcpConnectorOpt
     resolveProjectCorpusMapping: async () => null,
     now: () => now().toISOString(),
   })
-  return {
+  const connectors: McpConnectorRegistry = {
     ...base,
     retrieve_official_documents: rag.retrieve_official_documents,
   }
+  const configured = Object.keys(connectors).sort()
+  const expected = [...MCP_PRODUCTION_TOOL_NAMES].sort()
+  if (JSON.stringify(configured) !== JSON.stringify(expected)) {
+    throw new Error('MCP_PRODUCTION_CAPABILITY_MISMATCH')
+  }
+  return connectors
 }
