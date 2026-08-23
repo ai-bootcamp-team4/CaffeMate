@@ -22,13 +22,24 @@ read_service_value() {
     "import json,os; data=json.loads(os.environ['SERVICE_JSON']); print(${expression})"
 }
 
-api_image=$(read_service_value "$api_service_json" \
-  "data['spec']['template']['spec']['containers'][0]['image']")
-worker_image=$(read_service_value "$worker_service_json" \
-  "data['spec']['template']['spec']['containers'][0]['image']")
-source_revision=$(read_service_value "$api_service_json" \
+api_revision=$(read_service_value "$api_service_json" \
+  "data['status']['latestReadyRevisionName']")
+worker_revision=$(read_service_value "$worker_service_json" \
+  "data['status']['latestReadyRevisionName']")
+api_revision_json=$(gcloud run revisions describe "$api_revision" \
+  --project="$project_id" --region="$region" --format=json)
+worker_revision_json=$(gcloud run revisions describe "$worker_revision" \
+  --project="$project_id" --region="$region" --format=json)
+
+# A Cloud Run service template may retain the submitted tag. The latest Ready
+# revision is the operational source of truth for the immutable resolved digest.
+api_image=$(read_service_value "$api_revision_json" \
+  "data['status']['imageDigest']")
+worker_image=$(read_service_value "$worker_revision_json" \
+  "data['status']['imageDigest']")
+source_revision=$(read_service_value "$api_revision_json" \
   "data['metadata']['labels']['source-revision']")
-worker_source_revision=$(read_service_value "$worker_service_json" \
+worker_source_revision=$(read_service_value "$worker_revision_json" \
   "data['metadata']['labels']['source-revision']")
 
 case "$api_image" in

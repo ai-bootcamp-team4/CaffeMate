@@ -96,6 +96,18 @@ def test_main_cloudbuild_guards_web_and_backend_deployments() -> None:
     assert "\nimages:\n" not in config
 
 
+def test_selected_candidate_canary_reads_operational_revision_digest() -> None:
+    verifier = (ROOT / "scripts" / "verify-selected-candidate-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "latestReadyRevisionName" in verifier
+    assert 'gcloud run revisions describe "$api_revision"' in verifier
+    assert 'gcloud run revisions describe "$worker_revision"' in verifier
+    assert "data['status']['imageDigest']" in verifier
+    assert "data['spec']['template']['spec']['containers'][0]['image']" not in verifier
+
+
 def test_backend_deployment_contract_requires_operational_readback() -> None:
     documentation = (ROOT / "docs" / "backend-deployment.md").read_text(encoding="utf-8")
 
