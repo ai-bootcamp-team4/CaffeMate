@@ -677,6 +677,7 @@ assert report["stage_count"] == 13
 assert report["max_stage_attempt"] == 1
 assert report["elapsed_ms"] <= 120_000, report
 assert report["candidate_count"] >= 1
+assert {"INDEPENDENT", "FRANCHISE"} <= set(report.get("candidate_case_types", [])), report
 assert report["result_freshness"] == "CURRENT"
 signals = report.get("market_signals", [])
 required_signal_types = {
@@ -701,17 +702,17 @@ first_proposal_validation_logs='[]'
 agent_log_attempt=0
 while [ "$agent_log_attempt" -lt 12 ]; do
   first_proposal_generation_logs=$(gcloud logging read \
-    "timestamp>=\"${canary_started_at}\" AND jsonPayload.event=\"VERTEX_AGENT_GENERATION\" AND (jsonPayload.task_type=\"EVIDENCE_ASSESS\" OR jsonPayload.task_type=\"PROPOSE_INDEPENDENT\" OR jsonPayload.task_type=\"CANDIDATE_AUDIT\")" \
+    "timestamp>=\"${canary_started_at}\" AND jsonPayload.event=\"VERTEX_AGENT_GENERATION\" AND (jsonPayload.task_type=\"EVIDENCE_ASSESS\" OR jsonPayload.task_type=\"PROPOSE_INDEPENDENT\" OR jsonPayload.task_type=\"PROPOSE_FRANCHISE\" OR jsonPayload.task_type=\"CANDIDATE_AUDIT\")" \
     --project="$project_id" --freshness=10m --limit=30 --format=json)
   first_proposal_validation_logs=$(gcloud logging read \
-    "timestamp>=\"${canary_started_at}\" AND jsonPayload.event=\"AGENT_RESULT_VALIDATION\" AND (jsonPayload.task_type=\"EVIDENCE_ASSESS\" OR jsonPayload.task_type=\"PROPOSE_INDEPENDENT\" OR jsonPayload.task_type=\"CANDIDATE_AUDIT\")" \
+    "timestamp>=\"${canary_started_at}\" AND jsonPayload.event=\"AGENT_RESULT_VALIDATION\" AND (jsonPayload.task_type=\"EVIDENCE_ASSESS\" OR jsonPayload.task_type=\"PROPOSE_INDEPENDENT\" OR jsonPayload.task_type=\"PROPOSE_FRANCHISE\" OR jsonPayload.task_type=\"CANDIDATE_AUDIT\")" \
     --project="$project_id" --freshness=10m --limit=30 --format=json)
   observed_agent_types=$(FIRST_PROPOSAL_GENERATION_LOGS="$first_proposal_generation_logs" \
     FIRST_PROPOSAL_VALIDATION_LOGS="$first_proposal_validation_logs" python3 - <<'PY'
 import json
 import os
 
-required = {"EVIDENCE_ASSESS", "PROPOSE_INDEPENDENT", "CANDIDATE_AUDIT"}
+required = {"EVIDENCE_ASSESS", "PROPOSE_INDEPENDENT", "PROPOSE_FRANCHISE", "CANDIDATE_AUDIT"}
 generations = {
     row.get("jsonPayload", {}).get("task_type")
     for row in json.loads(os.environ["FIRST_PROPOSAL_GENERATION_LOGS"])

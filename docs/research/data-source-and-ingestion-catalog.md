@@ -10,7 +10,7 @@ updated:: 2026-08-23
 
 세 선택지에 대한 판정은 다음과 같다.
 
-1. **데이터 연결이 아직 없음: 주원인.** `get_area_profile`, `search_cafe_observations`, `search_business_events`, `list_franchise_universe`, `get_franchise_disclosure`, `retrieve_project_documents`, `get_official_procedure`는 목표 도구 목록에는 있지만 현재 프로덕션 능력 목록에 없다.
+1. **프랜차이즈 경로는 PoC 브랜드 목록까지만 연결됨.** `list_franchise_universe`는 2026-08-23 기준 브랜드 공식 가맹 안내 페이지가 확인된 이디야커피·메가MGC커피를 반환한다. 특정 지역 출점 승인과 공정위 정보공개서 구조화 값은 아직 연결되지 않았으므로 조건부 후보로만 사용한다. `search_business_events`, `get_franchise_disclosure`, `retrieve_project_documents`, `get_official_procedure`는 목표 도구 목록에는 있지만 현재 프로덕션 능력 목록에 없다.
 2. **코드 로직 결함도 있음: 공식 RAG가 빈 근거로 끝나는 직접 원인이다.** [RAG MCP envelope](../../mcp/src/rag-connectors.ts)는 검색 hit를 `data`에 넣으면서 `evidence_records=[]`로 반환한다. 이후 [EVIDENCE_ASSESS projection](../../api/app/agents/task_factory.py)은 모델 입력에서 `data=[]`로 줄이고 `evidence_records`만 유지한다. 따라서 RAG 검색이 성공해도 hit가 EvidenceRecord 후보로 변환되지 않아 Agent가 평가할 근거가 0건이 된다. 커넥터 부재가 전체 빈 결과의 주원인이고, 이 변환 누락은 현재 존재하는 공식 문서 경로까지 무력화하는 별도 결함이다.
 3. **조사는 했지만 파싱을 못함: 현재 관측된 형태는 아님.** 현재는 검색 hit를 구조화 EvidenceRecord로 만드는 변환 자체가 없으므로 파서 품질을 평가할 단계까지 도달하지 않았다. 상권 수치 데이터는 RAG 파싱 대상이 아니며 API, 파일, SQL, 공간 질의로 들어와야 한다.
 

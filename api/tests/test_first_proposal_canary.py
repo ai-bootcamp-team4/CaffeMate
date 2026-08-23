@@ -207,7 +207,15 @@ def result() -> ResultView:
                         "source_ref": "https://data.seoul.go.kr/worker",
                     },
                 ],
-            }
+            },
+            {
+                "candidate_id": "candidate-2",
+                "case_type": "FRANCHISE",
+                "brand_id": "kr-ediya-coffee",
+                "display_name": "이디야커피",
+                "rank": 2,
+                "market_signals": [],
+            },
         ],
         primary_candidate_id="candidate-1",
         audit_status=AuditStatus.PASSED,
@@ -237,8 +245,8 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
         "stage_count": 13,
         "max_stage_attempt": 1,
         "elapsed_ms": 0,
-        "candidate_count": 1,
-        "candidate_case_types": ["INDEPENDENT"],
+        "candidate_count": 2,
+        "candidate_case_types": ["FRANCHISE", "INDEPENDENT"],
         "market_signals": [
             {
                 "signal_type": "CAFE_COUNT",
@@ -307,6 +315,29 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
     assert projects.area.source_revision == "MOIS_LEGAL_DONG_20260301"
     assert cleaner.calls == [("canary-project", "first-proposal-canary-probe")]
     assert not workflows.cancelled
+
+
+def test_canary_rejects_open_to_both_result_without_franchise_candidate() -> None:
+    independent_only = result()
+    independent_only.candidates = independent_only.candidates[:1]
+    cleaner = FakeCleaner()
+    canary = FirstProposalCanary(
+        projects=FakeProjects(),
+        workflows=FakeWorkflows(progress(WorkflowStatus.SUCCEEDED)),
+        results=FakeResults(independent_only),
+        cleaner=cleaner,
+        new_id=lambda: "missing-franchise",
+    )
+
+    with pytest.raises(
+        FirstProposalCanaryError,
+        match="CANARY_CANDIDATE_TYPE_INVALID",
+    ):
+        canary.run(timeout_seconds=10, poll_interval_seconds=1)
+
+    assert cleaner.calls == [
+        ("canary-project", "first-proposal-canary-missing-franchise")
+    ]
 
 
 def test_canary_rejects_result_without_required_grounded_market_signals() -> None:
