@@ -341,8 +341,8 @@ cases:
     trap: 모든 task에 high 사고 수준과 전체 조회 payload를 적용하거나 Agent를 우회해 고정 ABSTAIN을 만든다.
     expected_behavior:
       - 동일 Claim과 request의 결과는 Agent 입력에 한 번만 포함한다.
-      - action별 rerank 상위 세 Evidence record만 포함하고 provider data 행은 제외한다.
-      - EVIDENCE_ASSESS는 low 사고 수준, 최대 2048 출력 토큰과 60초 deadline을 사용한다.
+      - action별 rerank 상위 한 개 Evidence record만 포함하고 provider data 행은 제외한다.
+      - EVIDENCE_ASSESS는 low 사고 수준, 최대 16384 출력 토큰과 60초 deadline을 사용한다.
       - 응답 배열 상한을 unique Evidence와 Claim 수로 제한한다.
       - 정상 Agent 결과는 기존 Schema와 의미 검증을 통과한다.
       - 다른 모델이나 리전으로 자동 전환하지 않는다.

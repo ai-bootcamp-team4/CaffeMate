@@ -186,6 +186,6 @@ def test_agent_receives_bounded_projection_while_freeze_keeps_full_retrieval() -
         runtime.tasks[0]["payload"]["executed_actions"][0]["structured_result"][
             "evidence_records"
         ]
-    ) == 3
+    ) == 1
     assert len(output["executed_actions"]) == 2
     assert len(output["executed_actions"][0]["structured_result"]["evidence_records"]) == 4
