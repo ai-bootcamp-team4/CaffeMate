@@ -6,7 +6,7 @@ import pytest
 
 from app.agents.runtime import AgentRuntimeError
 from app.agents.task_factory import AgentTaskFactory, compute_agent_input_digest
-from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
+from app.domain.errors import ExternalExecutionUnavailableError
 from app.workflows.calculate_gate_rank import CalculateGateRankStageHandler
 from app.workflows.candidate_audit import CandidateAuditStageHandler
 from app.workflows.stage_context import StageContext
@@ -235,20 +235,20 @@ def test_agent_replacement_rank_preserves_backend_candidates() -> None:
     assert result["candidate_audit"]["candidates"][0]["rank"] == 1
 
 
-def test_tampered_finance_output_fails_deterministic_replay_before_runtime() -> None:
+def test_tampered_finance_output_abstains_before_runtime() -> None:
     context = audit_context()
     dependency = context.dependency_results["CALCULATE_GATE_RANK"]
     candidate = dependency["calculate_gate_rank"]["candidates"][0]
     candidate["finance"]["break_even_monthly_sales_krw"] += 1
     runtime = FakeRuntime(audit_result)
 
-    with pytest.raises(ContractValidationError, match="deterministic replay"):
-        CandidateAuditStageHandler(runtime).execute(context)
+    result = CandidateAuditStageHandler(runtime).execute(context)
 
     assert runtime.tasks == []
+    assert result["candidate_audit"]["status"] == "UNAVAILABLE"
 
 
-def test_ranked_franchise_requires_available_eligibility_evidence() -> None:
+def test_missing_franchise_eligibility_evidence_abstains() -> None:
     context = audit_context(include_franchise=True)
     dependency = context.dependency_results["CALCULATE_GATE_RANK"]
     franchise = next(
@@ -259,10 +259,10 @@ def test_ranked_franchise_requires_available_eligibility_evidence() -> None:
     franchise["franchise_eligibility_evidence_refs"] = ["missing-evidence"]
     runtime = FakeRuntime(audit_result)
 
-    with pytest.raises(ContractValidationError, match="unavailable Evidence ref"):
-        CandidateAuditStageHandler(runtime).execute(context)
+    result = CandidateAuditStageHandler(runtime).execute(context)
 
     assert runtime.tasks == []
+    assert result["candidate_audit"]["status"] == "UNAVAILABLE"
 
 
 def test_pass_status_with_findings_preserves_candidates() -> None:
