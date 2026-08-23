@@ -1,0 +1,49 @@
+/* Hallmark · genre: editorial · macrostructure: Catalogue · theme: studied-DNA · enrichment: none · nav: N9 · footer: Ft2
+ * F3 Tabular spec knobs: columns=4, rule-density=every-row, numbers=tabular
+ * pre-emit critique: P5 H5 E4 S5 R5 V5
+ */
+.project-catalogue { min-height: 100dvh; padding: var(--space-md) var(--page-gutter) var(--space-xl); background: var(--color-paper); color: var(--color-ink); }
+.project-catalogue__nav { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); width: min(100%, 76rem); min-height: 4.5rem; margin-inline: auto; border-block-end: var(--rule-thin) solid var(--color-rule); }
+.project-catalogue__main { display: grid; gap: var(--space-xl); width: min(100%, 76rem); margin-inline: auto; padding-block: var(--space-2xl); }
+.project-catalogue__head { display: grid; gap: var(--space-sm); max-width: 62rem; min-width: 0; }
+.project-catalogue__head > p { color: var(--color-accent); font-weight: 800; }
+.project-catalogue__head h1 { max-width: 18ch; min-width: 0; font-size: var(--text-display); line-height: 1.08; letter-spacing: -.045em; overflow-wrap: anywhere; }
+.project-catalogue__head > span { max-width: 54ch; color: var(--color-neutral); font-size: var(--text-md); line-height: 1.65; }
+.project-list { border-block-start: var(--rule-strong) solid var(--color-ink); }
+.project-list__labels { display: grid; grid-template-columns: minmax(15rem, 1.5fr) minmax(9rem, .8fr) minmax(8rem, .7fr) minmax(8rem, .7fr) auto; gap: var(--space-md); padding: var(--space-sm) 0; border-block-end: var(--rule-thin) solid var(--color-rule); color: var(--color-muted); font-size: var(--text-xs); }
+.project-row { display: grid; grid-template-columns: minmax(15rem, 1.5fr) minmax(0, 2.2fr) auto; gap: var(--space-lg); align-items: center; padding-block: var(--space-lg); border-block-end: var(--rule-thin) solid var(--color-rule); }
+.project-row__primary { display: grid; gap: var(--space-2xs); min-width: 0; }
+.project-row__primary strong { font-size: var(--text-md); overflow-wrap: anywhere; }
+.project-row__primary span { color: var(--color-muted); font-size: var(--text-sm); }
+.project-row dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-md); margin: 0; }
+.project-row dl > div { display: grid; gap: var(--space-2xs); min-width: 0; }
+.project-row dt { display: none; color: var(--color-muted); font-size: var(--text-xs); }
+.project-row dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.project-catalogue .btn { min-height: 2.75rem; white-space: nowrap; }
+.project-catalogue .btn:active { transform: translateY(1px); }
+.project-catalogue .btn:disabled { opacity: .5; cursor: not-allowed; }
+.project-catalogue .btn[aria-busy="true"] { cursor: progress; }
+.project-catalogue__footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-sm) var(--space-lg); width: min(100%, 76rem); margin: var(--space-2xl) auto 0; padding-block-start: var(--space-md); border-block-start: var(--rule-thin) solid var(--color-rule); color: var(--color-muted); font-size: var(--text-sm); }
+@media (hover: hover) and (pointer: fine) {
+  .project-row:hover { background: var(--color-paper-2); }
+}
+@media (max-width: 59.999rem) {
+  .project-list__labels { display: none; }
+  .project-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .project-row dl { grid-column: 1 / -1; grid-row: 2; }
+  .project-row dt { display: block; }
+}
+@media (max-width: 39.999rem) {
+  .project-catalogue { padding-inline: var(--space-md); }
+  .project-catalogue__nav { align-items: stretch; flex-direction: column; padding-block: var(--space-sm); }
+  .project-catalogue__nav .btn { width: 100%; }
+  .project-catalogue__main { padding-block: var(--space-xl); }
+  .project-catalogue__head h1 { font-size: clamp(2rem, 10vw, 3rem); }
+  .project-row { grid-template-columns: minmax(0, 1fr); }
+  .project-row dl { grid-column: auto; grid-row: auto; grid-template-columns: minmax(0, 1fr); }
+  .project-row .btn { width: 100%; }
+  .project-catalogue__footer { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .project-catalogue .btn { transition-duration: 0ms; }
+}
