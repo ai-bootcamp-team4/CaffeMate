@@ -65,6 +65,14 @@ class CandidateSelectionService:
                            h.founder_snapshot_id, h.area_snapshot_id,
                            h.evidence_snapshot_id, h.policy_snapshot_id,
                            h.index_generation_id, h.seed_registry_id,
+                           r.workflow_generation AS result_workflow_generation,
+                           r.state_version AS result_state_version,
+                           r.founder_snapshot_id AS result_founder_snapshot_id,
+                           r.area_snapshot_id AS result_area_snapshot_id,
+                           r.evidence_snapshot_id AS result_evidence_snapshot_id,
+                           r.policy_snapshot_id AS result_policy_snapshot_id,
+                           r.index_generation_id AS result_index_generation_id,
+                           r.seed_registry_id AS result_seed_registry_id,
                            r.bundle_json
                     FROM venture_projects p
                     JOIN venture_states s
@@ -103,13 +111,15 @@ class CandidateSelectionService:
                     )
                 return self._from_row(replay)
             current_head = self._head(project)
+            result_head = self._head(project, prefix="result_")
             if (
                 project["current_result_bundle_id"] != result_bundle_id
                 or current_head != expected_head
+                or result_head != expected_head
                 or project["current_state_version"] != expected_head.state_version
             ):
                 raise CandidateSelectionPreconditionError(
-                    "Candidate selection requires the current result and full head"
+                    "Candidate selection requires a current result on the current full head"
                 )
             payload = ResultBundlePayload.model_validate(project["bundle_json"])
             candidate = next(
@@ -126,7 +136,7 @@ class CandidateSelectionService:
                 )
             payload.validate_contracts(
                 project_id=project_id,
-                state_version=expected_head.state_version,
+                state_version=result_head.state_version,
             )
             state_json = project["state_json"]
             if isinstance(state_json, str):
@@ -255,16 +265,16 @@ class CandidateSelectionService:
             )
 
     @staticmethod
-    def _head(row: RowMapping) -> HeadFence:
+    def _head(row: RowMapping, *, prefix: str = "") -> HeadFence:
         return HeadFence(
-            workflow_generation=row["workflow_generation"],
-            state_version=row["state_version"],
-            founder_snapshot_id=row["founder_snapshot_id"],
-            area_snapshot_id=row["area_snapshot_id"],
-            evidence_snapshot_id=row["evidence_snapshot_id"],
-            policy_snapshot_id=row["policy_snapshot_id"],
-            index_generation_id=row["index_generation_id"],
-            seed_registry_id=row["seed_registry_id"],
+            workflow_generation=row[f"{prefix}workflow_generation"],
+            state_version=row[f"{prefix}state_version"],
+            founder_snapshot_id=row[f"{prefix}founder_snapshot_id"],
+            area_snapshot_id=row[f"{prefix}area_snapshot_id"],
+            evidence_snapshot_id=row[f"{prefix}evidence_snapshot_id"],
+            policy_snapshot_id=row[f"{prefix}policy_snapshot_id"],
+            index_generation_id=row[f"{prefix}index_generation_id"],
+            seed_registry_id=row[f"{prefix}seed_registry_id"],
         )
 
     @staticmethod

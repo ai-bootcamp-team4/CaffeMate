@@ -1,7 +1,12 @@
 import pytest
 
 from app.domain.models import CafeTypePreference
-from app.workflows.first_proposal import FirstProposalStage, compile_first_proposal_plan
+from app.workflows.first_proposal import (
+    FirstProposalStage,
+    compile_first_proposal_plan,
+    stage_input_digest,
+)
+from app.workflows.models import HeadFence
 
 
 @pytest.mark.parametrize(
@@ -84,3 +89,41 @@ def test_candidate_input_branches_pin_area_and_frozen_evidence(
         FirstProposalStage.AREA_RESOLUTION,
         FirstProposalStage.EVIDENCE_FREEZE,
     }
+
+
+def test_stage_input_digest_is_independent_of_dependency_order() -> None:
+    head = HeadFence(
+        workflow_generation=2,
+        state_version=3,
+        founder_snapshot_id="founder-3",
+        area_snapshot_id="area-3",
+        evidence_snapshot_id="evidence-1",
+        policy_snapshot_id="policy-v1",
+        index_generation_id=None,
+        seed_registry_id="seed-v1",
+    )
+    independent = {
+        "stage_code": FirstProposalStage.PROPOSE_INDEPENDENT.value,
+        "input_digest": "independent-digest",
+        "result": {"independent_proposal": {"proposal_id": "independent-1"}},
+    }
+    franchise = {
+        "stage_code": FirstProposalStage.PROPOSE_FRANCHISE.value,
+        "input_digest": "franchise-digest",
+        "result": {"franchise_proposal": {"proposal_id": "franchise-1"}},
+    }
+
+    first = stage_input_digest(
+        workflow_run_id="workflow-2",
+        stage_code=FirstProposalStage.CALCULATE_GATE_RANK,
+        head=head,
+        dependencies=(independent, franchise),
+    )
+    reversed_order = stage_input_digest(
+        workflow_run_id="workflow-2",
+        stage_code=FirstProposalStage.CALCULATE_GATE_RANK,
+        head=head,
+        dependencies=(franchise, independent),
+    )
+
+    assert first == reversed_order

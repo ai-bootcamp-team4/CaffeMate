@@ -54,6 +54,9 @@ from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
+from app.selections.models import PropertyTermsInput
+from app.selections.property import PropertyTermsService
+from app.selections.service import CandidateSelectionService
 from app.verification.documents import DocumentStorageCanary
 from app.verification.first_proposal import PostgresFirstProposalCanaryCleaner
 from app.workflows.area_resolution import AreaResolutionStageHandler
@@ -2632,6 +2635,22 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
             f"/v1/projects/{project.project_id}",
             headers={"Authorization": "Bearer valid-token"},
         )
+        resumed_result = client.get(
+            f"/v1/projects/{project.project_id}/result",
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        stale_reselect = client.post(
+            f"/v1/projects/{project.project_id}/candidate-selections",
+            headers={
+                "Authorization": "Bearer valid-token",
+                "Idempotency-Key": "selection-stale-result",
+            },
+            json={
+                "result_bundle_id": resumed_result.json()["result_bundle_id"],
+                "candidate_id": "candidate-1",
+                "expected_head": resumed_result.json()["current_head"],
+            },
+        )
         content = b"%PDF-1.7 caffemate"
         content_sha256 = hashlib.sha256(content).hexdigest()
         upload = client.post(
@@ -2896,6 +2915,10 @@ def test_result_bundle_checkpoint_is_atomic_and_owner_scoped(
         "SUPPLIER_TERMS",
     }
     assert project_after.status_code == 200
+    assert resumed_result.status_code == 200
+    assert resumed_result.json()["freshness"] == "STALE"
+    assert stale_reselect.status_code == 409
+    assert stale_reselect.json()["code"] == "CANDIDATE_SELECTION_PRECONDITION_FAILED"
     state = project_after.json()["state"]
     assert state["active_case_id"] == "candidate-1"
     assert state["status"] == "WAITING_FOR_HUMAN"
@@ -3023,6 +3046,109 @@ def test_document_storage_canary_exercises_upload_agent_extraction_and_cleanup(
                 "WHERE payload_json->>'project_id'='document-canary-fixed'"
             )
         ).scalar_one() == 0
+
+
+def test_property_terms_selective_recompute_loads_join_stage_context(
+    repository: PostgresProjectRepository,
+    postgres_engine: Engine,
+) -> None:
+    project, stage_id, input_digest, _workflows = create_commit_stage(
+        repository, postgres_engine
+    )
+    execution = PostgresStageExecutionRepository(
+        postgres_engine,
+        new_result_id=lambda: "result-selective-recompute",
+    )
+    lease = execution.claim(
+        stage_run_id=stage_id,
+        worker_id="worker-result",
+        expected_input_digest=input_digest,
+    )
+    assert lease is not None
+    assert execution.checkpoint(
+        stage_run_id=stage_id,
+        lease_token=lease.lease_token,
+        input_digest=lease.input_digest,
+        result=result_payload(project_id=project.project_id),
+    ) == CheckpointOutcome.APPLIED
+    with postgres_engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE stage_runs SET result_json='{}'::jsonb "
+                "WHERE workflow_run_id=:workflow_run_id "
+                "AND stage_code <> 'COMMIT_RESULT'"
+            ),
+            {"workflow_run_id": lease.workflow_run_id},
+        )
+
+    result = ResultService(PostgresResultRepository(postgres_engine)).get_current(
+        project_id=project.project_id, user_id="user-1"
+    )
+    selection = CandidateSelectionService(postgres_engine).select(
+        project_id=project.project_id,
+        user_id="user-1",
+        result_bundle_id=result.result_bundle_id,
+        candidate_id="candidate-1",
+        expected_head=result.head,
+        idempotency_key="selection-selective-recompute",
+    )
+    application = PropertyTermsService(postgres_engine).apply(
+        project_id=project.project_id,
+        selection_id=selection.selection_id,
+        user_id="user-1",
+        expected_state_version=selection.selected_state_version,
+        terms=PropertyTermsInput(
+            address="서울 마포구 공덕동 테스트 점포",
+            area_sqm=33,
+            deposit_krw=30_000_000,
+            monthly_rent_krw=2_200_000,
+            management_fee_krw=200_000,
+            key_money_krw=10_000_000,
+        ),
+        idempotency_key="property-selective-recompute",
+    )
+
+    with postgres_engine.connect() as connection:
+        recompute_row = connection.execute(
+            text(
+                "SELECT s.stage_run_id, s.input_digest, s.status AS stage_status, "
+                "w.status AS workflow_status, w.workflow_generation, w.state_version, "
+                "h.workflow_generation AS current_workflow_generation, "
+                "h.state_version AS current_state_version "
+                "FROM stage_runs s "
+                "JOIN workflow_runs w ON w.workflow_run_id=s.workflow_run_id "
+                "JOIN project_heads h ON h.project_id=w.project_id "
+                "WHERE s.workflow_run_id=:workflow_run_id "
+                "AND s.stage_code='CALCULATE_GATE_RANK'"
+            ),
+            {"workflow_run_id": application.recompute_workflow.workflow_run_id},
+        ).mappings().one()
+    assert recompute_row["stage_status"] == "READY", dict(recompute_row)
+    assert recompute_row["workflow_status"] == "QUEUED", dict(recompute_row)
+    assert (
+        recompute_row["workflow_generation"]
+        == recompute_row["current_workflow_generation"]
+    ), dict(recompute_row)
+    assert recompute_row["state_version"] == recompute_row["current_state_version"], dict(
+        recompute_row
+    )
+    recompute_stage_id = recompute_row["stage_run_id"]
+    recompute_digest = recompute_row["input_digest"]
+    recompute_execution = PostgresStageExecutionRepository(postgres_engine)
+    recompute_lease = recompute_execution.claim(
+        stage_run_id=recompute_stage_id,
+        worker_id="worker-selective-recompute",
+        expected_input_digest=recompute_digest,
+    )
+    assert recompute_lease is not None
+
+    context = PostgresStageContextRepository(postgres_engine).load(recompute_lease)
+
+    assert context.lease.stage_code == FirstProposalStage.CALCULATE_GATE_RANK.value
+    assert set(context.dependency_results) == {
+        FirstProposalStage.PROPOSE_INDEPENDENT.value,
+        FirstProposalStage.PROPOSE_FRANCHISE.value,
+    }
 
 
 def test_invalid_result_contract_rolls_back_bundle_and_stage_checkpoint(

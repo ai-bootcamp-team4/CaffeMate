@@ -116,11 +116,17 @@ def stage_input_digest(
     head: HeadFence,
     dependencies: tuple[dict[str, object], ...] = (),
 ) -> str:
+    # A stage dependency set has no semantic ordering. Canonicalize it here so
+    # every producer and verifier derives the same digest regardless of SQL or plan order.
+    canonical_dependencies = sorted(
+        dependencies,
+        key=lambda dependency: str(dependency["stage_code"]),
+    )
     digest_payload: dict[str, Any] = {
         "workflow_run_id": workflow_run_id,
         "stage_code": stage_code.value,
         "head": head.model_dump(mode="json"),
-        "dependencies": list(dependencies),
+        "dependencies": canonical_dependencies,
         "contract_version": "1.0.0",
     }
     return hashlib.sha256(rfc8785.dumps(digest_payload)).hexdigest()
