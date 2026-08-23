@@ -6,6 +6,7 @@ import {
   sha256File,
   waitForWorkflow,
 } from './apiClient'
+import { changedExtractionFields, valueForExtractionInput } from './documentExtractionValues'
 
 const documentTypes: Array<{ value: DocumentType; label: string }> = [
   { value: 'PROPERTY_LISTING', label: '점포 매물 자료' },
@@ -40,11 +41,6 @@ function documentError(caught: unknown, fallback: string): string {
   }
   if (!/[가-힣]/.test(message) || /\b[A-Z][A-Z0-9_]{2,}\b/.test(message)) return fallback
   return message
-}
-
-function valueForInput(value: string | number | boolean | null): string {
-  if (value === null) return ''
-  return String(value)
 }
 
 export function DocumentIntake({ client, projectId, enabled, onApplied }: {
@@ -87,7 +83,7 @@ export function DocumentIntake({ client, projectId, enabled, onApplied }: {
       await client.completeDocumentUpload(projectId, uploadTicket.document_revision_id)
       const nextForm = await waitForExtraction(uploadTicket.document_revision_id)
       setForm(nextForm)
-      setValues(Object.fromEntries(nextForm.fields.map((field) => [field.field_id, valueForInput(field.current_value)])))
+      setValues(Object.fromEntries(nextForm.fields.map((field) => [field.field_id, valueForExtractionInput(field.current_value)])))
       setStatus('자동 입력이 끝났어요. 원문과 비교해 필요한 값만 고쳐 주세요.')
     } catch (caught) {
       setError(documentError(caught, '문서를 처리하지 못했어요. 같은 파일로 다시 시도해 주세요.'))
@@ -102,10 +98,10 @@ export function DocumentIntake({ client, projectId, enabled, onApplied }: {
     setBusy(true)
     setError('')
     try {
-      const updated = await client.updateDocumentExtractionForm(projectId, form, form.fields.map((field) => ({
-        field_id: field.field_id,
-        value: values[field.field_id]?.trim() || null,
-      })))
+      const edits = changedExtractionFields(form, values)
+      const updated = edits.length
+        ? await client.updateDocumentExtractionForm(projectId, form, edits)
+        : form
       const application = await client.applyDocumentExtractionForm(projectId, updated)
       setStatus('확인한 값을 반영해 비용과 위험을 다시 계산하고 있어요.')
       const workflow = await client.getWorkflow(projectId, application.recompute_workflow_run_id)

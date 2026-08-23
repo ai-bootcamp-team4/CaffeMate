@@ -395,7 +395,7 @@ describe('CaffeMate Control API integration', () => {
         edit_status: 'UNCHANGED' as const, anchor: { page_index: 0, section_path: '임대 조건' }, warnings: [],
       }],
     }
-    const appliedForm = { ...extractionForm, form_digest: `sha256:${'c'.repeat(64)}`, fields: [{ ...extractionForm.fields[0], current_value: '2000000', edit_status: 'EDITED' as const }] }
+    const appliedForm = { ...extractionForm, form_digest: `sha256:${'c'.repeat(64)}`, fields: [{ ...extractionForm.fields[0], current_value: 2_000_000, edit_status: 'EDITED' as const }] }
     vi.mocked(client.beginDocumentUpload).mockResolvedValueOnce(uploadTicket)
     vi.mocked(client.uploadDocument).mockResolvedValueOnce(undefined)
     vi.mocked(client.completeDocumentUpload).mockResolvedValueOnce(revision)
@@ -417,7 +417,7 @@ describe('CaffeMate Control API integration', () => {
     fireEvent.change(screen.getByLabelText('월세 (원)'), { target: { value: '2000000' } })
     fireEvent.click(screen.getByRole('button', { name: '반영하고 다시 계산' }))
 
-    await waitFor(() => expect(client.updateDocumentExtractionForm).toHaveBeenCalledWith('project-1', extractionForm, [{ field_id: 'monthly_rent_krw', value: '2000000' }]))
+    await waitFor(() => expect(client.updateDocumentExtractionForm).toHaveBeenCalledWith('project-1', extractionForm, [{ field_id: 'monthly_rent_krw', value: 2_000_000 }]))
     await waitFor(() => expect(client.applyDocumentExtractionForm).toHaveBeenCalledWith('project-1', appliedForm))
     expect(await screen.findByText('문서 값을 반영하고 창업안을 다시 계산했어요.')).toBeTruthy()
   })
