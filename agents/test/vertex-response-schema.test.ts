@@ -279,7 +279,12 @@ describe('Vertex role response schema projection', () => {
     const roleSchema = buildVertexRolePayloadSchema(task) as ProjectedSchema
     const responseSchema = buildAgentTaskResultResponseJsonSchema(task) as ProjectedSchema
 
+    expect(roleSchema.properties?.assessments.minItems).toBe(2)
     expect(roleSchema.properties?.assessments.maxItems).toBe(2)
+    expect(roleSchema.properties?.assessments.items?.properties?.candidate_ref.enum).toEqual([
+      'evidence-1',
+      'evidence-2',
+    ])
     expect(roleSchema.properties?.missing_claims.maxItems).toBe(1)
     expect(roleSchema.properties?.conflict_proposals.maxItems).toBe(1)
     expect(responseSchema.properties?.evidence_refs.maxItems).toBe(2)

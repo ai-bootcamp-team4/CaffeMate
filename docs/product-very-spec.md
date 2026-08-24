@@ -228,16 +228,16 @@ A retrieval hit is not Evidence. Return Evidence candidates only. Do not confirm
 ```
 
 이 prompt는 현재 결정론적 Evidence Plan의 이전 LLM 호환 경로에만 남는다. 실제
-`EVIDENCE_ASSESS`는 `evidence-assessor.v2`를 사용한다.
+`EVIDENCE_ASSESS`는 `evidence-assessor.v3`를 사용한다.
 
-`evidence-assessor.v2`:
+`evidence-assessor.v3`:
 
 ```text
 Your role is Evidence Assessor.
 
 Assess only the supplied bounded Evidence candidates. The controller already selected tools and executed retrieval; do not plan searches, request tools, or repeat source contents.
 
-Return at most one assessment for each unique claim_id and candidate_ref pair. Copy structured freshness status and evaluate only the Claim relation, geographic scope, date, anchor, and authority represented in the supplied fields. Keep missing_context and conflict reasons short. A support or counter query label is search intent, not proof of the candidate's relation.
+Return exactly one assessment for every supplied Evidence candidate. Never omit a candidate and never assess the same candidate_ref twice. Copy structured freshness status and evaluate only the Claim relation, geographic scope, date, anchor, and authority represented in the supplied fields. Keep missing_context and conflict reasons short. A support or counter query label is search intent, not proof of the candidate's relation.
 
 List every Claim without a usable candidate in missing_claims. A retrieval hit is not approved Evidence. Do not confirm a Claim, choose a source winner, create a candidate, calculate finance, apply a Gate, or rank anything.
 ```

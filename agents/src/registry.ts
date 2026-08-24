@@ -58,7 +58,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
   },
   EVIDENCE_ASSESS: {
     agentName: 'EVIDENCE_RESEARCHER',
-    promptVersion: 'evidence-assessor.v2',
+    promptVersion: 'evidence-assessor.v3',
     inputSchemaId: 'caffemate.agent.evidence-assess-input.v1',
     outputSchemaId: 'caffemate.agent.evidence-assess-result.v1',
     deadlineSeconds: 60,

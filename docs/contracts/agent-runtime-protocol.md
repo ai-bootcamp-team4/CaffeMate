@@ -573,6 +573,11 @@ Evidence Researcher는 MCP 결과의 scope, 날짜, 원문 위치와 출처 권�
 후보의 근거 누락과 위험 표현을 검사한다. 최종 비용 계산, 자금 판정, 순위와 저장은 계속 Control API가
 담당한다.
 
+`EVIDENCE_ASSESS`에 전달한 제한된 Evidence 후보는 모두 정확히 한 번씩 평가해야 한다. 일부 후보의
+생략이나 중복 평가는 유효한 완료가 아니며 같은 Agent의 validator-guided repair 대상으로 처리한다.
+이 규칙은 검색 결과를 자동 승인하는 규칙이 아니라, 모델의 출력 누락을 근거 부재로 잘못 해석하지
+않기 위한 응답 완전성 계약이다.
+
 ### 9.2 RESULT_FEEDBACK
 
 기본 경로는 읽기 전용 설명이다.

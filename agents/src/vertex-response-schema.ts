@@ -310,11 +310,18 @@ function applyEvidencePlanToolActionSchema(projected: JsonObject, task: AgentTas
 export function evidenceAssessOutputBounds(task: AgentTask): {
   claimCount: number
   candidateCount: number
+  claimIds: string[]
+  candidateIds: string[]
 } {
-  if (task.task_type !== 'EVIDENCE_ASSESS') return { claimCount: 0, candidateCount: 0 }
+  if (task.task_type !== 'EVIDENCE_ASSESS') {
+    return { claimCount: 0, candidateCount: 0, claimIds: [], candidateIds: [] }
+  }
   const payload = asObject(task.payload)
   const claims = Array.isArray(payload?.claims) ? payload.claims : []
   const actions = Array.isArray(payload?.executed_actions) ? payload.executed_actions : []
+  const claimIds = claims
+    .map((rawClaim) => asObject(rawClaim)?.claim_id)
+    .filter((claimId): claimId is string => typeof claimId === 'string')
   const candidateIds = new Set<string>()
   for (const rawAction of actions) {
     const action = asObject(rawAction)
@@ -325,20 +332,37 @@ export function evidenceAssessOutputBounds(task: AgentTask): {
       if (typeof record?.evidence_id === 'string') candidateIds.add(record.evidence_id)
     }
   }
-  return { claimCount: claims.length, candidateCount: candidateIds.size }
+  return {
+    claimCount: claims.length,
+    candidateCount: candidateIds.size,
+    claimIds,
+    candidateIds: [...candidateIds],
+  }
 }
 
 function applyEvidenceAssessBounds(projected: JsonObject, task: AgentTask): void {
+  // 사용자 의도: 제한된 근거 후보는 모두 한 번씩 평가되어야 하며,
+  // 모델이 한 건을 조용히 생략해 공식 근거가 사라지는 동작은 허용하지 않는다.
   const properties = asObject(projected.properties)
   if (!properties) throw new Error('VERTEX_EVIDENCE_ASSESS_SCHEMA_UNRESOLVED')
-  const { claimCount, candidateCount } = evidenceAssessOutputBounds(task)
+  const { claimCount, candidateCount, claimIds, candidateIds } = evidenceAssessOutputBounds(task)
   const assessments = asObject(properties.assessments)
   const missingClaims = asObject(properties.missing_claims)
   const conflicts = asObject(properties.conflict_proposals)
   if (!assessments || !missingClaims || !conflicts) {
     throw new Error('VERTEX_EVIDENCE_ASSESS_BOUNDS_UNRESOLVED')
   }
+  assessments.minItems = candidateCount
   assessments.maxItems = candidateCount
+  const assessmentItem = asObject(assessments.items)
+  const assessmentProperties = assessmentItem ? asObject(assessmentItem.properties) : null
+  const candidateRef = assessmentProperties ? asObject(assessmentProperties.candidate_ref) : null
+  const claimId = assessmentProperties ? asObject(assessmentProperties.claim_id) : null
+  if (!candidateRef || !claimId) {
+    throw new Error('VERTEX_EVIDENCE_ASSESS_REFERENCE_SCHEMA_UNRESOLVED')
+  }
+  candidateRef.enum = candidateIds
+  claimId.enum = claimIds
   missingClaims.maxItems = claimCount
   conflicts.maxItems = claimCount
 }

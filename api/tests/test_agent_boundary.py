@@ -467,6 +467,44 @@ def test_evidence_assessment_cannot_overstate_scope_or_freshness() -> None:
     assert "EVIDENCE_SCOPE_OR_DATE_INVALID" in {error.code for error in validation.errors}
 
 
+def test_evidence_assessment_must_cover_every_supplied_candidate_once() -> None:
+    task, result = fixture_task_result("EVIDENCE_ASSESS")
+    first = evidence_record("ev-first-candidate")
+    second = evidence_record("ev-second-candidate")
+    attach_evidence_action(task, first)
+    task["payload"]["executed_actions"][0]["structured_result"]["evidence_records"].append(
+        second
+    )
+    result["payload"] = {
+        "assessments": [
+            {
+                "claim_id": "claim-1",
+                "candidate_ref": "ev-first-candidate",
+                "relation": "SUPPORTS",
+                "scope_status": "MATCH",
+                "date_status": "MATCH",
+                "freshness_status": "FRESH",
+                "anchor_status": "VALID",
+                "authority_status": "ACCEPTABLE",
+                "missing_context": [],
+            }
+        ],
+        "missing_claims": [],
+        "conflict_proposals": [],
+    }
+    result["evidence_refs"] = ["ev-first-candidate"]
+
+    validation = validate_agent_boundary(
+        task=task,
+        result=result,
+        current_head=fixture_head(task),
+    )
+
+    assert "EVIDENCE_ASSESS_COVERAGE_INCOMPLETE" in {
+        error.code for error in validation.errors
+    }
+
+
 def test_document_extract_rejects_anchor_not_supplied_by_parser() -> None:
     task, result = fixture_task_result("DOCUMENT_EXTRACT")
     result["payload"]["proposed_claims"][0]["anchor"]["section_path"] = "다른 조항"

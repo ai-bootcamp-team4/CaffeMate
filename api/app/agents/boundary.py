@@ -723,6 +723,8 @@ def _validate_evidence_assessment_metadata(
     task: dict[str, Any],
     result: dict[str, Any],
 ) -> list[BoundaryError]:
+    # 사용자 의도: 전달한 근거 후보를 모델이 조용히 생략하면 공식 근거가
+    # 사라지므로, 모든 후보가 정확히 한 번씩 평가됐는지 경계에서 확인한다.
     if task["task_type"] != "EVIDENCE_ASSESS" or result.get("payload") is None:
         return []
 
@@ -735,11 +737,14 @@ def _validate_evidence_assessment_metadata(
     }
     evidence_records = _collect_evidence_records(task_payload)
     errors: list[BoundaryError] = []
+    assessed_counts: dict[str, int] = {}
     for index, assessment in enumerate(result_payload.get("assessments", [])):
         if not isinstance(assessment, dict):
             continue
         claim = claims.get(assessment.get("claim_id"))
         candidate_ref = assessment.get("candidate_ref")
+        if isinstance(candidate_ref, str):
+            assessed_counts[candidate_ref] = assessed_counts.get(candidate_ref, 0) + 1
         evidence = evidence_records.get(candidate_ref) if isinstance(candidate_ref, str) else None
         if claim is None or evidence is None:
             continue
@@ -784,6 +789,24 @@ def _validate_evidence_assessment_metadata(
                     ),
                 )
             )
+    missing_candidate_refs = sorted(set(evidence_records) - set(assessed_counts))
+    duplicate_candidate_refs = sorted(
+        candidate_ref
+        for candidate_ref, count in assessed_counts.items()
+        if count != 1
+    )
+    if missing_candidate_refs or duplicate_candidate_refs:
+        errors.append(
+            BoundaryError(
+                code="EVIDENCE_ASSESS_COVERAGE_INCOMPLETE",
+                json_pointer="/payload/assessments",
+                message=(
+                    "Every supplied candidate must be assessed exactly once; "
+                    f"missing={','.join(missing_candidate_refs)}; "
+                    f"duplicate={','.join(duplicate_candidate_refs)}"
+                ),
+            )
+        )
     return errors
 
 
