@@ -46,13 +46,8 @@ esac
 instance_connection_name=$(gcloud sql instances describe "$instance_id" \
   --project="$project_id" \
   --format='value(connectionName)')
-topic_id='caffemate-workflow-stage-ready'
-subscription_id='caffemate-workflow-stage-worker'
-topic_resource="projects/${project_id}/topics/${topic_id}"
-subscription_resource="projects/${project_id}/subscriptions/${subscription_id}"
 api_sa="caffemate-api-runtime@${project_id}.iam.gserviceaccount.com"
 worker_sa="caffemate-worker-runtime@${project_id}.iam.gserviceaccount.com"
-push_sa="caffemate-pubsub-push@${project_id}.iam.gserviceaccount.com"
 scheduler_sa="caffemate-scheduler@${project_id}.iam.gserviceaccount.com"
 mcp_url=$(gcloud run services describe caffemate-mcp \
   --project="$project_id" --region="$region" --format='value(status.url)')
@@ -150,18 +145,21 @@ agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
   --header 'Content-Type: application/json' \
   "${agent_runtime_url}:getIamPolicy" \
   --data '{}')
-agent_runtime_policy=$(AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" AGENT_RUNTIME_INVOKER_ROLE="$runtime_invoker_role" AGENT_SESSION_MANAGER_ROLE="$session_manager_role" python3 - <<'PY'
+agent_runtime_policy=$(AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" WORKER_SERVICE_ACCOUNT="$worker_sa" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" AGENT_RUNTIME_INVOKER_ROLE="$runtime_invoker_role" AGENT_SESSION_MANAGER_ROLE="$session_manager_role" python3 - <<'PY'
 import json
 import os
 
 policy = json.loads(os.environ["AGENT_RUNTIME_POLICY"])
-member = f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}"
+members = {
+    f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}",
+    f"serviceAccount:{os.environ['WORKER_SERVICE_ACCOUNT']}",
+}
 approved_role = os.environ["AGENT_RUNTIME_INVOKER_ROLE"]
 agent_identity = os.environ["AGENT_RUNTIME_IDENTITY"]
 session_role = os.environ["AGENT_SESSION_MANAGER_ROLE"]
 for row in policy.get("bindings", []):
     if row.get("role") == "roles/aiplatform.user":
-        row["members"] = [value for value in row.get("members", []) if value != member]
+        row["members"] = [value for value in row.get("members", []) if value not in members]
     if row.get("role") in {
         "roles/aiplatform.agentContextEditor",
         "roles/aiplatform.user",
@@ -172,8 +170,7 @@ binding = next((row for row in policy["bindings"] if row.get("role") == approved
 if binding is None:
     binding = {"role": approved_role, "members": []}
     policy.setdefault("bindings", []).append(binding)
-if member not in binding["members"]:
-    binding["members"].append(member)
+binding["members"] = sorted(set(binding["members"]) | members)
 binding["members"].sort()
 session_binding = next(
     (row for row in policy["bindings"] if row.get("role") == session_role),
@@ -194,21 +191,25 @@ agent_runtime_policy=$(curl --fail --silent --show-error --request POST \
   --header 'Content-Type: application/json' \
   "${agent_runtime_url}:setIamPolicy" \
   --data "$agent_runtime_policy")
-AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" AGENT_RUNTIME_INVOKER_ROLE="$runtime_invoker_role" AGENT_SESSION_MANAGER_ROLE="$session_manager_role" python3 - <<'PY'
+AGENT_RUNTIME_POLICY="$agent_runtime_policy" API_SERVICE_ACCOUNT="$api_sa" WORKER_SERVICE_ACCOUNT="$worker_sa" AGENT_RUNTIME_IDENTITY="$agent_runtime_identity" AGENT_RUNTIME_INVOKER_ROLE="$runtime_invoker_role" AGENT_SESSION_MANAGER_ROLE="$session_manager_role" python3 - <<'PY'
 import json
 import os
 
 policy = json.loads(os.environ["AGENT_RUNTIME_POLICY"])
-member = f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}"
+members = {
+    f"serviceAccount:{os.environ['API_SERVICE_ACCOUNT']}",
+    f"serviceAccount:{os.environ['WORKER_SERVICE_ACCOUNT']}",
+}
 approved_role = os.environ["AGENT_RUNTIME_INVOKER_ROLE"]
 agent_identity = os.environ["AGENT_RUNTIME_IDENTITY"]
 session_role = os.environ["AGENT_SESSION_MANAGER_ROLE"]
 assert any(
-    row.get("role") == approved_role and member in row.get("members", [])
+    row.get("role") == approved_role and members <= set(row.get("members", []))
     for row in policy.get("bindings", [])
 ), "Agent Runtime query IAM binding was not persisted"
 assert not any(
-    row.get("role") == "roles/aiplatform.user" and member in row.get("members", [])
+    row.get("role") == "roles/aiplatform.user"
+    and members.intersection(row.get("members", []))
     for row in policy.get("bindings", [])
 ), "broad Agent Runtime role remains bound"
 assert any(
@@ -273,25 +274,7 @@ create_service_account() {
   fi
 }
 
-create_service_account caffemate-pubsub-push 'CaffeMate Pub Sub push caller'
 create_service_account caffemate-scheduler 'CaffeMate Scheduler caller'
-
-if ! gcloud pubsub topics describe "$topic_id" \
-  --project="$project_id" >/dev/null 2>&1; then
-  gcloud pubsub topics create "$topic_id" --project="$project_id" --quiet >/dev/null
-fi
-
-gcloud pubsub topics add-iam-policy-binding "$topic_id" \
-  --project="$project_id" \
-  --member="serviceAccount:${worker_sa}" \
-  --role='roles/pubsub.publisher' \
-  --quiet >/dev/null
-
-gcloud pubsub topics add-iam-policy-binding "$topic_id" \
-  --project="$project_id" \
-  --member="serviceAccount:${api_sa}" \
-  --role='roles/pubsub.publisher' \
-  --quiet >/dev/null
 
 common_database_env="INSTANCE_CONNECTION_NAME=${instance_connection_name},DB_USER=caffemate_app,DB_NAME=caffemate,CLOUD_SQL_IP_TYPE=PUBLIC"
 
@@ -313,7 +296,7 @@ gcloud run deploy caffemate-api \
   --image="$image" \
   --service-account="$api_sa" \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CORS_ALLOWED_ORIGINS=https://caffemate-web-hfgnuuc55q-du.a.run.app;https://caffemate-web-424808310695.asia-northeast3.run.app,CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},WORKFLOW_STAGE_TOPIC_RESOURCE=${topic_resource},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},DOCUMENT_BUCKET=${document_bucket},DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa}${api_audience_env}" \
+  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CORS_ALLOWED_ORIGINS=https://caffemate-web-hfgnuuc55q-du.a.run.app;https://caffemate-web-424808310695.asia-northeast3.run.app,CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},DOCUMENT_BUCKET=${document_bucket},DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa}${api_audience_env}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest,AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
   --port=8080 \
   --timeout=600 \
@@ -356,7 +339,7 @@ gcloud run deploy caffemate-worker \
   --command=uvicorn \
   --args=worker.main:app,--host,0.0.0.0,--port,8080 \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},CONTROL_API_URL=${api_url},CONTROL_API_AUDIENCE=${api_url},WORKER_ID=caffemate-worker,PUBSUB_SUBSCRIPTION=${subscription_resource},WORKFLOW_STAGE_TOPIC_RESOURCE=${topic_resource},DOCUMENT_BUCKET=${document_bucket}" \
+  --set-env-vars="${common_database_env},WORKER_ID=caffemate-worker,AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},DOCUMENT_BUCKET=${document_bucket}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest' \
   --port=8080 \
   --timeout=600 \
@@ -373,55 +356,25 @@ worker_url=$(gcloud run services describe caffemate-worker \
   --region="$region" \
   --format='value(status.url)')
 
-for caller in "$worker_sa" "$push_sa" "$scheduler_sa"; do
-  target='caffemate-api'
-  if [ "$caller" != "$worker_sa" ]; then target='caffemate-worker'; fi
-  gcloud run services add-iam-policy-binding "$target" \
-    --project="$project_id" \
-    --region="$region" \
-    --member="serviceAccount:${caller}" \
-    --role='roles/run.invoker' \
-    --quiet >/dev/null
-done
-
-project_number=$(gcloud projects describe "$project_id" --format='value(projectNumber)')
-pubsub_agent="service-${project_number}@gcp-sa-pubsub.iam.gserviceaccount.com"
-gcloud iam service-accounts add-iam-policy-binding "$push_sa" \
+gcloud run services add-iam-policy-binding caffemate-api \
   --project="$project_id" \
-  --member="serviceAccount:${pubsub_agent}" \
-  --role='roles/iam.serviceAccountTokenCreator' \
+  --region="$region" \
+  --member="serviceAccount:${worker_sa}" \
+  --role='roles/run.invoker' \
   --quiet >/dev/null
 
-if gcloud pubsub subscriptions describe "$subscription_id" \
-  --project="$project_id" >/dev/null 2>&1; then
-  gcloud pubsub subscriptions update "$subscription_id" \
-    --project="$project_id" \
-    --push-endpoint="${worker_url}/internal/v1/pubsub/workflow-stages" \
-    --push-auth-service-account="$push_sa" \
-    --push-auth-token-audience="$worker_url" \
-    --ack-deadline=600 \
-    --min-retry-delay=10s \
-    --max-retry-delay=300s \
-    --quiet >/dev/null
-else
-  gcloud pubsub subscriptions create "$subscription_id" \
-    --project="$project_id" \
-    --topic="$topic_id" \
-    --push-endpoint="${worker_url}/internal/v1/pubsub/workflow-stages" \
-    --push-auth-service-account="$push_sa" \
-    --push-auth-token-audience="$worker_url" \
-    --ack-deadline=600 \
-    --min-retry-delay=10s \
-    --max-retry-delay=300s \
-    --expiration-period=never \
-    --quiet >/dev/null
-fi
+gcloud run services add-iam-policy-binding caffemate-worker \
+  --project="$project_id" \
+  --region="$region" \
+  --member="serviceAccount:${scheduler_sa}" \
+  --role='roles/run.invoker' \
+  --quiet >/dev/null
 
-scheduler_uri="${worker_url}/internal/v1/outbox:publish"
-if gcloud scheduler jobs describe caffemate-outbox-drain \
+scheduler_uri="${worker_url}/internal/v1/agent-sessions:cleanup"
+if gcloud scheduler jobs describe caffemate-agent-session-cleanup \
   --project="$project_id" \
   --location="$region" >/dev/null 2>&1; then
-  gcloud scheduler jobs update http caffemate-outbox-drain \
+  gcloud scheduler jobs update http caffemate-agent-session-cleanup \
     --project="$project_id" \
     --location="$region" \
     --schedule='* * * * *' \
@@ -435,7 +388,7 @@ if gcloud scheduler jobs describe caffemate-outbox-drain \
     --attempt-deadline=30s \
     --quiet >/dev/null
 else
-  gcloud scheduler jobs create http caffemate-outbox-drain \
+  gcloud scheduler jobs create http caffemate-agent-session-cleanup \
     --project="$project_id" \
     --location="$region" \
     --schedule='* * * * *' \
@@ -450,4 +403,4 @@ else
     --quiet >/dev/null
 fi
 
-printf '%s\n' 'API, Worker, Pub/Sub and Scheduler runtime deployment completed; run the verifier.'
+printf '%s\n' 'API, Worker and Agent cleanup Scheduler deployment completed; run the verifier.'

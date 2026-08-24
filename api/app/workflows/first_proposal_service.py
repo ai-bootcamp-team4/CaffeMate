@@ -6,13 +6,6 @@ from app.workflows.service import WorkflowService
 
 
 class FirstProposalService:
-    """Public Control API facade for the first-proposal workflow.
-
-    The workflow engine remains responsible for durable stages, leases, and retries.
-    This facade keeps the user-facing start -> progress -> result path fixed to one
-    workflow code so route handlers do not need to know orchestration details.
-    """
-
     def __init__(self, workflows: WorkflowService, results: ResultService) -> None:
         self._workflows = workflows
         self._results = results
@@ -30,7 +23,7 @@ class FirstProposalService:
         return self._workflows.start(
             project_id=project_id,
             user_id=user_id,
-            workflow_code=WorkflowCode.FIRST_PROPOSAL,
+            workflow_code=workflow_code,
             idempotency_key=idempotency_key,
         )
 

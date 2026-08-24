@@ -116,7 +116,7 @@ def test_backend_deployment_contract_requires_operational_readback() -> None:
         "migration execution success",
         "latest ready revision",
         "HTTP 200",
-        "`PUBLISHED`",
+        "`RUN_PROPOSAL`",
     ):
         assert required_evidence in documentation
     assert "`pending`" in documentation
@@ -256,16 +256,19 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "--invoker-iam-check" in deploy
     assert "--allow-unauthenticated" in deploy.split("gcloud run deploy caffemate-worker", 1)[0]
     assert "--allow-unauthenticated" not in deploy.split("gcloud run deploy caffemate-worker", 1)[1]
-    assert "caffemate-pubsub-push" in deploy
     assert "caffemate-scheduler" in deploy
-    assert "--push-auth-service-account" in deploy
     assert "--oidc-service-account-email" in deploy
     assert "WORKER_ID=caffemate-worker" in deploy
+    assert "/internal/v1/agent-sessions:cleanup" in deploy
+    assert "WORKFLOW_STAGE_TOPIC_RESOURCE" not in deploy
+    assert "PUBSUB_SUBSCRIPTION" not in deploy
+    assert "caffemate-pubsub-push" not in deploy
+    assert "/internal/v1/pubsub/workflow-stages" not in deploy
+    assert "/internal/v1/outbox:publish" not in deploy
     assert 'existing_api_url=$(gcloud run services describe caffemate-api' in deploy
     assert 'CONTROL_API_AUDIENCE=${existing_api_url}' in deploy
     assert '--update-env-vars="CONTROL_API_AUDIENCE=${api_url}"' in deploy
     assert "Control API internal identity audience matches canonical service URL" in verifier
-    assert "roles/iam.serviceAccountTokenCreator" in deploy
     assert "CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID" in deploy
     assert "AGENT_RUNTIME_PROJECT_ID=${project_id}" in deploy
     assert "AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id}" in deploy
@@ -296,7 +299,6 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert '"${worker_url}/health"' in verifier
     assert "/healthz" not in verifier
     assert "Worker unauthenticated internet request rejected" in verifier
-    assert "authenticated Pub/Sub push configuration" in verifier
     assert "API and Worker use the same image digest" in verifier
     assert "verify-mcp-preflight" in verifier
     assert "Control API SDK manifest preflight against deployed MCP" in verifier
@@ -328,12 +330,12 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "caffemate-franchise-proposal-canary" in verifier
     assert "--cafe-type-preference=${cafe_type_preference}" in verifier
     assert "--task-timeout=25m" in verifier
-    assert "FIRST_PROPOSAL traversed all 13 production stages" in verifier
+    assert "FIRST_PROPOSAL completed the single RUN_PROPOSAL stage" in verifier
     assert 'jsonPayload.status=\\"verified\\"' in verifier
     assert 'rows[0]["jsonPayload"]' in verifier
     assert "expected one FIRST_PROPOSAL canary report" in verifier
     assert 'report["workflow_status"] == "SUCCEEDED"' in verifier
-    assert 'report["stage_count"] == 13' in verifier
+    assert 'report["stage_count"] == 1' in verifier
     assert 'report["max_stage_attempt"] == 1' in verifier
     assert 'report["elapsed_ms"] <= 120_000' in verifier
     assert 'report["result_freshness"] == "CURRENT"' in verifier
@@ -342,13 +344,8 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert 'report.get("franchise_candidate_brand_ids")' in verifier
     assert 'jsonPayload.event=\\"VERTEX_AGENT_GENERATION\\"' in verifier
     assert 'jsonPayload.event=\\"AGENT_RESULT_VALIDATION\\"' in verifier
-    assert 'row.get("elapsed_ms", -1) <= 60_000' in verifier
-    assert 'row.get("outcome") == "VALID"' in verifier
-    assert 'row.get("candidate_proposal_count", 0) >= 1' in verifier
-    assert 'row.get("candidate_audit_count", 0) >= 1' in verifier
-    assert "managed Agents stopped within budget without repair" in verifier
     assert "Worker has public invoker policy" in verifier
-    assert "Scheduler reached internal Worker with HTTP 200" in verifier
+    assert "Scheduler reached Agent session cleanup with HTTP 200" in verifier
 
 
 def test_agent_runtime_release_is_source_and_digest_bound() -> None:

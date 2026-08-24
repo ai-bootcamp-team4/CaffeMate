@@ -347,6 +347,14 @@ def test_openapi_exposes_control_api_contract(client: TestClient) -> None:
         "/v1/projects/{project_id}/feedback/{preview_id}/cancel"
         in schema["paths"]
     )
+    assert (
+        "/v1/projects/{project_id}/workflows/{workflow_run_id}:cancel"
+        not in schema["paths"]
+    )
+    assert (
+        "/v1/projects/{project_id}/workflows/{workflow_run_id}/events"
+        not in schema["paths"]
+    )
     assert "/v1/projects/{project_id}/candidate-selections" in schema["paths"]
     assert (
         "/v1/projects/{project_id}/documents/{document_revision_id}/extraction-form:apply"

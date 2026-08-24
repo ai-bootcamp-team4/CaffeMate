@@ -1,14 +1,13 @@
+"""사용자 요청은 Control API에서 한 번 실행되고 즉시 저장된 결과로 반환된다."""
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated, Protocol, cast
+from typing import Annotated, cast
 
 from fastapi import Depends, FastAPI, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from google.api_core.exceptions import GoogleAPICallError
-from pydantic import BaseModel, ConfigDict, Field
-from worker.outbox import OutboxPublisher, PostgresOutboxRepository
-from worker.pubsub import GooglePubSubPublisher
+from pydantic import BaseModel, ConfigDict
 
 from app.agents.protocols import AgentRuntime
 from app.agents.runtime import (
@@ -57,13 +56,10 @@ from app.domain.errors import (
     ExternalExecutionUnavailableError,
     FeedbackPreconditionError,
     FeedbackPreviewNotFoundError,
-    FirstProposalConfigurationUnavailableError,
-    FirstProposalPreflightUnavailableError,
     IdempotencyKeyReusedError,
     PersistenceUnavailableError,
     ProjectNotFoundError,
     ResultNotFoundError,
-    StageLeaseRejectedError,
     StateVersionConflictError,
     UnauthenticatedError,
     WorkflowNotFoundError,
@@ -119,55 +115,15 @@ from app.selections.service import (
     UnavailableCandidateSelectionService,
 )
 from app.settings import RuntimeSettings
-from app.workflows.area_resolution import AreaMcpClient, AreaResolutionStageHandler
-from app.workflows.calculate_gate_rank import CalculateGateRankStageHandler
-from app.workflows.candidate_audit import CandidateAuditStageHandler
-from app.workflows.candidate_inputs import (
-    FranchiseEligibilityStageHandler,
-    IndependentSeedStageHandler,
-)
-from app.workflows.claim_plan import ClaimPlanStageHandler
-from app.workflows.commit_result import CommitResultStageHandler
-from app.workflows.evidence_assess import EvidenceAssessStageHandler
-from app.workflows.evidence_freeze import EvidenceFreezeStageHandler
-from app.workflows.evidence_plan import EvidencePlanStageHandler
-from app.workflows.evidence_retrieval import (
-    EvidenceMcpClient,
-    EvidenceRetrievalStageHandler,
-)
-from app.workflows.execution_repository import PostgresStageExecutionRepository
-from app.workflows.failure_policy import (
-    STAGE_EXECUTION_ERRORS,
-    StageExecutionFailurePolicy,
-)
-from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.first_proposal_service import FirstProposalService
 from app.workflows.models import (
-    StageLease,
     WorkflowCode,
-    WorkflowEvent,
     WorkflowProgress,
     WorkflowRun,
 )
 from app.workflows.postgres_repository import PostgresWorkflowRepository
-from app.workflows.proposal import ProposalStageHandler
 from app.workflows.service import WorkflowService
-from app.workflows.stage_context import PostgresStageContextRepository
-from app.workflows.stage_router import (
-    FirstProposalStageHandler,
-    FirstProposalStageRouter,
-)
-from app.workflows.stage_service import (
-    StageExecution,
-    StageExecutionService,
-    UnavailableStageExecutionService,
-)
-from app.workflows.start_guard import FirstProposalStartGuard
 from app.workflows.unavailable_repository import UnavailableWorkflowRepository
-
-
-class OutboxDispatcher(Protocol):
-    def publish_one(self) -> bool: ...
 
 
 class EmptyRequest(BaseModel):
@@ -178,22 +134,6 @@ class ConfirmOnboardingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     founder: FounderState
     area_selection_token: str | None = None
-
-
-class StageExecuteRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    lease: StageLease
-
-
-class StageExecuteFailureResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{0,63}$")
-    retryable: bool
-
-
-class StageExecuteResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    result: dict[str, object]
 
 
 def create_app(
@@ -218,11 +158,9 @@ def create_app(
     ) = None,
     area_lookup_service: AreaLookupService | UnavailableAreaLookupService | None = None,
     identity_verifier: IdentityVerifier | None = None,
-    stage_execution_service: StageExecution | None = None,
     internal_identity_verifier: IdentityVerifier | None = None,
     agent_runtime: AgentRuntime | None = None,
-    mcp_client: AreaMcpClient | EvidenceMcpClient | None = None,
-    outbox_dispatcher: OutboxDispatcher | None = None,
+    mcp_client: McpHttpClient | None = None,
 ) -> FastAPI:
     database_handle: DatabaseHandle | None = None
     settings = RuntimeSettings.from_environment()
@@ -276,76 +214,21 @@ def create_app(
             ),
         )
 
-    stage_handlers: dict[FirstProposalStage, FirstProposalStageHandler] = {
-        FirstProposalStage.CLAIM_PLAN: ClaimPlanStageHandler(),
-        FirstProposalStage.EVIDENCE_PLAN: EvidencePlanStageHandler(),
-        FirstProposalStage.EVIDENCE_FREEZE: EvidenceFreezeStageHandler(),
-        FirstProposalStage.INDEPENDENT_SEED: IndependentSeedStageHandler(seed_registry),
-        FirstProposalStage.FRANCHISE_ELIGIBILITY: FranchiseEligibilityStageHandler(),
-        FirstProposalStage.CALCULATE_GATE_RANK: CalculateGateRankStageHandler(seed_registry),
-        FirstProposalStage.COMMIT_RESULT: CommitResultStageHandler(),
-    }
-    if configured_mcp_client is not None:
-        stage_handlers.update(
-            {
-                FirstProposalStage.AREA_RESOLUTION: AreaResolutionStageHandler(
-                    configured_mcp_client
-                ),
-                FirstProposalStage.EVIDENCE_RETRIEVAL: EvidenceRetrievalStageHandler(
-                    configured_mcp_client
-                ),
-            }
-        )
-    if configured_agent_runtime is not None:
-        stage_handlers[FirstProposalStage.EVIDENCE_ASSESS] = EvidenceAssessStageHandler(
-            configured_agent_runtime
-        )
-        stage_handlers[FirstProposalStage.PROPOSE_INDEPENDENT] = (
-            ProposalStageHandler.independent(configured_agent_runtime)
-        )
-        stage_handlers[FirstProposalStage.PROPOSE_FRANCHISE] = (
-            ProposalStageHandler.franchise(configured_agent_runtime)
-        )
-        stage_handlers[FirstProposalStage.CANDIDATE_AUDIT] = CandidateAuditStageHandler(
-            configured_agent_runtime
-        )
-
     if workflow_service is None:
         workflow_repository = (
             PostgresWorkflowRepository(
                 database_handle.engine,
                 policy_snapshot_id=settings.policy_snapshot_id,
                 seed_registry_id=seed_registry.registry_id,
+                seed_registry=seed_registry,
             )
             if database_handle is not None and settings.policy_snapshot_id is not None
             else UnavailableWorkflowRepository()
         )
-        start_guard = (
-            FirstProposalStartGuard(stage_handlers)
-            if database_handle is not None and settings.policy_snapshot_id is not None
-            else None
-        )
-        workflows = WorkflowService(workflow_repository, start_guard=start_guard)
+        workflows = WorkflowService(workflow_repository)
     else:
         workflows = workflow_service
     first_proposal = FirstProposalService(workflows, results)
-
-    immediate_outbox = outbox_dispatcher
-    if (
-        immediate_outbox is None
-        and database_handle is not None
-        and settings.workflow_stage_topic_resource
-    ):
-        immediate_outbox = OutboxPublisher(
-            PostgresOutboxRepository(database_handle.engine),
-            GooglePubSubPublisher(
-                topic_resources={
-                    "WORKFLOW_STAGE_READY": settings.workflow_stage_topic_resource,
-                }
-            ),
-            publisher_id="caffemate-api",
-            logical_topic="WORKFLOW_STAGE_READY",
-        )
 
     if feedback_service is not None:
         feedback = feedback_service
@@ -429,19 +312,6 @@ def create_app(
     else:
         area_lookup = UnavailableAreaLookupService()
 
-    if stage_execution_service is not None:
-        internal_stages = stage_execution_service
-    elif database_handle is not None:
-        internal_stages = StageExecutionService(
-            PostgresStageExecutionRepository(database_handle.engine),
-            FirstProposalStageRouter(
-                PostgresStageContextRepository(database_handle.engine),
-                stage_handlers,
-            ),
-        )
-    else:
-        internal_stages = UnavailableStageExecutionService()
-
     if identity_verifier is not None:
         verifier = identity_verifier
     elif settings.firebase_project_id:
@@ -512,14 +382,7 @@ def create_app(
             CandidateSelectionPreconditionError: status.HTTP_409_CONFLICT,
             DocumentNotFoundError: status.HTTP_404_NOT_FOUND,
             DocumentPreconditionError: status.HTTP_409_CONFLICT,
-            StageLeaseRejectedError: status.HTTP_409_CONFLICT,
             ExternalExecutionUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
-            FirstProposalConfigurationUnavailableError: (
-                status.HTTP_503_SERVICE_UNAVAILABLE
-            ),
-            FirstProposalPreflightUnavailableError: (
-                status.HTTP_503_SERVICE_UNAVAILABLE
-            ),
         }
         status_code = next(
             (
@@ -530,43 +393,11 @@ def create_app(
             status.HTTP_400_BAD_REQUEST,
         )
         content: dict[str, object] = {"code": error.code}
-        if isinstance(error, FirstProposalConfigurationUnavailableError):
-            content["missing_stage_codes"] = error.missing_stage_codes
-        if isinstance(error, FirstProposalPreflightUnavailableError):
-            content["reason_codes"] = error.reason_codes
         return JSONResponse(status_code=status_code, content=content)
 
     @app.get("/health", tags=["operations"])
     def health() -> dict[str, str]:
         return {"status": "ok"}
-
-    @app.post(
-        "/internal/v1/workflows/{workflow_run_id}/stages/{stage_run_id}:execute",
-        response_model=StageExecuteResponse,
-        tags=["internal"],
-    )
-    def execute_stage(
-        workflow_run_id: str,
-        stage_run_id: str,
-        request: StageExecuteRequest,
-        _worker_id: Annotated[str, Depends(current_worker)],
-    ) -> StageExecuteResponse | JSONResponse:
-        try:
-            result = internal_stages.execute(
-                workflow_run_id=workflow_run_id,
-                stage_run_id=stage_run_id,
-                lease=request.lease,
-            )
-        except STAGE_EXECUTION_ERRORS as error:
-            failure = StageExecutionFailurePolicy.classify(error)
-            return JSONResponse(
-                status_code=failure.http_status,
-                content=StageExecuteFailureResponse(
-                    code=failure.code,
-                    retryable=failure.retryable,
-                ).model_dump(mode="json"),
-            )
-        return StageExecuteResponse(result=result)
 
     @app.post(
         "/internal/v1/documents/{document_revision_id}:scan-result",
@@ -959,24 +790,6 @@ def create_app(
         )
 
     @app.post(
-        "/v1/projects/{project_id}/workflows/{workflow_run_id}:cancel",
-        response_model=WorkflowRun,
-    )
-    def cancel_workflow(
-        project_id: str,
-        workflow_run_id: str,
-        _request: EmptyRequest,
-        user_id: Annotated[str, Depends(current_user)],
-        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-    ) -> WorkflowRun:
-        return workflows.cancel(
-            project_id=project_id,
-            workflow_run_id=workflow_run_id,
-            user_id=user_id,
-            idempotency_key=idempotency_key,
-        )
-
-    @app.post(
         "/v1/projects/{project_id}/workflows/{workflow_code}",
         response_model=WorkflowRun,
         status_code=status.HTTP_202_ACCEPTED,
@@ -988,20 +801,12 @@ def create_app(
         user_id: Annotated[str, Depends(current_user)],
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> WorkflowRun:
-        run = first_proposal.run(
+        return first_proposal.run(
             project_id=project_id,
             user_id=user_id,
             workflow_code=workflow_code,
             idempotency_key=idempotency_key,
         )
-        if immediate_outbox is not None:
-            try:
-                immediate_outbox.publish_one()
-            except (GoogleAPICallError, RuntimeError, TimeoutError, ValueError):
-                # Workflow creation already committed its durable outbox row.
-                # The scheduled drain remains the recovery path.
-                pass
-        return run
 
     @app.get(
         "/v1/projects/{project_id}/workflows/{workflow_run_id}",
@@ -1013,21 +818,6 @@ def create_app(
         user_id: Annotated[str, Depends(current_user)],
     ) -> WorkflowProgress:
         return first_proposal.progress(
-            project_id=project_id,
-            workflow_run_id=workflow_run_id,
-            user_id=user_id,
-        )
-
-    @app.get(
-        "/v1/projects/{project_id}/workflows/{workflow_run_id}/events",
-        response_model=list[WorkflowEvent],
-    )
-    def list_workflow_events(
-        project_id: str,
-        workflow_run_id: str,
-        user_id: Annotated[str, Depends(current_user)],
-    ) -> list[WorkflowEvent]:
-        return workflows.list_events(
             project_id=project_id,
             workflow_run_id=workflow_run_id,
             user_id=user_id,

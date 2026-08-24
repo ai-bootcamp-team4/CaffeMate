@@ -1,3 +1,5 @@
+"""사용자가 입력한 실제 점포 조건은 선택 후보 비용을 즉시 다시 계산해야 한다."""
+
 import hashlib
 import json
 from collections.abc import Callable
@@ -21,6 +23,7 @@ from app.domain.reducer import reduce_venture_state
 from app.selections.models import PropertyTermsApplication, PropertyTermsInput
 from app.workflows.models import HeadFence
 from app.workflows.selective_start import start_selective_first_proposal
+from app.workflows.simple_proposal import PropertyCostOverride
 
 
 class PropertyTermsService:
@@ -53,9 +56,7 @@ class PropertyTermsService:
             "expected_state_version": expected_state_version,
             "terms": terms.model_dump(mode="json"),
         }
-        request_digest = hashlib.sha256(
-            rfc8785.dumps(cast(Any, request_value))
-        ).digest()
+        request_digest = hashlib.sha256(rfc8785.dumps(cast(Any, request_value))).digest()
         with self._engine.begin() as connection:
             selected = (
                 connection.execute(
@@ -228,10 +229,17 @@ class PropertyTermsService:
                 user_id=user_id,
                 state=next_state,
                 source_workflow_run_id=selected["source_workflow_run_id"],
-                affected_stage_codes=["CALCULATE_GATE_RANK"],
                 previous_head=previous_head,
                 now=occurred_at,
                 new_id=self._new_id,
+                property_cost_override=PropertyCostOverride(
+                    property_input_id=property_input_id,
+                    source_id=source_id,
+                    deposit_krw=terms.deposit_krw,
+                    monthly_rent_krw=terms.monthly_rent_krw,
+                    management_fee_krw=terms.management_fee_krw,
+                    key_money_krw=terms.key_money_krw,
+                ),
             )
             previous_financial_summary = candidate.get("financial_summary")
             if not isinstance(previous_financial_summary, dict):

@@ -106,20 +106,15 @@ Control API의 물리 설정은 `gcp_project_id`와 `resource_id`를 분리한�
 4. 삭제가 끝나야 stream을 닫는다. 삭제 실패는 `RUNTIME_SESSION_CLEANUP_FAILED`로 명시하고
    Control API가 deterministic session id를 durable cleanup outbox에 넣어 멱등 재시도한다.
 
-이 결합은 Agent 응답을 기다리지 않는 비동기 우회가 아니다. Control API는 여전히 final event와
-Runtime 내부 session 삭제 완료까지 기다린다. 단지 동일 Runtime에 대한 외부 HTTPS 왕복을
-`create → stream → delete` 세 번에서 한 번으로 줄인다. Proposal Agent와 Independent Critic은
-서로 다른 invocation id와 session id를 계속 사용하므로 독립적인 추론 문맥도 유지된다.
+이 결합은 Agent 응답을 기다리지 않는 비동기 우회가 아니다. Agent 기능을 호출한 Control API는
+final event와 Runtime 내부 session 삭제 완료까지 기다린다. 단지 동일 Runtime에 대한 외부 HTTPS
+왕복을 `create → stream → delete` 세 번에서 한 번으로 줄인다. 서로 다른 역할은 별도 invocation id와
+session id를 사용하므로 독립적인 추론 문맥을 유지한다.
 
-운영 검증은 Control API identity로 ephemeral stream을 실제 호출해 session 생성·Agent 실행·typed
-final 검증·삭제가 모두 끝난 경우에만 통과한다. 이어 FIRST_PROPOSAL canary에서 세 역할의 generation
-telemetry와 validation telemetry가 모두 존재하고 Stage attempt가 1인지 확인한다. 별도
-`FRANCHISE_ONLY` canary는 결과가 프랜차이즈 후보만 포함하며, 검토 가능한 후보에 실제 브랜드 ID,
-`VERIFIED` 개인 가맹 적격성, 유효한 순위가 있는지 확인한다. 2026-08-23
-첫 검증에서는 세 역할 모두 `STOP`, repair 0, `VALID`였고 13단계가 47.917초에 끝났다.
-semantic-only model output과 Runtime envelope hydration 배포 뒤 같은 검증은 39.620초에 끝났고,
-세 역할은 계속 `STOP`, repair 0, `VALID`를 유지했다. 이 수치 비교의 세부 request byte와 token은
-`docs/architecture/system-architecture.md`에 기록한다.
+운영 검증은 Control API identity로 ephemeral stream을 실제 호출해 session 생성, Agent 실행,
+typed final 검증과 삭제가 모두 끝난 경우에만 통과한다. 이 검증은 첫 제안 Workflow와 분리한다.
+현재 `FIRST_PROPOSAL`의 `RUN_PROPOSAL`은 Agent Runtime을 호출하지 않으며, 자연어 피드백과 문서
+추출처럼 Agent가 필요한 기능만 이 전송 계약을 사용한다.
 
 `async_get_release_identity`는 사용자 invocation 경로가 아닌 배포 preflight 전용 read-only class method다. session을 생성하거나 제품 State를 읽고 쓰지 않으며, 배포 artifact가 직접 계산한 `prompt_bundle_digest`와 `agent_contract_bundle_digest`만 반환한다. Control API의 정상 Agent 호출 순서는 위 세 class method만 사용한다.
 
@@ -357,7 +352,9 @@ JSON Schema가 두 필드 사이의 동일성, 배열 참조의 포함관계와 
 - `repair_attempt`: 원 호출은 `0`, schema repair 호출만 `1`
 - `input_digest`: payload, fence, schema와 prompt version을 포함한 canonical digest
 
-Agent 호출은 side effect가 없으므로 동일 `task_id`가 둘 이상 실행돼도 State를 바꾸지 않는다. Worker는 `(task_id, input_digest)` unique key와 stage compare-and-swap으로 full head가 현재와 일치하는 첫 valid result만 checkpoint하고 나머지는 `DUPLICATE_DISCARDED`로 기록한다.
+Agent 호출은 side effect가 없으므로 동일 `task_id`가 둘 이상 실행돼도 State를 바꾸지 않는다.
+Control API는 `(task_id, input_digest)`와 current full head를 검증하여 현재 요청의 첫 valid result만
+수용하고 나머지는 폐기한다. 첫 제안 Worker나 stage compare-and-swap은 이 경계에 존재하지 않는다.
 
 ### 7.2 재시도 표
 
@@ -374,57 +371,35 @@ transport backoff는 250ms, 750ms이고 invocation id에서 파생한 0~100ms ji
 
 repair는 같은 session 이력에 의존하지 않는다. `repair_context`에 직전 응답 text, 그 SHA-256 digest와 최대 50개 validator error가 반드시 들어간다. 두 번째 schema 실패는 기권으로 끝나며 세 번째 생성 호출은 없다.
 
-Workflow 취소는 GCP 계산이 즉시 중단됐음을 보장하지 않는다. Control API가 run을 `CANCELLED`로 닫고 SSE를 사용 중이면 stream을 닫는다. timeout 또는 cancel 뒤 도착한 결과는 full head가 같아도 무조건 폐기한다. 그 외 결과도 current full head의 여덟 차원이 모두 요청과 같을 때만 checkpoint한다.
+Agent invocation이 호출자 연결 종료나 내부 운영 취소로 폐기된 뒤 도착한 결과는 full head가 같아도
+적용하지 않는다. 그 외 결과도 current full head의 여덟 차원이 모두 요청과 같을 때만 수용한다.
+동기식 첫 제안에는 공개 취소 동작이 없다.
 
-### 7.3 `202` 이후 durable 실행
+### 7.3 단일 첫 제안 실행
 
-공개 `POST /v1/projects/{venture_project_id}/workflows/{workflow_code}`는 다음 transaction이 commit된 뒤에만 `202 + workflow_run_id`를 반환한다.
+공개 `POST /v1/projects/{venture_project_id}/workflows/FIRST_PROPOSAL`은 Control API가 다음 작업을
+한 transaction에서 완료한 뒤 `workflow_run_id`를 반환한다.
 
-1. `workflow_run`, 첫 `stage_run`, command payload digest와 idempotency record를 Cloud SQL에 기록한다.
-2. 같은 transaction의 outbox row에 `workflow_run_id`를 기록한다.
-3. outbox publisher가 Pub/Sub에 발행하고 발행 완료를 기록한다.
+1. 현재 Venture State와 project head를 잠근다.
+2. 등록 후보와 수용된 Evidence로 제안, 재무 계산, Gate와 순위를 실행한다.
+3. `workflow_run`, 단일 `RUN_PROPOSAL` 기록, 결과 bundle과 idempotency 응답을 함께 저장한다.
 
-`caffemate-worker`가 모든 Agent DAG stage의 유일한 lease owner다. Worker는 15초 heartbeat, 90초 lease를 사용하고 stage 시작·checkpoint·다음 outbox 생성에 compare-and-swap을 적용한다. API instance가 `202` 직후 종료돼도 DB outbox가 남으므로 실행이 사라지지 않는다. redelivery는 같은 `(workflow_run_id, stage_run_id, input_digest)`로 흡수한다.
-
-Worker는 Agent Runtime·MCP credential을 갖지 않는다. 결정론적 Evidence Plan, Agent·MCP
-stage에서는 lease token과 full head를 넣어 private Control API stage-execute endpoint를 호출하고,
-Control API가 계획 생성 또는 외부 호출과 boundary validation을 수행한 뒤 같은 lease token으로
-checkpoint한다. 문서 parsing·embedding처럼 Worker가 직접 수행하는 stage도 persistent Venture
-State는 쓰지 않고 proposed artifact만 만들며 reducer 적용은 API를 통한다.
-
-내부 stage-execute endpoint의 실패 응답은 원문 예외를 노출하지 않고 안정적인
-`code`와 `retryable`만 반환한다. Agent Runtime·MCP adapter가 자체 transport retry를
-소진한 뒤 반환한 오류, HTTP 400·401·403, safety·Schema·protocol·fence 오류는
-`retryable=false`다. Worker와 Control API 사이의 network·408·429·5xx처럼 아직
-실행 경계에 도달했는지 확정할 수 없는 전송 실패만 `retryable=true`다. Worker는
-이 값을 보존해 `StageFailure`를 기록하며 임의로 모든 5xx를 재시도 가능 오류로
-평탄화하지 않는다.
-
-최대 60초 Agent task를 Worker 전송 timeout이 먼저 끊지 않도록 stage lease는 90초,
-Worker의 Control API 요청 상한은 70초로 둔다. Agent의 logical `deadline_at`이 실제
-생성·stream·검증·cleanup 예산의 권위값이며, Worker heartbeat는 진행 중인 lease만
-연장하고 Agent 호출의 deadline을 연장하지 않는다.
+이 경로에는 Outbox 발행, Pub/Sub, Worker lease, heartbeat와 내부 stage 실행 endpoint가 없다.
+HTTP 응답 코드는 기존 React 계약 때문에 현재 `202`를 유지하지만, 반환되는 Workflow는 이미
+`SUCCEEDED`이며 진행 조회는 완료 상태를 한 번 읽는다.
 
 ```text
-POST   /v1/projects/{venture_project_id}/workflows/FIRST_PROPOSAL
-GET    /v1/projects/{venture_project_id}/workflows/{workflow_run_id}
-GET    /v1/projects/{venture_project_id}/result
-GET    /v1/projects/{venture_project_id}/workflows/{workflow_run_id}/events
-POST   /v1/projects/{venture_project_id}/workflows/{workflow_run_id}:cancel
-POST   /internal/v1/workflows/{workflow_run_id}/stages/{stage_run_id}:execute
+POST /v1/projects/{venture_project_id}/workflows/FIRST_PROPOSAL
+GET  /v1/projects/{venture_project_id}/workflows/{workflow_run_id}
+GET  /v1/projects/{venture_project_id}/result
 ```
 
-첫 세 공개 동작은 `FirstProposalService`의 run, progress, result 진입점으로 모은다. Durable DAG,
-Agent fan-out, MCP 조회, 계산과 reducer는 이 진입점 뒤의 기존 모듈을 그대로 사용하며 React가
-stage 내부 API나 canary를 호출하지 않는다.
+세 공개 동작은 `FirstProposalService`의 run, progress, result 진입점으로 모은다. React는 내부
+모듈, Agent Runtime, MCP와 운영 검증 endpoint를 직접 호출하지 않는다. Worker의 `/internal/**`
+경로는 Agent session cleanup과 운영 실패 처리 전용이며 Worker service identity를 검증한다.
 
-`/internal/**`은 제품·브라우저 API가 아니라 Worker service identity만 호출하는 내부 계약이다.
-현재 Control API는 브라우저 API를 위해 public invoker를 사용하므로 이 path 자체는 transport 경계에서
-도달 가능하다. 따라서 모든 `/internal/**` route는 요청 본문을 Pydantic model로 파싱하기 전에
-service identity dependency를 먼저 실행한다. 인증되지 않은 malformed body는 내부 Schema 세부를
-담은 422가 아니라 `401 UNAUTHENTICATED`로 끝나며 handler·저장소·Agent·MCP 호출은 0회다.
-
-cancel command도 durable Event로 기록하고 generation을 증가시킨다. 진행 중인 worker는 다음 heartbeat 또는 외부 호출 반환 시 이를 관측하고 checkpoint를 금지한다. cleanup outbox는 cancel과 별개로 session 삭제를 끝까지 시도한다.
+실행 전제조건, State 무결성이나 저장 transaction이 실패하면 결과와 Workflow 기록을 함께
+rollback한다.
 
 ## 8. MCP 연결 계약
 
@@ -438,11 +413,16 @@ cancel command도 durable Event로 기록하고 generation을 증가시킨다. �
 - 사용하지 않는 기능: write tool, prompts, sampling, elicitation, persistent MCP session, Tasks extension
 - implementation: MCP server는 공식 TypeScript SDK v2의 `createMcpHandler(..., { legacy: 'reject' })`, FastAPI Control API는 공식 Python SDK v2 client를 사용한다. 양쪽 package version을 lockfile·release manifest에 pin하며 hand-written transport와 2025 fallback은 허용하지 않는다.
 
-현재 production connector 범위는 [Production Capability](./mcp-production-capabilities.json)에 고정한다. `resolve_area`는 행정안전부 도로명주소 검색 API와 버전 고정 법정동 목록을 사용한다. `get_area_profile`과 `search_cafe_observations`는 승인된 BigQuery grounding snapshot만 조회한다. `retrieve_official_documents`는 서울 Vertex AI RAG Engine의 승인 official corpus만 조회한다. `list_franchise_universe`는 2026-08-23에 브랜드 공식 가맹 안내·창업상담 페이지를 확인한 PoC snapshot만 반환한다. 이 값은 개인의 일반적인 가맹 문의 가능성을 뜻하며 특정 후보 지역의 출점 승인이나 정보공개서 완전성을 뜻하지 않는다. 따라서 각 브랜드에는 `area_availability_hq_confirmation`과 `franchise_disclosure`를 missing context로 남기고 `조건부 검토`로만 사용할 수 있다. `retrieve_project_documents`, `get_franchise_disclosure` 등 connector가 없는 tool은 MCP client에게 호출 가능하다고 표시하지 않는다. FIRST_PROPOSAL의 결정론적 Evidence Plan도 같은 capability만 실행하며, 없는 connector가 필요한 Claim은 `missing_claim_ids`로 보존한다.
+현재 production connector 범위는 [Production Capability](./mcp-production-capabilities.json)에 고정한다. `resolve_area`는 행정안전부 도로명주소 검색 API와 버전 고정 법정동 목록을 사용한다. `get_area_profile`과 `search_cafe_observations`는 승인된 BigQuery grounding snapshot만 조회한다. `retrieve_official_documents`는 서울 Vertex AI RAG Engine의 승인 official corpus만 조회한다. `list_franchise_universe`는 2026-08-23에 브랜드 공식 가맹 안내·창업상담 페이지를 확인한 snapshot만 반환한다. 이 값은 개인의 일반적인 가맹 문의 가능성을 뜻하며 특정 후보 지역의 출점 승인이나 정보공개서 완전성을 뜻하지 않는다. 따라서 각 브랜드에는 `area_availability_hq_confirmation`과 `franchise_disclosure`를 missing context로 남기고 `조건부 검토`로만 사용할 수 있다. `retrieve_project_documents`, `get_franchise_disclosure` 등 connector가 없는 tool은 MCP client에게 호출 가능하다고 표시하지 않는다.
 
-RAG connector의 `data`는 검색 hit이고 그 자체가 확정 Evidence가 아니다. Control API의 `EVIDENCE_RETRIEVAL` 경계는 각 실행 action의 Claim id·type·지리 범위·기준일과 hit의 document revision·anchor·excerpt·source date·`source_trace`를 결합해 `EvidenceRecord` 후보를 만든다. 후보 id는 project, Claim id·type, 지리 범위, retrieval evidence id와 document revision으로 결정적으로 생성한다. 같은 물리 검색을 동일 Claim의 support·counter action이 공유하면 동일한 immutable 후보를 재사용하고, 다른 Claim 또는 범위에서는 다른 후보 id를 사용한다. `source_trace`와 정확히 연결할 수 없는 hit는 후보로 승격하지 않고 MCP 결과를 `PARTIAL`로 낮춘다. `EVIDENCE_ASSESS` Agent가 후보의 관계·범위·날짜·anchor·권위를 수용한 뒤에만 Evidence Freeze가 영구 snapshot에 포함한다.
+RAG connector의 `data`는 검색 hit이고 그 자체가 확정 Evidence가 아니다. Control API는 hit의 Claim,
+지리 범위, 기준일, document revision, anchor, excerpt와 `source_trace`를 결합해 `EvidenceRecord` 후보를
+만든다. 원문과 정확히 연결할 수 없는 hit는 수용하지 않는다. 별도 근거 수집 또는 문서 적용 경로가
+후보의 관계, 범위, 날짜와 권위를 검증한 뒤에만 accepted Evidence로 저장한다.
 
-공식 문서의 공개 결과 경로는 `retrieve_official_documents → EvidenceRecord 후보 → EVIDENCE_ASSESS → Evidence Freeze → CandidateResult.official_documents`로 고정한다. 결과에는 출처 제목·원문 주소·기준일·문서 revision·인용문·Evidence 참조를 보존한다. 후보에 필요한 공식 문서 범주가 Freeze에 없으면 `official_document_gaps`로 노출하며 Agent가 문서 내용이나 확인 여부를 생성하지 않는다.
+첫 제안의 공개 결과 경로는 `accepted Evidence → RUN_PROPOSAL → CandidateResult`다. 결과에는 출처
+제목, 원문 주소, 기준일, 문서 revision, 인용문과 Evidence 참조를 보존한다. 필요한 공식 문서가
+없으면 `official_document_gaps`로 노출하며 Agent가 문서 내용이나 확인 여부를 생성하지 않는다.
 
 배포 단위는 `caffemate-mcp` Cloud Run service다. 서비스는 unauthenticated invoker를 허용하지 않고 `caffemate-api-runtime`만 `roles/run.invoker`를 가진다. MCP runtime identity는 official RAG 조회와 서울 Vertex AI Ranking API 호출에 필요한 최소 권한만 가진다. `aiplatform.endpoints.predict`, `aiplatform.ragCorpora.get`, `aiplatform.ragCorpora.query`, `aiplatform.ragFiles.get`, `discoveryengine.rankingConfigs.rank`의 retrieval/embedding/ranking read·execute 권한만 허용하고 mutation 권한은 허용하지 않는다. `ragFiles.get`은 검색 mutation이 아니라 release manifest에 고정된 공식 RAG 파일의 ACTIVE 상태와 identity를 health probe가 읽기 위한 권한이다. application boundary에서도 같은 service identity의 Google ID token, service URL audience, 최대 300초의 HMAC scope token을 모두 검증한다. Control API는 `MCP_BASE_URL`, `MCP_AUDIENCE`, `MCP_SCOPE_HMAC_SECRET` 세 설정이 모두 있을 때만 MCP client를 구성한다.
 
@@ -552,119 +532,41 @@ tool 이름, input·output Schema와 version은 [MCP Tool Manifest](./mcp-tool-m
 
 배포 preflight는 pagination을 끝까지 소비한 `tools/list`의 name·version·inputSchema·outputSchema를 RFC 8785로 정규화한다. 관측 목록은 Production Capability의 세 tool과 정확히 비교하고, 각 Schema는 전체 manifest의 해당 definition과 비교한다. Production Capability가 pin한 전체 manifest digest도 [manifest digest](./mcp-tool-manifest.sha256)와 일치해야 한다. 운영 connector의 누락·추가, 미래 tool의 잘못된 광고, schema 차이 또는 digest 차이가 하나라도 있으면 `MCP_MANIFEST_MISMATCH`로 release 승격을 막는다. `server/discover`는 capability preflight에만 쓰며 business request의 선행 handshake가 아니다.
 
-`McpManifestPreflight`는 배포 검증과 canary에서 Control API image의 runtime service account로 실행한다. 사용자 `FIRST_PROPOSAL` 시작 요청은 이 원격 점검을 실행하지 않고 로컬 stage 구성, State 전제조건과 DB transaction만 검증한 뒤 Workflow row와 outbox를 저장한다. 배포 뒤 MCP가 일시적으로 실패하면 각 조회 action은 `failed_actions`와 missing Claim으로 남으며, 지역 식별 자체가 불가능한 경우에만 `WAITING_FOR_HUMAN`으로 전환한다.
+`McpManifestPreflight`는 배포 검증에서 Control API image의 runtime service account로 실행한다.
+사용자 `FIRST_PROPOSAL` 시작 요청은 이 원격 점검이나 MCP 조회를 실행하지 않는다. Control API는
+현재 State와 이미 수용된 Evidence를 읽어 단일 `RUN_PROPOSAL` 결과를 저장한다. MCP 장애는 근거 수집
+기능에서 명시적으로 보고하며 첫 제안 요청 안에서 숨은 재시도나 대체 자료 조회를 만들지 않는다.
 
 ## 9. 역할별 Workflow handoff
 
 ### 9.1 FIRST_PROPOSAL
 
 ```text
-Control API Claim Plan
-→ versioned deterministic Evidence Plan
-→ validate Claim coverage·allowed tool·typed arguments·scope·date·action budget
-→ MCP tools/call in parallel
-→ validate structuredContent
-→ EVIDENCE_ASSESS AgentTask
-→ validate the actual Agent final event or preserve every Claim as missing
-→ freeze EvidenceSnapshot
-→ eligible seed·brand별 PROPOSE_INDEPENDENT and/or PROPOSE_FRANCHISE AgentTask 병렬 실행
-→ Control API가 유효한 개별 proposal을 입력 순서로 집계
-→ proposal support validation
-→ deterministic finance·Gate·rank
-→ CANDIDATE_AUDIT AgentTask
-→ hard validator
-→ reducer CAS
+current Venture State
+→ registered independent models and verified franchise brands
+→ accepted Evidence projection
+→ deterministic candidate finance
+→ capital Gate and next-review ranking
+→ result bundle and single RUN_PROPOSAL record
 ```
 
-Proposal Agent 입력의 `model_seeds`와 `franchise_universe`는 결정론적 eligibility 단계를 통과한
-후보다. Control API는 source별로 task를 분리하여 각 task에 source 하나와
-`requested_candidate_count=1`을 넣는다. Agent는 backend가 배정한 proposal id·표시명·source id를
-그대로 유지한 proposal 하나를 반환해야 한다. 독립카페 seed의 `support_refs`는 `assumption_refs`와
-조정값의 support로만 사용하며, `evidence_refs`에는 task의 `evidence_records[].evidence_id`만 허용한다.
-비용·매출·수요·출점 가능성·정보공개서 일부가 없다는 이유만으로 후보 배열을 비우지 않는다.
-지원되지 않는 조정값은 만들지 않고 `missing_fields`와 warning에 남긴다. 대응 missing Claim id가
-있으면 후보를 포함한 `NEEDS_EVIDENCE`, 없으면 후보 생성 작업 자체가 끝났다는 뜻의 `COMPLETE`를
-사용한다. Runtime 의미 검증기는 빈 후보나 같은 seed·brand의 중복 padding을 한 번의 repair 대상으로
-거절하며, repair 뒤에도 위반하면 Stage를 실패시킨다.
+현재 첫 제안은 Agent Runtime이나 MCP를 호출하는 DAG가 아니다. Control API가 등록 후보와 현재
+accepted Evidence를 읽고 한 transaction에서 결과를 계산해 저장한다. 사용자가 개인카페만,
+프랜차이즈만 또는 둘 다를 선택한 경우에도 같은 단일 실행 경로를 사용한다.
 
-동일한 tool name·version·typed arguments 조합은 한 번만 물리 호출한다. 동일 호출을 공유한
-support·counter action은 각 `action_id`와 `polarity`를 유지하되 같은 `request_id`를 참조한다.
-개별 호출 실패는 빈 정상 결과로 바꾸지 않고 `failed_actions`에 남겨 `EVIDENCE_ASSESS`가
-자료 부족과 counter search 실패를 구분할 수 있게 한다.
+개인카페의 등록 기준과 프랜차이즈의 공식 비용·가정은 서로 다른 provenance로 보존한다. 실제 점포
+조건이 들어오면 선택 후보의 보증금, 권리금, 월세와 관리비만 사용자 입력값으로 교체하고 재무,
+Gate와 순위를 다시 계산한다. 프랜차이즈의 지역 출점 가능 여부나 정보공개서가 확인되지 않았으면
+후보를 제거하지 않고 조건부 검토와 다음 확인 항목을 표시한다.
 
-결정론적 계획기는 현재 등록된 Claim 종류만 처리하며 각 Claim에 support action 하나와 counter
-action 하나를 만든다. `OPEN_TO_BOTH`의 최대 9개 Claim은 18개 논리 action으로 제한되고 전체
-상한 20을 넘지 않는다. 정형 source의 두 polarity가 같은 typed request를 사용할 때에는 한 번의
-물리 조회 결과를 공유한다. 공식 문서 RAG는 서로 다른 support·counter query template을 사용한다.
-등록되지 않은 Claim, action id pool 부족, 허용되지 않은 tool과 MCP input Schema 불일치는 외부
-호출 전에 non-retryable 계약 오류로 끝난다.
+Proposal, Evidence Researcher와 Independent Critic의 typed task 계약은 삭제하지 않는다. 이 역할은
+비정형 자료를 구조화하거나 별도의 품질 강화 실행을 추가할 때 사용할 수 있다. 그러나 해당 Agent
+호출이 첫 결과 생성의 필수 조건이라고 문서화하거나, 삭제된 stage 이름을 첫 제안 Workflow에 다시
+연결하지 않는다.
 
-`EVIDENCE_ASSESS`는 근거 간 의미 관계와 충돌을 판단해야 하므로 Agent 역할을 유지한다. Control
-API는 동일 Claim·tool·request의 중복 논리 action 중 한 개만 Agent 입력에 넣고, action별 rerank
-상위 한 개 Evidence record와 대응 source trace만 전달하며 provider-specific `data` 행은 제거한다.
-완전한 `executed_actions`는 별도로 보존하고 정상 Agent 결과가 boundary validator를 통과한 뒤
-Evidence Freeze에 전달한다. Agent가 대표 정형 지표를 수용하면 Control API는 같은 action·Claim·
-지리 범위의 `PRIMARY_DATA`·`DATASET` 형제 지표 중 신선하고 충돌이 없으며 dataset row 또는 계산
-anchor와 checksum을 가진 값만 결정론적으로 함께 동결한다. 이 확장은 RAG·웹·사용자 문서 후보에는
-적용하지 않는다. 같은 source row 또는 RAG chunk가 여러 query나 후속 Workflow generation에서 반복 조회된 경우
-내용·source version·checksum이 같으면 한 Evidence로 합치고 호출별 observation time 차이는 충돌로
-취급하지 않는다. 그 밖의 값이 다르면 동일 Evidence id 충돌로 거절한다.
-
-이 단계는 `low` 사고 수준, 최대 16,384 출력 토큰, 60초 deadline으로 고정한다. output schema의
-`assessments`와 `evidence_refs` 최대 개수는 입력의 unique Evidence 수로, missing과 conflict 최대
-개수는 Claim 수로 제한한다. timeout·transport·`MAX_TOKENS` 실패 시 평가 성공을 만들지 않는다.
-Control API는 assessment와 accepted Evidence를 비우고 모든 Claim을 missing으로 보존하여
-`NEEDS_EVIDENCE`로 다음 단계에 전달한다. 이미 완료된 MCP 조회를 Agent 실패 때문에 다시 실행하거나
-다른 모델·endpoint·리전으로 전환하지 않는다.
-
-`resolve_area`는 행정안전부의 기준일이 붙은 법정동 코드 전체 자료를 MCP 이미지에 포함하여
-동네 이름을 먼저 결정론적으로 검색한다. 이 경로는 외부 주소 검색 API를 호출하지 않으며 법정동
-코드와 자료 기준일을 source trace로 반환한다. 전체 자료에 없는 상세 주소·건물 질의만 도로명주소
-API를 보조 경로로 사용한다. 보조 경로의 일시 장애는 `PARTIAL`과 `administrative_area` 누락으로
-반환하며 MCP 계약 오류로 바꾸지 않는다. 사용자가 선택한 서명 후보는 권위 State에 저장하고,
-`AREA_RESOLUTION`은 이후 분석에서 외부 주소 검색을 반복하지 않는다.
-
-Runtime의 안전한 generation telemetry에는 task type, 요청 byte, 사고 수준, 출력 토큰 상한, 지연,
-HTTP status, finish reason, repair attempt, preflight 여부와 provider token count만 포함한다. 사용자 입력, Evidence
-내용, task·project·workflow·session 식별자와 credential은 기록하지 않는다.
-
-모델 호출 뒤에는 별도의 `AGENT_RESULT_VALIDATION` telemetry를 남긴다. 이 event는 task type,
-preflight 여부, repair attempt, `VALID | REPAIR_REQUIRED | REJECTED`, 결과 status, 허용된 decision과
-validator error code만 포함한다. 원문 응답, 사용자 입력, validator message·JSON pointer와 모든
-식별자는 기록하지 않는다. 운영자는 generation의 지연·종료 사유와 validation의 실패 원인을 함께
-조회하여 transport 재시도, model-output repair, 최종 거절을 구분한다.
-
-Runtime dispatcher는 semantic-only 모델 출력에 검증된 요청 envelope를 결합한 뒤 외부로 보내기
-전에 전체 Schema·echo·의미 검증을 수행한다.
-따라서 이 검증에서 거절된 출력은 Control API까지 도달하지 않으며, 외부 adapter만으로는 repair할
-수 없다. Dispatcher는 최초 출력이 `RESULT_SCHEMA_INVALID` 또는 `RESULT_SEMANTIC_INVALID`일 때
-같은 관리형 실행 안에서 한 번만 repair한다. 모델은 echo field를 생성할 권한이 없으므로
-`RESULT_ECHO_MISMATCH`는 정상적인 모델 수리 대상이 아니다. repair 입력은 원래
-task id·invocation id·input digest를 유지하고 `repair_attempt=1`, 이전 출력 digest와 최대 50개
-validator error를 추가한다. 두 번째 출력도 실패하면 세 번째 생성을 하지 않고 원래의 명시적
-Runtime 실패로 종료한다. transport retry와 이 model-output repair는 서로 다른 예산이다.
-
-특히 `CANDIDATE_AUDIT`의 Runtime 의미 검증은 Control API 경계와 같은 규칙을 사용한다. COMPLETE
-응답은 입력 후보를 누락·중복 없이 정확히 한 번씩 포함하고, 계산 참조는 입력의 계산 버전·입력
-digest·출력 digest·후보 ID로 제한하며, PASS 항목에는 finding을 둘 수 없다. 이 규칙을 Runtime에서
-먼저 적용해야 validator-guided repair가 final event 이전에 작동하고, Runtime을 통과한 응답이
-Control API에서 다시 거절되는 split validation을 막을 수 있다.
-
-`CANDIDATE_AUDIT`의 Evidence·Claim·Calculation 참조 필드는 자유 텍스트가 아니다. Auditor는 입력에
-실제로 포함된 id만 복사하며 `DECLARED_ASSUMPTION`과 `UNKNOWN` id를 Evidence coverage로 사용할 수
-없다. 해당 값 때문에 확인이 필요하면 정확한 field path를 지정하고 Evidence·Claim 참조 배열은
-비운다. 관리형 Runtime의 최초 생성과 1회 수리가 모두 출력 의미 검증에서 거절되면 Control API는
-후보·결정론적 계산·순위를 보존하고 `CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID`로 감사 미확보 상태를
-기록한다. transport 장애도 후보·계산·순위를 버리지 않고 같은 감사 미확보 상태로 남긴다. 요청
-계약 위반, 인증·권한 실패, project fence와 State 무결성 오류는 이 경로로 숨기지 않고 Stage를
-실패시킨다.
-
-`COMMIT_RESULT`는 검토 가능한 후보가 한 개 이상이면 연속 순위와 주력 후보를 가진 일반 결과를
-저장한다. 확인된 필수 조건 위반으로 모든 후보가 제외되면 `ABSTAIN`으로 이전 결과를 남기지 않고,
-`NO_REVIEWABLE_CANDIDATES` 결과를 현재 full head에 저장한다. 이 결과는 제외 후보와 계산·근거를
-보존하지만 순위와 주력 후보를 두지 않는다. 따라서 문서 일괄 반영 후 화면은 이전 추천이 아니라
-왜 현재 조건에서 진행하기 어려운지와 어떤 조건을 바꿀지를 보여준다. `PARTIAL` Workflow는 완성된
-재계산 결과로 취급하지 않는다.
+첫 제안에서 새 근거가 필요하면 검색을 요청 중에 반복하지 않는다. 공식 데이터 수집, 사용자 문서
+적용 또는 명시적인 근거 갱신 경로가 Evidence를 먼저 저장하고, 이후 `RUN_PROPOSAL`이 현재
+Evidence를 읽어 결과를 다시 만든다.
 
 ### 9.2 RESULT_FEEDBACK
 
@@ -675,7 +577,7 @@ latest user input
 → before/after preview
 → user confirmation
 → Event and new State version
-→ affected FIRST_PROPOSAL stages only
+→ single RUN_PROPOSAL recompute
 ```
 
 `INTENT_DELTA`는 자연어를 State 변경 제안으로 해석해야 하므로 Agent 역할을 유지한다. 다만
@@ -713,9 +615,8 @@ validated parser blocks
 → editable extraction form
 → one user batch apply
 → conflict detection
-→ selective deterministic recompute
-→ optional CANDIDATE_AUDIT
-→ reducer CAS
+→ Event and new State version
+→ single RUN_PROPOSAL recompute
 ```
 
 ## 10. Contract test와 완료 조건
@@ -729,7 +630,7 @@ validated parser blocks
 | `CP-003` | Agent가 pool 밖 id·Evidence id 생성 | `UNALLOCATED_OUTPUT_ID` 또는 `UNSUPPORTED_REFERENCE`로 폐기 |
 | `CP-004` | schema-invalid output | 새 session repair에 이전 text·digest·validator error가 전달되고 2차 실패 후 partial commit 0 |
 | `CP-005` | 같은 task 중복 완료 | 첫 valid result만 수용 |
-| `CP-006` | Workflow 취소 뒤 결과 도착 | `LATE_DISCARDED`, current write 0 |
+| `CP-006` | 폐기된 Agent invocation의 결과가 뒤늦게 도착 | `LATE_DISCARDED`, current write 0 |
 | `CP-007` | MCP scope token project 불일치 | 403, retrieval result 0 |
 | `CP-008` | MCP `PARTIAL` | 전체 성공으로 표시하지 않음 |
 | `CP-009` | 서울 Runtime·global 생성·서울 embedding·서울 reranker 독립 preflight 중 하나 실패 | `BLOCKED_BY_REGION`, Agent Workflow와 대체 위치 호출 0 |
@@ -737,7 +638,7 @@ validated parser blocks
 | `CP-011` | 고정 조건부 프랜차이즈 fixture | expected `NEXT_REVIEW_PRIORITY` rank와 primary review target이 정확히 일치 |
 | `CP-012` | 문서 추출 폼 반영 전 | State·finance·Gate·rank 변경 0 |
 | `CP-013` | 일곱 task type dispatcher matrix | 각 task가 정확한 child 하나만 실행하고 잘못된 author·복수 final·function part는 거절 |
-| `CP-014` | `202` 뒤 API instance 강제 종료 | outbox redelivery로 재개되고 stage side effect는 정확히 한 번 |
+| `CP-014` | 첫 제안 transaction 중 API instance 종료 | Workflow·결과가 함께 rollback되고 중간 결과는 현재 결과가 되지 않음 |
 | `CP-015` | same idempotency key의 same body·different body·concurrent duplicate | same은 같은 run, different는 409, concurrent는 run 하나 |
 | `CP-016` | MCP discover·paginated list·10 tool call | revision·header·manifest·각 input/output Schema 통과 |
 | `CP-017` | MCP JSON·SSE·cancel | 둘 다 같은 result, cancel 뒤 적용 0 |

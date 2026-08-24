@@ -1,112 +1,18 @@
+"""사용자 분석 요청은 의존 단계 없이 단일 제안 실행으로 표현한다."""
+
 import hashlib
-from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 import rfc8785
 
-from app.domain.models import CafeTypePreference
 from app.workflows.models import HeadFence
 
 
 class FirstProposalStage(StrEnum):
-    AREA_RESOLUTION = "AREA_RESOLUTION"
-    CLAIM_PLAN = "CLAIM_PLAN"
-    EVIDENCE_PLAN = "EVIDENCE_PLAN"
-    EVIDENCE_RETRIEVAL = "EVIDENCE_RETRIEVAL"
-    EVIDENCE_ASSESS = "EVIDENCE_ASSESS"
-    EVIDENCE_FREEZE = "EVIDENCE_FREEZE"
-    INDEPENDENT_SEED = "INDEPENDENT_SEED"
-    FRANCHISE_ELIGIBILITY = "FRANCHISE_ELIGIBILITY"
-    PROPOSE_INDEPENDENT = "PROPOSE_INDEPENDENT"
-    PROPOSE_FRANCHISE = "PROPOSE_FRANCHISE"
-    CALCULATE_GATE_RANK = "CALCULATE_GATE_RANK"
-    CANDIDATE_AUDIT = "CANDIDATE_AUDIT"
-    COMMIT_RESULT = "COMMIT_RESULT"
+    """The first proposal is one bounded unit of work."""
 
-
-@dataclass(frozen=True)
-class StagePlan:
-    code: FirstProposalStage
-    dependencies: tuple[FirstProposalStage, ...]
-
-
-def compile_first_proposal_plan(preference: CafeTypePreference) -> tuple[StagePlan, ...]:
-    stages = [
-        StagePlan(FirstProposalStage.AREA_RESOLUTION, ()),
-        StagePlan(FirstProposalStage.CLAIM_PLAN, (FirstProposalStage.AREA_RESOLUTION,)),
-        StagePlan(FirstProposalStage.EVIDENCE_PLAN, (FirstProposalStage.CLAIM_PLAN,)),
-        StagePlan(
-            FirstProposalStage.EVIDENCE_RETRIEVAL,
-            (FirstProposalStage.EVIDENCE_PLAN,),
-        ),
-        StagePlan(
-            FirstProposalStage.EVIDENCE_ASSESS,
-            (FirstProposalStage.EVIDENCE_RETRIEVAL,),
-        ),
-        StagePlan(
-            FirstProposalStage.EVIDENCE_FREEZE,
-            (FirstProposalStage.EVIDENCE_ASSESS,),
-        ),
-    ]
-    proposal_dependencies: list[FirstProposalStage] = []
-    if preference in {
-        CafeTypePreference.OPEN_TO_BOTH,
-        CafeTypePreference.INDEPENDENT_ONLY,
-    }:
-        stages.extend(
-            [
-                StagePlan(
-                    FirstProposalStage.INDEPENDENT_SEED,
-                    (
-                        FirstProposalStage.AREA_RESOLUTION,
-                        FirstProposalStage.EVIDENCE_FREEZE,
-                    ),
-                ),
-                StagePlan(
-                    FirstProposalStage.PROPOSE_INDEPENDENT,
-                    (FirstProposalStage.INDEPENDENT_SEED,),
-                ),
-            ]
-        )
-        proposal_dependencies.append(FirstProposalStage.PROPOSE_INDEPENDENT)
-    if preference in {
-        CafeTypePreference.OPEN_TO_BOTH,
-        CafeTypePreference.FRANCHISE_ONLY,
-    }:
-        stages.extend(
-            [
-                StagePlan(
-                    FirstProposalStage.FRANCHISE_ELIGIBILITY,
-                    (
-                        FirstProposalStage.AREA_RESOLUTION,
-                        FirstProposalStage.EVIDENCE_FREEZE,
-                    ),
-                ),
-                StagePlan(
-                    FirstProposalStage.PROPOSE_FRANCHISE,
-                    (FirstProposalStage.FRANCHISE_ELIGIBILITY,),
-                ),
-            ]
-        )
-        proposal_dependencies.append(FirstProposalStage.PROPOSE_FRANCHISE)
-    stages.extend(
-        [
-            StagePlan(
-                FirstProposalStage.CALCULATE_GATE_RANK,
-                tuple(proposal_dependencies),
-            ),
-            StagePlan(
-                FirstProposalStage.CANDIDATE_AUDIT,
-                (FirstProposalStage.CALCULATE_GATE_RANK,),
-            ),
-            StagePlan(
-                FirstProposalStage.COMMIT_RESULT,
-                (FirstProposalStage.CANDIDATE_AUDIT,),
-            ),
-        ]
-    )
-    return tuple(stages)
+    RUN_PROPOSAL = "RUN_PROPOSAL"
 
 
 def stage_input_digest(
@@ -114,17 +20,17 @@ def stage_input_digest(
     workflow_run_id: str,
     stage_code: FirstProposalStage,
     head: HeadFence,
-    dependencies: tuple[dict[str, object], ...] = (),
 ) -> str:
-    ordered_dependencies = sorted(
-        dependencies,
-        key=lambda dependency: str(dependency.get("stage_code", "")),
-    )
-    digest_payload: dict[str, Any] = {
-        "workflow_run_id": workflow_run_id,
-        "stage_code": stage_code.value,
-        "head": head.model_dump(mode="json"),
-        "dependencies": ordered_dependencies,
-        "contract_version": "1.0.0",
-    }
-    return hashlib.sha256(rfc8785.dumps(digest_payload)).hexdigest()
+    return hashlib.sha256(
+        rfc8785.dumps(
+            cast(
+                Any,
+                {
+                    "workflow_run_id": workflow_run_id,
+                    "stage_code": stage_code.value,
+                    "head": head.model_dump(mode="json"),
+                    "contract_version": "2.0.0",
+                },
+            )
+        )
+    ).hexdigest()

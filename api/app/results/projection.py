@@ -1,3 +1,5 @@
+"""사용자는 승인된 상권·공식 문서 근거를 실행 구조와 무관하게 확인한다."""
+
 from decimal import Decimal
 from typing import Any
 
@@ -210,6 +212,49 @@ _OFFICIAL_DOCUMENT_PURPOSES = {
     "CAFE_OPENING_REQUIRED_PROCEDURES": "창업 절차 확인",
     "CAFE_CONTRACT_REQUIRED_CHECKS": "계약 전 확인",
 }
+
+
+def project_evidence_for_candidate(
+    records: list[dict[str, Any]],
+    *,
+    project_id: str,
+    case_type: str,
+) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    """승인된 근거를 별도 검색 단계 없이 결과 후보가 쓰는 작은 보기로 만든다."""
+
+    evidence_by_id = _evidence_by_id(records, project_id)
+    market_signals = _market_signals(evidence_by_id)
+    market_refs = {
+        str(signal["evidence_id"])
+        for signal in market_signals
+        if isinstance(signal.get("evidence_id"), str)
+    }
+    documents = _official_documents(
+        case_type=case_type,
+        grounded_refs=set(evidence_by_id),
+        evidence_by_id=evidence_by_id,
+    )
+    document_refs = {
+        evidence_id
+        for document in documents
+        for evidence_id in document["evidence_refs"]
+        if isinstance(evidence_id, str)
+    }
+    evidence_refs = sorted(
+        {
+            *market_refs,
+            *document_refs,
+        }
+    )
+    return (
+        evidence_refs,
+        market_signals,
+        documents,
+        _official_document_gaps(
+            case_type=case_type,
+            evidence_by_id=evidence_by_id,
+        ),
+    )
 
 
 def _official_documents(

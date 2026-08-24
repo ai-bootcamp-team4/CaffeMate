@@ -1,3 +1,5 @@
+"""사용자 피드백은 검증된 상태 변경 뒤 전체 제안을 한 번 다시 계산한다."""
+
 from copy import deepcopy
 from typing import Any
 
@@ -30,26 +32,7 @@ _MAX_COLLECTION_ITEMS = 8
 def affected_feedback_stages(field_paths: set[str]) -> list[str]:
     if not field_paths:
         return []
-    stages = [
-        "AREA_RESOLUTION",
-        "CLAIM_PLAN",
-        "EVIDENCE_PLAN",
-        "EVIDENCE_RETRIEVAL",
-        "EVIDENCE_ASSESS",
-        "EVIDENCE_FREEZE",
-        "INDEPENDENT_SEED",
-        "FRANCHISE_ELIGIBILITY",
-        "PROPOSE_INDEPENDENT",
-        "PROPOSE_FRANCHISE",
-        "CALCULATE_GATE_RANK",
-        "CANDIDATE_AUDIT",
-        "COMMIT_RESULT",
-    ]
-    if "/founder/target_area_input" in field_paths:
-        return stages
-    if "/founder/cafe_type_preference" in field_paths:
-        return stages[1:]
-    return stages[6:]
+    return ["RUN_PROPOSAL"]
 
 
 def validate_intent_delta_result(

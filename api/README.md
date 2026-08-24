@@ -43,33 +43,24 @@ docker run --rm -p 8081:8080 caffemate-backend:local \
 같은 이미지에서 migration job은 `caffemate-api migrate`를 실행한다. API와 Worker의 업무
 endpoint는 필수 환경과 비밀값이 없으면 `503`으로 실패하며 `/health`만 liveness를 반환한다.
 
-Worker stage ingress에는 `PUBSUB_SUBSCRIPTION`, `CONTROL_API_URL`,
-`CONTROL_API_AUDIENCE`, `WORKER_ID`가 필요하다. DB outbox를 stage topic으로 전달하는
-`POST /internal/v1/outbox:publish`에는 `WORKFLOW_STAGE_TOPIC_RESOURCE`도 필요하다. 두
-endpoint는 public API가 아니며 private Cloud Run IAM 호출만 허용해야 한다.
+Worker는 사용자 제안을 실행하지 않는다. `WORKER_ID`, `AGENT_RUNTIME_PROJECT_ID`,
+`AGENT_RUNTIME_RESOURCE_ID`와 DB 설정을 사용해 실패한 Agent session 정리와 dead-letter 운영만
+처리한다. 두 endpoint는 public API가 아니며 private Cloud Run IAM 호출만 허용해야 한다.
 
-Worker는 Stage 처리 중 15초마다 lease heartbeat를 compare-and-swap으로 갱신하고 lease를 90초로
-연장한다. heartbeat가 취소, stale head, 만료 또는 다른 Worker의 lease를 관측하면 늦은 결과를
-checkpoint하거나 failure로 덮지 않고 즉시 폐기한다. 한 Stage의 Worker 처리 시간은 기본 120초로
-제한하며 초과 시 `STAGE_TIMEOUT`으로 기록한다. timeout 뒤 백그라운드 호출이 늦게 반환해도
-checkpoint 경로가 없고 만료된 lease token으로는 Control API가 결과를 수용하지 않는다.
+`FIRST_PROPOSAL`은 Control API가 등록된 개인카페 모델, 프랜차이즈 기준값, 현재 State와 저장된
+Evidence를 읽어 한 번 계산하고 결과까지 같은 PostgreSQL transaction에 저장한다. 외부 조회나
+Agent 호출을 기다리는 stage queue, lease, heartbeat와 재시도 gate는 사용하지 않는다. 실행 기록은
+호환성을 위해 단일 `RUN_PROPOSAL` stage로 남긴다.
 
-Control API가 `EVIDENCE_ASSESS`, Proposal과 Candidate Audit처럼 실제 추론이 필요한 관리형
-Agent Runtime 단계를 실행하려면 다음 설정이 모두 필요하다. 하나라도 없으면 해당 Agent stage
-executor는 fail-closed 상태를 유지한다. `EVIDENCE_PLAN`은 Control API의 결정론적 코드로
-실행되므로 Agent Runtime 설정이나 모델 호출을 요구하지 않는다.
-
-`EVIDENCE_ASSESS`는 의미 판정을 담당하는 필수 Agent 단계다. Control API는 동일 물리 조회 결과를
-중복 전달하지 않고 action별 상위 세 Evidence record만 투영한다. Runtime timeout, transport 또는
-`MAX_TOKENS` 실패를 가짜 `ABSTAIN` 성공으로 바꾸지 않으며, 원래 code를 가진 Stage 실패로 남기고
-조회 결과를 Evidence로 승격하지 않는다. 다른 모델·리전으로도 전환하지 않는다.
+자연어 피드백과 문서 추출처럼 실제 언어 이해가 필요한 기능에서 관리형 Agent Runtime을
+사용하려면 다음 설정이 모두 필요하다.
 
 - `AGENT_RUNTIME_PROJECT_ID`
 - `AGENT_RUNTIME_RESOURCE_ID`
 - `AGENT_RUNTIME_USER_HMAC_SECRET`: Secret Manager에서 주입하는 32바이트 이상의 비밀값
 
-`AREA_RESOLUTION`과 `EVIDENCE_RETRIEVAL`에서 private MCP를 호출하려면 다음 설정이 모두
-필요하다. scope 비밀값은 API와 MCP에만 주입하며 Worker나 Agent Runtime에는 주입하지 않는다.
+지역 검색과 공식 자료 조회에서 private MCP를 호출하려면 다음 설정이 모두 필요하다. scope
+비밀값은 API와 MCP에만 주입하며 Worker나 Agent Runtime에는 주입하지 않는다.
 
 - `MCP_BASE_URL`
 - `MCP_AUDIENCE`
@@ -93,21 +84,22 @@ MCP의 `resolve_area`를 대신 호출한다. 응답 후보는 `AreaIdentity`와
 프론트엔드는 사용자가 후보 하나를 명시적으로 선택한 뒤 토큰을
 `POST /v1/projects/{project_id}/onboarding/confirm`의 `area_selection_token`에 넣는다. 서버는
 프로젝트·정규화 검색어·만료·서명을 다시 검증하고 구조화된 지역을 Founder 입력과 같은 Event에
-저장한다. 이후 `AREA_RESOLUTION`은 확정 State를 재검색하지 않는다. 입력 문자열만 보낸 요청은
+저장한다. 이후 제안 실행은 확정 State의 지역을 다시 검색하지 않는다. 입력 문자열만 보낸 요청은
 지역 검색이 구성되지 않은 개발·회귀 환경의 기존 경로만 유지하며, 배포 프론트엔드에서는 사용할
 수 없다.
 
 ## Workflow 진행 조회
 
-프론트엔드는 `GET /v1/projects/{project_id}/workflows/{workflow_run_id}`를 polling한다.
-응답은 기존 Workflow 식별값과 full head에 다음 정보를 함께 반환한다.
+`POST /v1/projects/{project_id}/workflows/FIRST_PROPOSAL`은 계산과 결과 저장을 마친
+`SUCCEEDED` 실행을 반환한다. 프론트엔드는 이어서
+`GET /v1/projects/{project_id}/workflows/{workflow_run_id}`와 결과 endpoint를 한 번씩 읽는다.
+진행 응답은 기존 Workflow 식별값과 full head에 다음 정보를 함께 반환한다.
 
-- `stages`: 각 Stage의 상태, 시도 횟수, reason code와 비식별 failure code
-- `completed_stage_count`, `total_stage_count`: 화면 진행률의 결정론적 입력
-- `current_stage_codes`: 현재 `READY`, `RUNNING`, `WAITING_FOR_HUMAN`인 Stage
-- `human_review_requests`: 사용자 확인이 필요한 Stage와 reason code
-- `terminal_reason_codes`: 실패·시간 초과·기권을 설명하는 기계 판독 코드
-- `poll_after_ms`: `QUEUED` 또는 `RUNNING`일 때 다음 조회 권장 간격이며, 그 외에는 `null`
+- `stages`: 단일 `RUN_PROPOSAL` 실행 기록
+- `completed_stage_count`, `total_stage_count`: 정상 완료 시 `1`, `1`
+- `current_stage_codes`, `human_review_requests`: 완료된 동기 실행에서는 빈 배열
+- `terminal_reason_codes`: 저장된 실행이 실패한 경우의 기계 판독 코드
+- `poll_after_ms`: 동기 실행이므로 `null`
 
 프론트엔드는 Stage 이름이나 reason code로 권위 판단을 다시 계산하지 않는다. 표시 문구만
 매핑하며, 현재 결과는 별도의 `GET /v1/projects/{project_id}/result`에서 조회한다.
@@ -132,9 +124,8 @@ Stage, `proposal_digest`가 포함된다.
 
 `POST /v1/projects/{project_id}/feedback/{preview_id}/confirm`은 preview의 full head와
 `proposal_digest`를 다시 받는다. 둘 중 하나라도 current 값과 다르면 `409`를 반환한다. 성공하면
-하나의 트랜잭션에서 `FEEDBACK_CHANGE_CONFIRMED` Event, 새 Venture State, selective
-`FIRST_PROPOSAL` run, 첫 Stage Outbox, preview의 `CONFIRMED` 상태를 함께 저장한다. 영향받지 않은
-성공 Stage 결과는 이전 run에서 재사용하고, 영향받은 하위 DAG만 Worker가 다시 실행한다.
+하나의 transaction에서 `FEEDBACK_CHANGE_CONFIRMED` Event, 새 Venture State, 단일
+`RUN_PROPOSAL` 재계산, 새 Result와 preview의 `CONFIRMED` 상태를 함께 저장한다.
 
 `POST /v1/projects/{project_id}/feedback/{preview_id}/cancel`은 preview만 `CANCELLED`로 바꾸며
 State, Event, Workflow, Result에는 쓰지 않는다. 두 명령 모두 `Idempotency-Key`가 필요하다.
@@ -190,9 +181,9 @@ Claim id, 계약에 없는 Claim type, Parser가 제공하지 않은 anchor를 �
 `POST /v1/projects/{project_id}/documents/{revision}/extraction-form:apply`는 form digest와
 State version을 함께 잠근다. 비어 있지 않은 값만 `CONFIRMED` Claim으로 승격하며, 같은 종류의
 기존 문서 Claim과 값이 다르면 어느 쪽도 자동 선택하지 않고 `OPEN` conflict를 만든다. Event,
-State revision, Claim, conflict와 `CALCULATE_GATE_RANK`부터 시작하는 선택적 재계산 Workflow는
-하나의 PostgreSQL transaction으로 저장된다. 재계산기는 선택된 후보의 문서 Claim을 사용자 확인
-값으로 우선 사용하며, 열린 충돌이 있는 비용 항목은 `UNKNOWN`으로 처리한다.
+State revision, Claim, conflict와 단일 `RUN_PROPOSAL` 재계산은 하나의 PostgreSQL transaction으로
+저장된다. 재계산기는 선택된 후보의 문서 Claim을 사용자 확인 값으로 우선
+사용하며, 열린 충돌이 있는 비용 항목은 `UNKNOWN`으로 처리한다.
 
 선택적 재계산 Workflow는 원본 Workflow와 원본 Result를 명시적으로 참조한다. 새 Result가
 커밋되면 API가 개인카페 모델 id 또는 프랜차이즈 브랜드 id를 안정적인 후보 식별값으로 사용해
@@ -238,7 +229,7 @@ version과 실제로 달라진 경우에만 해당 Evidence를 `STALE`로 표시
 30일, web·PDF는 90일의 기본 정책으로 만료를 평가하며, 기준일이 없으면 최신으로 간주하지 않는다.
 
 영향받은 current Result에는 `invalidation_reason_codes`가 추가되고 `freshness`가 `STALE`이 된다.
-동시에 `EVIDENCE_RETRIEVAL`부터의 선택적 Workflow를 원자적으로 생성한다. 새 Snapshot이 검증되어
+동시에 단일 `RUN_PROPOSAL` 재계산을 원자적으로 실행한다. 새 Snapshot이 검증되어
 커밋되면 새 Evidence는 `ACTIVE`, 같은 원본의 이전 Evidence는 `SUPERSEDED`, 검증된 상충 자료는
 `CONFLICT`가 된다. 재계산이 이미 실행 중이면 새 Workflow를 중첩 생성하지 않고 `409`로 거절한다.
 
