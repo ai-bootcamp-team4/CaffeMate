@@ -30,6 +30,7 @@ describe('Agent Runtime deployment provenance', () => {
     expect(deploy).toContain('agents/release-manifest.json')
     expect(deploy).toContain('approved-${source_revision}')
     expect(deploy).toContain('verified_build_id_for_image')
+    expect(deploy).toContain('{"name": "CAFFEMATE_GCP_PROJECT_ID", "value": os.environ["PROJECT_ID"]}')
   })
 
   it('updates only the pinned Reasoning Engine and performs authoritative deployment plus release preflight verification', () => {
