@@ -28,7 +28,7 @@ from app.finance.models import (
     MoneyRange,
     ValueProvenance,
 )
-from app.mcp.client import McpCallOutcome
+from app.mcp.client import McpCallOutcome, McpClientError
 from app.observability import tracer
 from app.results.models import AuditStatus, ResultBundlePayload
 from app.workflows.models import HeadFence, StageLease
@@ -268,20 +268,70 @@ class LinearMultiAgentProposalPipeline:
                 )
                 for query in FRANCHISE_RAG_QUERIES
             )
-        return list(
-            await asyncio.gather(
-                *[
-                    self._mcp.call_tool(
-                        venture_project_id=state.project_id,
-                        workflow_run_id=workflow_run_id,
-                        head=head,
-                        tool_name=tool_name,
-                        arguments=arguments,
-                    )
-                    for tool_name, arguments in calls
-                ]
-            )
+        # 사용자 의도: 한 자료원의 MCP 오류가 성공한 조회와 세 Agent 역할까지
+        # 함께 취소해서는 안 된다. 오류는 근거 없는 ERROR action으로 보존한다.
+        return await asyncio.gather(
+            *[
+                self._retrieve_one_evidence_call(
+                    call_index=index,
+                    state=state,
+                    head=head,
+                    workflow_run_id=workflow_run_id,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                )
+                for index, (tool_name, arguments) in enumerate(calls)
+            ]
         )
+
+    async def _retrieve_one_evidence_call(
+        self,
+        *,
+        call_index: int,
+        state: VentureState,
+        head: HeadFence,
+        workflow_run_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> McpCallOutcome:
+        try:
+            return await self._mcp.call_tool(
+                venture_project_id=state.project_id,
+                workflow_run_id=workflow_run_id,
+                head=head,
+                tool_name=tool_name,
+                arguments=arguments,
+            )
+        except McpClientError as error:
+            request_digest = hashlib.sha256(
+                f"{workflow_run_id}:{call_index}:{tool_name}".encode()
+            ).hexdigest()[:20]
+            request_id = f"failed-mcp-{request_digest}"
+            tool_version = self._contracts.mcp_tool_version(tool_name)
+            content = {
+                "schema_version": "1.0.0",
+                "request_id": request_id,
+                "tool_name": tool_name,
+                "tool_version": tool_version,
+                "status": "ERROR",
+                "project_id": state.project_id,
+                "evidence_records": [],
+                "missing_fields": [f"{tool_name}_result"],
+                "conflicts": [],
+                "source_trace": [],
+                "error_codes": [error.mcp_code],
+                "observed_at": self._now().isoformat().replace("+00:00", "Z"),
+                "data": [],
+            }
+            self._contracts.validate_mcp_tool_result(tool_name, content)
+            return McpCallOutcome(
+                request_id=request_id,
+                tool_name=tool_name,
+                tool_version=tool_version,
+                status="ERROR",
+                is_complete=False,
+                structured_content=content,
+            )
 
     def _with_official_rag_evidence(
         self,

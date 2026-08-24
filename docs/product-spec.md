@@ -144,6 +144,8 @@ Claim Plan
 - 문서 RAG는 Claim별 고정 검색 목적과 source family 안에서만 실행한다.
 - 자료가 없거나 connector가 제공되지 않으면 빈 성공값을 만들지 않고 missing·failed action으로
   남긴다.
+- 병렬 조회 한 건이 실패해도 성공한 조회는 취소하지 않는다. 실패한 조회는 `ERROR` action과
+  미확보 근거로 남기고, 확보된 근거만으로 Evidence Researcher와 후보 생성을 계속한다.
 
 가능한 경우 다음을 표시한다.
 
