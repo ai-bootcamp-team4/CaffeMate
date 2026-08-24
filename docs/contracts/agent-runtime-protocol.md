@@ -544,6 +544,10 @@ tool 이름, input·output Schema와 version은 [MCP Tool Manifest](./mcp-tool-m
 사용자 `FIRST_PROPOSAL` 시작 요청은 배포용 원격 preflight를 실행하지 않는다. 대신 현재 State에
 필요한 상권, 공식 문서와 검증된 프랜차이즈 후보를 private MCP에서 한 번씩 병렬 조회한다. 조회
 결과는 Evidence Researcher가 평가하며, 실패를 정적 후보나 가짜 근거로 대체하지 않는다.
+개별 조회의 `McpClientError`는 해당 tool의 `ERROR` structured result로 보존하며 다른 병렬 조회를
+취소하지 않는다. Evidence Researcher와 Proposal Agent는 성공한 조회만 근거로 사용하고 실패한
+Claim은 미확보로 유지한다. 등록 후보가 하나도 없는 경우처럼 안전한 제안 입력 자체가 없을 때만
+첫 제안을 완료하지 않는다.
 
 ## 9. 역할별 Workflow handoff
 

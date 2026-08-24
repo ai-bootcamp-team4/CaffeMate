@@ -20,7 +20,7 @@ from app.domain.models import (
     VentureState,
     VentureStatus,
 )
-from app.mcp.client import McpCallOutcome
+from app.mcp.client import McpCallOutcome, McpClientError
 from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import HeadFence
 from app.workflows.simple_proposal import SimpleProposalBuilder
@@ -317,6 +317,42 @@ def test_pipeline_calls_research_proposals_and_auditor_in_one_linear_flow() -> N
     assert runtime.task_types[1:-1] == ["PROPOSE_INDEPENDENT"] * 3
     assert 1 <= len(bundle.candidates) <= 3
     assert {candidate["case_type"] for candidate in bundle.candidates} == {"INDEPENDENT"}
+
+
+def test_pipeline_keeps_running_when_one_mcp_read_fails() -> None:
+    """한 자료원이 실패해도 확보한 근거로 세 Agent 역할을 끝까지 실행한다."""
+
+    class OneFailedReadMcp(FakeMcp):
+        async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+            if kwargs["tool_name"] == "retrieve_official_documents":
+                self.tool_names.append(kwargs["tool_name"])
+                raise McpClientError("MCP_STRUCTURED_CONTENT_MISSING")
+            return await super().call_tool(**kwargs)
+
+    runtime = FakeRuntime()
+    mcp = OneFailedReadMcp()
+
+    bundle = _pipeline(runtime, mcp).run(
+        state=_state(),
+        head=_head(),
+        workflow_run_id="workflow-partial-retrieval",
+        evidence_records=[],
+    )
+
+    assert bundle.candidates
+    assert runtime.task_types[0] == "EVIDENCE_ASSESS"
+    assert runtime.task_types[-1] == "CANDIDATE_AUDIT"
+    researcher_task = runtime.tasks[0]
+    failed_action = next(
+        action
+        for action in researcher_task["payload"]["executed_actions"]
+        if action["tool_name"] == "retrieve_official_documents"
+    )
+    assert failed_action["structured_result"]["status"] == "ERROR"
+    assert failed_action["structured_result"]["error_codes"] == [
+        "MCP_STRUCTURED_CONTENT_MISSING"
+    ]
+    assert failed_action["structured_result"]["evidence_records"] == []
 
 
 def test_pipeline_builds_government_and_claim_specific_franchise_rag_queries() -> None:
