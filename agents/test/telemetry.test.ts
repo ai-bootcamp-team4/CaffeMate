@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { ragSignalContract, safeAgentSpanAttributes, traceCarrierFromTask } from '../src/telemetry'
+import {
+  flushTraceProvider,
+  ragSignalContract,
+  safeAgentSpanAttributes,
+  traceCarrierFromTask,
+} from '../src/telemetry'
 import type { AgentTask } from '../src/types'
 
 const task = {
@@ -46,5 +51,15 @@ describe('AgentOps telemetry contract', () => {
       'caffemate.rag.citations',
     ])
     expect(JSON.stringify(ragSignalContract)).not.toContain('default')
+  })
+
+  it('waits for the trace provider to export finished managed-runtime spans', async () => {
+    const calls: string[] = []
+    await flushTraceProvider({
+      forceFlush: async () => {
+        calls.push('flushed')
+      },
+    })
+    expect(calls).toEqual(['flushed'])
   })
 })

@@ -11,11 +11,15 @@ import type { AgentTask } from './types'
 
 type SafeAttributes = Record<string, string | number | boolean>
 type AsyncAction<T> = () => Promise<T>
+interface FlushableTraceProvider {
+  forceFlush(): Promise<void>
+}
 
 const TRACEPARENT = /^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/
 const require = createRequire(import.meta.url)
 
 let agentTracer: Tracer | undefined
+let agentTraceProvider: FlushableTraceProvider | undefined
 let initialized = false
 
 export const ragSignalContract = Object.freeze({
@@ -77,8 +81,15 @@ export function initializeAgentTelemetry(env: NodeJS.ProcessEnv = process.env): 
     spanProcessors: [new SimpleSpanProcessor(new TraceExporter({ projectId: env.GOOGLE_CLOUD_PROJECT }))],
   })
   provider.register()
+  agentTraceProvider = provider
   agentTracer = trace.getTracer('caffemate.agent-runtime')
   initialized = true
+}
+
+export async function flushTraceProvider(
+  provider: FlushableTraceProvider | undefined = agentTraceProvider,
+): Promise<void> {
+  if (provider) await provider.forceFlush()
 }
 
 export async function withAgentTaskSpan<T>(
@@ -111,6 +122,9 @@ export async function withAgentTaskSpan<T>(
         throw error
       } finally {
         span.end()
+        // User intent: the managed Runtime response must not finish before
+        // the dispatch and Gemini child spans reach Cloud Trace.
+        await flushTraceProvider()
       }
     },
   )
