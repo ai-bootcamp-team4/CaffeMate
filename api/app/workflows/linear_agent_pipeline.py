@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Protocol, cast
@@ -27,6 +28,7 @@ from app.finance.models import (
     ValueProvenance,
 )
 from app.mcp.client import McpCallOutcome
+from app.observability import tracer
 from app.results.models import AuditStatus, ResultBundlePayload
 from app.workflows.models import HeadFence, StageLease
 from app.workflows.simple_proposal import (
@@ -80,6 +82,24 @@ class LinearMultiAgentProposalPipeline:
         evidence_records: list[dict[str, Any]],
         property_cost_override: PropertyCostOverride | None = None,
     ) -> ResultBundlePayload:
+        with tracer().start_as_current_span("caffemate.pipeline.first_proposal"):
+            return self._run_traced(
+                state=state,
+                head=head,
+                workflow_run_id=workflow_run_id,
+                evidence_records=evidence_records,
+                property_cost_override=property_cost_override,
+            )
+
+    def _run_traced(
+        self,
+        *,
+        state: VentureState,
+        head: HeadFence,
+        workflow_run_id: str,
+        evidence_records: list[dict[str, Any]],
+        property_cost_override: PropertyCostOverride | None,
+    ) -> ResultBundlePayload:
         outcomes = asyncio.run(
             self._retrieve_evidence(
                 state=state,
@@ -130,7 +150,11 @@ class LinearMultiAgentProposalPipeline:
         if not proposal_tasks:
             raise ContractValidationError("No eligible proposal input is available")
         with ThreadPoolExecutor(max_workers=len(proposal_tasks)) as executor:
-            proposal_results = list(executor.map(self._invoke_complete, proposal_tasks))
+            futures = [
+                executor.submit(copy_context().run, self._invoke_complete, task)
+                for task in proposal_tasks
+            ]
+            proposal_results = [future.result() for future in futures]
         proposals = self._validated_proposals(proposal_tasks, proposal_results)
 
         bundle = self._builder.build(

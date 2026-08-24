@@ -1,5 +1,6 @@
 """사용자 요청은 Control API에서 한 번 실행되고 즉시 저장된 결과로 반환된다."""
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, cast
@@ -93,6 +94,7 @@ from app.feedback.service import (
 )
 from app.mcp.client import GoogleIdentityTokenProvider, McpHttpClient
 from app.mcp.scope import ScopeTokenSigner
+from app.observability import SafeTracingMiddleware, configure_cloud_trace
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.projects.unavailable_repository import UnavailableProjectRepository
@@ -177,6 +179,11 @@ def create_app(
 ) -> FastAPI:
     database_handle: DatabaseHandle | None = None
     settings = RuntimeSettings.from_environment()
+    configure_cloud_trace(
+        service_name="caffemate-api",
+        service_version=os.getenv("CAFFEMATE_SOURCE_REVISION") or os.getenv("K_REVISION"),
+        project_id=settings.agent_runtime_project_id,
+    )
     seed_registry = IndependentSeedRegistry.load_default()
     if project_service is None or workflow_service is None or result_service is None:
         database_handle = create_database_handle(settings)
@@ -383,6 +390,7 @@ def create_app(
                 database_handle.close()
 
     app = FastAPI(title="CaffeMate Control API", version="0.2.0", lifespan=lifespan)
+    app.add_middleware(SafeTracingMiddleware)
     if settings.cors_allowed_origins:
         app.add_middleware(
             CORSMiddleware,

@@ -27,8 +27,13 @@ describe('Agent Runtime production dependency boundary', () => {
     }
 
     expect(runtimePackage.dependencies).toEqual({
+      '@google-cloud/opentelemetry-cloud-trace-exporter': '3.1.0',
       '@google/adk': '1.6.0',
       '@google/adk-devtools': '1.6.0',
+      '@opentelemetry/api': '1.9.1',
+      '@opentelemetry/resources': '2.10.0',
+      '@opentelemetry/sdk-trace-base': '2.10.0',
+      '@opentelemetry/sdk-trace-node': '2.10.0',
       ajv: '8.20.0',
       'ajv-formats': '3.0.1',
       'google-auth-library': '11.0.2',
@@ -47,8 +52,13 @@ describe('Agent Runtime production dependency boundary', () => {
       packages?: Record<string, { dependencies?: Record<string, string>; devDependencies?: Record<string, string> }>
     }
     expect(runtimeLock.packages?.['']?.dependencies).toEqual({
+      '@google-cloud/opentelemetry-cloud-trace-exporter': '3.1.0',
       '@google/adk': '1.6.0',
       '@google/adk-devtools': '1.6.0',
+      '@opentelemetry/api': '1.9.1',
+      '@opentelemetry/resources': '2.10.0',
+      '@opentelemetry/sdk-trace-base': '2.10.0',
+      '@opentelemetry/sdk-trace-node': '2.10.0',
       ajv: '8.20.0',
       'ajv-formats': '3.0.1',
       'google-auth-library': '11.0.2',

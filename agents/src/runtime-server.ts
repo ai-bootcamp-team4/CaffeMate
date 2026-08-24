@@ -12,6 +12,7 @@ import {
   type RuntimeClassMethodRequest,
 } from './runtime-session-bridge'
 import { encodeRuntimeStreamChunk, prepareRuntimeStreamMethod } from './runtime-stream-bridge'
+import { initializeAgentTelemetry } from './telemetry'
 
 const DEFAULT_PORT = 8080
 const MAX_CLASS_METHOD_BODY_BYTES = 1024 * 1024
@@ -84,6 +85,7 @@ export function runtimeEnvironmentFrom(
 }
 
 export async function startCaffeMateRuntimeServer(): Promise<AdkApiServer> {
+  initializeAgentTelemetry()
   const runtime = runtimeEnvironmentFrom()
   const sessionService = new VertexAiSessionService({
     projectId: runtime.projectId,

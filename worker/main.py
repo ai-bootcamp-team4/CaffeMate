@@ -1,11 +1,13 @@
 """백그라운드 서비스는 문서 정리와 운영 Outbox만 처리하며 제안 단계를 실행하지 않는다."""
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Protocol
 
 from app.agents.runtime import GoogleAccessTokenProvider
 from app.database import DatabaseHandle, create_database_handle
+from app.observability import SafeTracingMiddleware, configure_cloud_trace, tracer
 from app.settings import RuntimeSettings
 from fastapi import FastAPI, Query, status
 from fastapi.responses import JSONResponse
@@ -72,6 +74,11 @@ def create_worker_app(
     dead_letter_operations: DeadLetterHandler | None = None,
 ) -> FastAPI:
     settings = RuntimeSettings.from_environment()
+    configure_cloud_trace(
+        service_name="caffemate-worker",
+        service_version=os.getenv("CAFFEMATE_SOURCE_REVISION") or os.getenv("K_REVISION"),
+        project_id=settings.agent_runtime_project_id,
+    )
     database_handle: DatabaseHandle | None = create_database_handle(settings)
 
     if cleanup_consumer is not None:
@@ -110,6 +117,7 @@ def create_worker_app(
                 database_handle.close()
 
     app = FastAPI(title="CaffeMate Worker", version="0.2.0", lifespan=lifespan)
+    app.add_middleware(SafeTracingMiddleware)
 
     @app.get("/health", tags=["operations"])
     def health() -> dict[str, str]:
@@ -129,18 +137,19 @@ def create_worker_app(
             CleanupOutcome.DEAD_LETTERED: 0,
         }
         drained = False
-        try:
-            for _ in range(request.limit):
-                outcome = session_cleanup.cleanup_one()
-                if outcome == CleanupOutcome.EMPTY:
-                    drained = True
-                    break
-                counts[outcome] += 1
-        except OutboxConfigurationUnavailableError:
-            return JSONResponse(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content={"code": "AGENT_CLEANUP_CONFIGURATION_UNAVAILABLE"},
-            )
+        with tracer().start_as_current_span("caffemate.worker.agent_session_cleanup"):
+            try:
+                for _ in range(request.limit):
+                    outcome = session_cleanup.cleanup_one()
+                    if outcome == CleanupOutcome.EMPTY:
+                        drained = True
+                        break
+                    counts[outcome] += 1
+            except OutboxConfigurationUnavailableError:
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={"code": "AGENT_CLEANUP_CONFIGURATION_UNAVAILABLE"},
+                )
         return AgentCleanupResponse(
             deleted=counts[CleanupOutcome.DELETED],
             retry_scheduled=counts[CleanupOutcome.RETRY_SCHEDULED],

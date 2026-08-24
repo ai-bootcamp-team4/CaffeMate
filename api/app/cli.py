@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import copy
 import json
+import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -27,6 +28,7 @@ from app.mcp.client import GoogleIdentityTokenProvider, McpHttpClient
 from app.mcp.preflight import McpManifestPreflight
 from app.mcp.scope import ScopeTokenSigner
 from app.migrations import apply_migrations, verify_migrations
+from app.observability import configure_cloud_trace, tracer
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.results.postgres_repository import PostgresResultRepository
@@ -334,6 +336,11 @@ def main() -> None:
         print(json.dumps({"status": "verified", **iam_report}, sort_keys=True))
     elif arguments.command == "verify-first-proposal":
         settings = RuntimeSettings.from_environment()
+        configure_cloud_trace(
+            service_name="caffemate-first-proposal-canary",
+            service_version=os.getenv("CAFFEMATE_SOURCE_REVISION"),
+            project_id=settings.agent_runtime_project_id,
+        )
         if (
             not settings.policy_snapshot_id
             or not settings.has_agent_runtime_configuration
@@ -353,16 +360,17 @@ def main() -> None:
             ),
         )
         try:
-            canary_report = FirstProposalCanary(
-                projects=projects,
-                workflows=workflows,
-                results=ResultService(PostgresResultRepository(handle.engine)),
-                cleaner=PostgresFirstProposalCanaryCleaner(handle.engine),
-            ).run(
-                cafe_type_preference=CafeTypePreference(
-                    arguments.cafe_type_preference
-                ),
-            )
+            with tracer().start_as_current_span("caffemate.canary.first_proposal"):
+                canary_report = FirstProposalCanary(
+                    projects=projects,
+                    workflows=workflows,
+                    results=ResultService(PostgresResultRepository(handle.engine)),
+                    cleaner=PostgresFirstProposalCanaryCleaner(handle.engine),
+                ).run(
+                    cafe_type_preference=CafeTypePreference(
+                        arguments.cafe_type_preference
+                    ),
+                )
         except FirstProposalCanaryError as error:
             print(
                 json.dumps(

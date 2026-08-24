@@ -9,6 +9,7 @@ import {
 } from './model-executor'
 import { TASK_REGISTRY } from './registry'
 import type { AgentName, AgentTask } from './types'
+import { withAgentTaskSpan } from './telemetry'
 
 export class AdkRuntimeError extends Error {
   constructor(public readonly code: string, message: string) {
@@ -79,7 +80,11 @@ class CaffeMateRoleAgent extends BaseAgent<RoleAgentConfig> {
       throw new AgentModelError('MODEL_NOT_APPROVED', 'an approved model id is required after the regional GCP preflight')
     }
 
-    const result = await dispatchAgentTask(task, createModelExecutors(this.modelClient, approvedModel))
+    const result = await withAgentTaskSpan(
+      task,
+      'caffemate.agent.dispatch',
+      () => dispatchAgentTask(task, createModelExecutors(this.modelClient, approvedModel)),
+    )
     yield createEvent({
       invocationId: context.invocationId,
       author: this.name,

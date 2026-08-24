@@ -4,8 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "dependencies": {
+    "@google-cloud/opentelemetry-cloud-trace-exporter": "3.1.0",
     "@google/adk": "1.6.0",
     "@google/adk-devtools": "1.6.0",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/resources": "2.10.0",
+    "@opentelemetry/sdk-trace-base": "2.10.0",
+    "@opentelemetry/sdk-trace-node": "2.10.0",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "google-auth-library": "11.0.2"

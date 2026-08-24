@@ -19,6 +19,7 @@ from app.domain.errors import ContractValidationError, ExternalExecutionUnavaila
 from app.domain.models import StrictModel
 from app.mcp.result_validation import validate_mcp_result
 from app.mcp.scope import ScopeTokenSigner
+from app.observability import current_trace_carrier, tracer
 from app.workflows.models import HeadFence
 
 PROTOCOL_REVISION = "2026-07-28"
@@ -107,6 +108,31 @@ class McpHttpClient:
         traceparent: str | None = None,
         timeout_seconds: float = 30.0,
     ) -> McpCallOutcome:
+        with tracer().start_as_current_span(
+            "caffemate.mcp.call",
+            attributes={"caffemate.mcp.tool": tool_name[:128]},
+        ):
+            return await self._call_tool_traced(
+                venture_project_id=venture_project_id,
+                workflow_run_id=workflow_run_id,
+                head=head,
+                tool_name=tool_name,
+                arguments=arguments,
+                traceparent=traceparent,
+                timeout_seconds=timeout_seconds,
+            )
+
+    async def _call_tool_traced(
+        self,
+        *,
+        venture_project_id: str,
+        workflow_run_id: str,
+        head: HeadFence,
+        tool_name: str,
+        arguments: dict[str, Any],
+        traceparent: str | None,
+        timeout_seconds: float,
+    ) -> McpCallOutcome:
         try:
             self._contracts.validate_mcp_tool_input(tool_name, arguments)
             tool_version = self._contracts.mcp_tool_version(tool_name)
@@ -123,7 +149,8 @@ class McpHttpClient:
             "Authorization": f"Bearer {self._identity_provider.token_for(self._audience)}",
             "X-CaffeMate-Scope-Token": scope_token,
         }
-        effective_traceparent = traceparent or self._traceparent(
+        active_traceparent = current_trace_carrier().get("traceparent")
+        effective_traceparent = traceparent or active_traceparent or self._traceparent(
             venture_project_id=venture_project_id,
             workflow_run_id=workflow_run_id,
             tool_name=tool_name,

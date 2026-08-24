@@ -296,7 +296,7 @@ gcloud run deploy caffemate-api \
   --image="$image" \
   --service-account="$api_sa" \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CORS_ALLOWED_ORIGINS=https://caffemate-web-hfgnuuc55q-du.a.run.app;https://caffemate-web-424808310695.asia-northeast3.run.app,CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},DOCUMENT_BUCKET=${document_bucket},DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa}${api_audience_env}" \
+  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CORS_ALLOWED_ORIGINS=https://caffemate-web-hfgnuuc55q-du.a.run.app;https://caffemate-web-424808310695.asia-northeast3.run.app,CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},DOCUMENT_BUCKET=${document_bucket},DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa},CAFFEMATE_OTEL_ENABLED=true,CAFFEMATE_ENVIRONMENT=production,CAFFEMATE_SOURCE_REVISION=${source_revision}${api_audience_env}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest,AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
   --port=8080 \
   --timeout=600 \
@@ -339,7 +339,7 @@ gcloud run deploy caffemate-worker \
   --command=uvicorn \
   --args=worker.main:app,--host,0.0.0.0,--port,8080 \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},WORKER_ID=caffemate-worker,AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},DOCUMENT_BUCKET=${document_bucket}" \
+  --set-env-vars="${common_database_env},WORKER_ID=caffemate-worker,AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},DOCUMENT_BUCKET=${document_bucket},CAFFEMATE_OTEL_ENABLED=true,CAFFEMATE_ENVIRONMENT=production,CAFFEMATE_SOURCE_REVISION=${source_revision}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest' \
   --port=8080 \
   --timeout=600 \
