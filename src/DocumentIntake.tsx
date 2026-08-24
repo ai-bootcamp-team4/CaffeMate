@@ -21,21 +21,6 @@ const documentTypes: Array<{ value: DocumentType; label: string }> = [
 
 const processingStatuses = new Set(['SCAN_PENDING', 'READY_FOR_PARSING', 'PARSING'])
 
-const demoDocumentTypes: Record<string, DocumentType> = {
-  '01_demo_commercial_lease_terms.pdf': 'COMMERCIAL_LEASE',
-  '02_demo_franchise_disclosure_summary.pdf': 'FRANCHISE_DISCLOSURE',
-  '03_demo_interior_quote.pdf': 'INTERIOR_QUOTE',
-  '04_demo_equipment_quote.pdf': 'EQUIPMENT_QUOTE',
-  '05_demo_property_listing.pdf': 'PROPERTY_LISTING',
-  '06_demo_loan_terms.pdf': 'LOAN_TERMS',
-}
-
-const demoPropertyDocument = {
-  filename: '05_demo_property_listing.pdf',
-  type: 'PROPERTY_LISTING' as const,
-  url: new URL('../docs/demo-fixtures/05_demo_property_listing.pdf', import.meta.url).href,
-}
-
 function documentError(caught: unknown, fallback: string): string {
   if (!(caught instanceof Error)) return fallback
   const message = caught.message
@@ -60,7 +45,7 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
   const [documentType, setDocumentType] = useState<DocumentType>('PROPERTY_LISTING')
   const [form, setForm] = useState<DocumentExtractionForm | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
-  const [busyAction, setBusyAction] = useState<'upload' | 'demo' | 'apply' | null>(null)
+  const [busyAction, setBusyAction] = useState<'upload' | 'apply' | null>(null)
   const [applied, setApplied] = useState(false)
   const [status, setStatus] = useState('PDF, JPG, PNG, DOCX · 최대 50MB')
   const [error, setError] = useState('')
@@ -80,8 +65,8 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
     throw new Error('문서 확인이 오래 걸리고 있어요. 잠시 뒤 다시 업로드해 주세요.')
   }
 
-  const uploadFile = async (nextFile: File, nextDocumentType: DocumentType, action: 'upload' | 'demo') => {
-    setBusyAction(action)
+  const uploadFile = async (nextFile: File, nextDocumentType: DocumentType) => {
+    setBusyAction('upload')
     setError('')
     setForm(null)
     setApplied(false)
@@ -104,26 +89,7 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
 
   const upload = async () => {
     if (!file) return
-    await uploadFile(file, documentType, 'upload')
-  }
-
-  const loadDemo = async () => {
-    setBusyAction('demo')
-    setError('')
-    setForm(null)
-    setStatus('발표용 점포 자료를 준비하고 있어요.')
-    try {
-      const response = await fetch(demoPropertyDocument.url)
-      if (!response.ok) throw new Error('demo document unavailable')
-      const demoFile = new File([await response.blob()], demoPropertyDocument.filename, { type: 'application/pdf' })
-      setFile(demoFile)
-      setDocumentType(demoPropertyDocument.type)
-      await uploadFile(demoFile, demoPropertyDocument.type, 'demo')
-    } catch (caught) {
-      setError(documentError(caught, '데모 자료를 불러오지 못했어요. 잠시 뒤 다시 시도해 주세요.'))
-      setStatus('데모 자료를 다시 불러와 주세요.')
-      setBusyAction(null)
-    }
+    await uploadFile(file, documentType)
   }
 
   const apply = async () => {
@@ -157,17 +123,12 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
       <label className="field"><span>파일 선택</span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.docx,application/pdf,image/jpeg,image/png,application/vnd.openxmlformats-officedocument.wordprocessingml.document" disabled={busy} onChange={(event) => {
         const nextFile = event.target.files?.[0] ?? null
         setFile(nextFile)
-        const inferredType = nextFile ? demoDocumentTypes[nextFile.name] : undefined
-        if (inferredType) {
-          setDocumentType(inferredType)
-          setStatus('데모 파일에 맞는 자료 종류를 자동으로 선택했어요.')
-        }
+        if (nextFile) setStatus('자료 종류와 파일이 맞는지 확인한 뒤 값을 찾아드릴게요.')
       }} /></label>
       <div className="document-intake__upload-actions">
         <button className="btn btn--primary" type="button" disabled={!enabled || !file || busy} aria-busy={busyAction === 'upload'} onClick={() => void upload()}>{busyAction === 'upload' ? '문서 확인 중' : '업로드하고 값 찾기'}</button>
-        <button className="btn btn--accent" type="button" disabled={!enabled || busy} aria-busy={busyAction === 'demo'} onClick={() => void loadDemo()}>{busyAction === 'demo' ? '데모 자료 확인 중' : '데모 자료로 검증하기'}</button>
       </div>
-      <p className="document-intake__demo-note">파일이 없다면 발표용 점포 매물 자료로 실제 업로드·추출 흐름을 확인할 수 있어요. 데모 값은 실매물이나 공식 근거가 아니에요.</p>
+      <p className="document-intake__demo-note">원문은 안전하게 보관하고, 확인한 값만 계산에 반영해요.</p>
     </div>}
     {form && <div className="document-extraction-form">
       <div className="document-extraction-form__intro"><strong>자동으로 채운 값</strong><p>빈 값과 검토 표시가 있는 값만 특히 확인해 주세요. 일일이 승인할 필요는 없어요.</p></div>
