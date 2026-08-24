@@ -12,10 +12,20 @@ import rfc8785
 
 from app.agents.protocols import AgentRuntime
 from app.agents.task_factory import AgentTaskFactory
-from app.candidates.seed_registry import IndependentSeedRegistry
+from app.candidates.seed_registry import IndependentSeedDefinition, IndependentSeedRegistry
 from app.contracts.schema_registry import ContractRegistry
 from app.domain.errors import ContractValidationError
 from app.domain.models import CafeTypePreference, VentureState
+from app.finance.calculator import calculate_finance
+from app.finance.models import (
+    INITIAL_COST_CATEGORIES,
+    MONTHLY_FIXED_COST_CATEGORIES,
+    CostCategory,
+    CostLine,
+    FinanceInput,
+    MoneyRange,
+    ValueProvenance,
+)
 from app.mcp.client import McpCallOutcome
 from app.results.models import AuditStatus, ResultBundlePayload
 from app.workflows.models import HeadFence, StageLease
@@ -162,6 +172,27 @@ class LinearMultiAgentProposalPipeline:
                     },
                 )
             )
+            calls.append(
+                (
+                    "search_cafe_observations",
+                    {
+                        "administrative_code": state.area.administrative_code,
+                        "boundary_version": state.area.boundary_version,
+                        "as_of": as_of,
+                        "metrics": [
+                            "CAFE_COUNT",
+                            "OPEN_COUNT",
+                            "CLOSE_COUNT",
+                            "CLOSURE_RATE",
+                            "ESTIMATED_SALES",
+                            "FOOT_TRAFFIC",
+                            "RESIDENT_POPULATION",
+                            "WORKER_POPULATION",
+                            "AGE_DISTRIBUTION",
+                        ],
+                    },
+                )
+            )
         if state.founder.cafe_type_preference != CafeTypePreference.INDEPENDENT_ONLY:
             calls.append(
                 (
@@ -238,6 +269,7 @@ class LinearMultiAgentProposalPipeline:
                                             value.model_dump(mode="json")
                                             for value in seed.allowed_parameters
                                         ],
+                                        "finance_snapshot": self._finance_snapshot(seed),
                                         "support_refs": seed.support_refs,
                                     }
                                     for seed in seeds
@@ -291,6 +323,68 @@ class LinearMultiAgentProposalPipeline:
             "founder": projection["founder"],
             "area": projection["area"],
             "evidence_records": evidence_records,
+        }
+
+    @staticmethod
+    def _finance_snapshot(seed: IndependentSeedDefinition) -> dict[str, Any]:
+        """Agent가 등록 비용을 읽되 권위 계산을 다시 만들지 않게 한다."""
+
+        profile = seed.finance_profile
+        if profile is None:
+            raise ContractValidationError(
+                f"Independent model has no registered finance profile: {seed.model_id}"
+            )
+        initial_lines = [
+            CostLine(
+                field_id=category.value,
+                category=category,
+                amount=profile.cost_ranges[category],
+                provenance=ValueProvenance.ASSUMPTION,
+            )
+            for category in sorted(INITIAL_COST_CATEGORIES, key=lambda value: value.value)
+            if category != CostCategory.FRANCHISE_INITIAL_FEES
+        ]
+        initial_lines.append(
+            CostLine(
+                field_id=CostCategory.FRANCHISE_INITIAL_FEES.value,
+                category=CostCategory.FRANCHISE_INITIAL_FEES,
+                amount=MoneyRange(low=0, base=0, high=0),
+                provenance=ValueProvenance.DERIVED,
+            )
+        )
+        monthly_lines = [
+            CostLine(
+                field_id=category.value,
+                category=category,
+                amount=profile.cost_ranges[category],
+                provenance=ValueProvenance.ASSUMPTION,
+            )
+            for category in sorted(
+                MONTHLY_FIXED_COST_CATEGORIES,
+                key=lambda value: value.value,
+            )
+        ]
+        finance = calculate_finance(
+            FinanceInput(
+                initial_cost_lines=initial_lines,
+                monthly_fixed_cost_lines=monthly_lines,
+                contribution_margin_bps=profile.contribution_margin_bps,
+                operating_days_per_month=profile.operating_days_per_month,
+                average_ticket_krw=profile.average_ticket_krw,
+            )
+        )
+        return {
+            "initial_cash_krw": finance.initial_cash.model_dump(mode="json"),
+            "monthly_fixed_cost_krw": finance.monthly_fixed_cost.model_dump(mode="json"),
+            "contribution_margin_bps": profile.contribution_margin_bps,
+            "operating_days_per_month": profile.operating_days_per_month,
+            "average_ticket_krw": profile.average_ticket_krw,
+            "break_even_monthly_sales_krw": finance.break_even_monthly_sales_krw,
+            "required_daily_orders": (
+                float(finance.required_daily_orders)
+                if finance.required_daily_orders is not None
+                else None
+            ),
         }
 
     def _context(
@@ -453,6 +547,7 @@ class LinearMultiAgentProposalPipeline:
                 "claim_id": f"claim:{outcome.tool_name}",
                 "claim_type": {
                     "get_area_profile": "AREA_DEMAND_SIGNALS",
+                    "search_cafe_observations": "AREA_DEMAND_SIGNALS",
                     "list_franchise_universe": "FRANCHISE_UNIVERSE_ELIGIBILITY",
                     "retrieve_official_documents": "OFFICIAL_STARTUP_GUIDANCE",
                 }[outcome.tool_name],
@@ -463,7 +558,8 @@ class LinearMultiAgentProposalPipeline:
                         "scope_id": state.area.administrative_code,
                         "boundary_version": state.area.boundary_version,
                     }
-                    if outcome.tool_name == "get_area_profile"
+                    if outcome.tool_name
+                    in {"get_area_profile", "search_cafe_observations"}
                     else {
                         "scope_type": "NATIONAL",
                         "scope_id": "KR",

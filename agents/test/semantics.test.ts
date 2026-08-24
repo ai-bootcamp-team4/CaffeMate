@@ -232,6 +232,45 @@ describe('agent semantic validator', () => {
   })
 
   it.each(['PROPOSE_INDEPENDENT', 'PROPOSE_FRANCHISE'] as const)(
+    'requires every typed fit axis exactly once for %s',
+    (taskType) => {
+      const { task, result } = fixture(taskType)
+      const payload = result.payload as {
+        candidate_proposals: Array<{ fit_assessments: Array<Record<string, unknown>> }>
+      }
+      const assessments = payload.candidate_proposals[0].fit_assessments
+      assessments[1] = { ...assessments[0] }
+
+      const validation = validateAgentSemantics(task, result)
+      expect(validation.ok).toBe(false)
+      expect(validation.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'PROPOSAL_FIT_AXES_INVALID' }),
+      ]))
+    },
+  )
+
+  it('requires every fit observation to cite supplied context or name missing context', () => {
+    const { task, result } = fixture('PROPOSE_INDEPENDENT')
+    const payload = result.payload as {
+      candidate_proposals: Array<{ fit_assessments: Array<Record<string, unknown>> }>
+    }
+    payload.candidate_proposals[0].fit_assessments[0] = {
+      axis: 'CAPITAL_FIT',
+      signal: 'POSITIVE',
+      summary: '근거 없이 긍정으로 표시한 결과',
+      input_field_refs: [],
+      claim_refs: [],
+      evidence_refs: [],
+      assumption_refs: [],
+      missing_context: [],
+    }
+
+    expect(validateAgentSemantics(task, result).issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'PROPOSAL_FIT_BASIS_MISSING' }),
+    ]))
+  })
+
+  it.each(['PROPOSE_INDEPENDENT', 'PROPOSE_FRANCHISE'] as const)(
     'rejects an empty %s result when the controller supplied eligible sources',
     (taskType) => {
       const { task, result } = fixture(taskType)

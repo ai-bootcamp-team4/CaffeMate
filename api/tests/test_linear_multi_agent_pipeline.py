@@ -125,6 +125,7 @@ class FakeRuntime:
             )
         if task_type == "PROPOSE_INDEPENDENT":
             seed = task["payload"]["model_seeds"][0]
+            support_ref = seed["support_refs"][0]
             return self._result(
                 task,
                 payload={
@@ -134,10 +135,18 @@ class FakeRuntime:
                             "case_type": "INDEPENDENT",
                             "display_name": seed["display_name"],
                             "seed_or_brand_id": seed["model_id"],
-                            "adjusted_parameters": [],
+                            "adjusted_parameters": [
+                                {
+                                    "field_path": "operations.seats",
+                                    "value": {"kind": "INTEGER", "value": 6},
+                                    "unit": "seat",
+                                    "support_refs": [support_ref],
+                                }
+                            ],
                             "claim_refs": [],
                             "evidence_refs": [],
                             "assumption_refs": deepcopy(seed["support_refs"]),
+                            "fit_assessments": self._fit_assessments(support_ref),
                             "missing_fields": [],
                             "warnings": [],
                         }
@@ -182,6 +191,61 @@ class FakeRuntime:
                 },
             )
         raise AssertionError(f"Unexpected task: {task_type}")
+
+    @staticmethod
+    def _fit_assessments(support_ref: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "axis": "CAPITAL_FIT",
+                "signal": "POSITIVE",
+                "summary": "등록 비용 범위가 현재 자기자금 안에 있습니다.",
+                "input_field_refs": ["/founder/own_funds_krw"],
+                "claim_refs": [],
+                "evidence_refs": [],
+                "assumption_refs": [support_ref],
+                "missing_context": [],
+            },
+            {
+                "axis": "OPERATING_FIT",
+                "signal": "POSITIVE",
+                "summary": "직접 전업 운영 조건과 맞습니다.",
+                "input_field_refs": ["/founder/operation_mode"],
+                "claim_refs": [],
+                "evidence_refs": [],
+                "assumption_refs": [support_ref],
+                "missing_context": [],
+            },
+            {
+                "axis": "USER_PREFERENCE_FIT",
+                "signal": "POSITIVE",
+                "summary": "개인카페 선호 조건과 맞습니다.",
+                "input_field_refs": ["/founder/cafe_type_preference"],
+                "claim_refs": [],
+                "evidence_refs": [],
+                "assumption_refs": [support_ref],
+                "missing_context": [],
+            },
+            {
+                "axis": "AREA_FIT",
+                "signal": "UNKNOWN",
+                "summary": "상권 자료가 부족해 방향을 확정할 수 없습니다.",
+                "input_field_refs": ["/area/display_name"],
+                "claim_refs": [],
+                "evidence_refs": [],
+                "assumption_refs": [],
+                "missing_context": ["상권 자료"],
+            },
+            {
+                "axis": "EVIDENCE_COMPLETENESS",
+                "signal": "UNKNOWN",
+                "summary": "등록 가정 외 실제 점포 자료가 필요합니다.",
+                "input_field_refs": ["/area/evidence_ids"],
+                "claim_refs": [],
+                "evidence_refs": [],
+                "assumption_refs": [support_ref],
+                "missing_context": ["실제 점포 자료"],
+            },
+        ]
 
     @staticmethod
     def _result(
@@ -234,12 +298,60 @@ def test_pipeline_calls_research_proposals_and_auditor_in_one_linear_flow() -> N
         evidence_records=[],
     )
 
-    assert set(mcp.tool_names) == {"get_area_profile", "retrieve_official_documents"}
+    assert set(mcp.tool_names) == {
+        "get_area_profile",
+        "search_cafe_observations",
+        "retrieve_official_documents",
+    }
     assert runtime.task_types[0] == "EVIDENCE_ASSESS"
     assert runtime.task_types[-1] == "CANDIDATE_AUDIT"
     assert runtime.task_types[1:-1] == ["PROPOSE_INDEPENDENT"] * 3
     assert 1 <= len(bundle.candidates) <= 3
     assert {candidate["case_type"] for candidate in bundle.candidates} == {"INDEPENDENT"}
+
+
+def test_independent_proposal_receives_finance_snapshot_and_keeps_agent_advice() -> None:
+    runtime = FakeRuntime()
+
+    bundle = _pipeline(runtime, FakeMcp()).run(
+        state=_state(),
+        head=_head(),
+        workflow_run_id="workflow-1",
+        evidence_records=[],
+    )
+
+    proposal_task = next(
+        task for task in runtime.tasks if task["task_type"] == "PROPOSE_INDEPENDENT"
+    )
+    seed = proposal_task["payload"]["model_seeds"][0]
+    assert seed["finance_snapshot"] == {
+        "initial_cash_krw": {"low": 79_500_000, "base": 139_500_000, "high": 232_000_000},
+        "monthly_fixed_cost_krw": {"low": 4_200_000, "base": 7_600_000, "high": 13_300_000},
+        "contribution_margin_bps": 6_800,
+        "operating_days_per_month": 26,
+        "average_ticket_krw": 6_500,
+        "break_even_monthly_sales_krw": 11_176_471,
+        "required_daily_orders": 66.14,
+    }
+
+    candidate = next(
+        value
+        for value in bundle.candidates
+        if value["independent_model"]["model_id"] == seed["model_id"]
+    )
+    assert [
+        assessment["axis"] for assessment in candidate["agent_advisory"]["fit_assessments"]
+    ] == [
+        "CAPITAL_FIT",
+        "OPERATING_FIT",
+        "USER_PREFERENCE_FIT",
+        "AREA_FIT",
+        "EVIDENCE_COMPLETENESS",
+    ]
+    assert candidate["agent_advisory"]["adjusted_parameters"][0]["field_path"] == (
+        "operations.seats"
+    )
+    assert candidate["independent_model"]["adjusted_fields"] == ["operations.seats"]
 
 
 def test_pipeline_does_not_hide_agent_runtime_failure_with_static_result() -> None:
@@ -254,6 +366,147 @@ def test_pipeline_does_not_hide_agent_runtime_failure_with_static_result() -> No
         )
 
     assert "CANDIDATE_AUDIT" not in runtime.task_types
+
+
+class AreaMcp(FakeMcp):
+    async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+        tool_name = kwargs["tool_name"]
+        if tool_name != "search_cafe_observations":
+            return await super().call_tool(**kwargs)
+        self.tool_names.append(tool_name)
+        evidence = {
+            "schema_version": "2.0.0",
+            "evidence_id": "seoul-store:approved:CAFE_COUNT",
+            "project_id": "project-1",
+            "claim_type": "AREA_CAFE_COMPETITION",
+            "metric": "CAFE_COUNT",
+            "value": {"kind": "INTEGER", "value": 139},
+            "value_kind": "EVIDENCED_FACT",
+            "unit": "STORES",
+            "geographic_scope": {
+                "scope_type": "ADMINISTRATIVE_AREA",
+                "scope_id": "11440565",
+                "boundary_version": "2026-01",
+            },
+            "source": {
+                "title": "서울시 상권분석서비스 카페 업소 현황",
+                "source_ref": "https://data.seoul.go.kr/store",
+                "authority": "PRIMARY_DATA",
+                "source_type": "DATASET",
+                "published_or_data_date": "2026-03-31",
+                "source_observed_at": NOW.isoformat().replace("+00:00", "Z"),
+                "document_version": "approved",
+                "checksum": "sha256:" + "0" * 64,
+            },
+            "original_anchor": {
+                "anchor_type": "DATASET_ROW",
+                "locator": "approved:11440565:CAFE_COUNT",
+                "excerpt_hash": "sha256:" + "1" * 64,
+            },
+            "freshness_status": "FRESH",
+            "conflict_status": "NONE",
+            "retrieved_at": NOW.isoformat().replace("+00:00", "Z"),
+            "missing_context": [],
+            "durable_evidence_refs": ["https://data.seoul.go.kr/store"],
+        }
+        content = {
+            "schema_version": "1.0.0",
+            "request_id": "request-search_cafe_observations",
+            "tool_name": tool_name,
+            "tool_version": "1.0.0",
+            "status": "OK",
+            "project_id": "project-1",
+            "evidence_records": [evidence],
+            "missing_fields": [],
+            "conflicts": [],
+            "source_trace": [],
+            "error_codes": [],
+            "observed_at": NOW.isoformat().replace("+00:00", "Z"),
+            "data": [
+                {
+                    "metric": "CAFE_COUNT",
+                    "value": {"kind": "INTEGER", "value": 139},
+                    "unit": "STORES",
+                    "as_of": "2026-03-31",
+                    "evidence_id": evidence["evidence_id"],
+                }
+            ],
+        }
+        return McpCallOutcome(
+            request_id=content["request_id"],
+            tool_name=tool_name,
+            tool_version="1.0.0",
+            status="OK",
+            is_complete=True,
+            structured_content=content,
+        )
+
+
+class AreaRuntime(FakeRuntime):
+    def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+        if task["task_type"] != "EVIDENCE_ASSESS":
+            return super().invoke(task)
+        self.task_types.append("EVIDENCE_ASSESS")
+        self.tasks.append(deepcopy(task))
+        return self._result(
+            task,
+            payload={
+                "assessments": [
+                    {
+                        "candidate_ref": "seoul-store:approved:CAFE_COUNT",
+                        "claim_id": "claim:search_cafe_observations",
+                        "relation": "SUPPORTS",
+                        "scope_status": "MATCH",
+                        "date_status": "MATCH",
+                        "freshness_status": "FRESH",
+                        "anchor_status": "VALID",
+                        "authority_status": "ACCEPTABLE",
+                        "missing_context": [],
+                    }
+                ],
+                "missing_claims": [
+                    "claim:get_area_profile",
+                    "claim:retrieve_official_documents",
+                ],
+                "conflict_proposals": [],
+            },
+            missing_claim_ids=[
+                "claim:get_area_profile",
+                "claim:retrieve_official_documents",
+            ],
+        )
+
+
+def test_area_observation_reaches_proposal_agent_and_result_card() -> None:
+    runtime = AreaRuntime()
+
+    bundle = _pipeline(runtime, AreaMcp()).run(
+        state=_state(),
+        head=_head(),
+        workflow_run_id="workflow-1",
+        evidence_records=[],
+    )
+
+    proposal_task = next(
+        task for task in runtime.tasks if task["task_type"] == "PROPOSE_INDEPENDENT"
+    )
+    assert proposal_task["payload"]["evidence_records"][0]["metric"] == "CAFE_COUNT"
+    assert bundle.candidates[0]["market_signals"] == [
+        {
+            "signal_type": "CAFE_COUNT",
+            "value": 139,
+            "unit": "STORES",
+            "data_date": "2026-03-31",
+            "freshness_status": "FRESH",
+            "source_title": "서울시 상권분석서비스 카페 업소 현황",
+            "source_ref": "https://data.seoul.go.kr/store",
+            "evidence_id": "seoul-store:approved:CAFE_COUNT",
+            "caveat": (
+                "선택 지역에 연결된 행정동의 카페 업종 집계이며 "
+                "개별 점포의 경쟁력을 뜻하지 않습니다."
+            ),
+        }
+    ]
 
 
 class FranchiseMcp(FakeMcp):

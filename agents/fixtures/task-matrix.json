@@ -788,11 +788,11 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "prompt_version": "proposal-agent.v2",
+        "prompt_version": "proposal-agent.v3",
         "input_schema_id": "caffemate.agent.independent-proposal-input.v1",
         "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:415a76ca5ef26846987648ad9e863bb4309d6182e16634e8e6ee637378995e8c",
+        "input_digest": "sha256:12cdd4f18bda96db5718f07caef2e836b4dce6892b7b00c3d7b657645470af3f",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -838,6 +838,15 @@
                   "maximum": 24
                 }
               ],
+              "finance_snapshot": {
+                "initial_cash_krw": { "low": 60000000, "base": 90000000, "high": 130000000 },
+                "monthly_fixed_cost_krw": { "low": 4000000, "base": 6000000, "high": 9000000 },
+                "contribution_margin_bps": 6000,
+                "operating_days_per_month": 28,
+                "average_ticket_krw": 6000,
+                "break_even_monthly_sales_krw": 10000000,
+                "required_daily_orders": 59.53
+              },
               "support_refs": [
                 "seed-registry-1"
               ]
@@ -865,7 +874,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:415a76ca5ef26846987648ad9e863bb4309d6182e16634e8e6ee637378995e8c",
+        "input_digest": "sha256:12cdd4f18bda96db5718f07caef2e836b4dce6892b7b00c3d7b657645470af3f",
         "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
         "status": "COMPLETE",
         "payload": {
@@ -880,6 +889,58 @@
               "evidence_refs": [],
               "assumption_refs": [
                 "seed-registry-1"
+              ],
+              "fit_assessments": [
+                {
+                  "axis": "CAPITAL_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "후보 비용 계산 전이므로 자금 적합도를 확정하지 않습니다.",
+                  "input_field_refs": ["/founder/own_funds_krw", "/founder/borrowing_intent"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": ["seed-registry-1"],
+                  "missing_context": ["후보의 결정론적 초기 필요자금 계산 결과"]
+                },
+                {
+                  "axis": "OPERATING_FIT",
+                  "signal": "POSITIVE",
+                  "summary": "등록 모델과 창업자의 직접 전업 운영 의향이 일치합니다.",
+                  "input_field_refs": ["/founder/operation_mode"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": ["seed-registry-1"],
+                  "missing_context": []
+                },
+                {
+                  "axis": "USER_PREFERENCE_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "선호 분위기와 등록 모델의 구체적인 매장 특성을 대조할 정보가 없습니다.",
+                  "input_field_refs": ["/founder/preferences", "/founder/avoidances"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": ["seed-registry-1"],
+                  "missing_context": ["등록 모델의 분위기와 서비스 방식 정보"]
+                },
+                {
+                  "axis": "AREA_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "지역은 확인됐지만 수요와 경쟁 자료가 없어 상권 적합도를 판단하지 않습니다.",
+                  "input_field_refs": ["/area/resolution_status", "/area/display_name", "/area/unavailable_fields"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": [],
+                  "missing_context": ["지역 매출과 유동인구 근거"]
+                },
+                {
+                  "axis": "EVIDENCE_COMPLETENESS",
+                  "signal": "NEGATIVE",
+                  "summary": "모델 가정은 있지만 임대료 근거가 빠져 있습니다.",
+                  "input_field_refs": ["/area/evidence_ids"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": ["seed-registry-1"],
+                  "missing_context": ["임대료 근거"]
+                }
               ],
               "missing_fields": [
                 "rent"
@@ -919,11 +980,11 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "prompt_version": "proposal-agent.v2",
+        "prompt_version": "proposal-agent.v3",
         "input_schema_id": "caffemate.agent.independent-proposal-input.v1",
         "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:5a2efbd02e704538b50394186ca5b223c9bda9e381e070ec7e0ddee304584ffe",
+        "input_digest": "sha256:48bdf901e90475b2feeac4d36bafd42591a5befa8802326e5e210f7d6c9beac4",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -972,6 +1033,15 @@
                   "maximum": 24
                 }
               ],
+              "finance_snapshot": {
+                "initial_cash_krw": { "low": 60000000, "base": 90000000, "high": 130000000 },
+                "monthly_fixed_cost_krw": { "low": 4000000, "base": 6000000, "high": 9000000 },
+                "contribution_margin_bps": 6000,
+                "operating_days_per_month": 28,
+                "average_ticket_krw": 6000,
+                "break_even_monthly_sales_krw": 10000000,
+                "required_daily_orders": 59.53
+              },
               "support_refs": [
                 "seed-registry-1"
               ]
@@ -999,7 +1069,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:5a2efbd02e704538b50394186ca5b223c9bda9e381e070ec7e0ddee304584ffe",
+        "input_digest": "sha256:48bdf901e90475b2feeac4d36bafd42591a5befa8802326e5e210f7d6c9beac4",
         "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
         "status": "NEEDS_EVIDENCE",
         "payload": {
@@ -1014,6 +1084,58 @@
               "evidence_refs": [],
               "assumption_refs": [
                 "seed-registry-1"
+              ],
+              "fit_assessments": [
+                {
+                  "axis": "CAPITAL_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "후보 비용 계산 전이므로 자금 적합도를 확정하지 않습니다.",
+                  "input_field_refs": ["/founder/own_funds_krw", "/founder/borrowing_intent"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": ["seed-registry-1"],
+                  "missing_context": ["후보의 결정론적 초기 필요자금 계산 결과"]
+                },
+                {
+                  "axis": "OPERATING_FIT",
+                  "signal": "POSITIVE",
+                  "summary": "등록 모델과 창업자의 직접 전업 운영 의향이 일치합니다.",
+                  "input_field_refs": ["/founder/operation_mode"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": ["seed-registry-1"],
+                  "missing_context": []
+                },
+                {
+                  "axis": "USER_PREFERENCE_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "선호 분위기와 등록 모델의 구체적인 매장 특성을 대조할 정보가 없습니다.",
+                  "input_field_refs": ["/founder/preferences", "/founder/avoidances"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": ["seed-registry-1"],
+                  "missing_context": ["등록 모델의 분위기와 서비스 방식 정보"]
+                },
+                {
+                  "axis": "AREA_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "지역은 확인됐지만 수요와 경쟁 자료가 없어 상권 적합도를 판단하지 않습니다.",
+                  "input_field_refs": ["/area/resolution_status", "/area/display_name", "/area/unavailable_fields"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": [],
+                  "missing_context": ["지역 매출과 유동인구 근거"]
+                },
+                {
+                  "axis": "EVIDENCE_COMPLETENESS",
+                  "signal": "NEGATIVE",
+                  "summary": "모델 가정은 있지만 임대료 근거가 빠져 있습니다.",
+                  "input_field_refs": ["/area/evidence_ids"],
+                  "claim_refs": ["claim-rent"],
+                  "evidence_refs": [],
+                  "assumption_refs": ["seed-registry-1"],
+                  "missing_context": ["임대료 근거"]
+                }
               ],
               "missing_fields": [
                 "rent"
@@ -1057,11 +1179,11 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "prompt_version": "proposal-agent.v2",
+        "prompt_version": "proposal-agent.v3",
         "input_schema_id": "caffemate.agent.franchise-proposal-input.v1",
         "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:05eecb962b7462f98211866d244813595aed7f14a06e7b014f7c34ccb1d87c63",
+        "input_digest": "sha256:575968189ce33322cab0abb10800b8d976a422f409417e4298cf7c73dd42eb34",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -1129,7 +1251,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:05eecb962b7462f98211866d244813595aed7f14a06e7b014f7c34ccb1d87c63",
+        "input_digest": "sha256:575968189ce33322cab0abb10800b8d976a422f409417e4298cf7c73dd42eb34",
         "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
         "status": "COMPLETE",
         "payload": {
@@ -1145,6 +1267,58 @@
                 "ev-franchise-1"
               ],
               "assumption_refs": [],
+              "fit_assessments": [
+                {
+                  "axis": "CAPITAL_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "확인된 총 창업비가 없어 자금 적합도를 확정하지 않습니다.",
+                  "input_field_refs": ["/founder/own_funds_krw", "/founder/borrowing_intent"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": [],
+                  "missing_context": ["브랜드의 확인된 총 창업비"]
+                },
+                {
+                  "axis": "OPERATING_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "창업자의 운영 의향은 확인됐지만 브랜드 운영 부담 자료가 없습니다.",
+                  "input_field_refs": ["/founder/operation_mode"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": [],
+                  "missing_context": ["브랜드의 인력과 영업시간 조건"]
+                },
+                {
+                  "axis": "USER_PREFERENCE_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "사용자 선호와 브랜드 매장 특성을 대조할 자료가 없습니다.",
+                  "input_field_refs": ["/founder/preferences", "/founder/avoidances"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": [],
+                  "missing_context": ["브랜드의 매장 경험과 운영 형식 정보"]
+                },
+                {
+                  "axis": "AREA_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "지역은 확인됐지만 출점 가능성과 상권 자료가 없습니다.",
+                  "input_field_refs": ["/area/resolution_status", "/area/display_name", "/area/unavailable_fields"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": [],
+                  "missing_context": ["출점 가능 여부와 지역 수요·경쟁 근거"]
+                },
+                {
+                  "axis": "EVIDENCE_COMPLETENESS",
+                  "signal": "NEGATIVE",
+                  "summary": "개인 가맹 근거는 있지만 로열티 정보가 빠져 있습니다.",
+                  "input_field_refs": [],
+                  "claim_refs": [],
+                  "evidence_refs": ["ev-franchise-1"],
+                  "assumption_refs": [],
+                  "missing_context": ["로열티 정보"]
+                }
+              ],
               "missing_fields": [
                 "royalty"
               ],
@@ -1183,11 +1357,11 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "prompt_version": "proposal-agent.v2",
+        "prompt_version": "proposal-agent.v3",
         "input_schema_id": "caffemate.agent.franchise-proposal-input.v1",
         "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:b6ad43c094abdf8994fd349c85bb15e79c5b4e28a333a44f115f459af1521cf7",
+        "input_digest": "sha256:933a9c0b0242ace6f76a573aba874a99544920d08be5b7ee6e2da479a06e4318",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -1258,7 +1432,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:b6ad43c094abdf8994fd349c85bb15e79c5b4e28a333a44f115f459af1521cf7",
+        "input_digest": "sha256:933a9c0b0242ace6f76a573aba874a99544920d08be5b7ee6e2da479a06e4318",
         "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
         "status": "NEEDS_EVIDENCE",
         "payload": {
@@ -1274,6 +1448,58 @@
                 "ev-franchise-1"
               ],
               "assumption_refs": [],
+              "fit_assessments": [
+                {
+                  "axis": "CAPITAL_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "확인된 총 창업비가 없어 자금 적합도를 확정하지 않습니다.",
+                  "input_field_refs": ["/founder/own_funds_krw", "/founder/borrowing_intent"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": [],
+                  "missing_context": ["브랜드의 확인된 총 창업비"]
+                },
+                {
+                  "axis": "OPERATING_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "창업자의 운영 의향은 확인됐지만 브랜드 운영 부담 자료가 없습니다.",
+                  "input_field_refs": ["/founder/operation_mode"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": [],
+                  "missing_context": ["브랜드의 인력과 영업시간 조건"]
+                },
+                {
+                  "axis": "USER_PREFERENCE_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "사용자 선호와 브랜드 매장 특성을 대조할 자료가 없습니다.",
+                  "input_field_refs": ["/founder/preferences", "/founder/avoidances"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": [],
+                  "missing_context": ["브랜드의 매장 경험과 운영 형식 정보"]
+                },
+                {
+                  "axis": "AREA_FIT",
+                  "signal": "UNKNOWN",
+                  "summary": "지역은 확인됐지만 출점 가능성과 상권 자료가 없습니다.",
+                  "input_field_refs": ["/area/resolution_status", "/area/display_name", "/area/unavailable_fields"],
+                  "claim_refs": [],
+                  "evidence_refs": [],
+                  "assumption_refs": [],
+                  "missing_context": ["출점 가능 여부와 지역 수요·경쟁 근거"]
+                },
+                {
+                  "axis": "EVIDENCE_COMPLETENESS",
+                  "signal": "NEGATIVE",
+                  "summary": "개인 가맹 근거는 있지만 로열티 정보가 빠져 있습니다.",
+                  "input_field_refs": [],
+                  "claim_refs": ["claim-royalty"],
+                  "evidence_refs": ["ev-franchise-1"],
+                  "assumption_refs": [],
+                  "missing_context": ["로열티 정보"]
+                }
+              ],
               "missing_fields": [
                 "royalty"
               ],

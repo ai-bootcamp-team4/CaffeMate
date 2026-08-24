@@ -2,7 +2,7 @@
 
 > 상태: active implementation contract
 >
-> 계약 버전: `1.2.0`
+> 계약 버전: `1.3.0`
 >
 > 제품 정본: [제품 명세](../product-spec.md)
 >
@@ -227,6 +227,8 @@ trace_context: optional W3C trace context
 - `input_artifacts`는 id·kind·version·digest를 기록한다. Agent가 id만으로 저장소를 다시 읽지는 않는다.
 - 실제 판단에 필요한 내용은 검증된 `payload`에 inline으로 전달한다.
 - Proposal 입력은 frozen Evidence Snapshot과 등록 seed·brand universe만 포함한다.
+- `proposal-agent.v3`는 후보마다 자금·운영·사용자 선호·상권·근거 완성도 관점을 정확히 한 번씩 반환한다. 각 관점은 숫자 점수가 아닌 typed signal이며, 공급된 State 필드·Claim·Evidence·가정 참조 또는 `missing_context`에 연결한다.
+- Proposal의 관점별 signal은 계산·Hard Gate·순위·주력 후보 선택이 아니다. 이 권한은 계속 Control API의 결정론적 단계에만 있다.
 - Evidence Assessment 입력은 Control API가 실행하고 검증한 tool result만 포함한다.
 - Document 입력은 한 revision의 허용 parser block·anchor만 포함한다.
 
@@ -339,6 +341,8 @@ JSON Schema가 두 필드 사이의 동일성, 배열 참조의 포함관계와 
 | `FRANCHISE_ELIGIBILITY_UNVERIFIED` | 순위가 있는 프랜차이즈의 개인 가맹 가능 여부가 근거와 함께 `VERIFIED`인가 | `EXCLUDED`, rank null |
 | `MONEY_RANGE_NON_MONOTONIC` | 알려진 비용 범위가 `low <= base <= high`인가 | 후보 계산 실패 |
 | `MATERIAL_PROVENANCE_MISSING` | 추천 후보의 초기비용·고정비와 계산 입력에 material provenance가 있는가 | 최대 `CONDITIONAL_REVIEW` |
+| `PROPOSAL_FIT_AXES_INVALID` | `proposal-agent.v3`가 다섯 fit 관점을 누락·중복 없이 정확히 한 번씩 반환했는가 | 결과 폐기 |
+| `PROPOSAL_FIT_BASIS_MISSING` | 각 fit 관점이 입력 필드·Claim·Evidence·가정 또는 missing context에 연결됐는가 | 결과 폐기 |
 | `RANK_INVARIANT_VIOLATION` | hard Gate 통과 집합과 조건부 검토 집합이 섞이지 않고 rank가 연속·유일한가 | 전체 rank 재계산 |
 
 `UNALLOCATED_OUTPUT_ID`를 피하기 위해 backend가 Intent의 `operation_id_pool`, Evidence plan의 `action_id_pool`, Proposal seed·brand의 `proposal_id`, 문서 추출의 `claim_id_pool`을 입력에 미리 넣는다. Agent는 새 domain id를 만들지 않는다. transport의 `invocation_id`만 adapter가 물리 호출마다 발급한다.

@@ -190,6 +190,70 @@ function validateProposalCandidateCount(
   }
 }
 
+const PROPOSAL_FIT_AXES = [
+  'CAPITAL_FIT',
+  'OPERATING_FIT',
+  'USER_PREFERENCE_FIT',
+  'AREA_FIT',
+  'EVIDENCE_COMPLETENESS',
+] as const
+
+function validateProposalFitAssessments(
+  task: AgentTask,
+  resultPayload: JsonObject,
+  issues: SemanticIssue[],
+): void {
+  if (task.prompt_version !== 'proposal-agent.v3') return
+
+  const requiredAxes = new Set<string>(PROPOSAL_FIT_AXES)
+  for (const [proposalIndex, rawProposal] of array(resultPayload.candidate_proposals).entries()) {
+    const proposal = object(rawProposal)
+    const assessments = array(proposal.fit_assessments)
+    const axes = assessments
+      .map((rawAssessment) => object(rawAssessment).axis)
+      .filter((axis): axis is string => typeof axis === 'string')
+    const actualAxes = new Set(axes)
+    const hasEveryAxis = requiredAxes.size === actualAxes.size
+      && [...requiredAxes].every((axis) => actualAxes.has(axis))
+    if (assessments.length !== PROPOSAL_FIT_AXES.length || axes.length !== assessments.length || !hasEveryAxis) {
+      add(
+        issues,
+        'PROPOSAL_FIT_AXES_INVALID',
+        `/payload/candidate_proposals/${proposalIndex}/fit_assessments`,
+        'proposal-agent.v3 requires each typed fit axis exactly once',
+      )
+    }
+
+    for (const [assessmentIndex, rawAssessment] of assessments.entries()) {
+      const assessment = object(rawAssessment)
+      const path = `/payload/candidate_proposals/${proposalIndex}/fit_assessments/${assessmentIndex}`
+      const hasBasis = [
+        assessment.input_field_refs,
+        assessment.claim_refs,
+        assessment.evidence_refs,
+        assessment.assumption_refs,
+        assessment.missing_context,
+      ].some((value) => array(value).length > 0)
+      if (!hasBasis) {
+        add(
+          issues,
+          'PROPOSAL_FIT_BASIS_MISSING',
+          path,
+          'fit assessment must cite supplied context or state what context is missing',
+        )
+      }
+      if (assessment.signal === 'UNKNOWN' && array(assessment.missing_context).length === 0) {
+        add(
+          issues,
+          'PROPOSAL_FIT_UNKNOWN_CONTEXT_MISSING',
+          `${path}/missing_context`,
+          'UNKNOWN fit signal must state which context is missing',
+        )
+      }
+    }
+  }
+}
+
 function scopesDefinitelyMismatch(left: unknown, right: unknown): boolean {
   const expected = object(left)
   const actual = object(right)
@@ -579,6 +643,7 @@ export function validateAgentSemantics(task: AgentTask, result: AgentTaskResult)
   validateMoneyRanges(result.payload, issues)
   validateProposalCandidateCount(task.task_type, taskPayload, resultPayload, issues)
   if (result.payload === null) return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues }
+  validateProposalFitAssessments(task, resultPayload, issues)
 
   switch (task.task_type) {
     case 'INTENT_DELTA': validateIntent(taskPayload, resultPayload, issues); break

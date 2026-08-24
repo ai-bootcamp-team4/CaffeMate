@@ -86,6 +86,39 @@ interface MetricRecord {
   evidence_id: string
 }
 
+const METRIC_SOURCE: Record<string, SourceKind> = {
+  CAFE_COUNT: 'store',
+  OPEN_COUNT: 'store',
+  CLOSE_COUNT: 'store',
+  CLOSURE_RATE: 'store',
+  ESTIMATED_SALES: 'sales',
+  FOOT_TRAFFIC: 'foot',
+  RESIDENT_POPULATION: 'resident',
+  WORKER_POPULATION: 'worker',
+  AGE_DISTRIBUTION: 'resident',
+}
+
+const METRIC_CLAIM: Record<string, string> = {
+  CAFE_COUNT: 'AREA_CAFE_COMPETITION',
+  OPEN_COUNT: 'AREA_BUSINESS_CHURN',
+  CLOSE_COUNT: 'AREA_BUSINESS_CHURN',
+  CLOSURE_RATE: 'AREA_BUSINESS_CHURN',
+  ESTIMATED_SALES: 'AREA_DEMAND_SIGNALS',
+  FOOT_TRAFFIC: 'AREA_DEMAND_SIGNALS',
+  RESIDENT_POPULATION: 'AREA_DEMAND_SIGNALS',
+  WORKER_POPULATION: 'AREA_DEMAND_SIGNALS',
+  AGE_DISTRIBUTION: 'AREA_DEMAND_SIGNALS',
+}
+
+const SOURCE_TITLE: Record<SourceKind, string> = {
+  mapping: '행정안전부 법정동·행정동 연결 자료',
+  store: '서울시 상권분석서비스 카페 업소 현황',
+  sales: '서울시 상권분석서비스 카페 추정매출',
+  foot: '서울시 상권분석서비스 추정 유동인구',
+  resident: '서울시 상권분석서비스 거주인구',
+  worker: '서울시 상권분석서비스 직장인구',
+}
+
 const GROUNDING_QUERY = `
 WITH latest AS (
   SELECT ingestion_id, loaded_at, source_periods_json, source_digests_json
@@ -242,6 +275,61 @@ function sourceTrace(
     data_date: dataDate,
     retrieved_at: retrievedAt,
     content_digest: `sha256:${sourceDigest}`,
+  }
+}
+
+type SourceTraceRecord = NonNullable<ReturnType<typeof sourceTrace>>
+
+function metricEvidence(
+  record: MetricRecord,
+  input: { administrative_code: string; boundary_version: string },
+  scope: McpScopeContext,
+  traces: SourceTraceRecord[],
+  ingestionId: string,
+  observedAt: string,
+) {
+  const sourceKind = METRIC_SOURCE[record.metric]
+  const claimType = METRIC_CLAIM[record.metric]
+  const trace = traces.find((value) => value.source_id === SOURCE[sourceKind]?.id)
+  if (!sourceKind || !claimType || !trace || trace.data_date !== record.as_of) return null
+  const ageMilliseconds = Date.parse(observedAt) - Date.parse(record.as_of)
+  const freshnessStatus = ageMilliseconds <= 365 * 24 * 60 * 60 * 1000
+    ? 'FRESH'
+    : 'STALE'
+  return {
+    schema_version: '2.0.0',
+    evidence_id: record.evidence_id,
+    project_id: scope.ventureProjectId,
+    claim_type: claimType,
+    metric: record.metric,
+    value: record.value,
+    value_kind: record.metric === 'CLOSURE_RATE' ? 'DERIVED_RESULT' : 'EVIDENCED_FACT',
+    unit: record.unit,
+    geographic_scope: {
+      scope_type: 'ADMINISTRATIVE_AREA',
+      scope_id: input.administrative_code,
+      boundary_version: input.boundary_version,
+    },
+    source: {
+      title: SOURCE_TITLE[sourceKind],
+      source_ref: trace.source_ref,
+      authority: 'PRIMARY_DATA',
+      source_type: 'DATASET',
+      published_or_data_date: trace.data_date,
+      source_observed_at: trace.retrieved_at,
+      document_version: ingestionId,
+      checksum: trace.content_digest,
+    },
+    original_anchor: {
+      anchor_type: record.metric === 'CLOSURE_RATE' ? 'CALCULATION' : 'DATASET_ROW',
+      locator: `${ingestionId}:${input.administrative_code}:${record.metric}`,
+      excerpt_hash: trace.content_digest,
+    },
+    freshness_status: freshnessStatus,
+    conflict_status: 'NONE',
+    retrieved_at: trace.retrieved_at,
+    missing_context: [],
+    durable_evidence_refs: [trace.source_ref],
   }
 }
 
@@ -402,7 +490,8 @@ export function createBigQueryGroundingConnectors(
   }
 
   const cafeObservations: McpConnector = async (rawInput, scope, execution) => {
-    const input = rawInput as { administrative_code: string; metrics: string[] }
+    // 사용자가 선택한 동네의 실제 상권 수치는 반드시 출처가 고정된 EvidenceRecord로 전달한다.
+    const input = rawInput as { administrative_code: string; boundary_version: string; metrics: string[] }
     const queried = await query(input, scope, execution?.signal)
     if (!queried.payload || queried.result) return queried.result
     const payload = queried.payload
@@ -449,11 +538,22 @@ export function createBigQueryGroundingConnectors(
     }
     const traces = [...usedSources]
       .map((source) => sourceTrace(payload, source, periods, digests, now.toISOString()))
+      .filter((value): value is NonNullable<typeof value> => value !== null)
+    const evidenceRecords = data
+      .map((record) => metricEvidence(
+        record,
+        input,
+        scope,
+        traces,
+        payload.ingestion_id,
+        now.toISOString(),
+      ))
       .filter((value) => value !== null)
     return {
       ...base(scope, 'search_cafe_observations', now),
       status: data.length && !missing.length ? 'OK' : 'PARTIAL',
       data,
+      evidence_records: evidenceRecords,
       missing_fields: missing,
       source_trace: traces,
     }

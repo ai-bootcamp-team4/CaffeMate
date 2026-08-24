@@ -157,6 +157,37 @@
       },
       "uniqueItems": true
     },
+    "agent_advisory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fit_assessments", "adjusted_parameters", "missing_fields", "warnings"],
+      "properties": {
+        "fit_assessments": {
+          "type": "array",
+          "items": {
+            "$ref": "./agent-role-payloads.schema.json#/$defs/candidateFitAssessment"
+          },
+          "minItems": 5,
+          "maxItems": 5
+        },
+        "adjusted_parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "./agent-role-payloads.schema.json#/$defs/adjustedParameter"
+          }
+        },
+        "missing_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    },
     "financial_summary": {
       "type": "object",
       "additionalProperties": false,

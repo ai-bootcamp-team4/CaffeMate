@@ -14,8 +14,8 @@
   },
   "allow_global_fallback": false,
   "network_mode": "GCP_CONNECTED",
-  "prompt_bundle_digest": "sha256:97f460c591183a1305ecf6e617b5744a9808ad9c5f42e6421f80aa91b6cc4ead",
-  "agent_contract_bundle_digest": "sha256:86beb999ae0ab1263b385ec2d3d1acf64ac5b34532057135c8399188f0ffdf87",
+  "prompt_bundle_digest": "sha256:64ccdbe0fadfd2676dfa137de55813a6b914c53e674317d75680cca839a24e79",
+  "agent_contract_bundle_digest": "sha256:dc9dd1ea3494e9050d4a6de79086418411b2029875e7bb01a601788721b8f34e",
   "mcp": {
     "protocol_revision": "2026-07-28",
     "server_sdk": "@modelcontextprotocol/server@2.0.0",
@@ -81,7 +81,7 @@
     },
     "PROPOSE_INDEPENDENT": {
       "agent_name": "PROPOSAL_AGENT",
-      "prompt_version": "proposal-agent.v2",
+      "prompt_version": "proposal-agent.v3",
       "input_schema_id": "caffemate.agent.independent-proposal-input.v1",
       "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
       "deadline_seconds": 60,
@@ -90,7 +90,7 @@
     },
     "PROPOSE_FRANCHISE": {
       "agent_name": "PROPOSAL_AGENT",
-      "prompt_version": "proposal-agent.v2",
+      "prompt_version": "proposal-agent.v3",
       "input_schema_id": "caffemate.agent.franchise-proposal-input.v1",
       "output_schema_id": "caffemate.agent.franchise-proposal-result.v1",
       "deadline_seconds": 60,

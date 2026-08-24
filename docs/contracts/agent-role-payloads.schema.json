@@ -3,6 +3,16 @@
   "$id": "https://github.com/ai-bootcamp-team4/CaffeMate/docs/contracts/agent-role-payloads.schema.json",
   "title": "CaffeMate Agent Role Payload Library",
   "$defs": {
+    "knownMoneyRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["low", "base", "high"],
+      "properties": {
+        "low": { "type": "integer", "minimum": 0 },
+        "base": { "type": "integer", "minimum": 0 },
+        "high": { "type": "integer", "minimum": 0 }
+      }
+    },
     "founderProjection": {
       "type": "object",
       "additionalProperties": false,
@@ -262,6 +272,81 @@
         }
       }
     },
+    "candidateFitAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "axis",
+        "signal",
+        "summary",
+        "input_field_refs",
+        "claim_refs",
+        "evidence_refs",
+        "assumption_refs",
+        "missing_context"
+      ],
+      "properties": {
+        "axis": {
+          "enum": [
+            "CAPITAL_FIT",
+            "OPERATING_FIT",
+            "USER_PREFERENCE_FIT",
+            "AREA_FIT",
+            "EVIDENCE_COMPLETENESS"
+          ]
+        },
+        "signal": {
+          "enum": ["POSITIVE", "NEGATIVE", "MIXED", "UNKNOWN"]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "input_field_refs": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "/founder/own_funds_krw",
+              "/founder/borrowing_intent",
+              "/founder/cafe_type_preference",
+              "/founder/operation_mode",
+              "/founder/preferences",
+              "/founder/avoidances",
+              "/founder/max_loss_krw",
+              "/area/resolution_status",
+              "/area/administrative_code",
+              "/area/display_name",
+              "/area/coverage_profile",
+              "/area/evidence_ids",
+              "/area/unavailable_fields"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "claim_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "assumption_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "missing_context": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "maxItems": 8,
+          "uniqueItems": true
+        }
+      }
+    },
     "candidateProposal": {
       "type": "object",
       "additionalProperties": false,
@@ -300,6 +385,12 @@
           "type": "array",
           "items": { "type": "string" },
           "uniqueItems": true
+        },
+        "fit_assessments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/candidateFitAssessment" },
+          "minItems": 5,
+          "maxItems": 5
         },
         "missing_fields": {
           "type": "array",
@@ -593,7 +684,7 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["proposal_id", "model_id", "display_name", "allowed_parameters", "support_refs"],
+            "required": ["proposal_id", "model_id", "display_name", "allowed_parameters", "finance_snapshot", "support_refs"],
             "properties": {
               "proposal_id": { "type": "string", "minLength": 1, "maxLength": 128 },
               "model_id": { "type": "string", "minLength": 1 },
@@ -619,6 +710,28 @@
                   }
                 },
                 "uniqueItems": true
+              },
+              "finance_snapshot": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "initial_cash_krw",
+                  "monthly_fixed_cost_krw",
+                  "contribution_margin_bps",
+                  "operating_days_per_month",
+                  "average_ticket_krw",
+                  "break_even_monthly_sales_krw",
+                  "required_daily_orders"
+                ],
+                "properties": {
+                  "initial_cash_krw": { "$ref": "#/$defs/knownMoneyRange" },
+                  "monthly_fixed_cost_krw": { "$ref": "#/$defs/knownMoneyRange" },
+                  "contribution_margin_bps": { "type": "integer", "minimum": 1, "maximum": 10000 },
+                  "operating_days_per_month": { "type": "integer", "minimum": 1, "maximum": 31 },
+                  "average_ticket_krw": { "type": "integer", "minimum": 1 },
+                  "break_even_monthly_sales_krw": { "type": "integer", "minimum": 0 },
+                  "required_daily_orders": { "type": "number", "minimum": 0 }
+                }
               },
               "support_refs": {
                 "type": "array",

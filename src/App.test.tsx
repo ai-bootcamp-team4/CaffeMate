@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type { AuthGateway, AuthSession } from './auth'
 import { ControlApiError } from './apiClient'
-import type { AreaSearchResult, ControlApiClient, HeadFence, PreparationGuide, Project, ResultView, WorkflowProgress } from './apiClient'
+import type { AreaSearchResult, ControlApiClient, FeedbackPreview, HeadFence, PreparationGuide, Project, ResultView, WorkflowProgress } from './apiClient'
 
 afterEach(cleanup)
 
@@ -88,6 +88,22 @@ const result: ResultView = {
     counterfactuals: [{ variable: 'rent', condition: '월세 15% 감소', decision_impact: '검토 우선순위가 상승합니다.' }],
     next_actions: ['본사 출점 가능 여부 확인'],
   }],
+}
+
+const feedbackPreview: FeedbackPreview = {
+  preview_id: 'feedback-preview-1',
+  project_id: 'project-1',
+  result_bundle_id: 'result-1',
+  head,
+  status: 'REVIEW_REQUIRED',
+  latest_user_input: '저가 브랜드는 제외하고 10평 이하로 다시 보고 싶어요.',
+  before_founder: { preferred_store_area_pyeong: 20 },
+  after_founder: { preferred_store_area_pyeong: 10 },
+  operations: [],
+  clarifying_questions: [],
+  affected_stage_codes: [],
+  risk_flags: [],
+  proposal_digest: `sha256:${'d'.repeat(64)}`,
 }
 
 const workflow = { workflow_run_id: 'workflow-1', project_id: 'project-1', workflow_code: 'FIRST_PROPOSAL' as const, status: 'SUCCEEDED' as const, head, created_at: '2026-08-22T00:01:00Z', updated_at: '2026-08-22T00:02:00Z' }
@@ -490,7 +506,96 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.queryByText(/감사 사람 확인 필요/)).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: '예산에 맞는 작은 안 보기' }))
-    await waitFor(() => expect((screen.getByLabelText('자연어 피드백') as HTMLTextAreaElement).value).toBe('현재 자기자금 범위에 더 가까운 작은 개인카페 운영안으로 다시 보고 싶어요.'))
+    await waitFor(() => expect((screen.getByLabelText('바꾸고 싶은 조건') as HTMLTextAreaElement).value).toBe('현재 자기자금 범위에 더 가까운 작은 개인카페 운영안으로 다시 보고 싶어요.'))
+  })
+
+  it('shows condition feedback only after a result and explains the preview-before-apply flow', async () => {
+    setup()
+
+    expect(screen.queryByRole('heading', { name: '조건 변경 제안' })).toBeNull()
+    await completeOnboarding()
+
+    expect(await screen.findByRole('heading', { name: '조건 변경 제안' })).toBeTruthy()
+    expect(screen.getByText(/변경안을 먼저 보여드리고, 확인한 뒤에만 결과에 반영해요/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: '변경안 미리보기' })).toBeTruthy()
+  })
+
+  it('previews a condition change before applying it', async () => {
+    const { client } = setup()
+    vi.mocked(client.createFeedbackPreview).mockResolvedValueOnce(feedbackPreview)
+    vi.mocked(client.confirmFeedback).mockResolvedValueOnce({
+      preview: { ...feedbackPreview, status: 'CONFIRMED' },
+      state_version: 2,
+      workflow: null,
+    })
+    await completeOnboarding()
+
+    fireEvent.change(screen.getByLabelText('바꾸고 싶은 조건'), {
+      target: { value: feedbackPreview.latest_user_input },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '변경안 미리보기' }))
+
+    expect(await screen.findByRole('heading', { name: '적용 전 변경 확인' })).toBeTruthy()
+    expect(screen.getByText('변경안 미리보기를 만들었습니다. 적용 전 내용을 확인해 주세요.')).toBeTruthy()
+    expect((screen.getByLabelText('바꾸고 싶은 조건') as HTMLTextAreaElement).disabled).toBe(true)
+    expect(client.createFeedbackPreview).toHaveBeenCalledWith('project-1', feedbackPreview.latest_user_input)
+
+    fireEvent.click(screen.getByRole('button', { name: '변경 적용' }))
+
+    await waitFor(() => expect(client.confirmFeedback).toHaveBeenCalledWith('project-1', feedbackPreview))
+    expect(await screen.findByText('확인한 변경안을 반영하고 결과를 갱신했습니다.')).toBeTruthy()
+  })
+
+  it('exposes empty-input and preview-loading states accessibly', async () => {
+    const { client } = setup()
+    await completeOnboarding()
+
+    fireEvent.click(screen.getByRole('button', { name: '변경안 미리보기' }))
+    const input = screen.getByLabelText('바꾸고 싶은 조건') as HTMLTextAreaElement
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByText('바꾸고 싶은 조건을 한 문장 이상 입력해 주세요.')).toBeTruthy()
+
+    let resolvePreview: ((value: FeedbackPreview) => void) | undefined
+    vi.mocked(client.createFeedbackPreview).mockImplementationOnce(() => new Promise((resolve) => { resolvePreview = resolve }))
+    fireEvent.change(input, { target: { value: feedbackPreview.latest_user_input } })
+    expect(input.getAttribute('aria-invalid')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '변경안 미리보기' }))
+
+    const loadingButton = screen.getByRole('button', { name: '미리보기 만드는 중' })
+    expect(loadingButton.getAttribute('aria-busy')).toBe('true')
+    expect((loadingButton as HTMLButtonElement).disabled).toBe(true)
+    resolvePreview?.(feedbackPreview)
+    expect(await screen.findByRole('heading', { name: '적용 전 변경 확인' })).toBeTruthy()
+  })
+
+  it('returns clarification requests to an editable condition input', async () => {
+    const clarification = {
+      ...feedbackPreview,
+      status: 'CLARIFICATION_REQUIRED' as const,
+      after_founder: null,
+      clarifying_questions: ['어떤 브랜드를 제외할지 알려 주세요.'],
+      proposal_digest: null,
+    }
+    const { client } = setup()
+    vi.mocked(client.createFeedbackPreview).mockResolvedValueOnce(clarification)
+    vi.mocked(client.cancelFeedback).mockResolvedValueOnce({
+      preview: { ...clarification, status: 'CANCELLED' },
+      state_version: null,
+      workflow: null,
+    })
+    await completeOnboarding()
+
+    fireEvent.change(screen.getByLabelText('바꾸고 싶은 조건'), {
+      target: { value: '브랜드를 빼고 싶어요.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '변경안 미리보기' }))
+
+    expect(await screen.findByText('어떤 브랜드를 제외할지 알려 주세요.')).toBeTruthy()
+    expect((screen.getByRole('button', { name: '변경 적용' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '입력 다시 하기' }))
+
+    await waitFor(() => expect((screen.getByLabelText('바꾸고 싶은 조건') as HTMLTextAreaElement).disabled).toBe(false))
+    expect(screen.getByText('입력을 수정할 수 있습니다. 현재 결과는 바뀌지 않았습니다.')).toBeTruthy()
   })
 
   it('keeps internal result codes and identifiers out of user-facing panels', async () => {
