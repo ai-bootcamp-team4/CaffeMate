@@ -637,17 +637,14 @@ class LinearMultiAgentProposalPipeline:
                         "missing_fields": sorted(set(missing)),
                     }
                 )
-        return sorted(
-            universe,
-            key=lambda item: (
-                item.get("finance_profile", {}).get("known_initial_cost_range_krw")
-                is None,
-                item.get("finance_profile", {})
-                .get("known_initial_cost_range_krw", {})
-                .get("base", 0),
-                item["brand_id"],
-            ),
-        )
+        def sort_key(item: dict[str, Any]) -> tuple[bool, int, str]:
+            # 비용 근거가 부족한 조건부 브랜드도 유지하되, 확인된 비용 후보 뒤에 둔다.
+            finance_profile = item["finance_profile"]
+            cost_range = finance_profile.get("known_initial_cost_range_krw")
+            base_cost = cost_range.get("base", 0) if isinstance(cost_range, dict) else 0
+            return cost_range is None, base_cost, item["brand_id"]
+
+        return sorted(universe, key=sort_key)
 
     def _claims(
         self,
