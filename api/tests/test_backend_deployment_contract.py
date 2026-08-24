@@ -188,6 +188,7 @@ def test_model_armor_is_inspect_only_and_verified_with_the_deployed_api_image() 
     assert ".templateMetadata.logSanitizeOperations != true" in deploy
     assert '"filterEnforcement": "ENABLED"' in deploy
     assert "roles/modelarmor.user" in deploy
+    assert "roles/modelarmor.viewer" in deploy
     assert "roles/modelarmor.admin" not in deploy
     assert '--update-env-vars="MODEL_ARMOR_TEMPLATE=' in deploy
 
@@ -201,6 +202,8 @@ def test_model_armor_is_inspect_only_and_verified_with_the_deployed_api_image() 
         in verifier
     )
     assert "MODEL_ARMOR_TEMPLATE" in verifier
+    assert "roles/modelarmor.user" in verifier
+    assert "roles/modelarmor.viewer" in verifier
 
 
 def test_backend_foundation_scripts_preserve_scope_and_secret_values() -> None:

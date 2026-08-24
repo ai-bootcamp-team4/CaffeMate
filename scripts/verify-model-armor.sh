@@ -52,10 +52,12 @@ gcloud projects get-iam-policy "$project_id" --format=json | \
 import json, os, sys
 policy = json.load(sys.stdin)
 member = "serviceAccount:" + os.environ["API_SA"]
-assert any(
-    binding.get("role") == "roles/modelarmor.user" and member in binding.get("members", [])
+roles = {
+    binding.get("role")
     for binding in policy.get("bindings", [])
-)
+    if member in binding.get("members", [])
+}
+assert {"roles/modelarmor.user", "roles/modelarmor.viewer"} <= roles
 '
 
 gcloud run jobs deploy "$verification_job" \

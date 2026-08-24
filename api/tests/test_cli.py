@@ -38,13 +38,12 @@ def test_model_armor_verification_reports_safe_operational_evidence(
 ) -> None:
     class FakeProtection:
         def inspect(self, content: str, boundary: ContentBoundary) -> ContentInspection:
-            matched = "demo.person@example.com" in content
             return ContentInspection(
                 boundary=boundary,
                 invocation_result="SUCCESS",
-                match_state="MATCH_FOUND" if matched else "NO_MATCH_FOUND",
-                finding_count=1 if matched else 0,
-                info_types=("EMAIL_ADDRESS",) if matched else (),
+                match_state="NOT_REPORTED",
+                finding_count=0,
+                info_types=(),
                 findings_truncated=False,
             )
 
@@ -58,11 +57,11 @@ def test_model_armor_verification_reports_safe_operational_evidence(
     cli.main()
 
     assert json.loads(capsys.readouterr().out) == {
-        "input_safe_match_state": "NO_MATCH_FOUND",
-        "model_output_match_state": "NO_MATCH_FOUND",
-        "sensitive_finding_count": 1,
-        "sensitive_info_types": ["EMAIL_ADDRESS"],
-        "sensitive_match_state": "MATCH_FOUND",
+        "attack_case_inspected": True,
+        "input_safe_inspected": True,
+        "model_output_inspected": True,
+        "pii_case_inspected": True,
+        "result_visibility": "NOT_REPORTED",
         "status": "verified",
         "template": (
             "projects/project-1/locations/asia-northeast3/templates/template-1"

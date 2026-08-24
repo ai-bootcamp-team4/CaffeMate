@@ -120,6 +120,27 @@ def test_model_armor_uses_the_model_response_operation() -> None:
     assert result.finding_count == 0
 
 
+def test_model_armor_accepts_inspect_only_success_without_disclosed_findings() -> None:
+    result = ModelArmorContentProtection(
+        template_resource=(
+            "projects/proj/locations/asia-northeast3/templates/caffemate-sdp-inspect-v1"
+        ),
+        access_tokens=FakeTokens(),
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json={"sanitizationResult": {"invocationResult": "SUCCESS"}},
+            )
+        ),
+    ).inspect("검사 전용 입력", ContentBoundary.AGENT_INPUT)
+
+    assert result.invocation_result == "SUCCESS"
+    assert result.match_state == "NOT_REPORTED"
+    assert result.finding_count == 0
+    assert result.info_types == ()
+    assert result.findings_truncated is False
+
+
 @pytest.mark.parametrize(
     "response",
     [

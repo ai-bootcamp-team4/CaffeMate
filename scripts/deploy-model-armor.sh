@@ -51,6 +51,12 @@ gcloud projects add-iam-policy-binding "$project_id" \
   --condition=None \
   --quiet >/dev/null
 
+gcloud projects add-iam-policy-binding "$project_id" \
+  --member="serviceAccount:${api_sa}" \
+  --role="roles/modelarmor.viewer" \
+  --condition=None \
+  --quiet >/dev/null
+
 gcloud run services update "$api_service" \
   --project="$project_id" \
   --region="$region" \
