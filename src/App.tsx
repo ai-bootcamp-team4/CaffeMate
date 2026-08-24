@@ -1509,6 +1509,7 @@ function PreparationScreen({
               projectId={projectId}
               enabled={selection.document_intake_enabled}
               onApplied={onDocumentApplied}
+              onViewResult={onBack}
             />
             <article
               className="surface"
