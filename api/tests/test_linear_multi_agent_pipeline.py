@@ -279,15 +279,20 @@ class FakeRuntime:
         }
 
 
-def _pipeline(runtime: FakeRuntime, mcp: FakeMcp) -> LinearMultiAgentProposalPipeline:
+def _pipeline(
+    runtime: FakeRuntime,
+    mcp: FakeMcp,
+    *,
+    now: datetime = NOW,
+) -> LinearMultiAgentProposalPipeline:
     registry = IndependentSeedRegistry.load_default()
     return LinearMultiAgentProposalPipeline(
         runtime=runtime,
         mcp=mcp,
         seed_registry=registry,
         builder=SimpleProposalBuilder(registry),
-        task_factory=AgentTaskFactory(now=lambda: NOW),
-        now=lambda: NOW,
+        task_factory=AgentTaskFactory(now=lambda: now),
+        now=lambda: now,
     )
 
 
@@ -351,6 +356,29 @@ def test_pipeline_builds_government_and_claim_specific_franchise_rag_queries() -
         "이디야커피 개인 가맹점 창업 신청 가맹 모집 가능 여부 공식 안내",
         "이디야커피 공식 창업 비용 가맹비 월 로열티 포함 제외 항목",
     }
+
+
+def test_pipeline_uses_seoul_business_date_for_official_evidence_queries() -> None:
+    class InspectingMcp(FakeMcp):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[dict[str, Any]] = []
+
+        async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+            self.calls.append(deepcopy(kwargs))
+            return await super().call_tool(**kwargs)
+
+    mcp = InspectingMcp()
+    utc_late_evening = datetime(2026, 8, 24, 22, 0, tzinfo=UTC)
+
+    _pipeline(FakeRuntime(), mcp, now=utc_late_evening).run(
+        state=_state(CafeTypePreference.OPEN_TO_BOTH),
+        head=_head(),
+        workflow_run_id="workflow-seoul-date",
+        evidence_records=[],
+    )
+
+    assert {call["arguments"]["as_of"] for call in mcp.calls} == {"2026-08-25"}
 
 
 def test_pipeline_maps_official_rag_hits_before_the_researcher_projection() -> None:

@@ -8,6 +8,7 @@ from contextvars import copy_context
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Protocol, cast
+from zoneinfo import ZoneInfo
 
 import rfc8785
 
@@ -45,6 +46,7 @@ FRANCHISE_RAG_QUERIES: tuple[str, ...] = (
     "이디야커피 개인 가맹점 창업 신청 가맹 모집 가능 여부 공식 안내",
     "이디야커피 공식 창업 비용 가맹비 월 로열티 포함 제외 항목",
 )
+SEOUL_TIMEZONE = ZoneInfo("Asia/Seoul")
 
 
 class ProposalMcp(Protocol):
@@ -194,7 +196,9 @@ class LinearMultiAgentProposalPipeline:
         head: HeadFence,
         workflow_run_id: str,
     ) -> list[McpCallOutcome]:
-        as_of = self._now().date().isoformat()
+        # 사용자 의도: 국내 창업 자료의 기준일은 서버의 UTC 날짜가 아니라
+        # 실제 서비스 지역인 서울의 달력 날짜와 일치해야 한다.
+        as_of = self._now().astimezone(SEOUL_TIMEZONE).date().isoformat()
         calls: list[tuple[str, dict[str, Any]]] = []
         if state.area.administrative_code and state.area.boundary_version:
             calls.append(
