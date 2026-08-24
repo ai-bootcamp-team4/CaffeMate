@@ -793,6 +793,165 @@ class FranchiseRuntime(FakeRuntime):
         )
 
 
+class ProductionSizedFranchiseMcp(FranchiseMcp):
+    """운영 카탈로그와 비슷한 후보·근거 수로 LLM 없는 경로를 검증한다."""
+
+    async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+        if kwargs["tool_name"] != "list_franchise_universe":
+            return await super().call_tool(**kwargs)
+        self.tool_names.append("list_franchise_universe")
+        brands: list[dict[str, Any]] = []
+        records: list[dict[str, Any]] = []
+        for index in range(9):
+            brand_id = f"kr-test-cafe-{index + 1}"
+            eligibility_id = f"eligibility:{brand_id}"
+            cost_id = f"franchise-cost:{brand_id}"
+            eligibility = self._evidence(eligibility_id, "STRING")
+            eligibility["source"]["title"] = f"테스트 카페 {index + 1} 공식 가맹 안내"
+            eligibility["source"]["source_ref"] = (
+                f"https://example.com/{brand_id}/franchise"
+            )
+            eligibility["durable_evidence_refs"] = [
+                eligibility["source"]["source_ref"]
+            ]
+            records.append(eligibility)
+
+            has_cost_evidence = index < 6
+            if has_cost_evidence:
+                cost = self._evidence(cost_id, "MONEY_RANGE")
+                cost["source"]["title"] = f"테스트 카페 {index + 1} 공식 창업 비용"
+                cost["source"]["source_ref"] = (
+                    f"https://example.com/{brand_id}/cost"
+                )
+                cost["durable_evidence_refs"] = [cost["source"]["source_ref"]]
+                records.append(cost)
+
+            base_cost = 70_000_000 + index * 5_000_000
+            brands.append(
+                {
+                    "brand_id": brand_id,
+                    "display_name": f"테스트 카페 {index + 1}",
+                    "individual_franchise_eligibility": "VERIFIED",
+                    "eligibility_evidence_id": eligibility_id,
+                    "disclosure_status": "MISSING",
+                    "finance_profile": {
+                        "currency": "KRW",
+                        "coverage": "PARTIAL",
+                        "value_kind": "EVIDENCED_FACT",
+                        "known_initial_cost_range_krw": {
+                            "low": base_cost,
+                            "base": base_cost,
+                            "high": base_cost,
+                        },
+                        "reference_area_sqm": 33,
+                        "monthly_royalty_krw": None,
+                        "evidence_refs": [cost_id] if has_cost_evidence else [],
+                        "source_refs": [
+                            f"https://example.com/{brand_id}/cost"
+                        ]
+                        if has_cost_evidence
+                        else [],
+                        "scope_note": "10평 기준 공식 창업비용",
+                        "missing_costs": ["DEPOSIT", "OPERATING_RESERVE"],
+                    },
+                }
+            )
+
+        content = {
+            "schema_version": "1.0.0",
+            "request_id": "request-list_franchise_universe",
+            "tool_name": "list_franchise_universe",
+            "tool_version": "1.0.0",
+            "status": "PARTIAL",
+            "project_id": "project-1",
+            "evidence_records": records,
+            "missing_fields": ["franchise_disclosure"],
+            "conflicts": [],
+            "source_trace": [],
+            "error_codes": [],
+            "observed_at": NOW.isoformat().replace("+00:00", "Z"),
+            "data": brands,
+        }
+        return McpCallOutcome(
+            request_id=content["request_id"],
+            tool_name="list_franchise_universe",
+            tool_version="1.0.0",
+            status="PARTIAL",
+            is_complete=False,
+            structured_content=content,
+        )
+
+
+class OpenBothNoLlmRuntime(FakeRuntime):
+    """고정 JSON만 반환해 Vertex 호출 없이 Control API 연결만 검사한다."""
+
+    def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+        if task["task_type"] != "EVIDENCE_ASSESS":
+            return super().invoke(task)
+        self.task_types.append("EVIDENCE_ASSESS")
+        self.tasks.append(deepcopy(task))
+        assessments: list[dict[str, Any]] = []
+        missing_claims: list[str] = []
+        for action in task["payload"]["executed_actions"]:
+            records = action["structured_result"]["evidence_records"]
+            if not records:
+                missing_claims.append(action["claim_id"])
+                continue
+            assessments.extend(
+                {
+                    "candidate_ref": record["evidence_id"],
+                    "claim_id": action["claim_id"],
+                    "relation": "SUPPORTS",
+                    "scope_status": "MATCH",
+                    "date_status": "MATCH",
+                    "freshness_status": record["freshness_status"],
+                    "anchor_status": "VALID",
+                    "authority_status": "ACCEPTABLE",
+                    "missing_context": [],
+                }
+                for record in records
+            )
+        return self._result(
+            task,
+            payload={
+                "assessments": assessments,
+                "missing_claims": missing_claims,
+                "conflict_proposals": [],
+            },
+            missing_claim_ids=missing_claims,
+        )
+
+
+def test_open_to_both_completes_with_production_sized_input_without_llm() -> None:
+    runtime = OpenBothNoLlmRuntime()
+
+    bundle = _pipeline(runtime, ProductionSizedFranchiseMcp()).run(
+        state=_state(CafeTypePreference.OPEN_TO_BOTH),
+        head=_head(),
+        workflow_run_id="workflow-open-both-no-llm",
+        evidence_records=[],
+    )
+
+    evidence_task = runtime.tasks[0]
+    franchise_action = next(
+        action
+        for action in evidence_task["payload"]["executed_actions"]
+        if action["tool_name"] == "list_franchise_universe"
+    )
+    assert len(franchise_action["structured_result"]["evidence_records"]) == 15
+    assert runtime.task_types == [
+        "EVIDENCE_ASSESS",
+        "PROPOSE_INDEPENDENT",
+        "PROPOSE_FRANCHISE",
+        "PROPOSE_FRANCHISE",
+        "CANDIDATE_AUDIT",
+    ]
+    assert {candidate["case_type"] for candidate in bundle.candidates} == {
+        "INDEPENDENT",
+        "FRANCHISE",
+    }
+
+
 def test_franchise_profile_reaches_agent_and_grounded_calculation_without_static_brand() -> None:
     runtime = FranchiseRuntime()
     mcp = FranchiseMcp()
