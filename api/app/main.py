@@ -12,7 +12,6 @@ from worker.pubsub import GooglePubSubPublisher
 
 from app.agents.protocols import AgentRuntime
 from app.agents.runtime import (
-    AgentRuntimeError,
     AgentRuntimeHttpClient,
     GoogleAccessTokenProvider,
     PostgresAgentCleanupSink,
@@ -94,8 +93,7 @@ from app.feedback.service import (
     FeedbackService,
     UnavailableFeedbackService,
 )
-from app.mcp.client import GoogleIdentityTokenProvider, McpClientError, McpHttpClient
-from app.mcp.preflight import McpManifestPreflight
+from app.mcp.client import GoogleIdentityTokenProvider, McpHttpClient
 from app.mcp.scope import ScopeTokenSigner
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
@@ -138,7 +136,12 @@ from app.workflows.evidence_retrieval import (
     EvidenceRetrievalStageHandler,
 )
 from app.workflows.execution_repository import PostgresStageExecutionRepository
+from app.workflows.failure_policy import (
+    STAGE_EXECUTION_ERRORS,
+    StageExecutionFailurePolicy,
+)
 from app.workflows.first_proposal import FirstProposalStage
+from app.workflows.first_proposal_service import FirstProposalService
 from app.workflows.models import (
     StageLease,
     WorkflowCode,
@@ -159,7 +162,7 @@ from app.workflows.stage_service import (
     StageExecutionService,
     UnavailableStageExecutionService,
 )
-from app.workflows.start_guard import FirstProposalStartGuard, McpManifestStartGate
+from app.workflows.start_guard import FirstProposalStartGuard
 from app.workflows.unavailable_repository import UnavailableWorkflowRepository
 
 
@@ -219,7 +222,6 @@ def create_app(
     internal_identity_verifier: IdentityVerifier | None = None,
     agent_runtime: AgentRuntime | None = None,
     mcp_client: AreaMcpClient | EvidenceMcpClient | None = None,
-    mcp_manifest_preflight: McpManifestPreflight | None = None,
     outbox_dispatcher: OutboxDispatcher | None = None,
 ) -> FastAPI:
     database_handle: DatabaseHandle | None = None
@@ -264,19 +266,6 @@ def create_app(
     configured_mcp_client = mcp_client
     if configured_mcp_client is None and settings.has_mcp_configuration:
         configured_mcp_client = McpHttpClient(
-            base_url=cast(str, settings.mcp_base_url),
-            audience=cast(str, settings.mcp_audience),
-            identity_provider=GoogleIdentityTokenProvider(),
-            scope_signer=ScopeTokenSigner(
-                secret=cast(str, settings.mcp_scope_hmac_secret),
-                issuer="caffemate-control-api",
-                audience="caffemate-mcp",
-            ),
-        )
-
-    configured_mcp_preflight = mcp_manifest_preflight
-    if configured_mcp_preflight is None and settings.has_mcp_configuration:
-        configured_mcp_preflight = McpManifestPreflight(
             base_url=cast(str, settings.mcp_base_url),
             audience=cast(str, settings.mcp_audience),
             identity_provider=GoogleIdentityTokenProvider(),
@@ -332,24 +321,14 @@ def create_app(
             else UnavailableWorkflowRepository()
         )
         start_guard = (
-            FirstProposalStartGuard(
-                stage_handlers,
-                manifest_gate=(
-                    McpManifestStartGate(
-                        configured_mcp_preflight,
-                        policy_snapshot_id=settings.policy_snapshot_id,
-                        seed_registry_id=seed_registry.registry_id,
-                    )
-                    if configured_mcp_preflight is not None
-                    else None
-                ),
-            )
+            FirstProposalStartGuard(stage_handlers)
             if database_handle is not None and settings.policy_snapshot_id is not None
             else None
         )
         workflows = WorkflowService(workflow_repository, start_guard=start_guard)
     else:
         workflows = workflow_service
+    first_proposal = FirstProposalService(workflows, results)
 
     immediate_outbox = outbox_dispatcher
     if (
@@ -578,52 +557,13 @@ def create_app(
                 stage_run_id=stage_run_id,
                 lease=request.lease,
             )
-        except AgentRuntimeError as error:
+        except STAGE_EXECUTION_ERRORS as error:
+            failure = StageExecutionFailurePolicy.classify(error)
             return JSONResponse(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                status_code=failure.http_status,
                 content=StageExecuteFailureResponse(
-                    code=error.runtime_code,
-                    retryable=False,
-                ).model_dump(mode="json"),
-            )
-        except McpClientError as error:
-            return JSONResponse(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content=StageExecuteFailureResponse(
-                    code=error.mcp_code,
-                    retryable=False,
-                ).model_dump(mode="json"),
-            )
-        except ContractValidationError:
-            return JSONResponse(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                content=StageExecuteFailureResponse(
-                    code="CONTRACT_VALIDATION_FAILED",
-                    retryable=False,
-                ).model_dump(mode="json"),
-            )
-        except StageLeaseRejectedError:
-            return JSONResponse(
-                status_code=status.HTTP_409_CONFLICT,
-                content=StageExecuteFailureResponse(
-                    code="STAGE_LEASE_REJECTED",
-                    retryable=False,
-                ).model_dump(mode="json"),
-            )
-        except PersistenceUnavailableError:
-            return JSONResponse(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content=StageExecuteFailureResponse(
-                    code="PERSISTENCE_UNAVAILABLE",
-                    retryable=True,
-                ).model_dump(mode="json"),
-            )
-        except ExternalExecutionUnavailableError:
-            return JSONResponse(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content=StageExecuteFailureResponse(
-                    code="EXTERNAL_EXECUTION_UNAVAILABLE",
-                    retryable=False,
+                    code=failure.code,
+                    retryable=failure.retryable,
                 ).model_dump(mode="json"),
             )
         return StageExecuteResponse(result=result)
@@ -691,7 +631,7 @@ def create_app(
         project_id: str,
         user_id: Annotated[str, Depends(current_user)],
     ) -> ResultView:
-        return results.get_current(project_id=project_id, user_id=user_id)
+        return first_proposal.result(project_id=project_id, user_id=user_id)
 
     @app.post(
         "/v1/projects/{project_id}/feedback/previews",
@@ -1048,7 +988,7 @@ def create_app(
         user_id: Annotated[str, Depends(current_user)],
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> WorkflowRun:
-        run = workflows.start(
+        run = first_proposal.run(
             project_id=project_id,
             user_id=user_id,
             workflow_code=workflow_code,
@@ -1072,7 +1012,7 @@ def create_app(
         workflow_run_id: str,
         user_id: Annotated[str, Depends(current_user)],
     ) -> WorkflowProgress:
-        return workflows.get_progress(
+        return first_proposal.progress(
             project_id=project_id,
             workflow_run_id=workflow_run_id,
             user_id=user_id,

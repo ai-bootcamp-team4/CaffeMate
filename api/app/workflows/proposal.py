@@ -7,6 +7,7 @@ from app.agents.protocols import AgentRuntime
 from app.agents.task_factory import AgentTaskFactory
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 from app.domain.models import CafeTypePreference
+from app.workflows.failure_policy import StageExecutionFailurePolicy
 from app.workflows.models import StageControl, StageDisposition
 from app.workflows.stage_context import StageContext
 
@@ -197,6 +198,8 @@ class ProposalStageHandler:
                 try:
                     results.append((task, future.result()))
                 except ExternalExecutionUnavailableError as error:
+                    if not StageExecutionFailurePolicy.can_degrade(error):
+                        raise
                     failures.append(error)
         return results, failures
 

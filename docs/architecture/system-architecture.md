@@ -67,9 +67,12 @@ flowchart LR
 API 내부 모듈은 독립 테스트가 가능해야 하지만 첫 구현에서 각각 별도 서비스로 배포하지 않는다.
 
 Agent Runtime은 의미 판단을 담당하지만 Workflow 생존권이나 권위 State를 소유하지 않는다.
-결정론적으로 대체할 수 없는 `EVIDENCE_ASSESS` 실패를 가짜 `ABSTAIN` 성공으로 바꾸지 않는다.
-Control API는 원래 Runtime code와 trace를 가진 명시적 Stage 실패로 남기고 어떤 조회 record도
-Evidence로 승격하지 않는다. 모델·endpoint·리전을 바꾸는 자동 fallback도 계속 금지한다.
+결정론적으로 대체할 수 없는 `EVIDENCE_ASSESS` 실패를 가짜 평가 성공으로 바꾸지 않는다.
+Control API는 이미 조회한 자료와 Agent trace를 보존하되 평가 목록을 비우고 모든 Claim을
+missing으로 남긴다. 따라서 Evidence Freeze는 어떤 조회 record도 Evidence로 승격하지 않으면서
+후속 후보 생성과 결정론적 계산을 계속할 수 있다. `CANDIDATE_AUDIT` 실패도 후보·계산·순위를
+바꾸지 않고 감사 상태만 `UNAVAILABLE`로 남긴다. 모델·endpoint·리전을 바꾸는 자동 fallback은
+계속 금지한다.
 
 Agent 호출은 역할별로 최적화한다. Control API는 전체 MCP 저장본에서 의미 판정에 필요한 rerank
 상위 Evidence만 투영하고, Runtime은 task별 사고 수준·출력 토큰·deadline을 release manifest에서
@@ -104,8 +107,9 @@ stream 종료와 계약 검증을 모두 기다린다. 이 방식은 역할 격�
 
 Proposal 단계는 후보 수만큼 독립 stream을 동시에 호출하는 제한된 fan-out이다. 각 task에는 한
 개의 seed 또는 brand와 `requested_candidate_count=1`만 전달한다. 일부 호출만 실패하면 성공한
-후보는 보존하고 자료 부족 상태로 다음 결정론적 단계에 넘기며, 모든 호출이 실패한 경우에만 기존
-Runtime 재시도 정책을 적용한다. 후보 간 비교·계산·순위는 Agent가 아니라 Control API가 수행한다.
+후보는 보존하고 자료 부족 상태로 다음 결정론적 단계에 넘긴다. 모든 호출이 실패하면 등록된
+seed·brand의 검증된 식별자와 기본 속성만 사용한 후보를 남기고 실제 조건 미확인을 표시한다.
+후보 간 비교·계산·순위는 Agent가 아니라 Control API가 수행한다.
 
 배포 검증은 결과 카드 생성만 성공으로 보지 않는다. 같은 FIRST_PROPOSAL canary 구간에서 세
 관리형 Agent가 모두 `HTTP 200`, `STOP`, `repair_attempt=0`, `VALID`로 끝났는지 확인하고,

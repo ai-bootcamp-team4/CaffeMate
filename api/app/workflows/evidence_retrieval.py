@@ -10,6 +10,7 @@ import rfc8785
 from app.contracts.schema_registry import ContractRegistry, McpContractValidator
 from app.domain.errors import ContractValidationError
 from app.mcp.client import McpCallOutcome, McpClientError
+from app.workflows.failure_policy import StageExecutionFailurePolicy
 from app.workflows.models import HeadFence, StageControl
 from app.workflows.stage_context import StageContext
 
@@ -181,6 +182,8 @@ class EvidenceRetrievalStageHandler:
                         timeout_seconds=MCP_TIMEOUT_SECONDS,
                     )
             except McpClientError as error:
+                if not StageExecutionFailurePolicy.can_degrade(error):
+                    raise
                 return [], [
                     self._failed_action(action, error.mcp_code) for action in grouped_actions
                 ]

@@ -1281,7 +1281,6 @@ def test_http_202_workflow_survives_api_instance_shutdown(
             identity_verifier=FixedIdentityVerifier(),
             agent_runtime=dependencies,  # type: ignore[arg-type]
             mcp_client=dependencies,  # type: ignore[arg-type]
-            mcp_manifest_preflight=dependencies,  # type: ignore[arg-type]
             outbox_dispatcher=immediate_outbox,
         )
     ) as client:
@@ -1301,7 +1300,7 @@ def test_http_202_workflow_survives_api_instance_shutdown(
             json={},
         )
         assert response.status_code == 202
-        assert dependencies.preflight_project_ids == [project["project_id"]]
+        assert dependencies.preflight_project_ids == []
         workflow_run_id = response.json()["workflow_run_id"]
         progress = client.get(
             f"/v1/projects/{project['project_id']}/workflows/{workflow_run_id}",
@@ -1336,7 +1335,6 @@ def test_http_202_workflow_survives_api_instance_shutdown(
             identity_verifier=FixedIdentityVerifier(),
             agent_runtime=dependencies,  # type: ignore[arg-type]
             mcp_client=dependencies,  # type: ignore[arg-type]
-            mcp_manifest_preflight=dependencies,  # type: ignore[arg-type]
         )
     ) as restarted_client:
         cancelled = restarted_client.post(
@@ -1402,7 +1400,7 @@ def test_workflow_start_reports_exact_missing_stage_configuration(
         assert connection.execute(text("SELECT COUNT(*) FROM workflow_runs")).scalar_one() == 0
 
 
-def test_workflow_start_rejects_manifest_drift_before_persistence(
+def test_workflow_start_does_not_run_manifest_canary_on_user_request(
     postgres_engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1429,7 +1427,6 @@ def test_workflow_start_rejects_manifest_drift_before_persistence(
             identity_verifier=FixedIdentityVerifier(),
             agent_runtime=dependencies,  # type: ignore[arg-type]
             mcp_client=dependencies,  # type: ignore[arg-type]
-            mcp_manifest_preflight=dependencies,  # type: ignore[arg-type]
         )
     ) as client:
         project = client.post(
@@ -1448,14 +1445,10 @@ def test_workflow_start_rejects_manifest_drift_before_persistence(
             json={},
         )
 
-    assert response.status_code == 503
-    assert response.json() == {
-        "code": "FIRST_PROPOSAL_PREFLIGHT_UNAVAILABLE",
-        "reason_codes": ["MCP_MANIFEST_MISMATCH"],
-    }
+    assert response.status_code == 202
     with postgres_engine.connect() as connection:
-        assert connection.execute(text("SELECT COUNT(*) FROM workflow_runs")).scalar_one() == 0
-        assert connection.execute(text("SELECT COUNT(*) FROM workflow_outbox")).scalar_one() == 0
+        assert connection.execute(text("SELECT COUNT(*) FROM workflow_runs")).scalar_one() == 1
+        assert connection.execute(text("SELECT COUNT(*) FROM workflow_outbox")).scalar_one() == 1
 
 
 def test_first_proposal_runs_all_real_handlers_through_worker_to_result(
