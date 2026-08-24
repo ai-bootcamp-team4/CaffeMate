@@ -20,7 +20,7 @@ from app.domain.models import (
     OperationMode,
     Project,
 )
-from app.results.models import ResultFreshness, ResultView
+from app.results.models import ResultFreshness, ResultOutcomeStatus, ResultView
 from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import WorkflowCode, WorkflowProgress, WorkflowRun, WorkflowStatus
 
@@ -325,12 +325,26 @@ class FirstProposalCanary:
                 },
             )
         result = self._results.get_current(project_id=project_id, user_id=user_id)
+        candidate_ids = {candidate.get("candidate_id") for candidate in result.candidates}
+        primary_is_valid = (
+            result.primary_candidate_id is None
+            and result.outcome_status == ResultOutcomeStatus.NO_REVIEWABLE_CANDIDATES
+            and all(
+                candidate.get("review_status") == "EXCLUDED"
+                and candidate.get("rank") is None
+                and candidate.get("is_primary_next_review") is False
+                for candidate in result.candidates
+            )
+        ) or (
+            result.primary_candidate_id is not None
+            and result.outcome_status == ResultOutcomeStatus.REVIEWABLE_CANDIDATES
+            and result.primary_candidate_id in candidate_ids
+        )
         if (
             result.workflow_run_id != workflow_run_id
             or result.freshness != ResultFreshness.CURRENT
             or not result.candidates
-            or result.primary_candidate_id
-            not in {candidate.get("candidate_id") for candidate in result.candidates}
+            or not primary_is_valid
         ):
             raise FirstProposalCanaryError(
                 "CANARY_RESULT_INVALID",
@@ -374,7 +388,11 @@ class FirstProposalCanary:
                 and franchise["brand_id"]
             }
         )
-        if "FRANCHISE" in expected_case_types and not franchise_brand_ids:
+        if (
+            result.outcome_status == ResultOutcomeStatus.REVIEWABLE_CANDIDATES
+            and "FRANCHISE" in expected_case_types
+            and not franchise_brand_ids
+        ):
             raise FirstProposalCanaryError(
                 "CANARY_VERIFIED_FRANCHISE_CANDIDATE_MISSING",
                 {

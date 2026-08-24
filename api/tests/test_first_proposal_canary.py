@@ -17,7 +17,12 @@ from app.domain.models import (
     OperationMode,
     Project,
 )
-from app.results.models import AuditStatus, ResultFreshness, ResultView
+from app.results.models import (
+    AuditStatus,
+    ResultFreshness,
+    ResultOutcomeStatus,
+    ResultView,
+)
 from app.verification.first_proposal import FirstProposalCanary, FirstProposalCanaryError
 from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import (
@@ -462,6 +467,39 @@ def test_canary_allows_conditional_result_while_market_evidence_is_pending() -> 
 
     assert report.market_signals == ()
     assert cleaner.calls == [("canary-project", "first-proposal-canary-ungrounded")]
+
+
+def test_canary_accepts_a_current_no_reviewable_result_without_a_primary() -> None:
+    """사용자 의도: 전 후보 제외는 실패가 아니라 그대로 보여줘야 할 제품 결과다."""
+
+    no_reviewable = result().model_copy(
+        update={
+            "candidates": [
+                candidate
+                | {
+                    "review_status": "EXCLUDED",
+                    "rank": None,
+                    "is_primary_next_review": False,
+                }
+                for candidate in result().candidates
+            ],
+            "primary_candidate_id": None,
+            "outcome_status": ResultOutcomeStatus.NO_REVIEWABLE_CANDIDATES,
+        }
+    )
+
+    report = FirstProposalCanary(
+        projects=FakeProjects(),
+        workflows=FakeWorkflows(progress(WorkflowStatus.SUCCEEDED)),
+        results=FakeResults(no_reviewable),
+        cleaner=FakeCleaner(),
+        new_id=lambda: "no-reviewable",
+    ).run()
+
+    assert report.workflow_status == "SUCCEEDED"
+    assert report.candidate_count == 2
+    assert report.candidate_case_types == ("FRANCHISE", "INDEPENDENT")
+    assert report.franchise_candidate_brand_ids == ()
 
 
 def test_canary_rejects_recommended_candidate_without_grounded_evidence() -> None:
