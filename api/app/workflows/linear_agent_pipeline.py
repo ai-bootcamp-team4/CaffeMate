@@ -5,8 +5,8 @@ import hashlib
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, Protocol, cast
 
 import rfc8785
 
@@ -87,6 +87,8 @@ class LinearMultiAgentProposalPipeline:
                 workflow_run_id=workflow_run_id,
             )
         )
+        # 공식 RAG 검색 결과도 다른 MCP 근거와 같은 EvidenceRecord 계약으로 전달한다.
+        outcomes = [self._with_official_rag_evidence(outcome) for outcome in outcomes]
         newly_retrieved_records = self._deduplicate_evidence(
             [
                 record
@@ -230,6 +232,118 @@ class LinearMultiAgentProposalPipeline:
                 ]
             )
         )
+
+    def _with_official_rag_evidence(
+        self,
+        outcome: McpCallOutcome,
+    ) -> McpCallOutcome:
+        """출처와 원문 위치가 확인된 공식 RAG hit만 표준 근거로 연결한다."""
+
+        if outcome.tool_name != "retrieve_official_documents":
+            return outcome
+        content = outcome.structured_content
+        existing = content.get("evidence_records")
+        if isinstance(existing, list) and existing:
+            return outcome
+
+        traces = [
+            trace
+            for trace in content.get("source_trace", [])
+            if isinstance(trace, dict)
+            and isinstance(trace.get("source_ref"), str)
+            and isinstance(trace.get("data_date"), str)
+            and isinstance(trace.get("content_digest"), str)
+        ]
+        observed_at = content.get("observed_at")
+        project_id = content.get("project_id")
+        if not isinstance(observed_at, str) or not isinstance(project_id, str):
+            return outcome
+
+        records: list[dict[str, Any]] = []
+        for hit in content.get("data", []):
+            if not isinstance(hit, dict):
+                continue
+            required = {
+                key: hit.get(key)
+                for key in (
+                    "document_revision_id",
+                    "title",
+                    "anchor",
+                    "excerpt",
+                    "source_date",
+                    "evidence_id",
+                )
+            }
+            if not all(isinstance(value, str) and value for value in required.values()):
+                continue
+            anchor = cast(str, required["anchor"])
+            source_date = cast(str, required["source_date"])
+            matching_traces = [
+                trace
+                for trace in traces
+                if anchor.startswith(trace["source_ref"])
+                and source_date == trace["data_date"]
+            ]
+            if len(matching_traces) != 1:
+                continue
+            trace = matching_traces[0]
+            excerpt = cast(str, required["excerpt"])
+            record = {
+                "schema_version": "2.0.0",
+                "evidence_id": f"official-rag:{required['evidence_id']}",
+                "project_id": project_id,
+                "claim_type": "OFFICIAL_STARTUP_GUIDANCE",
+                "metric": None,
+                "value": {"kind": "STRING", "value": excerpt},
+                "value_kind": "EVIDENCED_FACT",
+                "unit": None,
+                "geographic_scope": {
+                    "scope_type": "NATIONAL",
+                    "scope_id": "KR",
+                    "boundary_version": None,
+                },
+                "source": {
+                    "title": required["title"],
+                    "source_ref": trace["source_ref"],
+                    "authority": "PRIMARY_OFFICIAL",
+                    "source_type": "WEB",
+                    "published_or_data_date": source_date,
+                    "source_observed_at": observed_at,
+                    "document_version": required["document_revision_id"],
+                    "checksum": trace["content_digest"],
+                },
+                "original_anchor": {
+                    "anchor_type": "SECTION",
+                    "locator": anchor,
+                    "excerpt_hash": content_digest(excerpt),
+                },
+                "freshness_status": self._freshness_status(source_date),
+                "conflict_status": "NONE",
+                "retrieved_at": observed_at,
+                "missing_context": [],
+                "durable_evidence_refs": [
+                    trace["source_ref"],
+                    required["document_revision_id"],
+                    required["evidence_id"],
+                ],
+            }
+            self._contracts.validate_evidence_record(record)
+            records.append(record)
+
+        if not records:
+            return outcome
+        enriched = deepcopy(content)
+        enriched["evidence_records"] = self._deduplicate_evidence(records)
+        return outcome.model_copy(update={"structured_content": enriched})
+
+    def _freshness_status(self, source_date: str) -> str:
+        try:
+            age = self._now().date() - date.fromisoformat(source_date)
+        except ValueError:
+            return "UNKNOWN"
+        if age.days < 0:
+            return "UNKNOWN"
+        return "FRESH" if age.days <= 365 else "STALE"
 
     def _proposal_tasks(
         self,
