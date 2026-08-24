@@ -7,6 +7,7 @@ source_revision=${CAFFEMATE_SOURCE_REVISION:-}
 instance_id=${CAFFEMATE_DB_INSTANCE_ID:-caffemate-postgres}
 agent_runtime_resource_id=${CAFFEMATE_AGENT_RUNTIME_RESOURCE_ID:-}
 document_bucket=${CAFFEMATE_DOCUMENT_BUCKET:-}
+model_armor_template_id=${CAFFEMATE_MODEL_ARMOR_TEMPLATE_ID:-caffemate-sdp-inspect-v1}
 
 . "$(dirname "$0")/iam-role-helpers.sh"
 
@@ -277,6 +278,7 @@ create_service_account() {
 create_service_account caffemate-scheduler 'CaffeMate Scheduler caller'
 
 common_database_env="INSTANCE_CONNECTION_NAME=${instance_connection_name},DB_USER=caffemate_app,DB_NAME=caffemate,CLOUD_SQL_IP_TYPE=PUBLIC"
+model_armor_template="projects/${project_id}/locations/${region}/templates/${model_armor_template_id}"
 
 # A Cloud Run service URL is stable after creation and is the exact audience used by
 # the Worker ID token. Reuse it on normal deployments. A brand-new service needs one
@@ -296,7 +298,7 @@ gcloud run deploy caffemate-api \
   --image="$image" \
   --service-account="$api_sa" \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CORS_ALLOWED_ORIGINS=https://caffemate-web-hfgnuuc55q-du.a.run.app;https://caffemate-web-424808310695.asia-northeast3.run.app,CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},DOCUMENT_BUCKET=${document_bucket},DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa},CAFFEMATE_OTEL_ENABLED=true,CAFFEMATE_ENVIRONMENT=production,CAFFEMATE_SOURCE_REVISION=${source_revision}${api_audience_env}" \
+  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CORS_ALLOWED_ORIGINS=https://caffemate-web-hfgnuuc55q-du.a.run.app;https://caffemate-web-424808310695.asia-northeast3.run.app,CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},DOCUMENT_BUCKET=${document_bucket},DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa},MODEL_ARMOR_TEMPLATE=${model_armor_template},CAFFEMATE_OTEL_ENABLED=true,CAFFEMATE_ENVIRONMENT=production,CAFFEMATE_SOURCE_REVISION=${source_revision}${api_audience_env}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest,AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
   --port=8080 \
   --timeout=600 \

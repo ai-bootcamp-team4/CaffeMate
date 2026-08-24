@@ -180,6 +180,9 @@ def test_document_storage_deployment_is_pinned_and_verified_end_to_end() -> None
 
 def test_model_armor_is_inspect_only_and_verified_with_the_deployed_api_image() -> None:
     deploy = (ROOT / "scripts" / "deploy-model-armor.sh").read_text(encoding="utf-8")
+    runtime_deploy = (ROOT / "scripts" / "deploy-api-worker-runtime.sh").read_text(
+        encoding="utf-8"
+    )
     verifier = (ROOT / "scripts" / "verify-model-armor.sh").read_text(encoding="utf-8")
 
     assert 'region="asia-northeast3"' in deploy
@@ -191,6 +194,8 @@ def test_model_armor_is_inspect_only_and_verified_with_the_deployed_api_image() 
     assert "roles/modelarmor.viewer" in deploy
     assert "roles/modelarmor.admin" not in deploy
     assert '--update-env-vars="MODEL_ARMOR_TEMPLATE=' in deploy
+    assert "CAFFEMATE_MODEL_ARMOR_TEMPLATE_ID" in runtime_deploy
+    assert "MODEL_ARMOR_TEMPLATE=${model_armor_template}" in runtime_deploy
 
     assert "latestReadyRevisionName" in verifier
     assert "status.imageDigest" in verifier
