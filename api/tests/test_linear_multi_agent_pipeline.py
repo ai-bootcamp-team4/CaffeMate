@@ -313,6 +313,31 @@ def test_pipeline_calls_research_proposals_and_auditor_in_one_linear_flow() -> N
     assert {candidate["case_type"] for candidate in bundle.candidates} == {"INDEPENDENT"}
 
 
+def test_pipeline_queries_the_source_family_present_in_the_official_corpus() -> None:
+    class InspectingMcp(FakeMcp):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[dict[str, Any]] = []
+
+        async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+            self.calls.append(deepcopy(kwargs))
+            return await super().call_tool(**kwargs)
+
+    mcp = InspectingMcp()
+
+    _pipeline(FakeRuntime(), mcp).run(
+        state=_state(),
+        head=_head(),
+        workflow_run_id="workflow-1",
+        evidence_records=[],
+    )
+
+    official_call = next(
+        call for call in mcp.calls if call["tool_name"] == "retrieve_official_documents"
+    )
+    assert official_call["arguments"]["source_families"] == ["GOVERNMENT_GUIDE"]
+
+
 def test_independent_proposal_receives_finance_snapshot_and_keeps_agent_advice() -> None:
     runtime = FakeRuntime()
 
