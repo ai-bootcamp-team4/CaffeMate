@@ -29,6 +29,8 @@ NOW = datetime(2026, 8, 24, 1, 0, tzinfo=UTC)
 
 def _state(
     preference: CafeTypePreference = CafeTypePreference.INDEPENDENT_ONLY,
+    *,
+    founder_preferences: list[str] | None = None,
 ) -> VentureState:
     return VentureState(
         project_id="project-1",
@@ -41,6 +43,7 @@ def _state(
             borrowing_intent=BorrowingIntent.NO,
             cafe_type_preference=preference,
             operation_mode=OperationMode.DIRECT_FULL_TIME,
+            preferences=founder_preferences or [],
         ),
         area=AreaState(
             resolution_status=AreaResolutionStatus.RESOLVED,
@@ -352,6 +355,26 @@ def test_independent_proposal_receives_finance_snapshot_and_keeps_agent_advice()
         "operations.seats"
     )
     assert candidate["independent_model"]["adjusted_fields"] == ["operations.seats"]
+
+
+def test_pipeline_prioritizes_the_explicit_independent_model_preference() -> None:
+    """사용자가 원하는 유형은 세 개의 병렬 Proposal Agent 입력에 먼저 포함한다."""
+
+    runtime = FakeRuntime()
+    _pipeline(runtime, FakeMcp()).run(
+        state=_state(founder_preferences=["스페셜티 원두와 핸드드립 중심"]),
+        head=_head(),
+        workflow_run_id="workflow-1",
+        evidence_records=[],
+    )
+
+    proposal_tasks = [
+        task for task in runtime.tasks if task["task_type"] == "PROPOSE_INDEPENDENT"
+    ]
+    assert proposal_tasks[0]["payload"]["model_seeds"][0]["model_id"] == (
+        "independent-specialty-v1"
+    )
+    assert len(proposal_tasks) == 3
 
 
 def test_pipeline_does_not_hide_agent_runtime_failure_with_static_result() -> None:

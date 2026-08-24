@@ -3,7 +3,7 @@
   "models": [
     {
       "model_id": "independent-small-takeout-v1",
-      "display_name": "소형 포장 중심 개인카페",
+      "display_name": "가치·속도 회전형 개인카페",
       "allowed_operation_modes": ["DIRECT_FULL_TIME", "DIRECT_PART_TIME", "UNDECIDED"],
       "minimum_own_funds_krw": null,
       "allowed_parameters": [
@@ -30,13 +30,15 @@
         "operating_days_per_month": 26,
         "average_ticket_krw": 6500
       },
-      "support_refs": ["declared-assumption:independent-small-takeout-v1"]
+      "support_refs": ["declared-assumption:independent-small-takeout-v1"],
+      "selection_keywords": ["포장", "테이크아웃", "저가", "회전", "빠른"],
+      "requires_explicit_interest": false
     },
     {
       "model_id": "independent-balanced-v1",
-      "display_name": "중소형 균형 개인카페",
+      "display_name": "생활권 단골 균형형 개인카페",
       "allowed_operation_modes": ["DIRECT_FULL_TIME", "DIRECT_PART_TIME", "EMPLOYEE_LED", "UNDECIDED"],
-      "minimum_own_funds_krw": null,
+      "minimum_own_funds_krw": 80000000,
       "allowed_parameters": [
         {"field_path": "operations.seats", "value_kind": "INTEGER", "unit": "seat", "minimum": 10, "maximum": 28},
         {"field_path": "operations.takeout_share", "value_kind": "DECIMAL", "unit": "ratio", "minimum": 0.35, "maximum": 0.7},
@@ -62,13 +64,15 @@
         "operating_days_per_month": 26,
         "average_ticket_krw": 7000
       },
-      "support_refs": ["declared-assumption:independent-balanced-v1"]
+      "support_refs": ["declared-assumption:independent-balanced-v1"],
+      "selection_keywords": ["단골", "주거", "동네", "생활권", "균형"],
+      "requires_explicit_interest": false
     },
     {
       "model_id": "independent-seating-focused-v1",
-      "display_name": "좌석 중심 개인카페",
+      "display_name": "체류·작업 좌석형 개인카페",
       "allowed_operation_modes": ["DIRECT_FULL_TIME", "EMPLOYEE_LED", "UNDECIDED"],
-      "minimum_own_funds_krw": null,
+      "minimum_own_funds_krw": 150000000,
       "allowed_parameters": [
         {"field_path": "operations.seats", "value_kind": "INTEGER", "unit": "seat", "minimum": 24, "maximum": 50},
         {"field_path": "operations.takeout_share", "value_kind": "DECIMAL", "unit": "ratio", "minimum": 0.15, "maximum": 0.45},
@@ -94,7 +98,111 @@
         "operating_days_per_month": 27,
         "average_ticket_krw": 7500
       },
-      "support_refs": ["declared-assumption:independent-seating-focused-v1"]
+      "support_refs": ["declared-assumption:independent-seating-focused-v1"],
+      "selection_keywords": ["좌석", "체류", "작업", "공부", "노트북"],
+      "requires_explicit_interest": false
+    },
+    {
+      "model_id": "independent-specialty-v1",
+      "display_name": "스페셜티 품질형 개인카페",
+      "allowed_operation_modes": ["DIRECT_FULL_TIME", "DIRECT_PART_TIME", "EMPLOYEE_LED", "UNDECIDED"],
+      "minimum_own_funds_krw": 150000000,
+      "allowed_parameters": [
+        {"field_path": "operations.seats", "value_kind": "INTEGER", "unit": "seat", "minimum": 10, "maximum": 26},
+        {"field_path": "operations.takeout_share", "value_kind": "DECIMAL", "unit": "ratio", "minimum": 0.35, "maximum": 0.6},
+        {"field_path": "operations.menu_complexity", "value_kind": "STRING", "unit": null, "minimum": null, "maximum": null},
+        {"field_path": "operations.open_hours_per_day", "value_kind": "DECIMAL", "unit": "hour", "minimum": 9, "maximum": 12},
+        {"field_path": "operations.staff_count", "value_kind": "INTEGER", "unit": "person", "minimum": 1, "maximum": 3}
+      ],
+      "finance_profile": {
+        "cost_ranges": {
+          "DEPOSIT": {"low": 20000000, "base": 40000000, "high": 70000000},
+          "ACQUISITION_OR_PREMIUM": {"low": 0, "base": 20000000, "high": 60000000},
+          "CONSTRUCTION": {"low": 22000000, "base": 33000000, "high": 50000000},
+          "EQUIPMENT": {"low": 25000000, "base": 40000000, "high": 65000000},
+          "PREOPENING": {"low": 5000000, "base": 8000000, "high": 13000000},
+          "OPENING_INVENTORY": {"low": 2500000, "base": 4500000, "high": 8000000},
+          "CONTINGENCY": {"low": 7000000, "base": 12000000, "high": 20000000},
+          "OPERATING_RESERVE": {"low": 18000000, "base": 30000000, "high": 50000000},
+          "MONTHLY_OCCUPANCY": {"low": 1700000, "base": 3200000, "high": 5500000},
+          "MONTHLY_LABOR": {"low": 2500000, "base": 5000000, "high": 9000000},
+          "MONTHLY_OTHER_FIXED": {"low": 1300000, "base": 2300000, "high": 4000000}
+        },
+        "contribution_margin_bps": 6300,
+        "operating_days_per_month": 27,
+        "average_ticket_krw": 8000
+      },
+      "support_refs": ["declared-assumption:independent-specialty-v1"],
+      "selection_keywords": ["스페셜티", "원두", "핸드드립", "필터", "로스터리"],
+      "requires_explicit_interest": false
+    },
+    {
+      "model_id": "independent-dessert-bakery-v1",
+      "display_name": "디저트·베이커리 결합형 개인카페",
+      "allowed_operation_modes": ["DIRECT_FULL_TIME", "EMPLOYEE_LED", "UNDECIDED"],
+      "minimum_own_funds_krw": 250000000,
+      "allowed_parameters": [
+        {"field_path": "operations.seats", "value_kind": "INTEGER", "unit": "seat", "minimum": 20, "maximum": 45},
+        {"field_path": "operations.takeout_share", "value_kind": "DECIMAL", "unit": "ratio", "minimum": 0.3, "maximum": 0.55},
+        {"field_path": "operations.menu_complexity", "value_kind": "STRING", "unit": null, "minimum": null, "maximum": null},
+        {"field_path": "operations.open_hours_per_day", "value_kind": "DECIMAL", "unit": "hour", "minimum": 10, "maximum": 13},
+        {"field_path": "operations.staff_count", "value_kind": "INTEGER", "unit": "person", "minimum": 2, "maximum": 4}
+      ],
+      "finance_profile": {
+        "cost_ranges": {
+          "DEPOSIT": {"low": 30000000, "base": 60000000, "high": 100000000},
+          "ACQUISITION_OR_PREMIUM": {"low": 0, "base": 35000000, "high": 90000000},
+          "CONSTRUCTION": {"low": 35000000, "base": 55000000, "high": 85000000},
+          "EQUIPMENT": {"low": 35000000, "base": 55000000, "high": 90000000},
+          "PREOPENING": {"low": 7000000, "base": 11000000, "high": 17000000},
+          "OPENING_INVENTORY": {"low": 3500000, "base": 7000000, "high": 12000000},
+          "CONTINGENCY": {"low": 10000000, "base": 18000000, "high": 30000000},
+          "OPERATING_RESERVE": {"low": 30000000, "base": 50000000, "high": 80000000},
+          "MONTHLY_OCCUPANCY": {"low": 2500000, "base": 5000000, "high": 8500000},
+          "MONTHLY_LABOR": {"low": 4000000, "base": 8000000, "high": 14000000},
+          "MONTHLY_OTHER_FIXED": {"low": 2200000, "base": 3800000, "high": 6500000}
+        },
+        "contribution_margin_bps": 5500,
+        "operating_days_per_month": 28,
+        "average_ticket_krw": 11500
+      },
+      "support_refs": ["declared-assumption:independent-dessert-bakery-v1"],
+      "selection_keywords": ["디저트", "베이커리", "제빵", "케이크", "빵"],
+      "requires_explicit_interest": true
+    },
+    {
+      "model_id": "independent-destination-experience-v1",
+      "display_name": "목적지·경험형 개인카페",
+      "allowed_operation_modes": ["DIRECT_FULL_TIME", "EMPLOYEE_LED", "UNDECIDED"],
+      "minimum_own_funds_krw": 250000000,
+      "allowed_parameters": [
+        {"field_path": "operations.seats", "value_kind": "INTEGER", "unit": "seat", "minimum": 35, "maximum": 90},
+        {"field_path": "operations.takeout_share", "value_kind": "DECIMAL", "unit": "ratio", "minimum": 0.15, "maximum": 0.35},
+        {"field_path": "operations.menu_complexity", "value_kind": "STRING", "unit": null, "minimum": null, "maximum": null},
+        {"field_path": "operations.open_hours_per_day", "value_kind": "DECIMAL", "unit": "hour", "minimum": 9, "maximum": 13},
+        {"field_path": "operations.staff_count", "value_kind": "INTEGER", "unit": "person", "minimum": 2, "maximum": 5}
+      ],
+      "finance_profile": {
+        "cost_ranges": {
+          "DEPOSIT": {"low": 40000000, "base": 80000000, "high": 150000000},
+          "ACQUISITION_OR_PREMIUM": {"low": 0, "base": 50000000, "high": 150000000},
+          "CONSTRUCTION": {"low": 60000000, "base": 100000000, "high": 180000000},
+          "EQUIPMENT": {"low": 35000000, "base": 60000000, "high": 100000000},
+          "PREOPENING": {"low": 10000000, "base": 18000000, "high": 30000000},
+          "OPENING_INVENTORY": {"low": 4000000, "base": 8000000, "high": 15000000},
+          "CONTINGENCY": {"low": 15000000, "base": 30000000, "high": 60000000},
+          "OPERATING_RESERVE": {"low": 40000000, "base": 70000000, "high": 120000000},
+          "MONTHLY_OCCUPANCY": {"low": 3500000, "base": 7000000, "high": 13000000},
+          "MONTHLY_LABOR": {"low": 5000000, "base": 10000000, "high": 18000000},
+          "MONTHLY_OTHER_FIXED": {"low": 3000000, "base": 5500000, "high": 10000000}
+        },
+        "contribution_margin_bps": 5700,
+        "operating_days_per_month": 27,
+        "average_ticket_krw": 13500
+      },
+      "support_refs": ["declared-assumption:independent-destination-experience-v1"],
+      "selection_keywords": ["목적지", "관광", "공원", "전망", "경험", "체험", "시그니처"],
+      "requires_explicit_interest": true
     }
   ]
 }
