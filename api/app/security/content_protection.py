@@ -115,13 +115,24 @@ class ModelArmorContentProtection:
         if not isinstance(result, dict):
             raise ExternalExecutionUnavailableError("MODEL_ARMOR_RESULT_INVALID")
         invocation_result = result.get("invocationResult")
+        if invocation_result != "SUCCESS":
+            raise ExternalExecutionUnavailableError("MODEL_ARMOR_RESULT_INCOMPLETE")
         match_state = result.get("filterMatchState")
-        if invocation_result != "SUCCESS" or match_state not in {
+        filter_results = result.get("filterResults")
+        if match_state is None and filter_results is None:
+            return ContentInspection(
+                boundary=boundary,
+                invocation_result=invocation_result,
+                match_state="NOT_REPORTED",
+                finding_count=0,
+                info_types=(),
+                findings_truncated=False,
+            )
+        if match_state not in {
             "NO_MATCH_FOUND",
             "MATCH_FOUND",
         }:
             raise ExternalExecutionUnavailableError("MODEL_ARMOR_RESULT_INCOMPLETE")
-        filter_results = result.get("filterResults")
         sdp = filter_results.get("sdp") if isinstance(filter_results, dict) else None
         sdp_result = sdp.get("sdpFilterResult") if isinstance(sdp, dict) else None
         inspect_result = (
