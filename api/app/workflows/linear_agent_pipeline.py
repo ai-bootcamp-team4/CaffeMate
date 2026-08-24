@@ -208,11 +208,9 @@ class LinearMultiAgentProposalPipeline:
                         f"{state.founder.target_area_input} 카페 창업 비용 인허가 "
                         "프랜차이즈 정보공개서"
                     ),
-                    "source_families": [
-                        "PUBLIC_DATA",
-                        "FRANCHISE_DISCLOSURE",
-                        "OFFICIAL_PROCEDURE",
-                    ],
+                    # 공식 RAG에는 현재 정부 안내 자료만 적재되어 있습니다.
+                    # 상권 수치와 가맹 후보는 각각의 구조화 MCP 도구에서 조회합니다.
+                    "source_families": ["GOVERNMENT_GUIDE"],
                     "as_of": as_of,
                     "limit": 10,
                 },
