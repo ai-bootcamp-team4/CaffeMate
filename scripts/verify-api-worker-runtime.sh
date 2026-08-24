@@ -231,7 +231,9 @@ direct_roles = {
     for row in policy.get("bindings", [])
     if identity in row.get("members", [])
 }
-assert direct_roles == set(), f"Agent Runtime identity retains direct project roles: {sorted(direct_roles)}"
+assert direct_roles == {"roles/cloudtrace.agent"}, (
+    f"Agent Runtime identity has unexpected direct project roles: {sorted(direct_roles)}"
+)
 platform_set = (
     "principalSet://" + identity.removeprefix("principal://").split("/resources/", 1)[0]
     + "/attribute.platformContainer/aiplatform/projects/" + os.environ["PROJECT_NUMBER"]
@@ -252,7 +254,7 @@ assert any(
     and release_member in row.get("members", [])
     for row in policy.get("bindings", [])
 ), "release verifier lacks bounded AI preflight role"
-print("PASS Agent Runtime identity uses only managed non-mutating default project access")
+print("PASS Agent Runtime identity uses managed default access plus trace-only project access")
 print("PASS Control API has project service usage permission")
 print("PASS release verifier has bounded AI preflight permission")
 print("PASS custom AI roles contain only approved permissions")

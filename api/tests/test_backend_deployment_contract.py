@@ -327,9 +327,10 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "verify-agent-runtime" in verifier
     assert "resource-scoped Agent Runtime query IAM" in verifier
     assert (
-        "Agent Runtime identity uses only managed non-mutating default project access"
+        "Agent Runtime identity uses managed default access plus trace-only project access"
         in verifier
     )
+    assert 'direct_roles == {"roles/cloudtrace.agent"}' in verifier
     assert "verify-agent-runtime-iam" in verifier
     assert "runtime identity has query-only effective access" in verifier
     assert "shared Agent GCP release preflight" in verifier
@@ -415,6 +416,7 @@ def test_agent_runtime_release_is_source_and_digest_bound() -> None:
     assert "classMethods" in verifier
     assert "effectiveIdentity" in verifier
     assert "git-sha" in verifier
+    assert 'direct_project_roles == {"roles/cloudtrace.agent"}' in verifier
     assert "def checkout_is_exact" in provenance
     assert 'args[1].strip() == expected_checkout_script' in provenance
     assert 'if len(steps) != 2' in provenance
