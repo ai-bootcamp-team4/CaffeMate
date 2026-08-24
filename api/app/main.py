@@ -116,6 +116,7 @@ from app.selections.service import (
 )
 from app.settings import RuntimeSettings
 from app.workflows.first_proposal_service import FirstProposalService
+from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import (
     WorkflowCode,
     WorkflowProgress,
@@ -123,6 +124,7 @@ from app.workflows.models import (
 )
 from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.service import WorkflowService
+from app.workflows.simple_proposal import SimpleProposalBuilder
 from app.workflows.unavailable_repository import UnavailableWorkflowRepository
 
 
@@ -220,9 +222,18 @@ def create_app(
                 database_handle.engine,
                 policy_snapshot_id=settings.policy_snapshot_id,
                 seed_registry_id=seed_registry.registry_id,
+                pipeline=LinearMultiAgentProposalPipeline(
+                    runtime=configured_agent_runtime,
+                    mcp=configured_mcp_client,
+                    seed_registry=seed_registry,
+                    builder=SimpleProposalBuilder(seed_registry),
+                ),
                 seed_registry=seed_registry,
             )
-            if database_handle is not None and settings.policy_snapshot_id is not None
+            if database_handle is not None
+            and settings.policy_snapshot_id is not None
+            and configured_agent_runtime is not None
+            and configured_mcp_client is not None
             else UnavailableWorkflowRepository()
         )
         workflows = WorkflowService(workflow_repository)

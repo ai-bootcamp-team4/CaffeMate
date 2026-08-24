@@ -275,6 +275,60 @@
         "evidence_id": { "type": "string", "minLength": 1 }
       }
     },
+    "franchiseFinanceProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currency",
+        "coverage",
+        "value_kind",
+        "known_initial_cost_range_krw",
+        "reference_area_sqm",
+        "monthly_royalty_krw",
+        "evidence_refs",
+        "source_refs",
+        "scope_note",
+        "missing_costs"
+      ],
+      "properties": {
+        "currency": { "const": "KRW" },
+        "coverage": { "enum": ["PARTIAL", "UNKNOWN", "NOT_APPLICABLE"] },
+        "value_kind": { "enum": ["EVIDENCED_FACT", "DECLARED_ASSUMPTION", "UNKNOWN"] },
+        "known_initial_cost_range_krw": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["low", "base", "high"],
+              "properties": {
+                "low": { "type": "integer", "minimum": 0 },
+                "base": { "type": "integer", "minimum": 0 },
+                "high": { "type": "integer", "minimum": 0 }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "reference_area_sqm": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+        "monthly_royalty_krw": { "type": ["integer", "null"], "minimum": 0 },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "source_refs": {
+          "type": "array",
+          "items": { "type": "string", "format": "uri", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "scope_note": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "missing_costs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "uniqueItems": true
+        }
+      }
+    },
     "franchiseSummary": {
       "type": "object",
       "additionalProperties": false,
@@ -284,7 +338,8 @@
         "display_name": { "type": "string", "minLength": 1 },
         "individual_franchise_eligibility": { "enum": ["VERIFIED", "UNVERIFIED", "INELIGIBLE"] },
         "eligibility_evidence_id": { "type": ["string", "null"], "minLength": 1 },
-        "disclosure_status": { "enum": ["AVAILABLE", "MISSING", "STALE"] }
+        "disclosure_status": { "enum": ["AVAILABLE", "MISSING", "STALE"] },
+        "finance_profile": { "$ref": "#/$defs/franchiseFinanceProfile" }
       },
       "allOf": [
         {

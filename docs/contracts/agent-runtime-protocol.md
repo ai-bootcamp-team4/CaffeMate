@@ -113,8 +113,9 @@ session id를 사용하므로 독립적인 추론 문맥을 유지한다.
 
 운영 검증은 Control API identity로 ephemeral stream을 실제 호출해 session 생성, Agent 실행,
 typed final 검증과 삭제가 모두 끝난 경우에만 통과한다. 이 검증은 첫 제안 Workflow와 분리한다.
-현재 `FIRST_PROPOSAL`의 `RUN_PROPOSAL`은 Agent Runtime을 호출하지 않으며, 자연어 피드백과 문서
-추출처럼 Agent가 필요한 기능만 이 전송 계약을 사용한다.
+현재 `FIRST_PROPOSAL`의 `RUN_PROPOSAL`도 이 전송 계약을 사용한다. Evidence Researcher 한 번,
+최대 세 개 Proposal Agent 병렬 호출, Candidate Auditor 한 번을 실행하며, 각 호출은 독립 session과
+typed 결과 계약을 사용한다.
 
 `async_get_release_identity`는 사용자 invocation 경로가 아닌 배포 preflight 전용 read-only class method다. session을 생성하거나 제품 State를 읽고 쓰지 않으며, 배포 artifact가 직접 계산한 `prompt_bundle_digest`와 `agent_contract_bundle_digest`만 반환한다. Control API의 정상 Agent 호출 순서는 위 세 class method만 사용한다.
 
@@ -533,9 +534,9 @@ tool 이름, input·output Schema와 version은 [MCP Tool Manifest](./mcp-tool-m
 배포 preflight는 pagination을 끝까지 소비한 `tools/list`의 name·version·inputSchema·outputSchema를 RFC 8785로 정규화한다. 관측 목록은 Production Capability의 세 tool과 정확히 비교하고, 각 Schema는 전체 manifest의 해당 definition과 비교한다. Production Capability가 pin한 전체 manifest digest도 [manifest digest](./mcp-tool-manifest.sha256)와 일치해야 한다. 운영 connector의 누락·추가, 미래 tool의 잘못된 광고, schema 차이 또는 digest 차이가 하나라도 있으면 `MCP_MANIFEST_MISMATCH`로 release 승격을 막는다. `server/discover`는 capability preflight에만 쓰며 business request의 선행 handshake가 아니다.
 
 `McpManifestPreflight`는 배포 검증에서 Control API image의 runtime service account로 실행한다.
-사용자 `FIRST_PROPOSAL` 시작 요청은 이 원격 점검이나 MCP 조회를 실행하지 않는다. Control API는
-현재 State와 이미 수용된 Evidence를 읽어 단일 `RUN_PROPOSAL` 결과를 저장한다. MCP 장애는 근거 수집
-기능에서 명시적으로 보고하며 첫 제안 요청 안에서 숨은 재시도나 대체 자료 조회를 만들지 않는다.
+사용자 `FIRST_PROPOSAL` 시작 요청은 배포용 원격 preflight를 실행하지 않는다. 대신 현재 State에
+필요한 상권, 공식 문서와 검증된 프랜차이즈 후보를 private MCP에서 한 번씩 병렬 조회한다. 조회
+결과는 Evidence Researcher가 평가하며, 실패를 정적 후보나 가짜 근거로 대체하지 않는다.
 
 ## 9. 역할별 Workflow handoff
 
@@ -543,30 +544,27 @@ tool 이름, input·output Schema와 version은 [MCP Tool Manifest](./mcp-tool-m
 
 ```text
 current Venture State
-→ registered independent models and verified franchise brands
-→ accepted Evidence projection
-→ deterministic candidate finance
-→ capital Gate and next-review ranking
+→ deterministic parallel MCP reads
+→ Evidence Researcher assessment
+→ up to three parallel Proposal Agent calls
+→ deterministic finance, capital Gate and ranking
+→ Candidate Auditor
 → result bundle and single RUN_PROPOSAL record
 ```
 
-현재 첫 제안은 Agent Runtime이나 MCP를 호출하는 DAG가 아니다. Control API가 등록 후보와 현재
-accepted Evidence를 읽고 한 transaction에서 결과를 계산해 저장한다. 사용자가 개인카페만,
-프랜차이즈만 또는 둘 다를 선택한 경우에도 같은 단일 실행 경로를 사용한다.
+첫 제안은 stage queue나 자유로운 Agent 대화가 아니라 Control API의 단일 선형 호출 사슬이다.
+사용자가 개인카페만, 프랜차이즈만 또는 둘 다를 선택해도 같은 경로를 사용하며 Proposal 역할만
+선택 유형에 맞게 최대 세 개까지 병렬 실행한다. Agent 오류를 정적 결과로 숨기지 않는다.
 
 개인카페의 등록 기준과 프랜차이즈의 공식 비용·가정은 서로 다른 provenance로 보존한다. 실제 점포
 조건이 들어오면 선택 후보의 보증금, 권리금, 월세와 관리비만 사용자 입력값으로 교체하고 재무,
 Gate와 순위를 다시 계산한다. 프랜차이즈의 지역 출점 가능 여부나 정보공개서가 확인되지 않았으면
 후보를 제거하지 않고 조건부 검토와 다음 확인 항목을 표시한다.
 
-Proposal, Evidence Researcher와 Independent Critic의 typed task 계약은 삭제하지 않는다. 이 역할은
-비정형 자료를 구조화하거나 별도의 품질 강화 실행을 추가할 때 사용할 수 있다. 그러나 해당 Agent
-호출이 첫 결과 생성의 필수 조건이라고 문서화하거나, 삭제된 stage 이름을 첫 제안 Workflow에 다시
-연결하지 않는다.
-
-첫 제안에서 새 근거가 필요하면 검색을 요청 중에 반복하지 않는다. 공식 데이터 수집, 사용자 문서
-적용 또는 명시적인 근거 갱신 경로가 Evidence를 먼저 저장하고, 이후 `RUN_PROPOSAL`이 현재
-Evidence를 읽어 결과를 다시 만든다.
+Evidence Researcher는 MCP 결과의 scope, 날짜, 원문 위치와 출처 권위를 평가한다. Proposal Agent는
+수용된 근거와 등록 모델 또는 개인 가맹이 확인된 브랜드만 선택한다. Candidate Auditor는 계산이 끝난
+후보의 근거 누락과 위험 표현을 검사한다. 최종 비용 계산, 자금 판정, 순위와 저장은 계속 Control API가
+담당한다.
 
 ### 9.2 RESULT_FEEDBACK
 

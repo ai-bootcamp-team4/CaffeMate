@@ -1,28 +1,220 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
+  "snapshot_id": "kr-cafe-franchise-catalog-20260823",
   "data_date": "2026-08-23",
+  "checked_at": "2026-08-24",
   "brands": [
     {
       "brand_id": "kr-ediya-coffee",
       "display_name": "이디야커피",
-      "source_id": "ediya-official-franchise",
-      "source_ref": "https://www.ediya.com/C/contents/franchise_01.html",
-      "source_title": "이디야커피 가맹점 개설 안내",
-      "source_anchor": "가맹 안내 및 예비 가맹점주 창업 설명회 안내",
-      "eligibility_evidence_id": "franchise-eligibility:kr-ediya-coffee:2026-08-23",
       "individual_franchise_eligibility": "VERIFIED",
-      "disclosure_status": "MISSING"
+      "proposal_eligible": true,
+      "usage": "PROPOSAL_CANDIDATE",
+      "eligibility_evidence_id": "franchise-eligibility:kr-ediya-coffee:2026-08-24",
+      "eligibility_source_id": "ediya-official-franchise-guide",
+      "disclosure_status": "MISSING",
+      "finance_profile": {
+        "currency": "KRW",
+        "coverage": "PARTIAL",
+        "value_kind": "EVIDENCED_FACT",
+        "known_initial_cost_range_krw": { "low": 27000000, "base": 27000000, "high": 27000000 },
+        "reference_area_sqm": null,
+        "monthly_royalty_krw": 250000,
+        "evidence_refs": ["franchise-cost:kr-ediya-coffee:2026-08-24"],
+        "source_refs": ["https://www.ediya.com/C/contents/franchise_02.html"],
+        "scope_note": "가맹비·홍보비·계약이행보증금·초도물품, VAT 별도",
+        "missing_costs": ["DEPOSIT", "ACQUISITION_OR_PREMIUM", "CONSTRUCTION", "EQUIPMENT", "OPERATING_RESERVE"]
+      },
+      "missing_fields": ["franchise_disclosure", "area_availability_hq_confirmation"]
     },
     {
       "brand_id": "kr-mega-mgc-coffee",
       "display_name": "메가MGC커피",
-      "source_id": "mega-mgc-official-franchise",
-      "source_ref": "https://www.mega-mgccoffee.com/",
-      "source_title": "메가MGC커피 공식 창업 안내",
-      "source_anchor": "FRANCHISE 및 창업상담 안내",
-      "eligibility_evidence_id": "franchise-eligibility:kr-mega-mgc-coffee:2026-08-23",
       "individual_franchise_eligibility": "VERIFIED",
-      "disclosure_status": "MISSING"
+      "proposal_eligible": true,
+      "usage": "PROPOSAL_CANDIDATE",
+      "eligibility_evidence_id": "franchise-eligibility:kr-mega-mgc-coffee:2026-08-24",
+      "eligibility_source_id": "mega-mgc-official-franchise-guide",
+      "disclosure_status": "MISSING",
+      "finance_profile": {
+        "currency": "KRW",
+        "coverage": "PARTIAL",
+        "value_kind": "EVIDENCED_FACT",
+        "known_initial_cost_range_krw": { "low": 74230000, "base": 74230000, "high": 74230000 },
+        "reference_area_sqm": 33,
+        "monthly_royalty_krw": null,
+        "evidence_refs": ["franchise-cost:kr-mega-mgc-coffee:2026-08-24"],
+        "source_refs": ["https://www.mega-mgccoffee.com/"],
+        "scope_note": "10평 기준 본사 표시 창업비용; 임대차·권리금·현장 별도공사는 별도 확인",
+        "missing_costs": ["DEPOSIT", "ACQUISITION_OR_PREMIUM", "SITE_SPECIFIC_WORKS", "OPERATING_RESERVE", "ROYALTY"]
+      },
+      "missing_fields": ["franchise_disclosure", "area_availability_hq_confirmation", "royalty"]
+    },
+    {
+      "brand_id": "kr-compose-coffee",
+      "display_name": "컴포즈커피",
+      "individual_franchise_eligibility": "VERIFIED",
+      "proposal_eligible": true,
+      "usage": "PROPOSAL_CANDIDATE",
+      "eligibility_evidence_id": "franchise-eligibility:kr-compose-coffee:2026-08-24",
+      "eligibility_source_id": "compose-official-franchise-guide",
+      "disclosure_status": "MISSING",
+      "finance_profile": {
+        "currency": "KRW", "coverage": "UNKNOWN", "value_kind": "UNKNOWN",
+        "known_initial_cost_range_krw": null, "reference_area_sqm": null, "monthly_royalty_krw": null,
+        "evidence_refs": [], "source_refs": ["https://composecoffee.co.kr/"],
+        "scope_note": "공식 창업 모집만 확인; 비용은 정보공개서·본사 상담 필요",
+        "missing_costs": ["TOTAL_INITIAL_COST", "ROYALTY"]
+      },
+      "missing_fields": ["franchise_disclosure", "area_availability_hq_confirmation", "opening_cost", "royalty"]
+    },
+    {
+      "brand_id": "kr-paiks-coffee",
+      "display_name": "빽다방",
+      "individual_franchise_eligibility": "VERIFIED",
+      "proposal_eligible": true,
+      "usage": "PROPOSAL_CANDIDATE",
+      "eligibility_evidence_id": "franchise-eligibility:kr-paiks-coffee:2026-08-24",
+      "eligibility_source_id": "paiks-official-franchise-guide",
+      "disclosure_status": "MISSING",
+      "finance_profile": {
+        "currency": "KRW", "coverage": "UNKNOWN", "value_kind": "UNKNOWN",
+        "known_initial_cost_range_krw": null, "reference_area_sqm": 26.4, "monthly_royalty_krw": null,
+        "evidence_refs": [], "source_refs": ["https://paikdabang.com/franchise/franchise/"],
+        "scope_note": "1층 전용 8평 이상 조건만 확인; 비용은 정보공개서·본사 상담 필요",
+        "missing_costs": ["TOTAL_INITIAL_COST", "ROYALTY"]
+      },
+      "missing_fields": ["franchise_disclosure", "area_availability_hq_confirmation", "opening_cost", "royalty"]
+    },
+    {
+      "brand_id": "kr-the-venti",
+      "display_name": "더벤티",
+      "individual_franchise_eligibility": "VERIFIED",
+      "proposal_eligible": true,
+      "usage": "PROPOSAL_CANDIDATE",
+      "eligibility_evidence_id": "franchise-eligibility:kr-the-venti:2026-08-24",
+      "eligibility_source_id": "the-venti-official-franchise-guide",
+      "disclosure_status": "MISSING",
+      "finance_profile": {
+        "currency": "KRW", "coverage": "PARTIAL", "value_kind": "EVIDENCED_FACT",
+        "known_initial_cost_range_krw": { "low": 86500000, "base": 86500000, "high": 86500000 },
+        "reference_area_sqm": 33, "monthly_royalty_krw": 150000,
+        "evidence_refs": ["franchise-cost:kr-the-venti:2026-08-24"],
+        "source_refs": ["https://www.theventi.co.kr/new2022/fran/assets/download/information.pdf"],
+        "scope_note": "10평 기준 정상가, VAT·냉난방기·전기증설·철거 별도; 한시 프로모션가 제외",
+        "missing_costs": ["DEPOSIT", "ACQUISITION_OR_PREMIUM", "SITE_SPECIFIC_WORKS", "OPERATING_RESERVE"]
+      },
+      "missing_fields": ["franchise_disclosure", "area_availability_hq_confirmation"]
+    },
+    {
+      "brand_id": "kr-coffee-bay",
+      "display_name": "커피베이",
+      "individual_franchise_eligibility": "VERIFIED",
+      "proposal_eligible": true,
+      "usage": "PROPOSAL_CANDIDATE",
+      "eligibility_evidence_id": "franchise-eligibility:kr-coffee-bay:2026-08-24",
+      "eligibility_source_id": "coffee-bay-official-franchise-guide",
+      "disclosure_status": "MISSING",
+      "finance_profile": {
+        "currency": "KRW", "coverage": "PARTIAL", "value_kind": "EVIDENCED_FACT",
+        "known_initial_cost_range_krw": { "low": 66500000, "base": 66500000, "high": 66500000 },
+        "reference_area_sqm": 49.5, "monthly_royalty_krw": null,
+        "evidence_refs": ["franchise-cost:kr-coffee-bay:2026-08-24"],
+        "source_refs": ["https://www.coffeebay.com/startup"],
+        "scope_note": "15평형, VAT·철거·외관·전기증설·냉난방기·소방·초도물품 등 별도",
+        "missing_costs": ["DEPOSIT", "ACQUISITION_OR_PREMIUM", "SITE_SPECIFIC_WORKS", "OPENING_INVENTORY", "ROYALTY"]
+      },
+      "missing_fields": ["franchise_disclosure", "area_availability_hq_confirmation", "royalty"]
+    },
+    {
+      "brand_id": "kr-hollys",
+      "display_name": "할리스",
+      "individual_franchise_eligibility": "VERIFIED",
+      "proposal_eligible": true,
+      "usage": "PROPOSAL_CANDIDATE",
+      "eligibility_evidence_id": "franchise-eligibility:kr-hollys:2026-08-24",
+      "eligibility_source_id": "hollys-official-franchise-guide",
+      "disclosure_status": "MISSING",
+      "finance_profile": {
+        "currency": "KRW", "coverage": "PARTIAL", "value_kind": "EVIDENCED_FACT",
+        "known_initial_cost_range_krw": { "low": 251500000, "base": 251500000, "high": 251500000 },
+        "reference_area_sqm": 165, "monthly_royalty_krw": null,
+        "evidence_refs": ["franchise-cost:kr-hollys:2026-08-24"],
+        "source_refs": ["https://www.hollys.co.kr/franchiseStore/franchiseStep.do"],
+        "scope_note": "50평 기준, VAT·계약이행보증금·설계감리비·초도물품·별도공사 제외",
+        "missing_costs": ["DEPOSIT", "ACQUISITION_OR_PREMIUM", "DESIGN_SUPERVISION", "SITE_SPECIFIC_WORKS", "OPENING_INVENTORY", "ROYALTY"]
+      },
+      "missing_fields": ["franchise_disclosure", "area_availability_hq_confirmation", "royalty"]
+    },
+    {
+      "brand_id": "kr-a-twosome-place",
+      "display_name": "투썸플레이스",
+      "individual_franchise_eligibility": "VERIFIED",
+      "proposal_eligible": true,
+      "usage": "PROPOSAL_CANDIDATE",
+      "eligibility_evidence_id": "franchise-eligibility:kr-a-twosome-place:2026-08-24",
+      "eligibility_source_id": "twosome-official-franchise-guide",
+      "disclosure_status": "MISSING",
+      "finance_profile": {
+        "currency": "KRW", "coverage": "PARTIAL", "value_kind": "EVIDENCED_FACT",
+        "known_initial_cost_range_krw": { "low": 243300000, "base": 259200000, "high": 275100000 },
+        "reference_area_sqm": 148.7, "monthly_royalty_krw": null,
+        "evidence_refs": ["franchise-cost:kr-a-twosome-place:2026-08-24"],
+        "source_refs": ["https://twosome.co.kr/so/storeStartupInfo.do"],
+        "scope_note": "45평·전면 15m 기준 공식 범위, 기준값은 양 끝값의 산술 중간값; 최초 오픈비·냉난방·현장공사 별도",
+        "missing_costs": ["ACQUISITION_OR_PREMIUM", "SITE_SPECIFIC_WORKS", "OPENING_COST", "OPERATING_RESERVE", "ROYALTY"]
+      },
+      "missing_fields": ["franchise_disclosure", "area_availability_hq_confirmation", "opening_cost", "royalty"]
+    },
+    {
+      "brand_id": "kr-mammoth-coffee",
+      "display_name": "매머드커피",
+      "individual_franchise_eligibility": "VERIFIED",
+      "proposal_eligible": true,
+      "usage": "PROPOSAL_CANDIDATE",
+      "eligibility_evidence_id": "franchise-eligibility:kr-mammoth-coffee:2026-08-24",
+      "eligibility_source_id": "mammoth-official-franchise-guide",
+      "disclosure_status": "MISSING",
+      "finance_profile": {
+        "currency": "KRW", "coverage": "UNKNOWN", "value_kind": "UNKNOWN",
+        "known_initial_cost_range_krw": null, "reference_area_sqm": null, "monthly_royalty_krw": null,
+        "evidence_refs": [], "source_refs": ["https://www.mmthcoffee.com/sub/franchise.html"],
+        "scope_note": "공식 가맹 안내의 소형 평수 창업 가능성만 확인; 숫자는 정보공개서·상담 필요",
+        "missing_costs": ["TOTAL_INITIAL_COST", "ROYALTY"]
+      },
+      "missing_fields": ["franchise_disclosure", "area_availability_hq_confirmation", "opening_cost", "royalty"]
+    },
+    {
+      "brand_id": "kr-starbucks-korea",
+      "display_name": "스타벅스",
+      "individual_franchise_eligibility": "INELIGIBLE",
+      "proposal_eligible": false,
+      "usage": "COMPETITOR_REFERENCE",
+      "eligibility_evidence_id": "franchise-ineligibility:kr-starbucks-korea:2026-08-24",
+      "eligibility_source_id": "kostat-franchise-field-guide-2019-starbucks",
+      "disclosure_status": "MISSING",
+      "finance_profile": {
+        "currency": "KRW", "coverage": "NOT_APPLICABLE", "value_kind": "UNKNOWN",
+        "known_initial_cost_range_krw": null, "reference_area_sqm": null, "monthly_royalty_krw": null,
+        "evidence_refs": [], "source_refs": [], "scope_note": "국내 개인 가맹 추천 비대상", "missing_costs": []
+      },
+      "missing_fields": []
+    },
+    {
+      "brand_id": "kr-coffee-bean-korea",
+      "display_name": "커피빈코리아",
+      "individual_franchise_eligibility": "INELIGIBLE",
+      "proposal_eligible": false,
+      "usage": "COMPETITOR_REFERENCE",
+      "eligibility_evidence_id": "franchise-ineligibility:kr-coffee-bean-korea:2026-08-24",
+      "eligibility_source_id": "kostat-franchise-field-guide-2019-coffee-bean",
+      "disclosure_status": "MISSING",
+      "finance_profile": {
+        "currency": "KRW", "coverage": "NOT_APPLICABLE", "value_kind": "UNKNOWN",
+        "known_initial_cost_range_krw": null, "reference_area_sqm": null, "monthly_royalty_krw": null,
+        "evidence_refs": [], "source_refs": [], "scope_note": "국내 개인 가맹 추천 비대상", "missing_costs": []
+      },
+      "missing_fields": []
     }
   ]
 }

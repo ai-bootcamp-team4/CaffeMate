@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0.0",
+  "snapshot_id": "kr-cafe-franchise-rag-sources-20260824",
+  "checked_at": "2026-08-24",
+  "sources": [
+    {
+      "source_id": "ediya-official-franchise-guide", "brand_id": "kr-ediya-coffee",
+      "source_family": "COMPANY_OFFICIAL_FRANCHISE", "source_ref": "https://www.ediya.com/C/contents/franchise_02.html",
+      "source_title": "이디야커피 가맹비", "source_anchor": "가맹비·홍보비·계약이행보증금·초도물품·월 로열티",
+      "published_or_data_date": null, "checked_at": "2026-08-24", "content_type": "text/html",
+      "ingestion_status": "READY", "retrieval_usage": ["ELIGIBILITY", "OPENING_COST", "ROYALTY"]
+    },
+    {
+      "source_id": "mega-mgc-official-franchise-guide", "brand_id": "kr-mega-mgc-coffee",
+      "source_family": "COMPANY_OFFICIAL_FRANCHISE", "source_ref": "https://www.mega-mgccoffee.com/",
+      "source_title": "메가MGC커피 공식 창업 안내", "source_anchor": "FRANCHISE·창업상담·10평 기준 창업비용",
+      "published_or_data_date": null, "checked_at": "2026-08-24", "content_type": "text/html",
+      "ingestion_status": "READY", "retrieval_usage": ["ELIGIBILITY", "OPENING_COST"]
+    },
+    {
+      "source_id": "compose-official-franchise-guide", "brand_id": "kr-compose-coffee",
+      "source_family": "COMPANY_OFFICIAL_FRANCHISE", "source_ref": "https://composecoffee.co.kr/",
+      "source_title": "컴포즈커피 공식 창업 안내", "source_anchor": "성공창업, 컴포즈커피가 함께합니다",
+      "published_or_data_date": null, "checked_at": "2026-08-24", "content_type": "text/html",
+      "ingestion_status": "READY", "retrieval_usage": ["ELIGIBILITY"]
+    },
+    {
+      "source_id": "paiks-official-franchise-guide", "brand_id": "kr-paiks-coffee",
+      "source_family": "COMPANY_OFFICIAL_FRANCHISE", "source_ref": "https://paikdabang.com/franchise/franchise/",
+      "source_title": "빽다방 가맹정보 및 절차", "source_anchor": "창업절차·창업조건·1층 전용 8평 이상",
+      "published_or_data_date": null, "checked_at": "2026-08-24", "content_type": "text/html",
+      "ingestion_status": "READY", "retrieval_usage": ["ELIGIBILITY", "AREA_REQUIREMENT", "OPENING_PROCEDURE"]
+    },
+    {
+      "source_id": "the-venti-official-franchise-guide", "brand_id": "kr-the-venti",
+      "source_family": "COMPANY_OFFICIAL_FRANCHISE", "source_ref": "https://www.theventi.co.kr/new2022/fran/assets/download/information.pdf",
+      "source_title": "더벤티 창업안내서", "source_anchor": "Member Information·Franchise Costs, PDF 8~9쪽",
+      "published_or_data_date": "2023-08-01", "checked_at": "2026-08-24", "content_type": "application/pdf",
+      "ingestion_status": "READY", "retrieval_usage": ["ELIGIBILITY", "OPENING_COST", "ROYALTY", "OPENING_PROCEDURE"]
+    },
+    {
+      "source_id": "coffee-bay-official-franchise-guide", "brand_id": "kr-coffee-bay",
+      "source_family": "COMPANY_OFFICIAL_FRANCHISE", "source_ref": "https://www.coffeebay.com/startup",
+      "source_title": "커피베이 창업 안내", "source_anchor": "15평형 창업비용·가맹 FAQ·창업상담",
+      "published_or_data_date": null, "checked_at": "2026-08-24", "content_type": "text/html",
+      "ingestion_status": "READY", "retrieval_usage": ["ELIGIBILITY", "OPENING_COST", "AREA_REQUIREMENT"]
+    },
+    {
+      "source_id": "hollys-official-franchise-guide", "brand_id": "kr-hollys",
+      "source_family": "COMPANY_OFFICIAL_FRANCHISE", "source_ref": "https://www.hollys.co.kr/franchiseStore/franchiseStep.do",
+      "source_title": "할리스 가맹문의 및 절차", "source_anchor": "가맹점 창업 조건·예상 투자비용·상담신청",
+      "published_or_data_date": null, "checked_at": "2026-08-24", "content_type": "text/html",
+      "ingestion_status": "READY", "retrieval_usage": ["ELIGIBILITY", "OPENING_COST", "AREA_REQUIREMENT"]
+    },
+    {
+      "source_id": "twosome-official-franchise-guide", "brand_id": "kr-a-twosome-place",
+      "source_family": "COMPANY_OFFICIAL_FRANCHISE", "source_ref": "https://twosome.co.kr/so/storeStartupInfo.do",
+      "source_title": "투썸플레이스 가맹점 창업안내", "source_anchor": "창업절차·45평 기준 예상 투자비용·최초 오픈비 별도",
+      "published_or_data_date": null, "checked_at": "2026-08-24", "content_type": "text/html",
+      "ingestion_status": "READY", "retrieval_usage": ["ELIGIBILITY", "OPENING_COST", "AREA_REQUIREMENT", "OPENING_PROCEDURE"]
+    },
+    {
+      "source_id": "mammoth-official-franchise-guide", "brand_id": "kr-mammoth-coffee",
+      "source_family": "COMPANY_OFFICIAL_FRANCHISE", "source_ref": "https://www.mmthcoffee.com/sub/franchise.html",
+      "source_title": "매머드커피 가맹 안내", "source_anchor": "1:1 가맹 상담·소형 평수 창업·개설 절차",
+      "published_or_data_date": null, "checked_at": "2026-08-24", "content_type": "text/html",
+      "ingestion_status": "READY", "retrieval_usage": ["ELIGIBILITY", "OPENING_PROCEDURE"]
+    },
+    {
+      "source_id": "kostat-franchise-field-guide-2019-starbucks", "brand_id": "kr-starbucks-korea",
+      "source_family": "GOVERNMENT_STATISTICS_GUIDE", "source_ref": "https://mods.go.kr/boardDownload.es?bid=12030&list_no=415858&seq=1",
+      "source_title": "프랜차이즈조사 통계정보보고서", "source_anchor": "29쪽 질의 6: 스타벅스·커피빈은 직영만 100% 운영",
+      "published_or_data_date": "2019-12-01", "checked_at": "2026-08-24", "content_type": "application/pdf",
+      "ingestion_status": "READY", "retrieval_usage": ["INELIGIBILITY", "COMPETITOR_REFERENCE"]
+    },
+    {
+      "source_id": "kostat-franchise-field-guide-2019-coffee-bean", "brand_id": "kr-coffee-bean-korea",
+      "source_family": "GOVERNMENT_STATISTICS_GUIDE", "source_ref": "https://mods.go.kr/boardDownload.es?bid=12030&list_no=415858&seq=1",
+      "source_title": "프랜차이즈조사 통계정보보고서", "source_anchor": "29쪽 질의 6: 스타벅스·커피빈은 직영만 100% 운영",
+      "published_or_data_date": "2019-12-01", "checked_at": "2026-08-24", "content_type": "application/pdf",
+      "ingestion_status": "READY", "retrieval_usage": ["INELIGIBILITY", "COMPETITOR_REFERENCE"]
+    }
+  ]
+}

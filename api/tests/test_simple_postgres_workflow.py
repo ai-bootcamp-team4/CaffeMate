@@ -1,6 +1,7 @@
 """사용자 분석 요청은 한 트랜잭션에서 실행 결과와 단일 진행 기록을 저장해야 한다."""
 
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,12 +23,70 @@ from app.results.postgres_repository import PostgresResultRepository
 from app.workflows.models import WorkflowCode, WorkflowStatus
 from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.service import WorkflowService
+from app.workflows.simple_proposal import SimpleProposalBuilder
 
 
 class _Identity:
     def verify(self, bearer_token: str) -> str:
         assert bearer_token == "test-token"
         return "user-2"
+
+
+class _RepositoryPipeline:
+    """Repository tests keep persistence isolated from external Agent and MCP calls."""
+
+    def __init__(self, registry: IndependentSeedRegistry) -> None:
+        self._builder = SimpleProposalBuilder(registry)
+
+    def run(self, **kwargs: Any) -> object:
+        return self._builder.build(
+            state=kwargs["state"],
+            evidence_records=kwargs["evidence_records"],
+            property_cost_override=kwargs.get("property_cost_override"),
+            franchise_universe=[
+                {
+                    "brand_id": "kr-ediya-coffee",
+                    "display_name": "이디야커피",
+                    "individual_franchise_eligibility": "VERIFIED",
+                    "evidence_refs": ["franchise-eligibility:ediya"],
+                    "finance_profile": {
+                        "currency": "KRW",
+                        "coverage": "PARTIAL",
+                        "value_kind": "EVIDENCED_FACT",
+                        "known_initial_cost_range_krw": {
+                            "low": 27_000_000,
+                            "base": 27_000_000,
+                            "high": 27_000_000,
+                        },
+                        "reference_area_sqm": None,
+                        "monthly_royalty_krw": 250_000,
+                        "evidence_refs": ["franchise-cost:ediya"],
+                        "source_refs": ["https://example.com/ediya"],
+                        "scope_note": "repository test fixture",
+                        "missing_costs": [
+                            "DEPOSIT",
+                            "ACQUISITION_OR_PREMIUM",
+                            "CONSTRUCTION",
+                            "EQUIPMENT",
+                            "OPERATING_RESERVE",
+                        ],
+                    },
+                }
+            ],
+        )
+
+
+def _workflow_service(engine: Engine) -> WorkflowService:
+    registry = IndependentSeedRegistry.load_default()
+    return WorkflowService(
+        PostgresWorkflowRepository(
+            engine,
+            policy_snapshot_id="policy-1",
+            seed_registry_id=registry.registry_id,
+            pipeline=_RepositoryPipeline(registry),
+            seed_registry=registry,
+        )
+    )
 
 
 @pytest.fixture(scope="module")
@@ -68,6 +127,7 @@ def test_start_persists_result_and_one_completed_stage(
             postgres_engine,
             policy_snapshot_id="policy-1",
             seed_registry_id=registry.registry_id,
+            pipeline=_RepositoryPipeline(registry),
             seed_registry=registry,
         )
     )
@@ -120,7 +180,12 @@ def test_public_start_returns_completed_run_and_result(
     )
     monkeypatch.setenv("CAFFEMATE_POLICY_SNAPSHOT_ID", "policy-1")
     headers = {"Authorization": "Bearer test-token"}
-    with TestClient(create_app(identity_verifier=_Identity())) as client:
+    with TestClient(
+        create_app(
+            identity_verifier=_Identity(),
+            workflow_service=_workflow_service(postgres_engine),
+        )
+    ) as client:
         created = client.post(
             "/v1/projects",
             headers={**headers, "Idempotency-Key": "create-user-2"},
@@ -165,7 +230,12 @@ def test_property_terms_recalculate_selected_candidate_with_actual_costs(
     )
     monkeypatch.setenv("CAFFEMATE_POLICY_SNAPSHOT_ID", "policy-1")
     headers = {"Authorization": "Bearer test-token"}
-    with TestClient(create_app(identity_verifier=_Identity())) as client:
+    with TestClient(
+        create_app(
+            identity_verifier=_Identity(),
+            workflow_service=_workflow_service(postgres_engine),
+        )
+    ) as client:
         project_id = client.post(
             "/v1/projects",
             headers={**headers, "Idempotency-Key": "property-create"},
@@ -254,7 +324,12 @@ def test_later_recompute_preserves_latest_selected_property_terms(
     )
     monkeypatch.setenv("CAFFEMATE_POLICY_SNAPSHOT_ID", "policy-1")
     headers = {"Authorization": "Bearer test-token"}
-    with TestClient(create_app(identity_verifier=_Identity())) as client:
+    with TestClient(
+        create_app(
+            identity_verifier=_Identity(),
+            workflow_service=_workflow_service(postgres_engine),
+        )
+    ) as client:
         project_id = client.post(
             "/v1/projects",
             headers={**headers, "Idempotency-Key": "retained-property-create"},
@@ -364,7 +439,12 @@ def test_property_terms_recalculate_selected_franchise_with_actual_costs(
     )
     monkeypatch.setenv("CAFFEMATE_POLICY_SNAPSHOT_ID", "policy-1")
     headers = {"Authorization": "Bearer test-token"}
-    with TestClient(create_app(identity_verifier=_Identity())) as client:
+    with TestClient(
+        create_app(
+            identity_verifier=_Identity(),
+            workflow_service=_workflow_service(postgres_engine),
+        )
+    ) as client:
         project_id = client.post(
             "/v1/projects",
             headers={**headers, "Idempotency-Key": "franchise-property-create"},
@@ -436,6 +516,6 @@ def test_property_terms_recalculate_selected_franchise_with_actual_costs(
         if candidate["franchise"]["brand_id"] == "kr-ediya-coffee"
     )
     assert current["result_bundle_id"] != first["result_bundle_id"]
-    assert recalculated["financial_summary"]["initial_cash"]["base"] == 210_321_000
-    assert recalculated["financial_summary"]["monthly_fixed_cost"]["base"] == 12_600_000
+    assert recalculated["financial_summary"]["initial_cash"]["base"] == 147_000_000
+    assert recalculated["financial_summary"]["monthly_fixed_cost"]["base"] == 6_250_000
     assert current["decision_delta"]["candidate_changes"]

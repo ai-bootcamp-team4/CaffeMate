@@ -13,6 +13,7 @@ from uuid import uuid4
 from app.agents.runtime import (
     AgentRuntimeHttpClient,
     GoogleAccessTokenProvider,
+    PostgresAgentCleanupSink,
     verify_agent_runtime_iam,
 )
 from app.agents.task_factory import compute_agent_input_digest
@@ -44,9 +45,11 @@ from app.verification.selected_candidate import (
     SelectedCandidateCanary,
     SelectedCandidateCanaryError,
 )
+from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import HeadFence
 from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.service import WorkflowService
+from app.workflows.simple_proposal import SimpleProposalBuilder
 
 
 class _StrictAgentCleanupSink:
@@ -59,6 +62,49 @@ class _StrictAgentCleanupSink:
     ) -> None:
         del runtime_resource, user_id, session_id
         raise RuntimeError("Agent Runtime verification requires synchronous session deletion")
+
+
+def _production_workflow_repository(
+    *,
+    settings: RuntimeSettings,
+    engine: Any,
+    seed_registry: IndependentSeedRegistry,
+) -> PostgresWorkflowRepository:
+    if (
+        not settings.policy_snapshot_id
+        or not settings.has_agent_runtime_configuration
+        or not settings.has_mcp_configuration
+    ):
+        raise ValueError("FIRST_PROPOSAL requires database, Agent Runtime, MCP and policy")
+    runtime = AgentRuntimeHttpClient(
+        gcp_project_id=cast(str, settings.agent_runtime_project_id),
+        resource_id=cast(str, settings.agent_runtime_resource_id),
+        user_hmac_secret=cast(str, settings.agent_runtime_user_hmac_secret),
+        access_tokens=GoogleAccessTokenProvider(),
+        cleanup_sink=PostgresAgentCleanupSink(engine),
+    )
+    mcp = McpHttpClient(
+        base_url=cast(str, settings.mcp_base_url),
+        audience=cast(str, settings.mcp_audience),
+        identity_provider=GoogleIdentityTokenProvider(),
+        scope_signer=ScopeTokenSigner(
+            secret=cast(str, settings.mcp_scope_hmac_secret),
+            issuer="caffemate-control-api",
+            audience="caffemate-mcp",
+        ),
+    )
+    return PostgresWorkflowRepository(
+        engine,
+        policy_snapshot_id=settings.policy_snapshot_id,
+        seed_registry_id=seed_registry.registry_id,
+        pipeline=LinearMultiAgentProposalPipeline(
+            runtime=runtime,
+            mcp=mcp,
+            seed_registry=seed_registry,
+            builder=SimpleProposalBuilder(seed_registry),
+        ),
+        seed_registry=seed_registry,
+    )
 
 
 def _agent_runtime_probe_fixture(fixture_id: str) -> dict[str, Any]:
@@ -288,18 +334,21 @@ def main() -> None:
         print(json.dumps({"status": "verified", **iam_report}, sort_keys=True))
     elif arguments.command == "verify-first-proposal":
         settings = RuntimeSettings.from_environment()
-        if not settings.policy_snapshot_id:
-            parser.error("database and policy snapshot configuration required")
+        if (
+            not settings.policy_snapshot_id
+            or not settings.has_agent_runtime_configuration
+            or not settings.has_mcp_configuration
+        ):
+            parser.error("database, Agent Runtime, MCP and policy configuration required")
         handle = create_database_handle(settings)
         if handle is None:
             parser.error("database configuration required")
         seed_registry = IndependentSeedRegistry.load_default()
         projects = ProjectService(PostgresProjectRepository(handle.engine))
         workflows = WorkflowService(
-            PostgresWorkflowRepository(
-                handle.engine,
-                policy_snapshot_id=settings.policy_snapshot_id,
-                seed_registry_id=seed_registry.registry_id,
+            _production_workflow_repository(
+                settings=settings,
+                engine=handle.engine,
                 seed_registry=seed_registry,
             ),
         )
@@ -328,18 +377,21 @@ def main() -> None:
         print(json.dumps(canary_report.as_dict(), sort_keys=True))
     elif arguments.command == "verify-selected-candidate":
         settings = RuntimeSettings.from_environment()
-        if not settings.has_mcp_configuration or not settings.policy_snapshot_id:
-            parser.error("database, MCP and policy snapshot configuration required")
+        if (
+            not settings.has_agent_runtime_configuration
+            or not settings.has_mcp_configuration
+            or not settings.policy_snapshot_id
+        ):
+            parser.error("database, Agent Runtime, MCP and policy configuration required")
         handle = create_database_handle(settings)
         if handle is None:
             parser.error("database configuration required")
         seed_registry = IndependentSeedRegistry.load_default()
         projects = ProjectService(PostgresProjectRepository(handle.engine))
         workflows = WorkflowService(
-            PostgresWorkflowRepository(
-                handle.engine,
-                policy_snapshot_id=settings.policy_snapshot_id,
-                seed_registry_id=seed_registry.registry_id,
+            _production_workflow_repository(
+                settings=settings,
+                engine=handle.engine,
                 seed_registry=seed_registry,
             ),
         )
