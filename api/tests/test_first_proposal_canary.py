@@ -4,7 +4,19 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.domain.models import CafeTypePreference, CoverageProfile, Project
+from app.domain.models import (
+    AreaMappingStatus,
+    AreaResolutionStatus,
+    AreaScopeType,
+    AreaState,
+    BorrowingIntent,
+    CafeTypePreference,
+    CandidateSetCompleteness,
+    CoverageProfile,
+    FounderState,
+    OperationMode,
+    Project,
+)
 from app.results.models import AuditStatus, ResultFreshness, ResultView
 from app.verification.first_proposal import FirstProposalCanary, FirstProposalCanaryError
 from app.workflows.first_proposal import FirstProposalStage
@@ -307,6 +319,53 @@ def test_canary_requires_single_execution_and_current_result_then_cleans() -> No
     assert projects.area.coverage_profile == CoverageProfile.R2_REGIONAL_CONNECTOR
     assert projects.area.source_revision == "MOIS_LEGAL_DONG_20260301"
     assert cleaner.calls == [("canary-project", "first-proposal-canary-probe")]
+
+
+def test_canary_uses_the_supplied_synthetic_founder_profile() -> None:
+    """운영 평가는 서로 다른 창업자 조건을 실제 온보딩 입력으로 전달해야 한다."""
+
+    projects = FakeProjects()
+    founder = FounderState(
+        target_area_input="서울특별시 마포구 망원동",
+        own_funds_krw=150_000_000,
+        borrowing_intent=BorrowingIntent.YES,
+        cafe_type_preference=CafeTypePreference.FRANCHISE_ONLY,
+        operation_mode=OperationMode.EMPLOYEE_LED,
+        preferences=["직원 중심 운영"],
+    )
+    area = AreaState(
+        resolution_status=AreaResolutionStatus.RESOLVED,
+        area_id="legal-dong:1144012300",
+        scope_type=AreaScopeType.LEGAL_DONG,
+        administrative_code="1144012300",
+        legal_dong_code="1144012300",
+        administrative_dong_codes=[],
+        mapping_status=AreaMappingStatus.UNVERIFIED,
+        candidate_set_completeness=CandidateSetCompleteness.UNVERIFIED,
+        source_revision="MOIS_LEGAL_DONG_20260301",
+        display_name="서울특별시 마포구 망원동",
+        boundary_version=None,
+        coverage_profile=CoverageProfile.R2_REGIONAL_CONNECTOR,
+        unavailable_fields=[],
+    )
+    franchise_result = result().model_copy(
+        update={
+            "candidates": [result().candidates[1]],
+            "primary_candidate_id": "candidate-2",
+        }
+    )
+
+    report = FirstProposalCanary(
+        projects=projects,
+        workflows=FakeWorkflows(progress(WorkflowStatus.SUCCEEDED)),
+        results=FakeResults(franchise_result),
+        cleaner=FakeCleaner(),
+        new_id=lambda: "synthetic-profile",
+    ).run(founder=founder, area=area)
+
+    assert projects.founder == founder
+    assert projects.area == area
+    assert report.requested_cafe_type_preference == "FRANCHISE_ONLY"
 
 
 def test_franchise_only_canary_requires_a_ranked_verified_real_brand() -> None:

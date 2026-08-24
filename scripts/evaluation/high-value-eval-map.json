@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0.0",
+  "granularity": "case-to-automated-suite",
+  "suites": {
+    "area_grounding": {
+      "command": ["npx", "vitest", "run", "mcp/test/connectors.test.ts", "mcp/test/bigquery-grounding.test.ts"],
+      "description": "지역 식별, 공급자 장애, 상권 자료 범위"
+    },
+    "proposal_finance": {
+      "command": ["uv", "run", "--project", "api", "pytest", "api/tests/test_finance.py", "api/tests/test_candidate_ranking.py", "api/tests/test_simple_proposal.py"],
+      "description": "비용 계산, 조건부 후보, 적격 후보와 순위"
+    },
+    "feedback_state": {
+      "command": ["uv", "run", "--project", "api", "pytest", "api/tests/test_feedback_intent.py", "api/tests/test_result_decision_delta.py", "api/tests/test_result_bundle.py"],
+      "description": "결과 전후 피드백과 확인 전 State 불변"
+    },
+    "rag_scope": {
+      "command": ["npx", "vitest", "run", "rag/test/retrieval.test.ts", "rag/test/vertex-rag-backend.test.ts", "mcp/test/auth.test.ts", "mcp/test/router.test.ts", "mcp/test/official-rag.test.ts"],
+      "description": "RAG 격리, source fence, anchor와 read-only MCP"
+    },
+    "document_pipeline": {
+      "command": ["uv", "run", "--project", "api", "pytest", "api/tests/test_demo_documents.py", "api/tests/test_document_storage.py", "api/tests/test_result_decision_delta.py"],
+      "description": "문서 입력, 저장, 수정 가능한 반영과 재계산"
+    },
+    "agent_contract": {
+      "command": ["npx", "vitest", "run", "agents/test/contracts.test.ts", "agents/test/semantics.test.ts", "agents/test/model-executor.test.ts", "agents/test/dispatcher.test.ts", "agents/test/registry.test.ts"],
+      "description": "Agent Schema, 의미 검증, repair와 prompt 예산"
+    },
+    "runtime_protocol": {
+      "command": ["npx", "vitest", "run", "agents/test/adk-runtime.test.ts", "agents/test/runtime-stream-bridge.test.ts", "agents/test/vertex-model-client.test.ts", "agents/test/gcp-preflight.test.ts"],
+      "description": "역할 격리, 세션 수명주기, Vertex 오류와 배포 계약"
+    },
+    "rag_evidence_bridge": {
+      "command": ["npx", "vitest", "run", "mcp/test/rag-connectors.test.ts", "mcp/test/procedure-rag.test.ts", "mcp/test/production-connectors.test.ts"],
+      "description": "검색 hit에서 Evidence 후보와 결과 연결"
+    }
+  },
+  "cases": {
+    "EV-001": "area_grounding",
+    "EV-002": "area_grounding",
+    "EV-003": "proposal_finance",
+    "EV-004": "proposal_finance",
+    "EV-005": "proposal_finance",
+    "EV-006": "proposal_finance",
+    "EV-007": "proposal_finance",
+    "EV-008": "agent_contract",
+    "EV-009": "proposal_finance",
+    "EV-010": "feedback_state",
+    "EV-011": "feedback_state",
+    "EV-012": "rag_scope",
+    "EV-013": "rag_scope",
+    "EV-014": "document_pipeline",
+    "EV-015": "document_pipeline",
+    "EV-016": "agent_contract",
+    "EV-017": "proposal_finance",
+    "EV-018": "document_pipeline",
+    "EV-019": "proposal_finance",
+    "EV-020": "document_pipeline",
+    "EV-021": "runtime_protocol",
+    "EV-022": "agent_contract",
+    "EV-023": "agent_contract",
+    "EV-024": "agent_contract",
+    "EV-025": "agent_contract",
+    "EV-026": "agent_contract",
+    "EV-027": "agent_contract",
+    "EV-028": "agent_contract",
+    "EV-029": "agent_contract",
+    "EV-030": "area_grounding",
+    "EV-031": "agent_contract",
+    "EV-032": "runtime_protocol",
+    "EV-033": "agent_contract",
+    "EV-034": "document_pipeline",
+    "EV-035": "rag_evidence_bridge"
+  }
+}

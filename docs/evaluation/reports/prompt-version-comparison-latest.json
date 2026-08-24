@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-08-24T14:33:00.838Z",
+  "git_revision": "948999ffc4f3d14d363b174c1156990b7f13a9bf",
+  "project_id": "proj-aj20-211200020328",
+  "model": "gemini-3.7-flash",
+  "fixture_id": "propose_independent-complete",
+  "runs_per_version": 1,
+  "results": [
+    {
+      "prompt_version": "proposal-agent.v2",
+      "prompt_hash": "sha256:163151194810be01d90f34908bfbdc9fb211ac97c8687ff95453c4a325632ace",
+      "duration_ms": 8734,
+      "transport_pass": true,
+      "schema_pass": true,
+      "semantic_pass": true,
+      "semantic_issue_codes": [],
+      "candidate_count": 1,
+      "fit_axis_count": 5,
+      "assessment_basis_count": 5
+    },
+    {
+      "prompt_version": "proposal-agent.v3",
+      "prompt_hash": "sha256:d1858d07962210218071230fe00d439970d409efcb4877a284b1516f2cd2ea42",
+      "duration_ms": 7241,
+      "transport_pass": true,
+      "schema_pass": true,
+      "semantic_pass": true,
+      "semantic_issue_codes": [],
+      "candidate_count": 1,
+      "fit_axis_count": 5,
+      "assessment_basis_count": 5
+    }
+  ],
+  "comparison": {
+    "baseline_prompt": "proposal-agent.v2",
+    "current_prompt": "proposal-agent.v3",
+    "fit_axis_delta": 0,
+    "basis_delta": 0,
+    "current_pass": true
+  },
+  "limitation": "단일 고정 fixture의 1회 비교이며 운영 사용자 품질이나 통계적 우월성을 뜻하지 않는다."
+}

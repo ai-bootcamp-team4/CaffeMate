@@ -1,0 +1,416 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-08-24T14:30:13.657Z",
+  "git_revision": "948999ffc4f3d14d363b174c1156990b7f13a9bf",
+  "evaluation_source_digest": "sha256:90d31c4ff867a7929040de8e83c32312c9b629ec585b97f9b5f1f4035f145b1f",
+  "execution_map_digest": "sha256:67d96c02dcd0734c515d7a21c0e5b97e4f3f8c4b3dde24b457031cdf58fa7655",
+  "granularity": "case-to-automated-suite",
+  "summary": {
+    "total_cases": 35,
+    "passed_cases": 35,
+    "failed_cases": 0,
+    "pass_rate": 1
+  },
+  "suites": [
+    {
+      "suite_id": "area_grounding",
+      "description": "지역 식별, 공급자 장애, 상권 자료 범위",
+      "command": [
+        "npx",
+        "vitest",
+        "run",
+        "mcp/test/connectors.test.ts",
+        "mcp/test/bigquery-grounding.test.ts"
+      ],
+      "passed": true,
+      "exit_code": 0,
+      "duration_ms": 1814,
+      "output_tail": [
+        "RUN  v4.1.11 /private/tmp/caffemate-tech-evidence.j8rt5o",
+        "",
+        "",
+        " Test Files  2 passed (2)",
+        "      Tests  22 passed (22)",
+        "   Start at  23:29:56",
+        "   Duration  1.03s (transform 118ms, setup 0ms, import 397ms, tests 59ms, environment 1.28s)"
+      ]
+    },
+    {
+      "suite_id": "proposal_finance",
+      "description": "비용 계산, 조건부 후보, 적격 후보와 순위",
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "api",
+        "pytest",
+        "api/tests/test_finance.py",
+        "api/tests/test_candidate_ranking.py",
+        "api/tests/test_simple_proposal.py"
+      ],
+      "passed": true,
+      "exit_code": 0,
+      "duration_ms": 2680,
+      "output_tail": [
+        "..................................                                       [100%]",
+        "34 passed in 1.15s"
+      ]
+    },
+    {
+      "suite_id": "feedback_state",
+      "description": "결과 전후 피드백과 확인 전 State 불변",
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "api",
+        "pytest",
+        "api/tests/test_feedback_intent.py",
+        "api/tests/test_result_decision_delta.py",
+        "api/tests/test_result_bundle.py"
+      ],
+      "passed": true,
+      "exit_code": 0,
+      "duration_ms": 3900,
+      "output_tail": [
+        "...............                                                          [100%]",
+        "15 passed in 2.62s"
+      ]
+    },
+    {
+      "suite_id": "rag_scope",
+      "description": "RAG 격리, source fence, anchor와 read-only MCP",
+      "command": [
+        "npx",
+        "vitest",
+        "run",
+        "rag/test/retrieval.test.ts",
+        "rag/test/vertex-rag-backend.test.ts",
+        "mcp/test/auth.test.ts",
+        "mcp/test/router.test.ts",
+        "mcp/test/official-rag.test.ts"
+      ],
+      "passed": true,
+      "exit_code": 0,
+      "duration_ms": 1321,
+      "output_tail": [
+        "RUN  v4.1.11 /private/tmp/caffemate-tech-evidence.j8rt5o",
+        "",
+        "",
+        " Test Files  5 passed (5)",
+        "      Tests  43 passed (43)",
+        "   Start at  23:30:04",
+        "   Duration  833ms (transform 318ms, setup 0ms, import 743ms, tests 62ms, environment 2.00s)"
+      ]
+    },
+    {
+      "suite_id": "document_pipeline",
+      "description": "문서 입력, 저장, 수정 가능한 반영과 재계산",
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "api",
+        "pytest",
+        "api/tests/test_demo_documents.py",
+        "api/tests/test_document_storage.py",
+        "api/tests/test_result_decision_delta.py"
+      ],
+      "passed": true,
+      "exit_code": 0,
+      "duration_ms": 1947,
+      "output_tail": [
+        ".......                                                                  [100%]",
+        "7 passed in 0.36s"
+      ]
+    },
+    {
+      "suite_id": "agent_contract",
+      "description": "Agent Schema, 의미 검증, repair와 prompt 예산",
+      "command": [
+        "npx",
+        "vitest",
+        "run",
+        "agents/test/contracts.test.ts",
+        "agents/test/semantics.test.ts",
+        "agents/test/model-executor.test.ts",
+        "agents/test/dispatcher.test.ts",
+        "agents/test/registry.test.ts"
+      ],
+      "passed": true,
+      "exit_code": 0,
+      "duration_ms": 1410,
+      "output_tail": [
+        "RUN  v4.1.11 /private/tmp/caffemate-tech-evidence.j8rt5o",
+        "",
+        "",
+        " Test Files  5 passed (5)",
+        "      Tests  52 passed (52)",
+        "   Start at  23:30:08",
+        "   Duration  945ms (transform 420ms, setup 0ms, import 1.66s, tests 140ms, environment 2.04s)"
+      ]
+    },
+    {
+      "suite_id": "runtime_protocol",
+      "description": "역할 격리, 세션 수명주기, Vertex 오류와 배포 계약",
+      "command": [
+        "npx",
+        "vitest",
+        "run",
+        "agents/test/adk-runtime.test.ts",
+        "agents/test/runtime-stream-bridge.test.ts",
+        "agents/test/vertex-model-client.test.ts",
+        "agents/test/gcp-preflight.test.ts"
+      ],
+      "passed": true,
+      "exit_code": 0,
+      "duration_ms": 3075,
+      "output_tail": [
+        "RUN  v4.1.11 /private/tmp/caffemate-tech-evidence.j8rt5o",
+        "",
+        "",
+        " Test Files  4 passed (4)",
+        "      Tests  47 passed (47)",
+        "   Start at  23:30:09",
+        "   Duration  2.44s (transform 435ms, setup 0ms, import 2.27s, tests 97ms, environment 1.85s)"
+      ]
+    },
+    {
+      "suite_id": "rag_evidence_bridge",
+      "description": "검색 hit에서 Evidence 후보와 결과 연결",
+      "command": [
+        "npx",
+        "vitest",
+        "run",
+        "mcp/test/rag-connectors.test.ts",
+        "mcp/test/procedure-rag.test.ts",
+        "mcp/test/production-connectors.test.ts"
+      ],
+      "passed": true,
+      "exit_code": 0,
+      "duration_ms": 1521,
+      "output_tail": [
+        "RUN  v4.1.11 /private/tmp/caffemate-tech-evidence.j8rt5o",
+        "",
+        "",
+        " Test Files  3 passed (3)",
+        "      Tests  12 passed (12)",
+        "   Start at  23:30:12",
+        "   Duration  950ms (transform 219ms, setup 0ms, import 785ms, tests 41ms, environment 1.26s)"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "EV-001",
+      "title": "동일 지명의 행정구역 모호성",
+      "suite_id": "area_grounding",
+      "passed": true
+    },
+    {
+      "id": "EV-002",
+      "title": "중복 카페 업소 row",
+      "suite_id": "area_grounding",
+      "passed": true
+    },
+    {
+      "id": "EV-003",
+      "title": "매출과 유동인구 자료 없음",
+      "suite_id": "proposal_finance",
+      "passed": true
+    },
+    {
+      "id": "EV-004",
+      "title": "전체 비용 범위가 자금 초과",
+      "suite_id": "proposal_finance",
+      "passed": true
+    },
+    {
+      "id": "EV-005",
+      "title": "브랜드 비용 일부 누락",
+      "suite_id": "proposal_finance",
+      "passed": true
+    },
+    {
+      "id": "EV-006",
+      "title": "개인 가맹 가능 여부 미확인",
+      "suite_id": "proposal_finance",
+      "passed": true
+    },
+    {
+      "id": "EV-007",
+      "title": "직영 전용 브랜드",
+      "suite_id": "proposal_finance",
+      "passed": true
+    },
+    {
+      "id": "EV-008",
+      "title": "평균매출 오용",
+      "suite_id": "agent_contract",
+      "passed": true
+    },
+    {
+      "id": "EV-009",
+      "title": "참고 비용 범위로 고객 수 생성",
+      "suite_id": "proposal_finance",
+      "passed": true
+    },
+    {
+      "id": "EV-010",
+      "title": "결과 전 피드백 요청",
+      "suite_id": "feedback_state",
+      "passed": true
+    },
+    {
+      "id": "EV-011",
+      "title": "결과 이후 피드백 확인 전 변경",
+      "suite_id": "feedback_state",
+      "passed": true
+    },
+    {
+      "id": "EV-012",
+      "title": "프로젝트 간 문서 유출",
+      "suite_id": "rag_scope",
+      "passed": true
+    },
+    {
+      "id": "EV-013",
+      "title": "조회일은 최신이지만 data period는 오래됨",
+      "suite_id": "rag_scope",
+      "passed": true
+    },
+    {
+      "id": "EV-014",
+      "title": "문서 안 Prompt Injection",
+      "suite_id": "document_pipeline",
+      "passed": true
+    },
+    {
+      "id": "EV-015",
+      "title": "문서 간 로열티 충돌",
+      "suite_id": "document_pipeline",
+      "passed": true
+    },
+    {
+      "id": "EV-016",
+      "title": "Agent output schema 실패",
+      "suite_id": "agent_contract",
+      "passed": true
+    },
+    {
+      "id": "EV-017",
+      "title": "적격 후보 부족",
+      "suite_id": "proposal_finance",
+      "passed": true
+    },
+    {
+      "id": "EV-018",
+      "title": "문서 변경 뒤 선택적 재계산",
+      "suite_id": "document_pipeline",
+      "passed": true
+    },
+    {
+      "id": "EV-019",
+      "title": "자료 일부 누락 후보의 조건부 순위",
+      "suite_id": "proposal_finance",
+      "passed": true
+    },
+    {
+      "id": "EV-020",
+      "title": "OCR 자동 입력 폼과 일괄 반영",
+      "suite_id": "document_pipeline",
+      "passed": true
+    },
+    {
+      "id": "EV-021",
+      "title": "서울 model endpoint 실패",
+      "suite_id": "runtime_protocol",
+      "passed": true
+    },
+    {
+      "id": "EV-022",
+      "title": "Proposal Agent의 존재하지 않는 브랜드 생성",
+      "suite_id": "agent_contract",
+      "passed": true
+    },
+    {
+      "id": "EV-023",
+      "title": "Evidence Assess의 과도한 사고·중복 입력 회귀",
+      "suite_id": "agent_contract",
+      "passed": true
+    },
+    {
+      "id": "EV-024",
+      "title": "Runtime 내부 검증에서 거절된 Agent 출력의 단일 repair",
+      "suite_id": "agent_contract",
+      "passed": true
+    },
+    {
+      "id": "EV-025",
+      "title": "Runtime과 Control API의 Candidate Audit 의미 계약 일치",
+      "suite_id": "agent_contract",
+      "passed": true
+    },
+    {
+      "id": "EV-026",
+      "title": "Evidence Plan이 미배포 MCP connector를 호출하지 않음",
+      "suite_id": "agent_contract",
+      "passed": true
+    },
+    {
+      "id": "EV-027",
+      "title": "Intent Agent의 제한 없는 출력과 MAX_TOKENS 재시도 회귀",
+      "suite_id": "agent_contract",
+      "passed": true
+    },
+    {
+      "id": "EV-028",
+      "title": "Intent 가능성 진술과 변경 의향의 혼동 방지",
+      "suite_id": "agent_contract",
+      "passed": true
+    },
+    {
+      "id": "EV-029",
+      "title": "Typed Agent의 과도한 추론 예산 회귀",
+      "suite_id": "agent_contract",
+      "passed": true
+    },
+    {
+      "id": "EV-030",
+      "title": "주소 공급자 지연이 Agent 연쇄 실행을 가리는 회귀",
+      "suite_id": "area_grounding",
+      "passed": true
+    },
+    {
+      "id": "EV-031",
+      "title": "Proposal Agent가 자료 부족을 빈 후보로 오인하지 않음",
+      "suite_id": "agent_contract",
+      "passed": true
+    },
+    {
+      "id": "EV-032",
+      "title": "Agent 세션 왕복 축소가 역할 격리와 삭제 보장을 깨뜨리지 않음",
+      "suite_id": "runtime_protocol",
+      "passed": true
+    },
+    {
+      "id": "EV-033",
+      "title": "모델 semantic 출력과 Runtime 불변 envelope의 권한 분리",
+      "suite_id": "agent_contract",
+      "passed": true
+    },
+    {
+      "id": "EV-034",
+      "title": "운영 문서 버킷과 Document Agent 경로가 설정 누락 없이 실제 왕복함",
+      "suite_id": "document_pipeline",
+      "passed": true
+    },
+    {
+      "id": "EV-035",
+      "title": "RAG 검색 hit가 Claim 근거 후보로 전달되지 않는 연결 회귀",
+      "suite_id": "rag_evidence_bridge",
+      "passed": true
+    }
+  ],
+  "limitation": "각 사례는 연결된 자동화 suite의 통과 여부로 판정한다. suite 통과는 실제 사용자 연구나 운영 데이터 성능을 뜻하지 않는다."
+}

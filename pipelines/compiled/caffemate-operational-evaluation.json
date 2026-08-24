@@ -1,0 +1,175 @@
+{
+  "components": {
+    "comp-apply-quality-gate": {
+      "executorLabel": "exec-apply-quality-gate",
+      "inputDefinitions": {
+        "parameters": {
+          "live_e2e_report": {
+            "parameterType": "STRING"
+          }
+        }
+      },
+      "outputDefinitions": {
+        "parameters": {
+          "gate_report": {
+            "parameterType": "STRING"
+          }
+        }
+      }
+    },
+    "comp-run-live-e2e-evaluation": {
+      "executorLabel": "exec-run-live-e2e-evaluation",
+      "inputDefinitions": {
+        "parameters": {
+          "job_name": {
+            "parameterType": "STRING"
+          },
+          "project_id": {
+            "parameterType": "STRING"
+          },
+          "region": {
+            "parameterType": "STRING"
+          },
+          "report_uri": {
+            "parameterType": "STRING"
+          }
+        }
+      },
+      "outputDefinitions": {
+        "parameters": {
+          "live_e2e_report": {
+            "parameterType": "STRING"
+          }
+        }
+      }
+    }
+  },
+  "deploymentSpec": {
+    "executors": {
+      "exec-apply-quality-gate": {
+        "container": {
+          "args": [
+            "--executor_input",
+            "{{$}}",
+            "--function_to_execute",
+            "apply_quality_gate"
+          ],
+          "command": [
+            "sh",
+            "-c",
+            "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"$0\" \"$@\"\n",
+            "sh",
+            "-ec",
+            "program_path=$(mktemp -d)\n\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\n_KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
+            "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import *\n\ndef apply_quality_gate(\n    live_e2e_report: InputPath(str),\n    gate_report: OutputPath(str),\n) -> None:\n    import json\n\n    with open(live_e2e_report, encoding=\"utf-8\") as stream:\n        live_e2e = json.load(stream)\n    passed = (\n        live_e2e[\"summary\"][\"total_cases\"] == 15\n        and live_e2e[\"summary\"][\"failed_cases\"] == 0\n        and live_e2e[\"passed\"] is True\n    )\n    result = {\n        \"passed\": passed,\n        \"live_e2e_pass_rate\": live_e2e[\"summary\"][\"pass_rate\"],\n        \"live_e2e_source_revision\": live_e2e[\"source_revision\"],\n    }\n    with open(gate_report, \"w\", encoding=\"utf-8\") as stream:\n        json.dump(result, stream, ensure_ascii=False, indent=2)\n    if not passed:\n        raise RuntimeError(\"CaffeMate evaluation gate failed\")\n\n"
+          ],
+          "image": "python:3.13-slim"
+        }
+      },
+      "exec-run-live-e2e-evaluation": {
+        "container": {
+          "args": [
+            "\nproject_id=\"$1\"\nregion=\"$2\"\njob_name=\"$3\"\nreport_uri=\"$4\"\nreport_path=\"$5\"\ngcloud run jobs execute \"$job_name\"   --project=\"$project_id\"   --region=\"$region\"   --update-env-vars=\"CAFFEMATE_EVALUATION_REPORT_URI=$report_uri\"   --wait   --quiet\ngcloud storage cp \"$report_uri\" \"$report_path\"\n",
+            "--",
+            "{{$.inputs.parameters['project_id']}}",
+            "{{$.inputs.parameters['region']}}",
+            "{{$.inputs.parameters['job_name']}}",
+            "{{$.inputs.parameters['report_uri']}}",
+            "{{$.outputs.parameters['live_e2e_report'].output_file}}"
+          ],
+          "command": [
+            "bash",
+            "-ceu"
+          ],
+          "image": "gcr.io/google.com/cloudsdktool/google-cloud-cli:slim"
+        }
+      }
+    }
+  },
+  "pipelineInfo": {
+    "name": "caffemate-operational-evaluation"
+  },
+  "root": {
+    "dag": {
+      "tasks": {
+        "apply-quality-gate": {
+          "cachingOptions": {
+            "enableCache": true
+          },
+          "componentRef": {
+            "name": "comp-apply-quality-gate"
+          },
+          "dependentTasks": [
+            "run-live-e2e-evaluation"
+          ],
+          "inputs": {
+            "parameters": {
+              "live_e2e_report": {
+                "taskOutputParameter": {
+                  "outputParameterKey": "live_e2e_report",
+                  "producerTask": "run-live-e2e-evaluation"
+                }
+              }
+            }
+          },
+          "taskInfo": {
+            "name": "apply-quality-gate"
+          }
+        },
+        "run-live-e2e-evaluation": {
+          "cachingOptions": {
+            "enableCache": true
+          },
+          "componentRef": {
+            "name": "comp-run-live-e2e-evaluation"
+          },
+          "inputs": {
+            "parameters": {
+              "job_name": {
+                "componentInputParameter": "live_job_name"
+              },
+              "project_id": {
+                "componentInputParameter": "project_id"
+              },
+              "region": {
+                "componentInputParameter": "region"
+              },
+              "report_uri": {
+                "componentInputParameter": "live_report_uri"
+              }
+            }
+          },
+          "taskInfo": {
+            "name": "run-live-e2e-evaluation"
+          }
+        }
+      }
+    },
+    "inputDefinitions": {
+      "parameters": {
+        "live_job_name": {
+          "defaultValue": "caffemate-live-e2e-evaluation",
+          "isOptional": true,
+          "parameterType": "STRING"
+        },
+        "live_report_uri": {
+          "defaultValue": "gs://proj-aj20-211200020328-caffemate-evaluation/reports/manual.json",
+          "isOptional": true,
+          "parameterType": "STRING"
+        },
+        "project_id": {
+          "defaultValue": "proj-aj20-211200020328",
+          "isOptional": true,
+          "parameterType": "STRING"
+        },
+        "region": {
+          "defaultValue": "asia-northeast3",
+          "isOptional": true,
+          "parameterType": "STRING"
+        }
+      }
+    }
+  },
+  "schemaVersion": "2.1.0",
+  "sdkVersion": "kfp-2.17.0"
+}

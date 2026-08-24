@@ -43,6 +43,10 @@ from app.verification.first_proposal import (
     FirstProposalCanaryError,
     PostgresFirstProposalCanaryCleaner,
 )
+from app.verification.live_evaluation import (
+    GoogleCloudLiveEvaluationReportStore,
+    LiveEvaluationRunner,
+)
 from app.verification.selected_candidate import (
     SelectedCandidateCanary,
     SelectedCandidateCanaryError,
@@ -112,9 +116,7 @@ def _production_workflow_repository(
 def _agent_runtime_probe_fixture(fixture_id: str) -> dict[str, Any]:
     root = Path(__file__).resolve().parents[2]
     matrix = json.loads(
-        (root / "agents" / "fixtures" / "task-matrix.json").read_text(
-            encoding="utf-8"
-        )
+        (root / "agents" / "fixtures" / "task-matrix.json").read_text(encoding="utf-8")
     )
     fixture = next((item for item in matrix["cases"] if item["id"] == fixture_id), None)
     if not isinstance(fixture, dict):
@@ -128,9 +130,7 @@ def _agent_runtime_probe_task(
     root = Path(__file__).resolve().parents[2]
     fixture = _agent_runtime_probe_fixture(fixture_id)
     task = copy.deepcopy(fixture["task"])
-    release = json.loads(
-        (root / "agents" / "release-manifest.json").read_text(encoding="utf-8")
-    )
+    release = json.loads((root / "agents" / "release-manifest.json").read_text(encoding="utf-8"))
     deadline_seconds = release["tasks"][task["task_type"]]["deadline_seconds"]
     probe_id = uuid4().hex
     task.update(
@@ -162,18 +162,21 @@ def main() -> None:
             "verify-agent-runtime",
             "verify-agent-runtime-iam",
             "verify-first-proposal",
+            "verify-live-evaluation",
             "verify-selected-candidate",
             "verify-document-storage",
         ],
     )
-    parser.add_argument(
-        "--agent-fixture-id", default="evidence_plan-complete"
-    )
+    parser.add_argument("--agent-fixture-id", default="evidence_plan-complete")
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument(
         "--cafe-type-preference",
         choices=[preference.value for preference in CafeTypePreference],
         default=CafeTypePreference.OPEN_TO_BOTH.value,
+    )
+    parser.add_argument(
+        "--report-uri",
+        default=os.getenv("CAFFEMATE_EVALUATION_REPORT_URI"),
     )
     arguments = parser.parse_args()
     if arguments.repeat < 1 or arguments.repeat > 20:
@@ -251,22 +254,16 @@ def main() -> None:
         expected = _agent_runtime_probe_fixture(arguments.agent_fixture_id)["result"]
         summaries: list[dict[str, Any]] = []
         for run_number in range(1, arguments.repeat + 1):
-            result = runtime.invoke(
-                _agent_runtime_probe_task(arguments.agent_fixture_id)
-            )
+            result = runtime.invoke(_agent_runtime_probe_task(arguments.agent_fixture_id))
             if result["status"] != expected["status"]:
                 raise RuntimeError("Agent Runtime probe status differs from fixture")
             expected_payload = expected.get("payload")
             result_payload = result.get("payload")
             expected_decision = (
-                expected_payload.get("decision")
-                if isinstance(expected_payload, dict)
-                else None
+                expected_payload.get("decision") if isinstance(expected_payload, dict) else None
             )
             result_decision = (
-                result_payload.get("decision")
-                if isinstance(result_payload, dict)
-                else None
+                result_payload.get("decision") if isinstance(result_payload, dict) else None
             )
             if expected_decision is not None and result_decision != expected_decision:
                 raise RuntimeError("Agent Runtime probe decision differs from fixture")
@@ -295,9 +292,9 @@ def main() -> None:
                     for operation in result_operations
                     if isinstance(operation, dict)
                 ]
-                if len(expected_core) != len(expected_operations) or len(
-                    result_core
-                ) != len(result_operations):
+                if len(expected_core) != len(expected_operations) or len(result_core) != len(
+                    result_operations
+                ):
                     raise RuntimeError("Agent Runtime probe operation shape is invalid")
                 if result_core != expected_core:
                     raise RuntimeError("Agent Runtime probe operations differ from fixture")
@@ -307,11 +304,7 @@ def main() -> None:
                     "agent_name": result["agent_name"],
                     "task_type": result["task_type"],
                     "result_status": result["status"],
-                    **(
-                        {"decision": result_decision}
-                        if result_decision is not None
-                        else {}
-                    ),
+                    **({"decision": result_decision} if result_decision is not None else {}),
                 }
             )
         print(
@@ -367,9 +360,7 @@ def main() -> None:
                     results=ResultService(PostgresResultRepository(handle.engine)),
                     cleaner=PostgresFirstProposalCanaryCleaner(handle.engine),
                 ).run(
-                    cafe_type_preference=CafeTypePreference(
-                        arguments.cafe_type_preference
-                    ),
+                    cafe_type_preference=CafeTypePreference(arguments.cafe_type_preference),
                 )
         except FirstProposalCanaryError as error:
             print(
@@ -383,6 +374,69 @@ def main() -> None:
         finally:
             handle.close()
         print(json.dumps(canary_report.as_dict(), sort_keys=True))
+    elif arguments.command == "verify-live-evaluation":
+        settings = RuntimeSettings.from_environment()
+        configure_cloud_trace(
+            service_name="caffemate-live-e2e-evaluation",
+            service_version=os.getenv("CAFFEMATE_SOURCE_REVISION"),
+            project_id=settings.agent_runtime_project_id,
+        )
+        source_revision = os.getenv("CAFFEMATE_SOURCE_REVISION", "")
+        if len(source_revision) != 40 or any(
+            character not in "0123456789abcdef" for character in source_revision
+        ):
+            parser.error("CAFFEMATE_SOURCE_REVISION must be a full commit SHA")
+        if not arguments.report_uri:
+            parser.error("--report-uri or CAFFEMATE_EVALUATION_REPORT_URI required")
+        if (
+            not settings.policy_snapshot_id
+            or not settings.has_agent_runtime_configuration
+            or not settings.has_mcp_configuration
+        ):
+            parser.error("database, Agent Runtime, MCP and policy configuration required")
+        handle = create_database_handle(settings)
+        if handle is None:
+            parser.error("database configuration required")
+        seed_registry = IndependentSeedRegistry.load_default()
+        projects = ProjectService(PostgresProjectRepository(handle.engine))
+        workflows = WorkflowService(
+            _production_workflow_repository(
+                settings=settings,
+                engine=handle.engine,
+                seed_registry=seed_registry,
+            ),
+        )
+        try:
+            with tracer().start_as_current_span("caffemate.evaluation.live_e2e"):
+                evaluation_report = LiveEvaluationRunner(
+                    canary=FirstProposalCanary(
+                        projects=projects,
+                        workflows=workflows,
+                        results=ResultService(PostgresResultRepository(handle.engine)),
+                        cleaner=PostgresFirstProposalCanaryCleaner(handle.engine),
+                    ),
+                    source_revision=source_revision,
+                ).run()
+            json_uri, markdown_uri = GoogleCloudLiveEvaluationReportStore().write(
+                report=evaluation_report,
+                report_uri=arguments.report_uri,
+            )
+        finally:
+            handle.close()
+        print(
+            json.dumps(
+                {
+                    "status": "verified" if evaluation_report.passed else "failed",
+                    "json_report_uri": json_uri,
+                    "markdown_report_uri": markdown_uri,
+                    **evaluation_report.as_dict(),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+        if not evaluation_report.passed:
+            raise SystemExit(1)
     elif arguments.command == "verify-selected-candidate":
         settings = RuntimeSettings.from_environment()
         if (
