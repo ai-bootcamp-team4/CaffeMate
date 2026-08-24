@@ -525,18 +525,17 @@ def test_effective_iam_verification_runs_as_the_deployed_identities() -> None:
     assert "MCP_EFFECTIVE_IAM_OK" in smoke
 
 
-def test_backend_verifier_uses_release_manifest_mcp_artifact_pin() -> None:
+def test_backend_verifier_uses_the_requested_release_source_for_mcp_provenance() -> None:
     verifier = (ROOT / "scripts" / "verify-api-worker-runtime.sh").read_text(
         encoding="utf-8"
     )
 
     assert 'agents/release-manifest.json' in verifier
-    assert 'mcp_release_source_revision' in verifier
-    assert 'mcp_release_image' in verifier
-    assert '[ "$mcp_source_revision" = "$mcp_release_source_revision" ]' in verifier
-    assert '[ "$mcp_image" = "$mcp_release_image" ]' in verifier
-    assert 'mcp:${mcp_release_source_revision}' in verifier
-    assert '[ "$mcp_source_revision" = "$source_revision" ]' not in verifier
+    assert 'mcp_release_source_revision' not in verifier
+    assert 'mcp_release_image' not in verifier
+    assert '[ "$mcp_source_revision" = "$source_revision" ]' in verifier
+    assert '[ "$mcp_image" = "$mcp_tagged_digest" ]' in verifier
+    assert 'mcp:${source_revision}' in verifier
     assert '[ "$agent_release_preflight_build_id" = "$mcp_verified_build_id" ]' not in verifier
 
 
