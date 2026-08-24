@@ -3,6 +3,7 @@ import {
   flushTraceProvider,
   ragSignalContract,
   safeAgentSpanAttributes,
+  traceProjectIdFromEnv,
   traceCarrierFromTask,
 } from '../src/telemetry'
 import type { AgentTask } from '../src/types'
@@ -61,5 +62,12 @@ describe('AgentOps telemetry contract', () => {
       },
     })
     expect(calls).toEqual(['flushed'])
+  })
+
+  it('uses the explicit project id instead of the managed Runtime project number', () => {
+    expect(traceProjectIdFromEnv({
+      CAFFEMATE_GCP_PROJECT_ID: 'proj-aj20-211200020328',
+      GOOGLE_CLOUD_PROJECT: '424808310695',
+    })).toBe('proj-aj20-211200020328')
   })
 })

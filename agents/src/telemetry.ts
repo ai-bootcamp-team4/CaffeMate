@@ -30,6 +30,10 @@ export const ragSignalContract = Object.freeze({
   'caffemate.rag.citations': { instrument: 'counter', unit: '1', attributes: ['source_family', 'result_status', 'index_generation'] },
 })
 
+export function traceProjectIdFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return env.CAFFEMATE_GCP_PROJECT_ID || env.GOOGLE_CLOUD_PROJECT
+}
+
 export function traceCarrierFromTask(task: AgentTask): Record<string, string> {
   const value = task.trace_context
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
@@ -78,7 +82,7 @@ export function initializeAgentTelemetry(env: NodeJS.ProcessEnv = process.env): 
     resource,
     // User intent: finish each managed Agent span in Cloud Trace while the
     // request still owns CPU; deferred timers are unreliable on serverless.
-    spanProcessors: [new SimpleSpanProcessor(new TraceExporter({ projectId: env.GOOGLE_CLOUD_PROJECT }))],
+    spanProcessors: [new SimpleSpanProcessor(new TraceExporter({ projectId: traceProjectIdFromEnv(env) }))],
   })
   provider.register()
   agentTraceProvider = provider

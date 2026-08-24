@@ -57,7 +57,7 @@ case "$manifest_resource" in
 esac
 
 runtime_spec=$(npm run --silent agent:control -- runtime-spec --json)
-request_body=$(RUNTIME_SPEC="$runtime_spec" IMAGE_URI="$image" SOURCE_REVISION="$source_revision" BUILD_ID="$build_id" python3 - <<'PY'
+request_body=$(RUNTIME_SPEC="$runtime_spec" IMAGE_URI="$image" SOURCE_REVISION="$source_revision" BUILD_ID="$build_id" PROJECT_ID="$project_id" python3 - <<'PY'
 import json
 import os
 
@@ -79,6 +79,7 @@ print(json.dumps({
             "env": [
                 {"name": "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "value": "true"},
                 {"name": "CAFFEMATE_OTEL_ENABLED", "value": "true"},
+                {"name": "CAFFEMATE_GCP_PROJECT_ID", "value": os.environ["PROJECT_ID"]},
                 {"name": "CAFFEMATE_ENVIRONMENT", "value": "production"},
                 {"name": "CAFFEMATE_SOURCE_REVISION", "value": os.environ["SOURCE_REVISION"]},
                 {"name": "AGENT_MODEL_ID", "value": "gemini-3.7-flash"},
