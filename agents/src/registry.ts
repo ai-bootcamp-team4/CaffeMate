@@ -85,7 +85,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
   },
   DOCUMENT_EXTRACT: {
     agentName: 'DOCUMENT_ANALYST',
-    promptVersion: 'document-analyst.v1',
+    promptVersion: 'document-analyst.v2',
     inputSchemaId: 'caffemate.agent.document-extract-input.v1',
     outputSchemaId: 'caffemate.agent.document-extract-result.v1',
     deadlineSeconds: 60,
