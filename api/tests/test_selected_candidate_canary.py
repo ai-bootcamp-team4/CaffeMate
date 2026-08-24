@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from inspect import signature
 
 import pytest
 
@@ -102,32 +103,12 @@ def _progress() -> WorkflowProgress:
     head = _head(generation=3, state_version=3)
     stages = [
         WorkflowStageProgress(
-            stage_run_id=f"stage-{code}",
-            stage_code=code,
+            stage_run_id="stage-run-proposal",
+            stage_code="RUN_PROPOSAL",
             status=StageStatus.SUCCEEDED,
-            attempt=1
-            if code
-            in {
-                "CALCULATE_GATE_RANK",
-                "CANDIDATE_AUDIT",
-                "COMMIT_RESULT",
-            }
-            else 0,
+            attempt=1,
             updated_at=NOW,
             completed_at=NOW,
-        )
-        for code in (
-            "AREA_RESOLUTION",
-            "CLAIM_PLAN",
-            "EVIDENCE_PLAN",
-            "EVIDENCE_RETRIEVAL",
-            "EVIDENCE_ASSESS",
-            "EVIDENCE_FREEZE",
-            "INDEPENDENT_SEED",
-            "PROPOSE_INDEPENDENT",
-            "CALCULATE_GATE_RANK",
-            "CANDIDATE_AUDIT",
-            "COMMIT_RESULT",
         )
     ]
     return WorkflowProgress(
@@ -252,6 +233,43 @@ def _canary() -> SelectedCandidateCanary:
     )
 
 
+class _ProgressSource:
+    def __init__(self, progress: WorkflowProgress) -> None:
+        self.progress = progress
+        self.calls = 0
+
+    def get_progress(self, **_: object) -> WorkflowProgress:
+        self.calls += 1
+        return self.progress
+
+
+def test_selected_candidate_canary_does_not_poll_synchronous_workflow() -> None:
+    assert "timeout_seconds" not in signature(SelectedCandidateCanary.run).parameters
+    assert "poll_interval_seconds" not in signature(SelectedCandidateCanary.run).parameters
+
+    queued = _progress().model_copy(update={"status": WorkflowStatus.QUEUED})
+    workflows = _ProgressSource(queued)
+    canary = SelectedCandidateCanary(
+        projects=object(),  # type: ignore[arg-type]
+        workflows=workflows,  # type: ignore[arg-type]
+        results=object(),  # type: ignore[arg-type]
+        selections=object(),  # type: ignore[arg-type]
+        preparation_guides=object(),  # type: ignore[arg-type]
+        property_terms=object(),  # type: ignore[arg-type]
+        cleaner=object(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(SelectedCandidateCanaryError) as error:
+        canary._await_succeeded(
+            project_id="project-1",
+            user_id="user-1",
+            workflow_run_id="workflow-recompute",
+        )
+
+    assert workflows.calls == 1
+    assert error.value.code == "CANARY_WORKFLOW_NOT_SUCCEEDED"
+
+
 def test_selected_candidate_canary_accepts_selective_recompute_with_cost_delta() -> None:
     before = _result(
         bundle_id="result-before",
@@ -292,18 +310,14 @@ def test_selected_candidate_canary_accepts_selective_recompute_with_cost_delta()
         application=_application(),
         progress=_progress(),
         current_result=after,
-        source_stage_count=11,
+        source_stage_count=1,
         preparation_guide=_preparation_guide(),
         elapsed_ms=1200,
     )
 
     assert report.status == "verified"
-    assert report.recomputed_stage_codes == (
-        "CALCULATE_GATE_RANK",
-        "CANDIDATE_AUDIT",
-        "COMMIT_RESULT",
-    )
-    assert report.reused_stage_count == 8
+    assert report.recomputed_stage_codes == ("RUN_PROPOSAL",)
+    assert report.reused_stage_count == 0
     assert report.changed_cost_fields == (
         "break_even_monthly_sales_delta_krw",
         "initial_cash_base_delta_krw",
@@ -355,7 +369,7 @@ def test_selected_candidate_canary_rejects_result_without_cost_change() -> None:
             application=_application(),
             progress=_progress(),
             current_result=after,
-            source_stage_count=11,
+            source_stage_count=1,
             preparation_guide=_preparation_guide(),
             elapsed_ms=1200,
         )

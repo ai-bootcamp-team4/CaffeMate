@@ -20,7 +20,6 @@ from app.domain.errors import (
 from app.domain.events import FeedbackChangeConfirmed
 from app.domain.models import VentureState
 from app.domain.reducer import reduce_venture_state
-from app.feedback.intent import affected_feedback_stages
 from app.feedback.models import (
     FeedbackPreviewRecord,
     FeedbackPreviewStatus,
@@ -372,21 +371,12 @@ class PostgresFeedbackRepository:
                     "occurred_at": occurred_at,
                 },
             )
-            affected = affected_feedback_stages(
-                {
-                    operation["field_path"]
-                    for operation in operations
-                    if isinstance(operation, dict)
-                    and isinstance(operation.get("field_path"), str)
-                }
-            )
             workflow = start_selective_first_proposal(
                 connection,
                 project_id=project_id,
                 user_id=user_id,
                 state=next_state,
                 source_workflow_run_id=preview.source_workflow_run_id,
-                affected_stage_codes=affected,
                 previous_head=preview.head,
                 now=occurred_at,
                 new_id=self._new_id,

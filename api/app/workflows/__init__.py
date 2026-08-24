@@ -1,1 +1,1 @@
-"""Durable workflow command, stage, and outbox domain."""
+"""Simple first-proposal workflow boundary."""

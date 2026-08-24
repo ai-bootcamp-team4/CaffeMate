@@ -1,6 +1,7 @@
+"""운영 검증은 동기식 단일 제안 실행과 저장 결과를 즉시 대조한다."""
+
 from collections.abc import Callable
 from dataclasses import dataclass
-from time import monotonic, sleep
 from typing import Protocol
 from uuid import uuid4
 
@@ -20,7 +21,7 @@ from app.domain.models import (
     Project,
 )
 from app.results.models import ResultFreshness, ResultView
-from app.workflows.first_proposal import compile_first_proposal_plan
+from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import WorkflowCode, WorkflowProgress, WorkflowRun, WorkflowStatus
 
 
@@ -55,15 +56,6 @@ class WorkflowOperations(Protocol):
         workflow_run_id: str,
         user_id: str,
     ) -> WorkflowProgress: ...
-
-    def cancel(
-        self,
-        *,
-        project_id: str,
-        workflow_run_id: str,
-        user_id: str,
-        idempotency_key: str,
-    ) -> WorkflowRun: ...
 
 
 class ResultOperations(Protocol):
@@ -105,9 +97,7 @@ class FirstProposalCanaryReport:
             "elapsed_ms": self.elapsed_ms,
             "candidate_count": self.candidate_count,
             "candidate_case_types": list(self.candidate_case_types),
-            "franchise_candidate_brand_ids": list(
-                self.franchise_candidate_brand_ids
-            ),
+            "franchise_candidate_brand_ids": list(self.franchise_candidate_brand_ids),
             "market_signals": list(self.market_signals),
             "result_freshness": self.result_freshness,
         }
@@ -195,15 +185,6 @@ class PostgresFirstProposalCanaryCleaner:
 
 
 class FirstProposalCanary:
-    _terminal_statuses = {
-        WorkflowStatus.WAITING_FOR_HUMAN,
-        WorkflowStatus.SUCCEEDED,
-        WorkflowStatus.PARTIAL,
-        WorkflowStatus.FAILED,
-        WorkflowStatus.CANCELLED,
-        WorkflowStatus.STALE,
-    }
-
     def __init__(
         self,
         *,
@@ -211,27 +192,19 @@ class FirstProposalCanary:
         workflows: WorkflowOperations,
         results: ResultOperations,
         cleaner: CanaryCleaner,
-        now: Callable[[], float] = monotonic,
-        wait: Callable[[float], None] = sleep,
         new_id: Callable[[], str] | None = None,
     ) -> None:
         self._projects = projects
         self._workflows = workflows
         self._results = results
         self._cleaner = cleaner
-        self._now = now
-        self._wait = wait
         self._new_id = new_id or (lambda: uuid4().hex)
 
     def run(
         self,
         *,
-        timeout_seconds: float,
-        poll_interval_seconds: float,
         cafe_type_preference: CafeTypePreference = CafeTypePreference.OPEN_TO_BOTH,
     ) -> FirstProposalCanaryReport:
-        if timeout_seconds <= 0 or poll_interval_seconds <= 0:
-            raise ValueError("Canary timeout and poll interval must be positive")
         canary_id = self._new_id()
         user_id = f"first-proposal-canary-{canary_id}"
         project: Project | None = None
@@ -275,12 +248,10 @@ class FirstProposalCanary:
                 workflow_code=WorkflowCode.FIRST_PROPOSAL,
                 idempotency_key=f"{canary_id}:workflow",
             )
-            progress = self._await_terminal(
+            progress = self._workflows.get_progress(
                 project_id=project.project_id,
                 user_id=user_id,
                 workflow_run_id=workflow.workflow_run_id,
-                timeout_seconds=timeout_seconds,
-                poll_interval_seconds=poll_interval_seconds,
             )
             return self._validate_result(
                 project_id=project.project_id,
@@ -289,47 +260,9 @@ class FirstProposalCanary:
                 progress=progress,
                 cafe_type_preference=cafe_type_preference,
             )
-        except Exception:
-            if project is not None and workflow is not None:
-                self._cancel_if_active(
-                    project_id=project.project_id,
-                    user_id=user_id,
-                    workflow_run_id=workflow.workflow_run_id,
-                    idempotency_key=f"{canary_id}:cancel",
-                )
-            raise
         finally:
             if project is not None:
                 self._cleaner.cleanup(project_id=project.project_id, user_id=user_id)
-
-    def _await_terminal(
-        self,
-        *,
-        project_id: str,
-        user_id: str,
-        workflow_run_id: str,
-        timeout_seconds: float,
-        poll_interval_seconds: float,
-    ) -> WorkflowProgress:
-        deadline = self._now() + timeout_seconds
-        while True:
-            progress = self._workflows.get_progress(
-                project_id=project_id,
-                workflow_run_id=workflow_run_id,
-                user_id=user_id,
-            )
-            if progress.status in self._terminal_statuses:
-                return progress
-            if self._now() >= deadline:
-                raise FirstProposalCanaryError(
-                    "CANARY_TIMED_OUT",
-                    {
-                        "workflow_status": progress.status.value,
-                        "completed_stage_count": progress.completed_stage_count,
-                        "current_stage_codes": progress.current_stage_codes,
-                    },
-                )
-            self._wait(min(poll_interval_seconds, max(0.0, deadline - self._now())))
 
     def _validate_result(
         self,
@@ -353,9 +286,7 @@ class FirstProposalCanary:
                     ],
                 },
             )
-        expected_stages = {
-            stage.code.value for stage in compile_first_proposal_plan(cafe_type_preference)
-        }
+        expected_stages = {FirstProposalStage.RUN_PROPOSAL.value}
         observed_stages = {stage.stage_code for stage in progress.stages}
         unsuccessful = [
             stage.stage_code for stage in progress.stages if stage.status.value != "SUCCEEDED"
@@ -375,9 +306,7 @@ class FirstProposalCanary:
                     "unsuccessful_stage_codes": unsuccessful,
                 },
             )
-        retried = sorted(
-            stage.stage_code for stage in progress.stages if stage.attempt != 1
-        )
+        retried = sorted(stage.stage_code for stage in progress.stages if stage.attempt != 1)
         if retried:
             raise FirstProposalCanaryError(
                 "CANARY_STAGE_RETRIED",
@@ -430,8 +359,7 @@ class FirstProposalCanary:
                 str(franchise["brand_id"])
                 for candidate in result.candidates
                 if candidate.get("case_type") == "FRANCHISE"
-                and candidate.get("review_status")
-                in {"REVIEW_RECOMMENDED", "CONDITIONAL_REVIEW"}
+                and candidate.get("review_status") in {"REVIEW_RECOMMENDED", "CONDITIONAL_REVIEW"}
                 and isinstance(candidate.get("rank"), int)
                 and isinstance((franchise := candidate.get("franchise")), dict)
                 and franchise.get("eligibility") == "VERIFIED"
@@ -446,6 +374,19 @@ class FirstProposalCanary:
                     "requested_cafe_type_preference": cafe_type_preference.value,
                     "candidate_count": len(result.candidates),
                 },
+            )
+        ungrounded_recommendations = [
+            str(candidate.get("candidate_id"))
+            for candidate in result.candidates
+            if candidate.get("review_status") == "REVIEW_RECOMMENDED"
+            and not candidate.get("evidence_refs")
+            and not candidate.get("market_signals")
+            and not candidate.get("official_documents")
+        ]
+        if ungrounded_recommendations:
+            raise FirstProposalCanaryError(
+                "CANARY_UNGROUNDED_RECOMMENDATION",
+                {"candidate_ids": ungrounded_recommendations},
             )
         market_signals = sorted(
             (
@@ -475,29 +416,6 @@ class FirstProposalCanary:
             ),
             key=lambda signal: str(signal["signal_type"]),
         )
-        required_signal_types = {
-            "CAFE_COUNT",
-            "OPEN_COUNT",
-            "CLOSE_COUNT",
-            "CLOSURE_RATE",
-            "ESTIMATED_SALES",
-            "FOOT_TRAFFIC",
-            "RESIDENT_POPULATION",
-            "WORKER_POPULATION",
-        }
-        observed_signal_types = {
-            str(signal["signal_type"]) for signal in market_signals
-        }
-        if not required_signal_types <= observed_signal_types:
-            raise FirstProposalCanaryError(
-                "CANARY_GROUNDED_MARKET_SIGNALS_MISSING",
-                {
-                    "missing_signal_types": sorted(
-                        required_signal_types - observed_signal_types
-                    ),
-                    "observed_signal_types": sorted(observed_signal_types),
-                },
-            )
         return FirstProposalCanaryReport(
             status="verified",
             requested_cafe_type_preference=cafe_type_preference.value,
@@ -514,28 +432,3 @@ class FirstProposalCanary:
             market_signals=tuple(market_signals),
             result_freshness=result.freshness.value,
         )
-
-    def _cancel_if_active(
-        self,
-        *,
-        project_id: str,
-        user_id: str,
-        workflow_run_id: str,
-        idempotency_key: str,
-    ) -> None:
-        try:
-            progress = self._workflows.get_progress(
-                project_id=project_id,
-                workflow_run_id=workflow_run_id,
-                user_id=user_id,
-            )
-            if progress.status not in self._terminal_statuses:
-                self._workflows.cancel(
-                    project_id=project_id,
-                    workflow_run_id=workflow_run_id,
-                    user_id=user_id,
-                    idempotency_key=idempotency_key,
-                )
-        except Exception:
-            # Cleanup remains project-scoped and is the final containment boundary.
-            return

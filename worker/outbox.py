@@ -1,9 +1,10 @@
+"""문서 처리와 Agent 세션 정리에 필요한 Outbox 보관·복구 연산만 제공한다."""
+
 import hashlib
 import secrets
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
 
 from sqlalchemy import Engine, text
 
@@ -19,16 +20,6 @@ class ClaimedOutboxMessage:
     payload_digest: str
     claim_token: str
     attempts: int
-
-
-class MessagePublisher(Protocol):
-    def publish(
-        self,
-        *,
-        topic: str,
-        payload: Mapping[str, object],
-        attributes: Mapping[str, str],
-    ) -> str: ...
 
 
 class PostgresOutboxRepository:
@@ -185,42 +176,3 @@ class PostgresOutboxRepository:
     @staticmethod
     def _digest(token: str) -> str:
         return hashlib.sha256(token.encode()).hexdigest()
-
-
-class OutboxPublisher:
-    def __init__(
-        self,
-        repository: PostgresOutboxRepository,
-        publisher: MessagePublisher,
-        *,
-        publisher_id: str,
-        logical_topic: str | None = None,
-    ) -> None:
-        self._repository = repository
-        self._publisher = publisher
-        self._publisher_id = publisher_id
-        self._logical_topic = logical_topic
-
-    def publish_one(self) -> bool:
-        message = self._repository.claim_next(
-            publisher_id=self._publisher_id,
-            logical_topic=self._logical_topic,
-        )
-        if message is None:
-            return False
-        message_id = self._publisher.publish(
-            topic=message.topic,
-            payload=message.payload,
-            attributes={
-                "outbox_id": str(message.outbox_id),
-                "aggregate_id": message.aggregate_id,
-                "payload_digest": message.payload_digest,
-            },
-        )
-        if not self._repository.mark_published(
-            outbox_id=message.outbox_id,
-            claim_token=message.claim_token,
-            pubsub_message_id=message_id,
-        ):
-            raise RuntimeError("Outbox claim was lost after publish; message may be redelivered")
-        return True

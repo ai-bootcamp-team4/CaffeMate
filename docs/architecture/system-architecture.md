@@ -2,319 +2,224 @@
 
 > 상태: draft
 >
-> 갱신일: 2026-08-23
+> 갱신일: 2026-08-24
 >
-> 구현 상태: Web·API·Worker·MCP·Agent Runtime 배포 및 운영 검증 진행 중
+> 구현 기준: 단일 `RUN_PROPOSAL` 제안 경로
 
-## 결정
+## 1. 현재 결정
 
-초기 구현은 작은 마이크로서비스 다수가 아니라 Cloud Run 세 단위와 Agent Runtime 한 단위의 modular architecture로 시작한다.
+CaffeMate는 GCP 배포 단위와 Multi-Agent 경계를 유지하되, 첫 제안 요청을 여러 비동기 단계로
+쪼개지 않는다. 사용자가 분석을 시작하면 Control API가 한 트랜잭션에서 후보 생성, 재무 계산,
+자금 Gate, 순위, 결과 저장을 끝낸다.
 
-1. `caffemate-web`: React·Tailwind 사용자 화면
-2. `caffemate-api`: 인증, State, Workflow, 계산, Agent 호출과 유일한 State write 권한
-3. `caffemate-worker`: durable Workflow lease·heartbeat·redelivery, 공공데이터 수집, 문서 parsing·embedding
-4. `caffemate-agents`: ADK Multi-Agent application을 실행하는 managed Agent Runtime
+배포 단위는 다음과 같다.
 
-`caffemate-mcp`는 외부 자료 접근 권한을 분리하는 private read-only Cloud Run service다. 초기에는 API와 typed tool package를 공유할 수 있지만 Agent가 데이터베이스나 공급자 API를 직접 호출하지 못하게 한다.
+1. `caffemate-web`: React 사용자 화면
+2. `caffemate-api`: 인증, 권위 State, 제안 실행, 계산, 결과와 유일한 State 쓰기 권한
+3. `caffemate-worker`: Agent Runtime 세션 정리와 운영 실패 레코드 관리
+4. `caffemate-mcp`: 공식 자료와 프로젝트 자료를 읽는 비공개 도구 서비스
+5. `caffemate-agents`: 비정형 입력을 구조화하는 ADK Multi-Agent 애플리케이션
 
-### CONFIRMED — GCP 리전과 Agent 배치
+첫 제안에는 Pub/Sub stage queue, stage lease, heartbeat, redelivery와 단계별 validator를 사용하지
+않는다. Worker도 첫 제안 실행에 참여하지 않는다.
 
-- 제품 지원 범위는 대한민국 전국이며, `asia-northeast3`는 GCP 배포 리전일 뿐 서비스 대상 지역이 아니다.
-- Web, API, Worker, MCP와 사용자별 State·문서의 기본 배치 리전은 `asia-northeast3`로 통일한다.
-- ADK Agent들은 각각 서버로 배포하지 않고 하나의 Multi-Agent application으로 묶어 `asia-northeast3` Agent Runtime에 배포한다.
-- Control API가 IAM 인증으로 Agent Runtime을 직접 호출한다. 서울 리전에서 지원되지 않는 managed Agent Gateway를 필수 경로에 두지 않는다.
-- 첫 구현에서는 Control API만 private MCP를 호출한다. Agent Runtime은 MCP invoke 권한을 갖지 않고 typed proposal만 반환하며 State write는 계속 API만 수행한다.
-- 생성 모델은 `global` endpoint의 `gemini-3.7-flash`로 고정하고, embedding·reranker는 `asia-northeast3`로 유지한다. `global`은 fallback이 아니라 승인된 생성 위치다.
-- `gemini-3.7-flash`는 2026-08-21 실제 `global` `generateContent` 호출에서 HTTP 200과 `STOP` 응답을 확인한 뒤 사용자 승인을 받아 pin했다.
-- 실제 사용할 서울 Runtime·global 생성·서울 embedding·서울 reranker는 배포 전에 각각 호출 read-back을 통과해야 한다. 실패하면 `BLOCKED_BY_REGION`으로 중단하며 다른 위치로 조용히 전환하지 않는다.
-- Vertex AI RAG Engine을 공식·프로젝트 문서 Advanced RAG의 주 검색 계층으로 사용한다. 서울 Preview 위험은 수용하되 corpus 생성·import·retrieval·rerank read-back을 배포 Gate로 두고 다른 검색기로 조용히 우회하지 않는다.
-
-## 구조도
-
-[편집 가능한 FigJam 구조도](https://www.figma.com/board/0n3ylTTNnzH29kP9Ywi6nR?architecture=true)
+## 2. 구조도
 
 ```mermaid
 flowchart LR
-    web[React Web] --> webRun[Cloud Run Web]
-    webRun --> api[Cloud Run API and Workflow]
-    api --> agents[ADK App on Agent Runtime]
-    api --> mcp[Private MCP Tool Gateway]
-    mcp --> rag[Vertex AI RAG Engine]
-    api --> postgres[(Cloud SQL PostgreSQL)]
-    api --> warehouse[(BigQuery Area Warehouse)]
+    web[React Web] -->|Firebase ID token| api[Cloud Run Control API]
+    api --> state[(Cloud SQL PostgreSQL)]
+    api --> area[(BigQuery Area Warehouse)]
     api --> storage[(Cloud Storage Documents)]
-    api --> pubsub[Pub Sub]
-    pubsub --> worker[Cloud Run Worker and Workflow Lease Owner]
-    worker -->|private stage execute| api
-    worker --> postgres
-    worker --> storage
-    worker --> rag
-    agents --> vertex[Vertex AI Models]
-    worker --> vertex
-    mcp --> official[Official Data Sources]
+    api -->|typed task| agents[ADK App on Agent Runtime]
+    api -->|bounded read| mcp[Private MCP]
+    mcp --> rag[Vertex AI RAG Engine]
+    mcp --> area
+    mcp --> official[Official Sources]
+    worker[Cloud Run Worker] --> state
+    worker -->|expired session delete| agents
+    scheduler[Cloud Scheduler] --> worker
 ```
 
-## 배포 단위
+## 3. 권위 경계
 
-| Unit | 책임 | 확장 기준 | 외부 공개 |
-| --- | --- | --- | --- |
-| Web | 정적 앱과 client routing | 정적 요청량 | 공개 |
-| API | 인증, 프로젝트, Workflow, reducer, 계산, 결과 | 동기 요청량 | 인증 API만 공개 |
-| Worker | 모든 durable Workflow의 lease·heartbeat·redelivery, 문서·embedding·수집 작업 | queue backlog | 비공개 |
-| Agent Runtime | ADK 역할 실행, 근거 평가와 proposal·audit | Agent run과 model latency | 비공개 |
-| MCP | 공식·프로젝트 자료 read tools | tool latency·권한 경계 | 비공개 |
+- React Web은 공개 Control API만 호출한다.
+- Agent와 MCP는 권위 State를 직접 수정하지 않는다.
+- Agent는 구조화된 제안만 반환하고, MCP는 조회 결과만 반환한다.
+- Control API가 Schema, 프로젝트 범위, 근거, 계산 규칙을 검증한 뒤 State와 결과를 저장한다.
+- 재무 계산, 자금 Gate, 순위와 결과 선택은 결정론적 코드가 담당한다.
+- Agent가 반환한 숫자를 검증 없이 비용이나 순위에 사용하지 않는다.
+- 사용자별 프로젝트와 문서는 `user_id`와 `project_id`로 격리한다.
 
-API 내부 모듈은 독립 테스트가 가능해야 하지만 첫 구현에서 각각 별도 서비스로 배포하지 않는다.
+## 4. 첫 제안 실행
 
-Agent Runtime은 의미 판단을 담당하지만 Workflow 생존권이나 권위 State를 소유하지 않는다.
-결정론적으로 대체할 수 없는 `EVIDENCE_ASSESS` 실패를 가짜 평가 성공으로 바꾸지 않는다.
-Control API는 이미 조회한 자료와 Agent trace를 보존하되 평가 목록을 비우고 모든 Claim을
-missing으로 남긴다. 따라서 Evidence Freeze는 어떤 조회 record도 Evidence로 승격하지 않으면서
-후속 후보 생성과 결정론적 계산을 계속할 수 있다. `CANDIDATE_AUDIT` 실패도 후보·계산·순위를
-바꾸지 않고 감사 상태만 `UNAVAILABLE`로 남긴다. 모델·endpoint·리전을 바꾸는 자동 fallback은
-계속 금지한다.
-
-Agent 호출은 역할별로 최적화한다. Control API는 전체 MCP 저장본에서 의미 판정에 필요한 rerank
-상위 Evidence만 투영하고, Runtime은 task별 사고 수준·출력 토큰·deadline을 release manifest에서
-고정한다. `EVIDENCE_ASSESS`는 bounded 분류 작업이므로 `low` 사고 수준과 최대 16,384 출력 토큰,
-60초 deadline을 사용한다. Proposal과 Candidate Audit도 제한된 seed·Evidence·계산 snapshot을
-구조화하는 역할이며, 비용 계산·Gate·순위·계약 검증은 결정론적 코드가 담당한다. 따라서 두 역할은
-`low` 사고 수준과 최대 4,096 출력 토큰을 사용한다. 문서 추출은 긴 문서 block의 의미 연결이
-필요하므로 `medium`을 유지한다. 모델 입력에서는 역할 판단에 필요 없는 task·invocation·project,
-full head, digest, deadline과 output Schema id를 제거하고, 모델 출력도 semantic field 여섯 개만
-허용한다. Runtime이 이 불변 envelope를 검증된 `AgentTask`에서 결합하므로 외부
-`AgentTaskResult` 계약과 full-head fence는 유지되면서 모델의 복사 작업과 spoofing surface가
-사라진다. Runtime은 task type, 요청 byte, 지연, 종료 사유와 provider token usage만
-구조화 log로 남기며 사용자 입력·Evidence 본문·프로젝트·세션 식별자는 기록하지 않는다. 모델
-출력의 Schema·echo·의미 검증은 Runtime 내부에서 이뤄지므로, 거절된 첫 출력은 같은 관리형 실행
-안에서 validator error를 사용해 한 번만 수리한다. 두 번째 실패를 반복 생성이나 성공값으로
-바꾸지 않는다.
-
-2026-08-23 현재 배포를 연속 두 번 검증한 운영 기준선에서
-`EVIDENCE_ASSESS`, `PROPOSE_INDEPENDENT`, `CANDIDATE_AUDIT`의 모델 생성 시간은 각각
-5.383초·5.218초·6.245초와 5.341초·4.841초·8.736초였다. 여섯 생성 모두 첫 응답으로
-`STOP`, `repair_attempt=0`, HTTP 200을 기록했고 Schema·echo·의미 검증 결과는 `VALID`였다.
-두 FIRST_PROPOSAL 실행도 13단계를 모두 통과해 `SUCCEEDED`, `CURRENT` 결과 카드를 만들었다.
-두 번째 Cloud Run canary 실행의 66.33초에는 Job 시작과 3초 polling 간격이 포함된다.
-
-이는 Agent를 제거하거나 응답을 기다리지 않는 fallback이 아니다. 결정론적 Evidence Plan과 MCP
-물리 조회가 먼저 필요한 근거를 좁히고, Agent는 의미 판정·typed 제안·독립 감사에만 제한된다.
-Control API는 각 역할마다 하나의 ephemeral stream을 호출한다. Runtime adapter가 서로 분리된
-관리형 세션을 생성하고 Agent final event까지 실행한 뒤 `finally`에서 삭제하며, Control API는
-stream 종료와 계약 검증을 모두 기다린다. 이 방식은 역할 격리를 유지하면서 호출당 외부 Runtime
-왕복을 세 번에서 한 번으로 줄인다. repair가 발생하거나 운영 계약 통과율이 낮아지면 해당 역할의 prompt·입력 투영을 먼저
-교정하고, 필요한 역할만 `medium`으로 되돌리는 것이 현재 최적화 결정의 폐기 조건이다.
-
-Proposal 단계는 후보 수만큼 독립 stream을 동시에 호출하는 제한된 fan-out이다. 각 task에는 한
-개의 seed 또는 brand와 `requested_candidate_count=1`만 전달한다. 일부 호출만 실패하면 성공한
-후보는 보존하고 자료 부족 상태로 다음 결정론적 단계에 넘긴다. 모든 호출이 실패하면 등록된
-seed·brand의 검증된 식별자와 기본 속성만 사용한 후보를 남기고 실제 조건 미확인을 표시한다.
-후보 간 비교·계산·순위는 Agent가 아니라 Control API가 수행한다.
-
-배포 검증은 결과 카드 생성만 성공으로 보지 않는다. 같은 FIRST_PROPOSAL canary 구간에서 세
-관리형 Agent가 모두 `HTTP 200`, `STOP`, `repair_attempt=0`, `VALID`로 끝났는지 확인하고,
-각 생성은 60초, 13단계 전체는 120초 예산 안에 끝나야 한다. 모든 Stage의 attempt도 1이어야
-하므로 숨은 transport 재시도나 Stage 재실행이 결과 성공 뒤에 가려지지 않는다. 이 기준을 넘으면
-Agent를 고정 `ABSTAIN`으로 대체하지 않고 입력 투영, 출력 Schema, prompt, 런타임 전송 경계를
-먼저 고친다.
-
-배포 검증은 `OPEN_TO_BOTH`와 `FRANCHISE_ONLY`를 별도 Cloud Run Job으로 실행한다.
-`OPEN_TO_BOTH`는 개인카페와 프랜차이즈 후보가 모두 남아야 하며, `FRANCHISE_ONLY`는 개인카페
-후보가 섞이지 않고 실제 `brand_id`, `VERIFIED` 개인 가맹 적격성, 유효한 순위를 가진 검토 가능
-프랜차이즈 후보가 하나 이상이어야 통과한다. Stage 집합은 전체 enum이 아니라 동일한
-`cafe_type_preference`로 컴파일한 실제 Workflow plan과 정확히 일치해야 한다. 따라서
-`FRANCHISE_ONLY`가 개인카페 seed·proposal 단계를 실행하지 않는 것은 누락이 아니라 정상 경로다.
-선택 지역의 수용된 상권 수치는 frozen Evidence Snapshot의 공통 컨텍스트이므로 Proposal Agent가
-후보별 `evidence_refs`에 같은 ID를 반복했는지와 무관하게 모든 후보 결과에 투영한다. 충돌하거나
-Snapshot에 수용되지 않은 자료는 계속 제외한다.
-
-2026-08-23 운영 전환 후 같은 조건의 13단계 canary는 47.917초에 `SUCCEEDED`와 `CURRENT`
-결과 카드 1건을 만들었다. 변경 전 54.611초보다 6.694초, 약 12% 짧다. Evidence Assess,
-Independent Proposal, Candidate Audit의 생성 시간은 각각 6.414초, 7.813초, 7.281초였고 세
-호출 모두 첫 응답에서 `HTTP 200`, `STOP`, `repair_attempt=0`, `VALID`였다. Proposal은 후보
-1건, 독립 Critic은 감사 1건을 반환했다. 따라서 개선은 Agent 생략이나 timeout 성공 처리에서
-나온 것이 아니라 외부 Runtime 왕복을 호출당 세 번에서 한 번으로 줄인 결과다.
-
-같은 구간의 Worker 요청 시간은 세 Agent 단계가 약 10.1초, 11.1초, 11.2초였고 모델 생성 외
-관리형 session 생성·삭제, 전송과 계약 검증이 호출당 약 3.3~4.0초를 차지했다. 전체 Stage 사이
-메시지 공백은 약 3~4초였으며 Evidence Retrieval 단계는 약 7.6초였다. 그러므로 다음 성능 작업의
-우선순위는 무작정 Agent 수를 줄이는 것이 아니라 Retrieval 계층과 관리형 session 비용의 별도
-측정이다. Proposal과 Critic의 독립 세션을 합치거나 managed Runtime을 우회하면 이 설계 결정을
-폐기할 정도의 품질·평가 이득이 먼저 증명되어야 한다.
-
-이어 semantic-only 모델 경계가 배포된 같은 날 운영 canary는 13단계를 39.620초에 끝냈다.
-직전 47.917초보다 8.297초, 약 17% 짧고 Stage attempt는 모두 1이었다. Evidence Assess,
-Independent Proposal, Candidate Audit의 요청 byte는 각각 12,902→10,049,
-10,107→7,199, 16,862→14,808로 줄었다. prompt token은 5,009→3,399,
-3,619→1,976, 5,628→4,179이고 모델 생성 시간은 6.414→2.957초,
-7.813→3.011초, 7.281→4.242초다. 세 출력은 모두 첫 응답에서 `HTTP 200`, `STOP`,
-`repair_attempt=0`, `VALID`였고 Proposal 후보 1건과 독립 Critic 감사 1건을 반환해
-`CURRENT` 결과 카드로 commit됐다. 이는 Agent를 생략한 속도 개선이 아니라 모델에게 맡기던
-불변 envelope 복사를 Runtime의 결정론적 책임으로 되돌린 결과다.
-
-Agent Runtime 검증용 13단계 canary는 실제 UI 계약처럼 이미 선택된 법정동 `AreaState`에서
-시작한다. 주소 공급자 장애 때문에 Agent가 한 번도 실행되지 않은 실패를 Agent 지연으로 집계하지
-않는다. 주소 검색 자체는 별도 MCP 검증에서 버전이 붙은 전국 법정동 자료의 무네트워크 조회와
-상세 주소 보조 API의 `PARTIAL` 실패 동작을 검사한다.
+외부 API는 기존 화면 계약을 유지한다.
 
 ```text
-api/
-├── auth
-├── projects
-├── state
-├── workflows
-├── evidence
-├── candidates
-├── finance
-├── decisions
-├── agents
-└── guardrails
+POST /v1/projects/{project_id}/workflows/FIRST_PROPOSAL
+GET  /v1/projects/{project_id}/workflows/{workflow_run_id}
+GET  /v1/projects/{project_id}/result
 ```
 
-## 저장소 역할
+내부 실행은 다음 한 경로다.
+
+```text
+인증과 프로젝트 소유권 확인
+→ 현재 Venture State 잠금
+→ 등록된 개인카페 모델과 프랜차이즈 기준 로드
+→ 수용된 Evidence 투영
+→ 후보별 결정론적 재무 계산
+→ 자금 Gate와 다음 검토 우선순위 계산
+→ 결과와 RUN_PROPOSAL 성공 기록을 한 트랜잭션에 저장
+→ 완료된 workflow와 결과 반환
+```
+
+`FirstProposalService.run()`이 첫 제안의 단일 진입점이다. 한 번의 실행은 정확히 하나의
+`RUN_PROPOSAL` 기록을 만든다. 삭제된 13단계 Workflow 이름이나 순서를 새로운 코드와 문서에
+다시 도입하지 않는다.
+
+### 4.1 후보 생성
+
+- 개인카페는 버전이 고정된 소형 포장형, 중소형 균형형, 좌석형 기준을 사용한다.
+- 프랜차이즈는 개인 가맹 적격성과 공식 가맹 안내가 확인된 등록 브랜드만 사용한다.
+- 첫 제안의 기준값은 확정 점포 사실이 아니라 출처가 구분된 공식 값 또는 등록 가정이다.
+- Control API는 사용자의 선호에 맞는 후보를 최대 세 개까지 계산하고 비교한다.
+- 근거가 부족해도 후보를 비워 두지 않으며, 부족한 근거와 확인할 항목을 결과에 표시한다.
+- 후보 ID는 프로젝트·유형·등록 모델 또는 브랜드로 정하며 State version이 바뀌어도 같은 창업안은
+  같은 ID를 유지한다. 결과 snapshot의 시점은 별도 `state_version`으로 구분한다.
+
+### 4.2 실제 점포 조건 반영
+
+```text
+후보 선택
+→ 실제 점포의 보증금·월세·관리비·권리금 입력
+→ 선택 후보의 같은 비용 항목만 교체
+→ 초기 필요자금·월 고정비·손익분기 매출 재계산
+→ 이전 결과와 변경 결과 저장
+```
+
+개인카페와 프랜차이즈 모두 같은 재계산 규칙을 사용한다. 실제 점포 입력은
+`property-input:{id}` 근거로 남으며 다른 후보의 비용에는 영향을 주지 않는다. 이후 자연어 피드백,
+문서 반영 또는 근거 갱신으로 다시 계산할 때도 Control API가 선택 후보의 최신 점포 입력을 읽어
+같은 비용을 유지한다.
+
+## 5. Multi-Agent 사용 범위
+
+Multi-Agent 구조는 비정형 의미 판단이 필요한 기능에 유지한다.
+
+| 역할 | 입력 | 출력 | 권위가 없는 항목 |
+| --- | --- | --- | --- |
+| Feedback Interpreter | 현재 결과와 자연어 피드백 | typed 변경 제안 | State 확정 쓰기 |
+| Document Extractor | 문서 block과 문서 종류 | 수정 가능한 추출 폼 | 비용 확정과 법률 판단 |
+| Evidence Researcher | 제한된 근거 후보와 Claim | 관계·충돌 평가 | 도구 선택과 Evidence 확정 |
+| Proposal Agent | 등록 후보와 근거 snapshot | 후보 구조화 제안 | 계산, Gate와 순위 |
+| Independent Critic | 후보·계산·근거 snapshot | 위험과 누락 점검 | 후보 값 변경 |
+
+모든 역할은 하나의 ADK 애플리케이션 안에서 독립적인 typed task로 실행한다. Agent 간 자유 대화,
+Agent 간 네트워크 호출과 권위 데이터베이스 쓰기는 허용하지 않는다. 현재 단순 첫 제안은 Agent
+응답을 기다리지 않고도 결과를 만들며, 위 역할은 자연어 피드백·문서 입력과 별도 품질 강화 경계에
+사용한다.
+
+## 6. MCP와 Advanced RAG
+
+MCP는 Control API만 호출할 수 있는 read-only data plane이다.
+
+- `resolve_area`: 구조화 지역 후보 조회
+- `get_area_profile`: 승인된 지역 snapshot 조회
+- `search_cafe_observations`: 카페 업소와 상권 관측 조회
+- `retrieve_official_documents`: Vertex AI RAG Engine의 공식 문서 검색
+- `list_franchise_universe`: 등록 프랜차이즈와 가맹 적격성 근거 조회
+
+RAG 검색 결과는 곧바로 확정 Evidence가 아니다. Control API가 원문 주소, 문서 revision, anchor,
+지역 범위, 기준일과 프로젝트 범위를 확인한 뒤 수용된 Evidence만 결과에 투영한다. 첫 제안은 실행
+중에 검색을 반복하지 않고, 이미 수용된 Evidence와 승인 snapshot을 읽는다. 새 자료를 수집하거나
+문서를 적용하면 해당 Evidence를 저장한 뒤 `RUN_PROPOSAL`을 다시 실행한다.
+
+Vertex AI RAG Engine은 공식 문서와 프로젝트 전용 문서의 검색 계층이다. corpus와 file id는
+Cloud SQL에 보관된 허용 프로젝트 mapping을 통과한 경우에만 조회한다. 근거가 없으면 내용을
+생성하지 않고 `공식 문서 미확보` 또는 확인할 항목으로 남긴다.
+
+## 7. 저장소 역할
 
 ### Cloud SQL PostgreSQL
 
 - 사용자와 창업 검토 프로젝트
 - versioned Founder·Area·Venture State
-- Evidence, Claim, Conflict
-- Candidate, Calculation, Risk, Decision snapshot
-- Workflow run과 feedback proposal
-- 문서 metadata·chunk·embedding
-
-PostGIS는 행정동·생활권·점포 관측의 공간 결합에 사용한다. Cloud SQL은 RAG corpus·file id와 document revision·원문 anchor·Evidence의 대응 관계를 저장하지만 문서 vector serving의 주 계층은 아니다.
+- 수용된 Evidence와 문서 revision mapping
+- 후보, 재무 계산, 판단 결과와 변경 이력
+- 단일 Workflow 실행 기록
+- Agent session cleanup과 운영 실패 레코드
 
 ### BigQuery
 
 - 공공데이터 원시 snapshot
 - 공급자별 정규화 결과
-- 행정동별 인구·연령·사업체·카페 관측 집계
-- freshness·coverage·중복 품질 지표
+- 행정동별 인구·카페 업소·신규·폐업·매출·유동인구 집계
+- freshness, coverage와 품질 지표
 
-BigQuery는 분석·재생성 가능한 자료를 보관한다. 사용자별 transactional State를 저장하지 않는다.
-
-첫 운영 적재 경로는 공식 원천을 주기적으로 읽는 Cloud Run Job이다. 원 응답과 공급자 파일은
-별도 grounding 버킷의 digest 기반 불변 경로에 저장하고, 품질검사를 통과한 정규화 행만
-`caffemate_grounding` dataset에 versioned snapshot으로 추가한다. Cloud Scheduler는 공급자 갱신보다
-과도하게 자주 호출하지 않으며 서울 분기 자료는 주간 점검과 배포 전 수동 실행을 사용한다.
-MCP는 최신 `APPROVED` manifest가 가리키는 snapshot만 읽는다.
+BigQuery는 재생성 가능한 분석 자료를 보관하며 사용자별 transactional State를 저장하지 않는다.
+MCP는 승인 manifest가 가리키는 snapshot만 읽는다.
 
 ### Cloud Storage
 
-- 공식 원문 revision
 - 사용자 업로드 원본
+- 공식 원문 revision
 - OCR·layout parsing 산출물
 - checksum과 immutable source identity
 
-공개 grounding 원본은 사용자 문서 버킷과 분리된
-`${GCP_PROJECT_ID}-caffemate-grounding`에 저장한다. `raw/{ingestion_id}`,
-`manifests/{ingestion_id}.json`, `approvals/{ingestion_id}.json`을 사용하고 versioning과 uniform
-bucket-level access를 강제한다. 공개 원천이라도 API 비밀값이 포함된 요청 URL은 manifest와 로그에
-기록하지 않는다.
+사용자 문서는 영구 공개 URL을 만들지 않는다. 브라우저는 Control API가 발급한 짧은 수명의 signed
+URL로 전송하고, API가 파일 형식·크기·digest와 프로젝트 소유권을 확인한다.
 
-사용자 문서는 project 경로와 IAM으로 격리한다. 영구 공개 URL을 만들지 않는다.
+## 8. Worker와 운영 자동화
 
-운영 원본 버킷은 `${GCP_PROJECT_ID}-caffemate-documents` 하나로 고정하고 API·Worker와 같은
-`asia-northeast3`에 둔다. uniform bucket-level access와 public access prevention을 강제한다.
-브라우저는 API가 발급한 10분 V4 PUT URL과 5분 GET URL만 사용한다. API identity에는 이 전용
-버킷의 object create·get·delete만, Worker에는 get만 허용한다. URL 서명은 장기 JSON key 대신
-Cloud Run access token과 API identity 자신에 대한 `iam.serviceAccounts.signBlob` 한 권한을
-사용한다. 이 선택은 비밀키 배포를 없애면서도 브라우저가 대용량 원본을 API 메모리를 거치지 않고
-직접 전송하게 한다.
+Worker는 첫 제안을 실행하지 않는다. 현재 Python Worker의 책임은 다음 두 가지다.
 
-배포 검증은 버킷 존재 확인으로 끝내지 않는다. 같은 backend image와 API identity의 일회성 Job이
-signed PUT, magic·크기·SHA-256 재검증, clean scan 결과, ParserBlock 제출,
-`DOCUMENT_EXTRACT` Agent의 typed 결과 검증, extraction form 생성, signed GET과 canary object·DB
-정리까지 수행한다. 스캔·파서 결과를 이 canary가 명시적으로 주입하는 것은 provider 자체를
-구현했다는 뜻이 아니라 Control API 양쪽 integration contract와 Agent 경계를 검증한다는 뜻이다.
+1. Agent Runtime에서 삭제되지 않은 관리형 세션 정리
+2. 운영 실패 레코드 조회와 명시적 재처리
 
-### Vertex AI RAG Engine
+Cloud Scheduler는 비공개 Worker의 `/internal/v1/agent-sessions:cleanup`만 호출한다. Worker는 public
+invoker를 허용하지 않는다. 문서 parsing·indexing 모듈은 별도 파이프라인 경계에 유지하며, 실제
+배포 경로가 연결되기 전에는 Worker가 이를 운영한다고 표현하지 않는다.
 
-- 공식 문서·정보공개서와 project-private 문서 corpus
-- Document AI Layout Parser 기반 import·chunking·embedding
-- metadata filter·semantic retrieval·rerank
-- corpus·file id는 Cloud SQL의 허용 project mapping을 통과한 경우에만 조회
+## 9. 실패 원칙
 
-RAG 검색 결과는 Evidence가 아니라 Evidence 후보다. MCP와 Control API가 원문 anchor·scope·freshness를 검증한 뒤에만 Evidence ledger에 반영한다.
+- 첫 제안은 외부 모델이나 검색 서비스의 응답을 기다리지 않으므로 해당 장애 때문에 중단되지 않는다.
+- 수용된 근거가 없으면 숫자나 출처를 생성하지 않고 등록 가정과 미확인 항목을 구분한다.
+- Agent, MCP와 문서 처리 실패는 호출 기능에서 명시적인 오류로 반환하며 다른 모델이나 자료로
+  조용히 전환하지 않는다.
+- 같은 요청을 숨겨서 반복 실행하는 timeout·fallback을 기본 설계로 사용하지 않는다.
+- State 손상, 프로젝트 격리 위반, 계약 위반과 계산 불능은 즉시 실패한다.
+- 후보, 계산과 결과는 같은 트랜잭션에서 저장하므로 중간 결과가 현재 결과가 되지 않는다.
 
-## Stage 실행 경로
+## 10. 인증과 권한
 
-```text
-Identity token 검증
-→ project ownership 검증
-→ workflow·stage·outbox transaction
-→ 202 반환
-→ Worker lease 획득
-→ private API stage execute
-→ current full head 고정
-→ read-only MCP·retrieval
-→ validated tool result를 Agent 입력으로 전달
-→ typed Agent proposal
-→ deterministic calculation·Gate
-→ Critic
-→ reducer validation
-→ versioned atomic commit
-→ stage compare-and-swap
-→ 다음 outbox 또는 Candidate Result
-```
-
-## 비동기 경로
-
-```text
-API가 workflow_run·stage_run·idempotency·outbox를 한 transaction으로 기록
-→ Pub/Sub
-→ Eventarc
-→ Worker가 stage lease·heartbeat 소유
-→ Agent·MCP stage는 private API 실행 endpoint 호출
-→ parsing·embedding stage는 Worker 실행
-→ API reducer가 full head 검증 후 checkpoint
-→ 다음 stage outbox
-```
-
-공개 API는 DB outbox commit 전 `202`를 반환하지 않는다. Worker는 Agent Runtime·MCP credential을 갖지 않고, 이 두 호출은 계속 Control API만 수행한다. 비동기 결과는 요청 시 고정한 full head 여덟 차원과 일치할 때만 적용한다. timeout·cancel 이후 결과는 head가 같아도 폐기한다.
-
-## 인증과 권한
-
-- Identity Platform ID token을 API에서 검증한다.
-- 모든 object는 `user_id`와 `project_id` scope를 가진다.
+- Identity Platform ID token을 Control API에서 검증한다.
 - API, Worker, MCP와 Agent Runtime은 별도 service identity를 사용한다.
-- MCP와 Worker는 public invoker를 허용하지 않는다.
-- public Control API의 `/internal/**` route는 본문 파싱 전에 Worker service identity를 검증한다.
 - MCP invoke 권한은 Control API identity에만 부여한다.
-- Agent는 raw credential을 받지 않는다.
+- Worker와 MCP는 public invoker를 허용하지 않는다.
+- Agent는 raw credential과 데이터베이스 쓰기 권한을 받지 않는다.
 - Secret은 Secret Manager에서 runtime identity로 읽는다.
-- project ownership 검증 전 데이터베이스·문서 검색을 실행하지 않는다.
+- 프로젝트 소유권을 확인하기 전에 데이터베이스·문서·RAG 검색을 실행하지 않는다.
 
-## 네트워크와 실패 원칙
+## 11. 검증 기준
 
-- 공식 자료 호출은 allowlist된 connector로 제한한다.
-- connector timeout은 재시도 예산을 넘으면 `ERROR` 또는 `STALE`로 끝낸다.
-- 외부 모델 실패가 기존 State를 손상하지 않는다.
-- candidate·calculation·decision은 성공 branch에서 함께 commit한다.
-- partial Agent output을 정상 결과로 저장하지 않는다.
+변경 완료를 판단하기 전에 다음을 확인한다.
 
-## GCP 구현 근거
+1. 단위 테스트와 PostgreSQL 통합 테스트가 단일 `RUN_PROPOSAL`을 확인한다.
+2. 개인카페와 프랜차이즈 경로가 각각 후보와 현재 결과를 만든다.
+3. 후보 선택 뒤 실제 점포 입력이 해당 후보 비용만 바꾸고 결과 이력을 남긴다.
+4. 자연어 피드백과 문서 적용이 새 결과를 만든다.
+5. 배포 검증은 API `/health` HTTP 200과 실제 공개 요청 경로를 확인한다.
+6. Worker 외부 호출은 거절되고, 인증된 Agent session cleanup 호출은 성공한다.
+7. 배포 확인 전에는 운영 반영 상태를 `pending`으로 보고한다.
 
-- [Cloud SQL PostgreSQL extensions](https://docs.cloud.google.com/sql/docs/postgres/extensions)
-- [Cloud SQL vector embeddings](https://docs.cloud.google.com/sql/docs/postgres/generate-manage-vector-embeddings)
-- [Cloud Run Pub/Sub triggers](https://docs.cloud.google.com/run/docs/triggering/pubsub-triggers)
-- [Cloud Run service-to-service authentication](https://docs.cloud.google.com/run/docs/authenticating/service-to-service)
-- [BigQuery geospatial data](https://docs.cloud.google.com/bigquery/docs/geospatial-data)
-- [Identity Platform users and tokens](https://docs.cloud.google.com/identity-platform/docs/concepts-manage-users)
-- [Cloud Storage signed URLs](https://docs.cloud.google.com/storage/docs/access-control/signing-urls-with-helpers)
-- [Agent Platform supported locations](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations)
-- [Agent Platform model locations](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations)
-- [RAG Engine overview and locations](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/rag-engine/rag-overview)
+## 12. 분리 조건
 
-위 문서는 설계 가능성의 근거다. 실제 GCP resource가 생성됐다는 증거가 아니다.
+다음 조건이 반복될 때만 모듈을 추가 서비스로 분리한다.
 
-## 분리 조건
+- 문서 처리량이 사용자 API 응답 시간을 지속적으로 침범한다.
+- 공급자 credential과 API runtime 권한을 같은 identity에 둘 수 없다.
+- 데이터 수집과 사용자 요청의 배포·확장 주기가 충돌한다.
+- 독립 장애 격리가 없으면 목표 처리량을 만족할 수 없다.
 
-다음 중 하나가 반복되면 API 내부 모듈을 별도 서비스로 분리한다.
-
-- 문서 처리가 동기 API latency를 지속적으로 침범
-- MCP 공급자 credential과 API runtime 권한을 같은 identity에 둘 수 없음
-- ingestion과 사용자 요청의 배포·확장 주기가 충돌
-- 독립 장애 격리 없이는 목표 가용성을 만족할 수 없음
-
-그 전에는 module boundary와 interface만 유지한다.
+그전에는 현재 모듈 경계와 typed contract를 유지한다.

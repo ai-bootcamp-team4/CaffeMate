@@ -1,3 +1,5 @@
+"""운영 검증 명령은 단일 제안 실행 경로를 직접 호출하며 과거 단계 제어부를 재현하지 않는다."""
+
 import argparse
 import asyncio
 import copy
@@ -42,11 +44,9 @@ from app.verification.selected_candidate import (
     SelectedCandidateCanary,
     SelectedCandidateCanaryError,
 )
-from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import HeadFence
 from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.service import WorkflowService
-from app.workflows.start_guard import FirstProposalStartGuard, McpManifestStartGate
 
 
 class _StrictAgentCleanupSink:
@@ -118,8 +118,6 @@ def main() -> None:
             "verify-document-storage",
         ],
     )
-    parser.add_argument("--timeout-seconds", type=float, default=1200.0)
-    parser.add_argument("--poll-interval-seconds", type=float, default=5.0)
     parser.add_argument(
         "--agent-fixture-id", default="evidence_plan-complete"
     )
@@ -290,39 +288,19 @@ def main() -> None:
         print(json.dumps({"status": "verified", **iam_report}, sort_keys=True))
     elif arguments.command == "verify-first-proposal":
         settings = RuntimeSettings.from_environment()
-        if (
-            not settings.has_mcp_configuration
-            or not settings.policy_snapshot_id
-        ):
-            parser.error("database, MCP and policy snapshot configuration required")
+        if not settings.policy_snapshot_id:
+            parser.error("database and policy snapshot configuration required")
         handle = create_database_handle(settings)
         if handle is None:
             parser.error("database configuration required")
         seed_registry = IndependentSeedRegistry.load_default()
-        preflight = McpManifestPreflight(
-            base_url=cast(str, settings.mcp_base_url),
-            audience=cast(str, settings.mcp_audience),
-            identity_provider=GoogleIdentityTokenProvider(),
-            scope_signer=ScopeTokenSigner(
-                secret=cast(str, settings.mcp_scope_hmac_secret),
-                issuer="caffemate-control-api",
-                audience="caffemate-mcp",
-            ),
-        )
         projects = ProjectService(PostgresProjectRepository(handle.engine))
         workflows = WorkflowService(
             PostgresWorkflowRepository(
                 handle.engine,
                 policy_snapshot_id=settings.policy_snapshot_id,
                 seed_registry_id=seed_registry.registry_id,
-            ),
-            start_guard=FirstProposalStartGuard(
-                list(FirstProposalStage),
-                manifest_gate=McpManifestStartGate(
-                    preflight,
-                    policy_snapshot_id=settings.policy_snapshot_id,
-                    seed_registry_id=seed_registry.registry_id,
-                ),
+                seed_registry=seed_registry,
             ),
         )
         try:
@@ -332,8 +310,6 @@ def main() -> None:
                 results=ResultService(PostgresResultRepository(handle.engine)),
                 cleaner=PostgresFirstProposalCanaryCleaner(handle.engine),
             ).run(
-                timeout_seconds=arguments.timeout_seconds,
-                poll_interval_seconds=arguments.poll_interval_seconds,
                 cafe_type_preference=CafeTypePreference(
                     arguments.cafe_type_preference
                 ),
@@ -358,30 +334,13 @@ def main() -> None:
         if handle is None:
             parser.error("database configuration required")
         seed_registry = IndependentSeedRegistry.load_default()
-        preflight = McpManifestPreflight(
-            base_url=cast(str, settings.mcp_base_url),
-            audience=cast(str, settings.mcp_audience),
-            identity_provider=GoogleIdentityTokenProvider(),
-            scope_signer=ScopeTokenSigner(
-                secret=cast(str, settings.mcp_scope_hmac_secret),
-                issuer="caffemate-control-api",
-                audience="caffemate-mcp",
-            ),
-        )
         projects = ProjectService(PostgresProjectRepository(handle.engine))
         workflows = WorkflowService(
             PostgresWorkflowRepository(
                 handle.engine,
                 policy_snapshot_id=settings.policy_snapshot_id,
                 seed_registry_id=seed_registry.registry_id,
-            ),
-            start_guard=FirstProposalStartGuard(
-                list(FirstProposalStage),
-                manifest_gate=McpManifestStartGate(
-                    preflight,
-                    policy_snapshot_id=settings.policy_snapshot_id,
-                    seed_registry_id=seed_registry.registry_id,
-                ),
+                seed_registry=seed_registry,
             ),
         )
         try:
@@ -403,10 +362,7 @@ def main() -> None:
                 preparation_guides=PreparationGuideService(handle.engine, mcp_client),
                 property_terms=PropertyTermsService(handle.engine),
                 cleaner=PostgresFirstProposalCanaryCleaner(handle.engine),
-            ).run(
-                timeout_seconds=arguments.timeout_seconds,
-                poll_interval_seconds=arguments.poll_interval_seconds,
-            )
+            ).run()
         except SelectedCandidateCanaryError as error:
             print(
                 json.dumps(

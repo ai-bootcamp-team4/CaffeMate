@@ -611,7 +611,7 @@ configure_first_proposal_job() {
     --set-env-vars="INSTANCE_CONNECTION_NAME=${configured_instance},DB_USER=${configured_db_user},DB_NAME=${configured_db_name},CLOUD_SQL_IP_TYPE=${configured_db_ip_type},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},CAFFEMATE_POLICY_SNAPSHOT_ID=${configured_policy}" \
     --set-secrets='DB_PASS=caffemate-db-password:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
     --command=caffemate-api \
-    --args="verify-first-proposal,--timeout-seconds=1200,--poll-interval-seconds=3,--cafe-type-preference=${cafe_type_preference}" \
+    --args="verify-first-proposal,--cafe-type-preference=${cafe_type_preference}" \
     --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=25m \
     --cpu=1 --memory=512Mi \
     --labels="source-revision=${source_revision},managed-by=caffemate-verify" \
@@ -633,32 +633,8 @@ else
 fi
 
 canary_started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-canary_status_file=$(mktemp)
-canary_wait_log=$(mktemp)
-cleanup_canary_files() {
-  rm -f "$canary_status_file" "$canary_wait_log"
-}
-trap cleanup_canary_files EXIT HUP INT TERM
-(
-  if gcloud run jobs execute "$first_proposal_job" \
-    --project="$project_id" --region="$region" --wait --quiet >"$canary_wait_log" 2>&1; then
-    printf '0\n' >"$canary_status_file"
-  else
-    printf '%s\n' "$?" >"$canary_status_file"
-  fi
-) &
-canary_wait_pid=$!
-canary_attempt=0
-while [ ! -s "$canary_status_file" ] && [ "$canary_attempt" -lt 240 ]; do
-  gcloud scheduler jobs run caffemate-outbox-drain \
-    --project="$project_id" --location="$region" --quiet >/dev/null
-  canary_attempt=$((canary_attempt + 1))
-  sleep 5
-done
-wait "$canary_wait_pid" || true
-canary_exit=$(cat "$canary_status_file")
-if [ "$canary_exit" != '0' ]; then
-  sed -n '1,120p' "$canary_wait_log" >&2
+if ! gcloud run jobs execute "$first_proposal_job" \
+  --project="$project_id" --region="$region" --wait --quiet; then
   printf '%s\n' 'FAIL FIRST_PROPOSAL canary Cloud Run Job' >&2
   exit 1
 fi
@@ -684,57 +660,19 @@ report = rows[0]["jsonPayload"]
 assert report["status"] == "verified"
 assert report["requested_cafe_type_preference"] == "OPEN_TO_BOTH"
 assert report["workflow_status"] == "SUCCEEDED"
-assert report["stage_count"] == 13
+assert report["stage_count"] == 1
 assert report["max_stage_attempt"] == 1
 assert report["elapsed_ms"] <= 120_000, report
 assert report["candidate_count"] >= 1
 assert {"INDEPENDENT", "FRANCHISE"} <= set(report.get("candidate_case_types", [])), report
 assert report["result_freshness"] == "CURRENT"
-signals = report.get("market_signals", [])
-required_signal_types = {
-    "CAFE_COUNT",
-    "OPEN_COUNT",
-    "CLOSE_COUNT",
-    "CLOSURE_RATE",
-    "ESTIMATED_SALES",
-    "FOOT_TRAFFIC",
-    "RESIDENT_POPULATION",
-    "WORKER_POPULATION",
-}
-assert required_signal_types <= {row.get("signal_type") for row in signals}, report
-assert all(row.get("value") is not None for row in signals)
-assert all(row.get("data_date") and row.get("source_ref") for row in signals)
-print("PASS FIRST_PROPOSAL traversed all 13 production stages to a current result card")
+print("PASS FIRST_PROPOSAL completed the single RUN_PROPOSAL stage")
 PY
 unset canary_reports
 
 franchise_canary_started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-franchise_canary_status_file=$(mktemp)
-franchise_canary_wait_log=$(mktemp)
-cleanup_franchise_canary_files() {
-  rm -f "$franchise_canary_status_file" "$franchise_canary_wait_log"
-}
-trap 'cleanup_canary_files; cleanup_franchise_canary_files' EXIT HUP INT TERM
-(
-  if gcloud run jobs execute "$franchise_proposal_job" \
-    --project="$project_id" --region="$region" --wait --quiet >"$franchise_canary_wait_log" 2>&1; then
-    printf '0\n' >"$franchise_canary_status_file"
-  else
-    printf '%s\n' "$?" >"$franchise_canary_status_file"
-  fi
-) &
-franchise_canary_wait_pid=$!
-franchise_canary_attempt=0
-while [ ! -s "$franchise_canary_status_file" ] && [ "$franchise_canary_attempt" -lt 240 ]; do
-  gcloud scheduler jobs run caffemate-outbox-drain \
-    --project="$project_id" --location="$region" --quiet >/dev/null
-  franchise_canary_attempt=$((franchise_canary_attempt + 1))
-  sleep 5
-done
-wait "$franchise_canary_wait_pid" || true
-franchise_canary_exit=$(cat "$franchise_canary_status_file")
-if [ "$franchise_canary_exit" != '0' ]; then
-  sed -n '1,120p' "$franchise_canary_wait_log" >&2
+if ! gcloud run jobs execute "$franchise_proposal_job" \
+  --project="$project_id" --region="$region" --wait --quiet; then
   printf '%s\n' 'FAIL FRANCHISE_ONLY FIRST_PROPOSAL canary Cloud Run Job' >&2
   exit 1
 fi
@@ -760,7 +698,7 @@ report = rows[0]["jsonPayload"]
 assert report["status"] == "verified"
 assert report["requested_cafe_type_preference"] == "FRANCHISE_ONLY"
 assert report["workflow_status"] == "SUCCEEDED"
-assert report["stage_count"] == 13
+assert report["stage_count"] == 1
 assert report["max_stage_attempt"] == 1
 assert report["elapsed_ms"] <= 120_000, report
 assert report["candidate_count"] >= 1
@@ -770,97 +708,6 @@ assert report["result_freshness"] == "CURRENT"
 print("PASS FRANCHISE_ONLY reached a ranked verified real-brand candidate")
 PY
 unset franchise_canary_reports
-cleanup_franchise_canary_files
-
-first_proposal_generation_logs='[]'
-first_proposal_validation_logs='[]'
-agent_log_attempt=0
-while [ "$agent_log_attempt" -lt 12 ]; do
-  first_proposal_generation_logs=$(gcloud logging read \
-    "timestamp>=\"${canary_started_at}\" AND jsonPayload.event=\"VERTEX_AGENT_GENERATION\" AND (jsonPayload.task_type=\"EVIDENCE_ASSESS\" OR jsonPayload.task_type=\"PROPOSE_INDEPENDENT\" OR jsonPayload.task_type=\"PROPOSE_FRANCHISE\" OR jsonPayload.task_type=\"CANDIDATE_AUDIT\")" \
-    --project="$project_id" --freshness=10m --limit=30 --format=json)
-  first_proposal_validation_logs=$(gcloud logging read \
-    "timestamp>=\"${canary_started_at}\" AND jsonPayload.event=\"AGENT_RESULT_VALIDATION\" AND (jsonPayload.task_type=\"EVIDENCE_ASSESS\" OR jsonPayload.task_type=\"PROPOSE_INDEPENDENT\" OR jsonPayload.task_type=\"PROPOSE_FRANCHISE\" OR jsonPayload.task_type=\"CANDIDATE_AUDIT\")" \
-    --project="$project_id" --freshness=10m --limit=30 --format=json)
-  observed_agent_types=$(FIRST_PROPOSAL_GENERATION_LOGS="$first_proposal_generation_logs" \
-    FIRST_PROPOSAL_VALIDATION_LOGS="$first_proposal_validation_logs" python3 - <<'PY'
-import json
-import os
-
-required = {"EVIDENCE_ASSESS", "PROPOSE_INDEPENDENT", "PROPOSE_FRANCHISE", "CANDIDATE_AUDIT"}
-generations = {
-    row.get("jsonPayload", {}).get("task_type")
-    for row in json.loads(os.environ["FIRST_PROPOSAL_GENERATION_LOGS"])
-}
-validations = {
-    row.get("jsonPayload", {}).get("task_type")
-    for row in json.loads(os.environ["FIRST_PROPOSAL_VALIDATION_LOGS"])
-}
-print("ready" if required <= generations and required <= validations else "waiting")
-PY
-  )
-  [ "$observed_agent_types" = 'ready' ] && break
-  agent_log_attempt=$((agent_log_attempt + 1))
-  sleep 5
-done
-FIRST_PROPOSAL_GENERATION_LOGS="$first_proposal_generation_logs" \
-FIRST_PROPOSAL_VALIDATION_LOGS="$first_proposal_validation_logs" python3 - <<'PY'
-import json
-import os
-
-required = {
-    "EVIDENCE_ASSESS",
-    "PROPOSE_INDEPENDENT",
-    "PROPOSE_FRANCHISE",
-    "CANDIDATE_AUDIT",
-}
-token_budgets = {
-    "EVIDENCE_ASSESS": 6_000,
-    "PROPOSE_INDEPENDENT": 4_500,
-    "PROPOSE_FRANCHISE": 4_500,
-    "CANDIDATE_AUDIT": 6_500,
-}
-generation_rows = [
-    row.get("jsonPayload", {})
-    for row in json.loads(os.environ["FIRST_PROPOSAL_GENERATION_LOGS"])
-]
-validation_rows = [
-    row.get("jsonPayload", {})
-    for row in json.loads(os.environ["FIRST_PROPOSAL_VALIDATION_LOGS"])
-]
-observed_generations = {row.get("task_type") for row in generation_rows}
-observed_validations = {row.get("task_type") for row in validation_rows}
-assert required <= observed_generations, (
-    f"missing Agent generations: {sorted(required - observed_generations)}"
-)
-assert required <= observed_validations, (
-    f"missing Agent validations: {sorted(required - observed_validations)}"
-)
-for row in generation_rows:
-    task_type = row.get("task_type")
-    if task_type not in required:
-        continue
-    assert row.get("http_status") == 200, row
-    assert row.get("finish_reason") == "STOP", row
-    assert row.get("repair_attempt") == 0, row
-    assert 0 <= row.get("elapsed_ms", -1) <= 60_000, row
-    assert 0 < row.get("prompt_token_count", 0) <= token_budgets[task_type], row
-for row in validation_rows:
-    if row.get("task_type") not in required:
-        continue
-    assert row.get("repair_attempt") == 0, row
-    assert row.get("outcome") == "VALID", row
-    if row.get("task_type") == "PROPOSE_INDEPENDENT":
-        assert row.get("candidate_proposal_count", 0) >= 1, row
-    if row.get("task_type") == "PROPOSE_FRANCHISE":
-        assert row.get("candidate_proposal_count", 0) >= 1, row
-    if row.get("task_type") == "CANDIDATE_AUDIT":
-        assert row.get("candidate_audit_count", 0) >= 1, row
-print("PASS FIRST_PROPOSAL managed Agents stopped within budget without repair")
-PY
-unset first_proposal_generation_logs first_proposal_validation_logs observed_agent_types
-cleanup_canary_files
-trap - EXIT HUP INT TERM
 
 api_public=$(gcloud run services get-iam-policy caffemate-api \
   --project="$project_id" --region="$region" \
@@ -894,26 +741,13 @@ worker_status=$(curl --silent --output /dev/null --write-out '%{http_code}' "${w
 }
 printf 'PASS Worker unauthenticated internet request rejected with HTTP %s\n' "$worker_status"
 
-subscription_json=$(gcloud pubsub subscriptions describe caffemate-workflow-stage-worker \
-  --project="$project_id" --format=json)
-SUBSCRIPTION_JSON="$subscription_json" WORKER_URL="$worker_url" PROJECT_ID="$project_id" python3 - <<'PY'
-import json, os
-s = json.loads(os.environ["SUBSCRIPTION_JSON"])
-push = s["pushConfig"]
-assert s["topic"] == f"projects/{os.environ['PROJECT_ID']}/topics/caffemate-workflow-stage-ready"
-assert push["pushEndpoint"] == os.environ["WORKER_URL"] + "/internal/v1/pubsub/workflow-stages"
-assert push["oidcToken"]["audience"] == os.environ["WORKER_URL"]
-assert push["oidcToken"]["serviceAccountEmail"].startswith("caffemate-pubsub-push@")
-print("PASS authenticated Pub/Sub push configuration")
-PY
-
-scheduler_state=$(gcloud scheduler jobs describe caffemate-outbox-drain \
+scheduler_state=$(gcloud scheduler jobs describe caffemate-agent-session-cleanup \
   --project="$project_id" --location="$region" --format='value(state)')
 [ "$scheduler_state" = 'ENABLED' ] || { printf 'FAIL Scheduler state %s\n' "$scheduler_state" >&2; exit 1; }
-printf '%s\n' 'PASS outbox Scheduler is enabled'
+printf '%s\n' 'PASS Agent session cleanup Scheduler is enabled'
 
 verification_started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-gcloud scheduler jobs run caffemate-outbox-drain \
+gcloud scheduler jobs run caffemate-agent-session-cleanup \
   --project="$project_id" \
   --location="$region" \
   --quiet >/dev/null
@@ -921,19 +755,19 @@ gcloud scheduler jobs run caffemate-outbox-drain \
 attempt=0
 while [ "$attempt" -lt 12 ]; do
   internal_status=$(gcloud logging read \
-    "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"caffemate-worker\" AND timestamp>=\"${verification_started_at}\" AND httpRequest.requestMethod=\"POST\" AND httpRequest.requestUrl:\"/internal/v1/outbox\" AND httpRequest.status=200" \
+    "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"caffemate-worker\" AND timestamp>=\"${verification_started_at}\" AND httpRequest.requestMethod=\"POST\" AND httpRequest.requestUrl:\"/internal/v1/agent-sessions:cleanup\" AND httpRequest.status=200" \
     --project="$project_id" \
     --limit=1 \
     --format='value(httpRequest.status)')
   if [ "$internal_status" = '200' ]; then
-    printf '%s\n' 'PASS Scheduler reached internal Worker with HTTP 200'
+    printf '%s\n' 'PASS Scheduler reached Agent session cleanup with HTTP 200'
     break
   fi
   attempt=$((attempt + 1))
   sleep 5
 done
 [ "$internal_status" = '200' ] || {
-  printf '%s\n' 'FAIL Scheduler did not reach internal Worker with HTTP 200' >&2
+  printf '%s\n' 'FAIL Scheduler did not reach Agent session cleanup with HTTP 200' >&2
   exit 1
 }
 

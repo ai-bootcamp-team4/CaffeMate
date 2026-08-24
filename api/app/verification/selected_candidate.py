@@ -1,7 +1,9 @@
+"""선택 후보 검증은 단일 재계산 결과와 실제 비용 변화만 확인한다."""
+
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-from time import monotonic, sleep
+from time import monotonic
 from typing import Protocol
 from uuid import uuid4
 
@@ -67,15 +69,6 @@ class WorkflowOperations(Protocol):
         workflow_run_id: str,
         user_id: str,
     ) -> WorkflowProgress: ...
-
-    def cancel(
-        self,
-        *,
-        project_id: str,
-        workflow_run_id: str,
-        user_id: str,
-        idempotency_key: str,
-    ) -> WorkflowRun: ...
 
 
 class ResultOperations(Protocol):
@@ -168,15 +161,6 @@ class SelectedCandidateCanaryReport:
 class SelectedCandidateCanary:
     """Exercise selection -> real property terms -> selective recompute end to end."""
 
-    _terminal_statuses = {
-        WorkflowStatus.WAITING_FOR_HUMAN,
-        WorkflowStatus.SUCCEEDED,
-        WorkflowStatus.PARTIAL,
-        WorkflowStatus.FAILED,
-        WorkflowStatus.CANCELLED,
-        WorkflowStatus.STALE,
-    }
-
     def __init__(
         self,
         *,
@@ -188,7 +172,6 @@ class SelectedCandidateCanary:
         property_terms: PropertyTermsOperations,
         cleaner: CanaryCleaner,
         now: Callable[[], float] = monotonic,
-        wait: Callable[[float], None] = sleep,
         new_id: Callable[[], str] | None = None,
     ) -> None:
         self._projects = projects
@@ -199,17 +182,9 @@ class SelectedCandidateCanary:
         self._property_terms = property_terms
         self._cleaner = cleaner
         self._now = now
-        self._wait = wait
         self._new_id = new_id or (lambda: uuid4().hex)
 
-    def run(
-        self,
-        *,
-        timeout_seconds: float,
-        poll_interval_seconds: float,
-    ) -> SelectedCandidateCanaryReport:
-        if timeout_seconds <= 0 or poll_interval_seconds <= 0:
-            raise ValueError("Canary timeout and poll interval must be positive")
+    def run(self) -> SelectedCandidateCanaryReport:
         canary_id = self._new_id()
         user_id = f"selected-candidate-canary-{canary_id}"
         project: Project | None = None
@@ -258,8 +233,6 @@ class SelectedCandidateCanary:
                 project_id=project.project_id,
                 user_id=user_id,
                 workflow_run_id=active_workflow.workflow_run_id,
-                timeout_seconds=timeout_seconds,
-                poll_interval_seconds=poll_interval_seconds,
             )
             first_result = self._results.get_current(
                 project_id=project.project_id,
@@ -309,8 +282,6 @@ class SelectedCandidateCanary:
                 project_id=project.project_id,
                 user_id=user_id,
                 workflow_run_id=active_workflow.workflow_run_id,
-                timeout_seconds=timeout_seconds,
-                poll_interval_seconds=poll_interval_seconds,
             )
             return self._validate_recompute(
                 first_result=first_result,
@@ -325,15 +296,6 @@ class SelectedCandidateCanary:
                 preparation_guide=preparation_guide,
                 elapsed_ms=max(0, round((self._now() - started_at) * 1000)),
             )
-        except Exception:
-            if project is not None and active_workflow is not None:
-                self._cancel_if_active(
-                    project_id=project.project_id,
-                    user_id=user_id,
-                    workflow_run_id=active_workflow.workflow_run_id,
-                    idempotency_key=f"{canary_id}:cancel",
-                )
-            raise
         finally:
             if project is not None:
                 self._cleaner.cleanup(project_id=project.project_id, user_id=user_id)
@@ -344,36 +306,23 @@ class SelectedCandidateCanary:
         project_id: str,
         user_id: str,
         workflow_run_id: str,
-        timeout_seconds: float,
-        poll_interval_seconds: float,
     ) -> WorkflowProgress:
-        deadline = self._now() + timeout_seconds
-        while True:
-            progress = self._workflows.get_progress(
-                project_id=project_id,
-                workflow_run_id=workflow_run_id,
-                user_id=user_id,
+        progress = self._workflows.get_progress(
+            project_id=project_id,
+            workflow_run_id=workflow_run_id,
+            user_id=user_id,
+        )
+        if progress.status != WorkflowStatus.SUCCEEDED:
+            raise SelectedCandidateCanaryError(
+                "CANARY_WORKFLOW_NOT_SUCCEEDED",
+                {
+                    "workflow_run_id": workflow_run_id,
+                    "workflow_status": progress.status.value,
+                    "terminal_reason_codes": progress.terminal_reason_codes,
+                    "stages": [stage.model_dump(mode="json") for stage in progress.stages],
+                },
             )
-            if progress.status in self._terminal_statuses:
-                if progress.status != WorkflowStatus.SUCCEEDED:
-                    raise SelectedCandidateCanaryError(
-                        "CANARY_WORKFLOW_NOT_SUCCEEDED",
-                        {
-                            "workflow_run_id": workflow_run_id,
-                            "workflow_status": progress.status.value,
-                            "terminal_reason_codes": progress.terminal_reason_codes,
-                            "stages": [
-                                stage.model_dump(mode="json") for stage in progress.stages
-                            ],
-                        },
-                    )
-                return progress
-            if self._now() >= deadline:
-                raise SelectedCandidateCanaryError(
-                    "CANARY_TIMED_OUT",
-                    {"workflow_run_id": workflow_run_id},
-                )
-            self._wait(min(poll_interval_seconds, max(0.0, deadline - self._now())))
+        return progress
 
     def _validate_recompute(
         self,
@@ -391,11 +340,7 @@ class SelectedCandidateCanary:
         recomputed = tuple(
             sorted(stage.stage_code for stage in progress.stages if stage.attempt > 0)
         )
-        expected_recomputed = {
-            FirstProposalStage.CALCULATE_GATE_RANK.value,
-            FirstProposalStage.CANDIDATE_AUDIT.value,
-            FirstProposalStage.COMMIT_RESULT.value,
-        }
+        expected_recomputed = {FirstProposalStage.RUN_PROPOSAL.value}
         if not expected_recomputed <= set(recomputed):
             raise SelectedCandidateCanaryError(
                 "SELECTIVE_STAGE_SET_INVALID",
@@ -477,27 +422,3 @@ class SelectedCandidateCanary:
                     "grounded_step_count": len(grounded_steps),
                 },
             )
-
-    def _cancel_if_active(
-        self,
-        *,
-        project_id: str,
-        user_id: str,
-        workflow_run_id: str,
-        idempotency_key: str,
-    ) -> None:
-        try:
-            progress = self._workflows.get_progress(
-                project_id=project_id,
-                workflow_run_id=workflow_run_id,
-                user_id=user_id,
-            )
-            if progress.status not in self._terminal_statuses:
-                self._workflows.cancel(
-                    project_id=project_id,
-                    workflow_run_id=workflow_run_id,
-                    user_id=user_id,
-                    idempotency_key=idempotency_key,
-                )
-        except Exception:
-            return

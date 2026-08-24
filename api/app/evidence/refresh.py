@@ -1,3 +1,5 @@
+"""새 근거가 승인되면 현재 상태를 유지한 채 제안 결과만 다시 계산한다."""
+
 import hashlib
 import json
 from collections.abc import Callable
@@ -161,25 +163,6 @@ class EvidenceRefreshService:
                     raise WorkflowPreconditionError(
                         "Evidence refresh requires a committed current result"
                     )
-                active_recompute = connection.execute(
-                    text(
-                        """
-                        SELECT workflow_run_id FROM workflow_runs
-                        WHERE project_id=:project_id AND workflow_code='FIRST_PROPOSAL'
-                          AND status IN ('QUEUED', 'RUNNING', 'WAITING_FOR_HUMAN')
-                          AND workflow_run_id<>:source_workflow_run_id
-                        ORDER BY created_at DESC LIMIT 1
-                        """
-                    ),
-                    {
-                        "project_id": request.project_id,
-                        "source_workflow_run_id": row["source_workflow_run_id"],
-                    },
-                ).scalar_one_or_none()
-                if active_recompute is not None:
-                    raise WorkflowPreconditionError(
-                        "Evidence refresh recompute is already active"
-                    )
                 for evidence_id in sorted(affected_ids):
                     lifecycle_reason = (
                         "EVIDENCE_FRESHNESS_EXPIRED"
@@ -233,7 +216,6 @@ class EvidenceRefreshService:
                     user_id=row["owner_user_id"],
                     state=VentureState.model_validate(row["state_json"]),
                     source_workflow_run_id=row["source_workflow_run_id"],
-                    affected_stage_codes=["EVIDENCE_RETRIEVAL"],
                     previous_head=self._head(row),
                     now=now,
                     new_id=self._new_id,

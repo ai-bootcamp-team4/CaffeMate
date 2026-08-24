@@ -1,12 +1,9 @@
+"""사용자는 실행 단계 수와 무관하게 승인된 근거가 결과 카드에 남아야 한다."""
+
 from typing import Any
 
-from app.results.projection import project_candidate_results
-from app.workflows.calculate_gate_rank import CalculateGateRankStageHandler
+from app.results.projection import project_evidence_for_candidate
 from tests.test_agent_boundary import evidence_record
-from tests.test_calculate_gate_rank_stage import (
-    calculation_context,
-    complete_independent_finance,
-)
 
 
 def market_evidence(
@@ -80,125 +77,47 @@ def official_document_evidence(
     return record
 
 
-def test_projects_grounded_market_signals_with_source_and_caveat() -> None:
-    calculated = CalculateGateRankStageHandler().execute(
-        calculation_context(evidence_records=complete_independent_finance())
-    )["calculate_gate_rank"]
-    assert isinstance(calculated, dict)
-    candidate = calculated["candidates"][0]
-    records = calculated["evidence_records"]
-    market_records = [
-        market_evidence(
-            "evidence-cafe-count",
-            claim_type="AREA_CAFE_COMPETITION",
-            metric="CAFE_COUNT",
-            value=208,
-            unit="STORES",
-            source_ref="https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
-        ),
-        market_evidence(
-            "evidence-open-count",
-            claim_type="AREA_BUSINESS_CHURN",
-            metric="OPEN_COUNT",
-            value=9,
-            unit="STORES_PER_QUARTER",
-            source_ref="https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
-        ),
-        market_evidence(
-            "evidence-close-count",
-            claim_type="AREA_BUSINESS_CHURN",
-            metric="CLOSE_COUNT",
-            value=6,
-            unit="STORES_PER_QUARTER",
-            source_ref="https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
-        ),
-        market_evidence(
-            "evidence-closure-rate",
-            claim_type="AREA_BUSINESS_CHURN",
-            metric="CLOSURE_RATE",
-            value=2.88,
-            unit="PERCENT_DERIVED",
-            source_ref="https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
-        ),
-        market_evidence(
-            "evidence-estimated-sales",
-            claim_type="AREA_DEMAND_SIGNALS",
-            metric="ESTIMATED_SALES",
-            value=2_596_733_728,
-            unit="KRW_PER_QUARTER_ESTIMATE",
-            source_ref="https://data.seoul.go.kr/dataList/OA-15572/A/1/datasetView.do",
-        ),
-        market_evidence(
-            "evidence-foot-traffic",
-            claim_type="AREA_DEMAND_SIGNALS",
-            metric="FOOT_TRAFFIC",
-            value=12_465_323,
-            unit="PERSON_VISITS_PER_QUARTER_ESTIMATE",
-            source_ref="https://data.seoul.go.kr/dataList/OA-15568/S/1/datasetView.do",
-        ),
-        market_evidence(
-            "evidence-resident-population",
-            claim_type="AREA_DEMAND_SIGNALS",
-            metric="RESIDENT_POPULATION",
-            value=37_068,
-            unit="PERSONS",
-            source_ref="https://data.seoul.go.kr/dataList/OA-22182/S/1/datasetView.do",
-        ),
-        market_evidence(
-            "evidence-worker-population",
-            claim_type="AREA_DEMAND_SIGNALS",
-            metric="WORKER_POPULATION",
-            value=7_365,
-            unit="PERSONS",
-            source_ref="https://data.seoul.go.kr/dataList/OA-22184/A/1/datasetView.do",
-        ),
-    ]
-    candidate["proposal"]["evidence_refs"] = [
+def test_projects_grounded_market_signal_with_source_and_caveat() -> None:
+    record = market_evidence(
         "evidence-cafe-count",
-        "evidence-open-count",
-        "evidence-estimated-sales",
-    ]
+        claim_type="AREA_CAFE_COMPETITION",
+        metric="CAFE_COUNT",
+        value=208,
+        unit="STORES",
+        source_ref="https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
+    )
 
-    projected = project_candidate_results(
-        [candidate],
+    evidence_refs, signals, documents, gaps = project_evidence_for_candidate(
+        [record],
         project_id="project-1",
-        state_version=1,
-        evidence_records=[*records, *market_records],
-    )[0]
+        case_type="INDEPENDENT",
+    )
 
-    assert [signal["signal_type"] for signal in projected["market_signals"]] == [
-        "CAFE_COUNT",
-        "OPEN_COUNT",
-        "CLOSE_COUNT",
-        "CLOSURE_RATE",
-        "ESTIMATED_SALES",
-        "FOOT_TRAFFIC",
-        "RESIDENT_POPULATION",
-        "WORKER_POPULATION",
+    assert evidence_refs == ["evidence-cafe-count"]
+    assert signals == [
+        {
+            "signal_type": "CAFE_COUNT",
+            "value": 208,
+            "unit": "STORES",
+            "data_date": "2026-03-31",
+            "freshness_status": "FRESH",
+            "source_title": "서울시 상권분석서비스",
+            "source_ref": (
+                "https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do"
+            ),
+            "evidence_id": "evidence-cafe-count",
+            "caveat": (
+                "선택 지역에 연결된 행정동의 카페 업종 집계이며 "
+                "개별 점포의 경쟁력을 뜻하지 않습니다."
+            ),
+        }
     ]
-    assert projected["market_signals"][0] == {
-        "signal_type": "CAFE_COUNT",
-        "value": 208,
-        "unit": "STORES",
-        "data_date": "2026-03-31",
-        "freshness_status": "FRESH",
-        "source_title": "서울시 상권분석서비스",
-        "source_ref": "https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
-        "evidence_id": "evidence-cafe-count",
-        "caveat": (
-            "선택 지역에 연결된 행정동의 카페 업종 집계이며 "
-            "개별 점포의 경쟁력을 뜻하지 않습니다."
-        ),
-    }
+    assert documents == []
+    assert gaps == ["창업 절차 공식 문서", "계약 전 확인 공식 문서"]
 
 
-def test_projects_frozen_area_signal_without_proposal_ref_but_excludes_conflict() -> None:
-    calculated = CalculateGateRankStageHandler().execute(calculation_context())[
-        "calculate_gate_rank"
-    ]
-    assert isinstance(calculated, dict)
-    candidate = calculated["candidates"][0]
-    linked = market_evidence(
+def test_excludes_conflicting_market_signal() -> None:
+    conflicting = market_evidence(
         "evidence-conflicting-count",
         claim_type="AREA_CAFE_COMPETITION",
         metric="CAFE_COUNT",
@@ -206,89 +125,33 @@ def test_projects_frozen_area_signal_without_proposal_ref_but_excludes_conflict(
         unit="STORES",
         source_ref="https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
     )
-    linked["conflict_status"] = "CONFIRMED"
-    unlinked = market_evidence(
-        "evidence-unlinked-sales",
-        claim_type="AREA_DEMAND_SIGNALS",
-        metric="ESTIMATED_SALES",
-        value=2_596_733_728,
-        unit="KRW_PER_QUARTER_ESTIMATE",
-        source_ref="https://data.seoul.go.kr/dataList/OA-15572/A/1/datasetView.do",
-    )
-    candidate["proposal"]["evidence_refs"] = [linked["evidence_id"]]
+    conflicting["conflict_status"] = "CONFIRMED"
 
-    projected = project_candidate_results(
-        [candidate],
+    evidence_refs, signals, _, _ = project_evidence_for_candidate(
+        [conflicting],
         project_id="project-1",
-        state_version=1,
-        evidence_records=[linked, unlinked],
-    )[0]
-
-    assert [signal["signal_type"] for signal in projected["market_signals"]] == [
-        "ESTIMATED_SALES"
-    ]
-    assert projected["market_signals"][0]["evidence_id"] == "evidence-unlinked-sales"
-
-
-def test_projects_frozen_area_signal_on_franchise_candidate() -> None:
-    area_signal = market_evidence(
-        "evidence-franchise-area-count",
-        claim_type="AREA_CAFE_COMPETITION",
-        metric="CAFE_COUNT",
-        value=208,
-        unit="STORES",
-        source_ref="https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do",
-    )
-    calculated = CalculateGateRankStageHandler().execute(
-        calculation_context(
-            evidence_records=[area_signal],
-            include_franchise=True,
-        )
-    )["calculate_gate_rank"]
-    assert isinstance(calculated, dict)
-    franchise = next(
-        candidate
-        for candidate in calculated["candidates"]
-        if candidate["case_type"] == "FRANCHISE"
-    )
-    assert area_signal["evidence_id"] not in franchise["proposal"]["evidence_refs"]
-
-    projected = project_candidate_results(
-        [franchise],
-        project_id="project-1",
-        state_version=1,
-        evidence_records=calculated["evidence_records"],
-    )[0]
-
-    assert [signal["signal_type"] for signal in projected["market_signals"]] == [
-        "CAFE_COUNT"
-    ]
-    assert projected["market_signals"][0]["evidence_id"] == (
-        "evidence-franchise-area-count"
+        case_type="INDEPENDENT",
     )
 
+    assert evidence_refs == []
+    assert signals == []
 
-def test_projects_accepted_official_documents_and_explicit_gaps() -> None:
-    calculated = CalculateGateRankStageHandler().execute(
-        calculation_context(evidence_records=complete_independent_finance())
-    )["calculate_gate_rank"]
-    assert isinstance(calculated, dict)
-    candidate = calculated["candidates"][0]
-    records = calculated["evidence_records"]
+
+def test_projects_accepted_official_document_as_candidate_evidence() -> None:
     procedure = official_document_evidence(
         "evidence-official-procedure",
         claim_type="CAFE_OPENING_REQUIRED_PROCEDURES",
     )
-    candidate["proposal"]["evidence_refs"] = [procedure["evidence_id"]]
 
-    projected = project_candidate_results(
-        [candidate],
+    evidence_refs, signals, documents, gaps = project_evidence_for_candidate(
+        [procedure],
         project_id="project-1",
-        state_version=1,
-        evidence_records=[*records, procedure],
-    )[0]
+        case_type="INDEPENDENT",
+    )
 
-    assert projected["official_documents"] == [
+    assert evidence_refs == ["evidence-official-procedure"]
+    assert signals == []
+    assert documents == [
         {
             "title": "커피전문점 영업신고 및 사업자등록",
             "source_ref": "https://easylaw.go.kr/coffee-registration",
@@ -301,24 +164,21 @@ def test_projects_accepted_official_documents_and_explicit_gaps() -> None:
             "used_in_candidate": True,
         }
     ]
-    assert projected["official_document_gaps"] == ["계약 전 확인 공식 문서"]
+    assert gaps == ["계약 전 확인 공식 문서"]
 
 
 def test_official_document_search_miss_is_not_fabricated() -> None:
-    calculated = CalculateGateRankStageHandler().execute(calculation_context())[
-        "calculate_gate_rank"
-    ]
-    assert isinstance(calculated, dict)
-
-    projected = project_candidate_results(
-        [calculated["candidates"][0]],
+    evidence_refs, signals, documents, gaps = project_evidence_for_candidate(
+        [],
         project_id="project-1",
-        state_version=1,
-        evidence_records=calculated["evidence_records"],
-    )[0]
+        case_type="FRANCHISE",
+    )
 
-    assert projected["official_documents"] == []
-    assert projected["official_document_gaps"] == [
+    assert evidence_refs == []
+    assert signals == []
+    assert documents == []
+    assert gaps == [
         "창업 절차 공식 문서",
         "계약 전 확인 공식 문서",
+        "정보공개서 공식 문서",
     ]

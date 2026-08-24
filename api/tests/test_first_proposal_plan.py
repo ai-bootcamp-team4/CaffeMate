@@ -1,97 +1,28 @@
-import pytest
+"""사용자는 한 번의 분석 요청으로 결과를 받아야 하며 13단계 제어부를 보지 않는다."""
 
-from app.domain.models import CafeTypePreference
+from inspect import signature
+
 from app.workflows.first_proposal import (
     FirstProposalStage,
-    compile_first_proposal_plan,
     stage_input_digest,
 )
 from app.workflows.models import HeadFence
+from app.workflows.selective_start import start_selective_first_proposal
 
 
-@pytest.mark.parametrize(
-    ("preference", "included", "excluded"),
-    [
-        (
-            CafeTypePreference.OPEN_TO_BOTH,
-            {
-                FirstProposalStage.PROPOSE_INDEPENDENT,
-                FirstProposalStage.PROPOSE_FRANCHISE,
-            },
-            set(),
-        ),
-        (
-            CafeTypePreference.INDEPENDENT_ONLY,
-            {FirstProposalStage.PROPOSE_INDEPENDENT},
-            {FirstProposalStage.PROPOSE_FRANCHISE},
-        ),
-        (
-            CafeTypePreference.FRANCHISE_ONLY,
-            {FirstProposalStage.PROPOSE_FRANCHISE},
-            {FirstProposalStage.PROPOSE_INDEPENDENT},
-        ),
-    ],
-)
-def test_plan_selects_only_requested_proposal_branches(
-    preference: CafeTypePreference,
-    included: set[FirstProposalStage],
-    excluded: set[FirstProposalStage],
-) -> None:
-    plan = compile_first_proposal_plan(preference)
-    codes = {stage.code for stage in plan}
-
-    assert included <= codes
-    assert not (excluded & codes)
-    assert plan[0].code == FirstProposalStage.AREA_RESOLUTION
-    assert plan[-1].code == FirstProposalStage.COMMIT_RESULT
+def test_first_proposal_has_one_execution_unit() -> None:
+    assert list(FirstProposalStage) == [FirstProposalStage.RUN_PROPOSAL]
 
 
-@pytest.mark.parametrize("preference", list(CafeTypePreference))
-def test_plan_is_topological_and_join_depends_on_every_included_proposal(
-    preference: CafeTypePreference,
-) -> None:
-    plan = compile_first_proposal_plan(preference)
-    seen: set[FirstProposalStage] = set()
-
-    for stage in plan:
-        assert stage.code not in seen
-        assert set(stage.dependencies) <= seen
-        seen.add(stage.code)
-
-    join = next(
-        stage for stage in plan if stage.code == FirstProposalStage.CALCULATE_GATE_RANK
+def test_single_execution_contract_has_no_stage_selection_or_dependencies() -> None:
+    assert "dependencies" not in signature(stage_input_digest).parameters
+    assert (
+        "affected_stage_codes"
+        not in signature(start_selective_first_proposal).parameters
     )
-    expected = {
-        stage
-        for stage in (
-            FirstProposalStage.PROPOSE_INDEPENDENT,
-            FirstProposalStage.PROPOSE_FRANCHISE,
-        )
-        if stage in seen
-    }
-    assert set(join.dependencies) == expected
 
 
-@pytest.mark.parametrize(
-    "stage_code",
-    [
-        FirstProposalStage.INDEPENDENT_SEED,
-        FirstProposalStage.FRANCHISE_ELIGIBILITY,
-    ],
-)
-def test_candidate_input_branches_pin_area_and_frozen_evidence(
-    stage_code: FirstProposalStage,
-) -> None:
-    plan = compile_first_proposal_plan(CafeTypePreference.OPEN_TO_BOTH)
-    stage = next(value for value in plan if value.code == stage_code)
-
-    assert set(stage.dependencies) == {
-        FirstProposalStage.AREA_RESOLUTION,
-        FirstProposalStage.EVIDENCE_FREEZE,
-    }
-
-
-def test_stage_input_digest_is_independent_of_dependency_query_order() -> None:
+def test_single_stage_digest_is_stable() -> None:
     head = HeadFence(
         workflow_generation=2,
         state_version=3,
@@ -102,28 +33,16 @@ def test_stage_input_digest_is_independent_of_dependency_query_order() -> None:
         index_generation_id=None,
         seed_registry_id="seeds-1",
     )
-    independent = {
-        "stage_code": "PROPOSE_INDEPENDENT",
-        "input_digest": "independent-digest",
-        "result": {"candidate_proposals": []},
-    }
-    franchise = {
-        "stage_code": "PROPOSE_FRANCHISE",
-        "input_digest": "franchise-digest",
-        "result": {"candidate_proposals": []},
-    }
 
-    digest_from_plan_order = stage_input_digest(
+    first = stage_input_digest(
         workflow_run_id="workflow-2",
-        stage_code=FirstProposalStage.CALCULATE_GATE_RANK,
+        stage_code=FirstProposalStage.RUN_PROPOSAL,
         head=head,
-        dependencies=(independent, franchise),
     )
-    digest_from_database_order = stage_input_digest(
+    second = stage_input_digest(
         workflow_run_id="workflow-2",
-        stage_code=FirstProposalStage.CALCULATE_GATE_RANK,
+        stage_code=FirstProposalStage.RUN_PROPOSAL,
         head=head,
-        dependencies=(franchise, independent),
     )
 
-    assert digest_from_plan_order == digest_from_database_order
+    assert first == second

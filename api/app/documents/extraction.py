@@ -1,3 +1,5 @@
+"""사용자가 확정한 문서 값은 상태에 반영한 뒤 제안을 한 번 다시 계산한다."""
+
 import hashlib
 import json
 from collections.abc import Callable
@@ -739,7 +741,6 @@ class DocumentExtractionService:
                 user_id=user_id,
                 state=next_state,
                 source_workflow_run_id=row["source_workflow_run_id"],
-                affected_stage_codes=["CALCULATE_GATE_RANK"],
                 previous_head=previous_head,
                 now=occurred_at,
                 new_id=self._new_id,

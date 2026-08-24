@@ -1,3 +1,5 @@
+"""운영 검증은 단일 제안 실행과 현재 결과를 한 번 읽어 확인해야 한다."""
+
 from datetime import UTC, datetime
 
 import pytest
@@ -5,7 +7,7 @@ import pytest
 from app.domain.models import CafeTypePreference, CoverageProfile, Project
 from app.results.models import AuditStatus, ResultFreshness, ResultView
 from app.verification.first_proposal import FirstProposalCanary, FirstProposalCanaryError
-from app.workflows.first_proposal import compile_first_proposal_plan
+from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import (
     HeadFence,
     StageStatus,
@@ -53,7 +55,6 @@ class FakeProjects:
 class FakeWorkflows:
     def __init__(self, progress: WorkflowProgress) -> None:
         self.progress = progress
-        self.cancelled = False
 
     def start(self, **kwargs: object) -> WorkflowRun:
         assert kwargs["workflow_code"] == WorkflowCode.FIRST_PROPOSAL
@@ -62,11 +63,6 @@ class FakeWorkflows:
     def get_progress(self, **kwargs: object) -> WorkflowProgress:
         del kwargs
         return self.progress
-
-    def cancel(self, **kwargs: object) -> WorkflowRun:
-        del kwargs
-        self.cancelled = True
-        return workflow_run(WorkflowStatus.CANCELLED)
 
 
 class FakeResults:
@@ -84,17 +80,6 @@ class FakeCleaner:
 
     def cleanup(self, *, project_id: str, user_id: str) -> None:
         self.calls.append((project_id, user_id))
-
-
-class Clock:
-    def __init__(self) -> None:
-        self.value = 0.0
-
-    def now(self) -> float:
-        return self.value
-
-    def wait(self, seconds: float) -> None:
-        self.value += seconds
 
 
 def workflow_run(status: WorkflowStatus) -> WorkflowRun:
@@ -115,21 +100,17 @@ def progress(
     *,
     cafe_type_preference: CafeTypePreference = CafeTypePreference.OPEN_TO_BOTH,
 ) -> WorkflowProgress:
+    del cafe_type_preference
     stages = [
         WorkflowStageProgress(
-            stage_run_id=f"stage-{index}",
-            stage_code=stage.code.value,
+            stage_run_id="stage-1",
+            stage_code=FirstProposalStage.RUN_PROPOSAL.value,
             status=(
-                StageStatus.SUCCEEDED
-                if status == WorkflowStatus.SUCCEEDED
-                else StageStatus.READY
+                StageStatus.SUCCEEDED if status == WorkflowStatus.SUCCEEDED else StageStatus.READY
             ),
             attempt=1 if status == WorkflowStatus.SUCCEEDED else 0,
             updated_at=INSTANT,
             completed_at=INSTANT if status == WorkflowStatus.SUCCEEDED else None,
-        )
-        for index, stage in enumerate(
-            compile_first_proposal_plan(cafe_type_preference), start=1
         )
     ]
     return WorkflowProgress(
@@ -236,7 +217,7 @@ def result() -> ResultView:
     )
 
 
-def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() -> None:
+def test_canary_requires_single_execution_and_current_result_then_cleans() -> None:
     projects = FakeProjects()
     workflows = FakeWorkflows(progress(WorkflowStatus.SUCCEEDED))
     cleaner = FakeCleaner()
@@ -247,13 +228,13 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
         results=FakeResults(result()),
         cleaner=cleaner,
         new_id=lambda: "probe",
-    ).run(timeout_seconds=10, poll_interval_seconds=1)
+    ).run()
 
     assert report.as_dict() == {
         "status": "verified",
         "requested_cafe_type_preference": "OPEN_TO_BOTH",
         "workflow_status": "SUCCEEDED",
-        "stage_count": 13,
+        "stage_count": 1,
         "max_stage_attempt": 1,
         "elapsed_ms": 0,
         "candidate_count": 2,
@@ -326,16 +307,13 @@ def test_canary_requires_all_thirteen_stages_and_current_result_then_cleans() ->
     assert projects.area.coverage_profile == CoverageProfile.R2_REGIONAL_CONNECTOR
     assert projects.area.source_revision == "MOIS_LEGAL_DONG_20260301"
     assert cleaner.calls == [("canary-project", "first-proposal-canary-probe")]
-    assert not workflows.cancelled
 
 
 def test_franchise_only_canary_requires_a_ranked_verified_real_brand() -> None:
     franchise_only = result()
     franchise_only.candidates = franchise_only.candidates[1:]
     franchise_only.primary_candidate_id = "candidate-2"
-    franchise_only.candidates[0]["market_signals"] = result().candidates[0][
-        "market_signals"
-    ]
+    franchise_only.candidates[0]["market_signals"] = result().candidates[0]["market_signals"]
     projects = FakeProjects()
 
     report = FirstProposalCanary(
@@ -350,13 +328,11 @@ def test_franchise_only_canary_requires_a_ranked_verified_real_brand() -> None:
         cleaner=FakeCleaner(),
         new_id=lambda: "franchise-only",
     ).run(
-        timeout_seconds=10,
-        poll_interval_seconds=1,
         cafe_type_preference=CafeTypePreference.FRANCHISE_ONLY,
     )
 
     assert projects.founder.cafe_type_preference == CafeTypePreference.FRANCHISE_ONLY
-    assert report.stage_count == 11
+    assert report.stage_count == 1
     assert report.candidate_case_types == ("FRANCHISE",)
     assert report.franchise_candidate_brand_ids == ("kr-ediya-coffee",)
 
@@ -365,9 +341,7 @@ def test_franchise_only_canary_rejects_unverified_brand() -> None:
     franchise_only = result()
     franchise_only.candidates = franchise_only.candidates[1:]
     franchise_only.primary_candidate_id = "candidate-2"
-    franchise_only.candidates[0]["market_signals"] = result().candidates[0][
-        "market_signals"
-    ]
+    franchise_only.candidates[0]["market_signals"] = result().candidates[0]["market_signals"]
     franchise_only.candidates[0]["franchise"]["eligibility"] = "UNVERIFIED"
 
     with pytest.raises(
@@ -386,8 +360,6 @@ def test_franchise_only_canary_rejects_unverified_brand() -> None:
             cleaner=FakeCleaner(),
             new_id=lambda: "unverified-franchise",
         ).run(
-            timeout_seconds=10,
-            poll_interval_seconds=1,
             cafe_type_preference=CafeTypePreference.FRANCHISE_ONLY,
         )
 
@@ -408,16 +380,16 @@ def test_canary_rejects_open_to_both_result_without_franchise_candidate() -> Non
         FirstProposalCanaryError,
         match="CANARY_CANDIDATE_TYPE_INVALID",
     ):
-        canary.run(timeout_seconds=10, poll_interval_seconds=1)
+        canary.run()
 
-    assert cleaner.calls == [
-        ("canary-project", "first-proposal-canary-missing-franchise")
-    ]
+    assert cleaner.calls == [("canary-project", "first-proposal-canary-missing-franchise")]
 
 
-def test_canary_rejects_result_without_required_grounded_market_signals() -> None:
+def test_canary_allows_conditional_result_while_market_evidence_is_pending() -> None:
     ungrounded = result()
     ungrounded.candidates[0]["market_signals"] = []
+    ungrounded.candidates[0]["review_status"] = "CONDITIONAL_REVIEW"
+    ungrounded.candidates[1]["market_signals"] = []
     cleaner = FakeCleaner()
     canary = FirstProposalCanary(
         projects=FakeProjects(),
@@ -427,18 +399,34 @@ def test_canary_rejects_result_without_required_grounded_market_signals() -> Non
         new_id=lambda: "ungrounded",
     )
 
+    report = canary.run()
+
+    assert report.market_signals == ()
+    assert cleaner.calls == [("canary-project", "first-proposal-canary-ungrounded")]
+
+
+def test_canary_rejects_recommended_candidate_without_grounded_evidence() -> None:
+    ungrounded = result()
+    ungrounded.candidates[0]["market_signals"] = []
+    ungrounded.candidates[0]["evidence_refs"] = []
+    ungrounded.candidates[0]["review_status"] = "REVIEW_RECOMMENDED"
+
     with pytest.raises(
         FirstProposalCanaryError,
-        match="CANARY_GROUNDED_MARKET_SIGNALS_MISSING",
+        match="CANARY_UNGROUNDED_RECOMMENDATION",
     ):
-        canary.run(timeout_seconds=10, poll_interval_seconds=1)
-
-    assert cleaner.calls == [("canary-project", "first-proposal-canary-ungrounded")]
+        FirstProposalCanary(
+            projects=FakeProjects(),
+            workflows=FakeWorkflows(progress(WorkflowStatus.SUCCEEDED)),
+            results=FakeResults(ungrounded),
+            cleaner=FakeCleaner(),
+            new_id=lambda: "unsafe-recommendation",
+        ).run()
 
 
 def test_canary_rejects_hidden_stage_retry_and_still_cleans() -> None:
     retried = progress(WorkflowStatus.SUCCEEDED)
-    retried.stages[2] = retried.stages[2].model_copy(update={"attempt": 2})
+    retried.stages[0] = retried.stages[0].model_copy(update={"attempt": 2})
     cleaner = FakeCleaner()
     canary = FirstProposalCanary(
         projects=FakeProjects(),
@@ -449,7 +437,7 @@ def test_canary_rejects_hidden_stage_retry_and_still_cleans() -> None:
     )
 
     with pytest.raises(FirstProposalCanaryError, match="CANARY_STAGE_RETRIED"):
-        canary.run(timeout_seconds=10, poll_interval_seconds=1)
+        canary.run()
 
     assert cleaner.calls == [("canary-project", "first-proposal-canary-retried")]
 
@@ -466,14 +454,12 @@ def test_canary_fails_closed_on_partial_terminal_and_still_cleans() -> None:
     )
 
     with pytest.raises(FirstProposalCanaryError, match="CANARY_WORKFLOW_NOT_SUCCEEDED"):
-        canary.run(timeout_seconds=10, poll_interval_seconds=1)
+        canary.run()
 
     assert cleaner.calls == [("canary-project", "first-proposal-canary-partial")]
-    assert not workflows.cancelled
 
 
-def test_canary_cancels_active_workflow_before_timeout_cleanup() -> None:
-    clock = Clock()
+def test_canary_rejects_active_workflow_immediately_and_cleans() -> None:
     workflows = FakeWorkflows(progress(WorkflowStatus.RUNNING))
     cleaner = FakeCleaner()
     canary = FirstProposalCanary(
@@ -481,13 +467,10 @@ def test_canary_cancels_active_workflow_before_timeout_cleanup() -> None:
         workflows=workflows,
         results=FakeResults(result()),
         cleaner=cleaner,
-        now=clock.now,
-        wait=clock.wait,
-        new_id=lambda: "timeout",
+        new_id=lambda: "still-running",
     )
 
-    with pytest.raises(FirstProposalCanaryError, match="CANARY_TIMED_OUT"):
-        canary.run(timeout_seconds=1, poll_interval_seconds=1)
+    with pytest.raises(FirstProposalCanaryError, match="CANARY_WORKFLOW_NOT_SUCCEEDED"):
+        canary.run()
 
-    assert workflows.cancelled
-    assert cleaner.calls == [("canary-project", "first-proposal-canary-timeout")]
+    assert cleaner.calls == [("canary-project", "first-proposal-canary-still-running")]

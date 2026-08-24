@@ -30,8 +30,7 @@ image 입력이 바뀐 경우에만 migration, API와 Worker 배포를 실행한
 3. `caffemate-migrate` Cloud Run job
 4. API·Worker·migration별 runtime service account
 5. Cloud SQL, database와 Secret Manager secret
-6. `WORKFLOW_STAGE_READY` Pub/Sub topic과 authenticated push subscription
-7. outbox drain endpoint를 호출할 authenticated Cloud Scheduler job
+6. Agent Runtime session cleanup endpoint를 호출할 authenticated Cloud Scheduler job
 
 첫 번째 기반 리소스 묶음은 저장소의 idempotent bootstrap으로 생성한다. 이 명령은
 `caffemate-*` 이름의 Artifact Registry, 전용 service account와 Secret Manager 항목만
@@ -83,7 +82,8 @@ digest-pinned image·source revision 설정을 모두 read-back해야 한다.
 
 API와 Worker runtime은 migration이 검증된 같은 digest를 사용한다. API만 Cloud Run IAM에서
 공개 호출을 허용하고 모든 업무 endpoint는 Firebase ID token을 다시 검사한다. Worker는 internal
-ingress를 유지하며 Pub/Sub push, Scheduler와 Worker identity만 invoker다.
+ingress를 유지하며 Scheduler와 Worker identity만 invoker다. 사용자 제안은 Control API가 한
+transaction에서 동기 실행하므로 Worker, Pub/Sub 또는 Outbox를 거치지 않는다.
 
 Agent Runtime release는 임의의 로컬 작업 트리를 배포하지 않는다. 요청한 full commit SHA가
 깨끗한 현재 checkout 및 `origin/main`과 일치해야 한다. Cloud Build는 로컬 업로드를 빌드하지
@@ -159,8 +159,8 @@ Cloud Run Job으로 한 ephemeral stream 안의 실제 session 생성, Agent 실
 실행해 RAG corpus/file, embedding, retrieval, reranker, generation model과 pinned Runtime을 함께
 검사한다. 단순 resource 조회는 실행 가능성의 증거로 취급하지 않는다.
 
-Worker ingress는 `internal`이다. 같은 project의 Pub/Sub subscription과 Cloud Scheduler는
-default `run.app` URL로 내부 호출할 수 있다. 각 호출 identity에는 Worker service의
+Worker ingress는 `internal`이다. 같은 project의 Cloud Scheduler는 default `run.app` URL로
+Agent session cleanup을 호출한다. Scheduler identity에는 Worker service의
 `roles/run.invoker`만 부여한다. Worker를 public invoker로 열지 않는다.
 
 ## Preserved runtime configuration
@@ -177,7 +177,7 @@ bootstrap 시 기존 service와 migration job에 설정하고 배포 전후 read
 - API의 Secret Manager 기반 `AGENT_RUNTIME_USER_HMAC_SECRET`
 - API의 `MCP_BASE_URL`, `MCP_AUDIENCE`
 - API와 MCP에만 주입하는 Secret Manager 기반 `MCP_SCOPE_HMAC_SECRET`
-- Worker의 `PUBSUB_SUBSCRIPTION`, `WORKFLOW_STAGE_TOPIC_RESOURCE`
+- Worker의 `WORKER_ID`, `AGENT_RUNTIME_PROJECT_ID`, `AGENT_RUNTIME_RESOURCE_ID`
 - API·Worker의 regional `DOCUMENT_BUCKET`과 API의
   `DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL`
 
@@ -194,7 +194,8 @@ Migration job은 API 시작 명령을 사용하지 않고 `caffemate-api migrate
 4. API `/health`가 외부 요청에서 HTTP 200이고 Worker `/health`가 외부 요청을 거절함
 5. API 업무 endpoint의 무인증 요청이 거절됨
 6. Worker 업무 endpoint가 internet과 권한 없는 identity에서 거절됨
-7. test Workflow outbox가 `PUBLISHED`가 되고 Pub/Sub push 뒤 stage event가 이어짐
+7. 단일 `RUN_PROPOSAL` 실행이 `SUCCEEDED` 결과를 만들고 Agent session cleanup Scheduler가
+   Worker 내부 endpoint에서 HTTP 200을 반환함
 8. Control API identity로 Agent Runtime ephemeral stream의 session 생성·실행·typed final 검증·삭제 성공
 9. regional document bucket의 public access prevention·CORS·최소 권한 IAM read-back과,
    signed upload → object 검증 → scan 결과 → parser 결과 → 실제 `DOCUMENT_EXTRACT` Agent →

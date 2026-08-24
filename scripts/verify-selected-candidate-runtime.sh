@@ -96,7 +96,7 @@ configure_job() {
     --set-env-vars="INSTANCE_CONNECTION_NAME=${configured_instance},DB_USER=${configured_db_user},DB_NAME=${configured_db_name},CLOUD_SQL_IP_TYPE=${configured_db_ip_type},MCP_BASE_URL=${configured_mcp_url},MCP_AUDIENCE=${configured_mcp_audience},CAFFEMATE_POLICY_SNAPSHOT_ID=${configured_policy}" \
     --set-secrets='DB_PASS=caffemate-db-password:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
     --command=caffemate-api \
-    --args='verify-selected-candidate,--timeout-seconds=1200,--poll-interval-seconds=3' \
+    --args='verify-selected-candidate' \
     --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=45m \
     --cpu=1 --memory=512Mi \
     --labels="source-revision=${source_revision},managed-by=caffemate-verify" \
