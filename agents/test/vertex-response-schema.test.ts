@@ -301,6 +301,15 @@ describe('Vertex role response schema projection', () => {
     expect(proposal?.properties?.evidence_refs.maxItems).toBe(0)
     expect(proposal?.properties?.assumption_refs.maxItems).toBe(1)
     expect(proposal?.properties?.assumption_refs.items?.type).toBe('string')
+    expect(proposal?.properties?.fit_assessments.minItems).toBe(5)
+    expect(proposal?.properties?.fit_assessments.maxItems).toBe(5)
+    expect(proposal?.properties?.fit_assessments.items?.properties?.axis.enum).toEqual([
+      'CAPITAL_FIT',
+      'OPERATING_FIT',
+      'USER_PREFERENCE_FIT',
+      'AREA_FIT',
+      'EVIDENCE_COMPLETENESS',
+    ])
     expect(responseSchema.properties?.evidence_refs.maxItems).toBe(0)
     expect(responseSchema.properties?.missing_claim_ids.maxItems).toBe(0)
   })

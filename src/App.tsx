@@ -986,8 +986,17 @@ function FeedbackPanel({
 }) {
   const [draft, setDraft] = useState("");
   const [preview, setPreview] = useState<FeedbackPreview | null>(null);
-  const [status, setStatus] = useState("바꾸고 싶은 조건을 입력해 주세요.");
-  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState(
+    "예: 저가 브랜드는 제외하고 10평 이하로 다시 보고 싶어요.",
+  );
+  const [statusTone, setStatusTone] = useState<
+    "idle" | "loading" | "error" | "success"
+  >("idle");
+  const [inputInvalid, setInputInvalid] = useState(false);
+  const [busyAction, setBusyAction] = useState<
+    "preview" | "cancel" | "confirm" | null
+  >(null);
+  const busy = busyAction !== null;
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -1002,45 +1011,66 @@ function FeedbackPanel({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!draft.trim()) {
-      setStatus("피드백이 비어 있습니다.");
+      setStatus("바꾸고 싶은 조건을 한 문장 이상 입력해 주세요.");
+      setStatusTone("error");
+      setInputInvalid(true);
       inputRef.current?.focus();
       return;
     }
-    setBusy(true);
+    setInputInvalid(false);
+    setBusyAction("preview");
+    setStatus("변경안 미리보기를 만들고 있습니다.");
+    setStatusTone("loading");
     try {
       const next = await client.createFeedbackPreview(projectId, draft.trim());
       setPreview(next);
       setStatus(
         next.status === "CLARIFICATION_REQUIRED"
-          ? "추가 설명이 필요합니다."
+          ? "질문을 확인한 뒤 입력 내용을 더 구체적으로 적어 주세요."
           : next.status === "REVIEW_REQUIRED"
-            ? "적용 전 변경안을 확인해 주세요."
+            ? "변경안 미리보기를 만들었습니다. 적용 전 내용을 확인해 주세요."
             : `변경안 상태: ${internalLabel(next.status)}`,
+      );
+      setStatusTone(
+        next.status === "REVIEW_REQUIRED" ? "success" : "idle",
       );
     } catch (error) {
       setStatus(userError(error, "변경안을 만들지 못했습니다."));
+      setStatusTone("error");
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
   const cancel = async () => {
     if (!preview) return;
-    setBusy(true);
+    const needsRevision = preview.status !== "REVIEW_REQUIRED";
+    setBusyAction("cancel");
+    setStatus("변경안을 닫고 입력 화면으로 돌아가고 있습니다.");
+    setStatusTone("loading");
     try {
       await client.cancelFeedback(projectId, preview.preview_id);
       setPreview(null);
-      setStatus("변경안을 취소했습니다. 현재 결과는 바뀌지 않았습니다.");
+      setStatus(
+        needsRevision
+          ? "입력을 수정할 수 있습니다. 현재 결과는 바뀌지 않았습니다."
+          : "변경안을 취소했습니다. 현재 결과는 바뀌지 않았습니다.",
+      );
+      setStatusTone("idle");
+      window.setTimeout(() => inputRef.current?.focus(), 0);
     } catch (error) {
       setStatus(userError(error, "변경안을 취소하지 못했습니다."));
+      setStatusTone("error");
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
   const confirm = async () => {
     if (!preview?.proposal_digest) return;
-    setBusy(true);
+    setBusyAction("confirm");
+    setStatus("확인한 변경안을 반영하고 결과를 다시 계산하고 있습니다.");
+    setStatusTone("loading");
     try {
       const resolution = await client.confirmFeedback(projectId, preview);
       if (resolution.workflow) {
@@ -1062,10 +1092,12 @@ function FeedbackPanel({
       setDraft("");
       setPreview(null);
       setStatus("확인한 변경안을 반영하고 결과를 갱신했습니다.");
+      setStatusTone("success");
     } catch (error) {
       setStatus(userError(error, "변경안을 반영하지 못했습니다."));
+      setStatusTone("error");
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
@@ -1083,28 +1115,55 @@ function FeedbackPanel({
       aria-labelledby="feedbackTitle"
     >
       <div className="feedback-panel__head">
-        <Badge tone="accent">결과 생성 후 사용</Badge>
-        <h2 id="feedbackTitle">결과 피드백</h2>
-        <p>확인 전에는 권위 상태와 결과가 바뀌지 않습니다.</p>
+        <Badge tone="accent">변경 전 확인 필수</Badge>
+        <h2 id="feedbackTitle">조건 변경 제안</h2>
+        <p>
+          바꾸고 싶은 조건을 문장으로 적어 주세요. 변경안을 먼저 보여드리고,
+          확인한 뒤에만 결과에 반영해요.
+        </p>
       </div>
       <form className="feedback-form" onSubmit={submit}>
-        <div className="field">
-          <label htmlFor="feedbackInput">자연어 피드백</label>
+        <div
+          className="field"
+          data-state={
+            busyAction === "preview"
+              ? "loading"
+              : inputInvalid
+                ? "error"
+                : statusTone === "success"
+                  ? "success"
+                  : undefined
+          }
+        >
+          <label htmlFor="feedbackInput">바꾸고 싶은 조건</label>
           <div className="feedback-compose">
             <textarea
               id="feedbackInput"
               ref={inputRef}
               value={draft}
               disabled={busy || preview !== null}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="예: 저가 브랜드는 빼고 10평 이하로 보고 싶어"
+              aria-busy={busyAction === "preview" || undefined}
+              aria-describedby="feedbackStatus"
+              aria-invalid={inputInvalid || undefined}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                if (inputInvalid) {
+                  setInputInvalid(false);
+                  setStatus("입력한 조건으로 변경안 미리보기를 만들 수 있습니다.");
+                  setStatusTone("idle");
+                }
+              }}
+              placeholder="저가 브랜드는 제외하고 10평 이하로 보고 싶어요."
             />
             <button
               className="btn btn--primary"
               disabled={busy || preview !== null}
+              aria-busy={busyAction === "preview" || undefined}
               type="submit"
             >
-              {busy ? "처리 중" : "제안 만들기"}
+              {busyAction === "preview"
+                ? "미리보기 만드는 중"
+                : "변경안 미리보기"}
             </button>
           </div>
         </div>
@@ -1144,10 +1203,15 @@ function FeedbackPanel({
             <button
               className="btn"
               disabled={busy}
+              aria-busy={busyAction === "cancel" || undefined}
               type="button"
               onClick={cancel}
             >
-              제안 취소
+              {busyAction === "cancel"
+                ? "돌아가는 중"
+                : preview.status === "REVIEW_REQUIRED"
+                  ? "변경안 취소"
+                  : "입력 다시 하기"}
             </button>
             <button
               className="btn btn--primary"
@@ -1156,15 +1220,21 @@ function FeedbackPanel({
                 preview.status !== "REVIEW_REQUIRED" ||
                 !preview.proposal_digest
               }
+              aria-busy={busyAction === "confirm" || undefined}
               type="button"
               onClick={confirm}
             >
-              {busy ? "변경 적용 중" : "변경 적용"}
+              {busyAction === "confirm" ? "변경 적용 중" : "변경 적용"}
             </button>
           </div>
         </section>
       )}
-      <p className="feedback-status" aria-live="polite">
+      <p
+        className="feedback-status"
+        id="feedbackStatus"
+        data-tone={statusTone === "idle" ? undefined : statusTone}
+        aria-live="polite"
+      >
         {status}
       </p>
       <p className="feedback-note">

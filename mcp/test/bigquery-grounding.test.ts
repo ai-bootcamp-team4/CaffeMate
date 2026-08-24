@@ -125,6 +125,36 @@ describe('BigQuery grounding connectors', () => {
         { metric: 'CLOSURE_RATE', value: { kind: 'DECIMAL', value: 8.219 }, unit: 'PERCENT_DERIVED' },
         { metric: 'ESTIMATED_SALES', value: { kind: 'INTEGER', value: 1234567890 }, unit: 'KRW_PER_QUARTER_ESTIMATE' },
       ],
+      evidence_records: [
+        expect.objectContaining({
+          project_id: 'venture-1',
+          claim_type: 'AREA_CAFE_COMPETITION',
+          metric: 'CAFE_COUNT',
+          value: { kind: 'INTEGER', value: 73 },
+          value_kind: 'EVIDENCED_FACT',
+          unit: 'STORES',
+          geographic_scope: {
+            scope_type: 'ADMINISTRATIVE_AREA',
+            scope_id: '1144012300',
+            boundary_version: 'MOIS_LEGAL_DONG_20260301',
+          },
+          freshness_status: 'FRESH',
+          conflict_status: 'NONE',
+        }),
+        expect.objectContaining({
+          claim_type: 'AREA_BUSINESS_CHURN',
+          metric: 'CLOSE_COUNT',
+        }),
+        expect.objectContaining({
+          claim_type: 'AREA_BUSINESS_CHURN',
+          metric: 'CLOSURE_RATE',
+          value_kind: 'DERIVED_RESULT',
+        }),
+        expect.objectContaining({
+          claim_type: 'AREA_DEMAND_SIGNALS',
+          metric: 'ESTIMATED_SALES',
+        }),
+      ],
     })
     const data = result.data as Array<Record<string, unknown>>
     expect(data.every((row) => String(row.evidence_id).includes('5b206b15c98303940cebfbfa'))).toBe(true)

@@ -47,7 +47,7 @@ describe('local model-backed Agent executors', () => {
     expect(invocation.maxOutputTokens).toBe(4096)
     expect(invocation.outputSchemaId).toBe('caffemate.agent.independent-proposal-result.v1')
     expect(invocation.systemInstruction).toContain(PROMPTS['common-system.v1'])
-    expect(invocation.systemInstruction).toContain(PROMPTS['proposal-agent.v2'])
+    expect(invocation.systemInstruction).toContain(PROMPTS['proposal-agent.v3'])
     expect(invocation.systemInstruction).not.toContain(PROMPTS['repair.v1'])
     expect('tools' in invocation).toBe(false)
     expect('temperature' in invocation).toBe(false)

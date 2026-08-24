@@ -117,6 +117,76 @@ def test_builder_keeps_registered_assumptions_distinct_from_evidence() -> None:
     assert all(candidate["assumption_refs"] for candidate in result.candidates)
 
 
+def test_builder_preserves_matching_independent_agent_advice() -> None:
+    registry = IndependentSeedRegistry.load_default()
+    seed = registry.select(_state(CafeTypePreference.INDEPENDENT_ONLY).founder)[0]
+    support_ref = seed.support_refs[0]
+    assessments = [
+        {
+            "axis": axis,
+            "signal": "UNKNOWN",
+            "summary": f"{axis} 검토 결과입니다.",
+            "input_field_refs": [],
+            "claim_refs": [],
+            "evidence_refs": [],
+            "assumption_refs": [support_ref],
+            "missing_context": ["실제 점포 자료"],
+        }
+        for axis in (
+            "CAPITAL_FIT",
+            "OPERATING_FIT",
+            "USER_PREFERENCE_FIT",
+            "AREA_FIT",
+            "EVIDENCE_COMPLETENESS",
+        )
+    ]
+
+    result = SimpleProposalBuilder(registry).build(
+        state=_state(CafeTypePreference.INDEPENDENT_ONLY),
+        evidence_records=[],
+        agent_proposals=[
+            {
+                "proposal_id": f"proposal:{seed.model_id}",
+                "case_type": "INDEPENDENT",
+                "display_name": seed.display_name,
+                "seed_or_brand_id": seed.model_id,
+                "adjusted_parameters": [
+                    {
+                        "field_path": "operations.seats",
+                        "value": {"kind": "INTEGER", "value": 6},
+                        "unit": "seat",
+                        "support_refs": [support_ref],
+                    }
+                ],
+                "claim_refs": [],
+                "evidence_refs": [],
+                "assumption_refs": seed.support_refs,
+                "fit_assessments": assessments,
+                "missing_fields": [],
+                "warnings": [],
+            }
+        ],
+    )
+
+    assert len(result.candidates) == 1
+    assert result.candidates[0]["agent_advisory"] == {
+        "fit_assessments": assessments,
+        "adjusted_parameters": [
+            {
+                "field_path": "operations.seats",
+                "value": {"kind": "INTEGER", "value": 6},
+                "unit": "seat",
+                "support_refs": [support_ref],
+            }
+        ],
+        "missing_fields": [],
+        "warnings": [],
+    }
+    assert result.candidates[0]["independent_model"]["adjusted_fields"] == [
+        "operations.seats"
+    ]
+
+
 def test_builder_replaces_selected_model_property_costs_with_user_input() -> None:
     builder = SimpleProposalBuilder(IndependentSeedRegistry.load_default())
     state = _state(CafeTypePreference.INDEPENDENT_ONLY)

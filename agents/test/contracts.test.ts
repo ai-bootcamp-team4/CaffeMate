@@ -48,4 +48,17 @@ describe('agent contract fixtures', () => {
     expect(validation.ok).toBe(false)
     expect(validation.errors.length).toBeGreaterThan(0)
   })
+
+  it('rejects numeric fit scores from Proposal Agent output', () => {
+    const fixture = structuredClone(fixtureMatrix.cases.find(
+      (item) => item.task.task_type === 'PROPOSE_INDEPENDENT' && item.result.status === 'COMPLETE',
+    ))
+    if (!fixture) throw new Error('missing PROPOSE_INDEPENDENT fixture')
+    const payload = fixture.result.payload as {
+      candidate_proposals: Array<{ fit_assessments: Array<Record<string, unknown>> }>
+    }
+    payload.candidate_proposals[0].fit_assessments[0].score = 80
+
+    expect(validateAgentTaskResult(fixture.result as AgentTaskResult).ok).toBe(false)
+  })
 })

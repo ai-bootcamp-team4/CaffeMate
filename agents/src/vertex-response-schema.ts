@@ -572,9 +572,16 @@ function proposalSource(task: AgentTask): JsonObject {
 function proposalEvidenceIds(task: AgentTask): string[] {
   const payload = asObject(task.payload)
   const records = payload && Array.isArray(payload.evidence_records) ? payload.evidence_records : []
-  return records
+  const evidenceIds = records
     .map((record) => asObject(record)?.evidence_id)
     .filter((value): value is string => typeof value === 'string')
+  if (task.task_type === 'PROPOSE_FRANCHISE') {
+    const source = proposalSource(task)
+    if (Array.isArray(source.evidence_refs)) {
+      evidenceIds.push(...source.evidence_refs.filter((value): value is string => typeof value === 'string'))
+    }
+  }
+  return [...new Set(evidenceIds)]
 }
 
 function boundedStringArray(schema: JsonObject, values: readonly string[]): void {
@@ -606,7 +613,15 @@ function applyProposalBounds(projected: JsonObject, task: AgentTask): void {
   const evidenceRefs = asObject(proposalProperties.evidence_refs)
   const assumptionRefs = asObject(proposalProperties.assumption_refs)
   const claimRefs = asObject(proposalProperties.claim_refs)
-  if (!evidenceRefs || !assumptionRefs || !claimRefs) {
+  const fitAssessments = asObject(proposalProperties.fit_assessments)
+  const defs = asObject(agentRolePayloadsSchema.$defs)
+  const fitAssessmentDefinition = defs ? asObject(defs.candidateFitAssessment) : null
+  if (fitAssessments && fitAssessmentDefinition) {
+    fitAssessments.items = projectSchema(fitAssessmentDefinition, ROLE_SCHEMA_FILE, 0, new Set())
+  }
+  const fitAssessment = fitAssessments ? asObject(fitAssessments.items) : null
+  const fitProperties = fitAssessment ? asObject(fitAssessment.properties) : null
+  if (!evidenceRefs || !assumptionRefs || !claimRefs || !fitAssessments || !fitProperties) {
     throw new Error('VERTEX_PROPOSAL_REFERENCE_SCHEMA_UNRESOLVED')
   }
   const evidenceIds = proposalEvidenceIds(task)
@@ -621,6 +636,28 @@ function applyProposalBounds(projected: JsonObject, task: AgentTask): void {
     ? payload.claim_id_pool.filter((value): value is string => typeof value === 'string')
     : []
   boundedStringArray(claimRefs, claimIds)
+
+  fitAssessments.minItems = 5
+  fitAssessments.maxItems = 5
+  fitProperties.axis = {
+    type: 'string',
+    enum: [
+      'CAPITAL_FIT',
+      'OPERATING_FIT',
+      'USER_PREFERENCE_FIT',
+      'AREA_FIT',
+      'EVIDENCE_COMPLETENESS',
+    ],
+  }
+  for (const [propertyName, values] of [
+    ['evidence_refs', evidenceIds],
+    ['assumption_refs', assumptions],
+    ['claim_refs', claimIds],
+  ] as const) {
+    const referenceSchema = asObject(fitProperties[propertyName])
+    if (!referenceSchema) throw new Error(`VERTEX_PROPOSAL_FIT_REFERENCE_SCHEMA_UNRESOLVED: ${propertyName}`)
+    boundedStringArray(referenceSchema, values)
+  }
 }
 
 export function buildVertexRolePayloadSchema(task: AgentTask): JsonObject {

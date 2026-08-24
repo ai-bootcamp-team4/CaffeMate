@@ -117,6 +117,12 @@ class SimpleProposalBuilder:
     ) -> ResultBundlePayload:
         drafts: list[_CandidateDraft] = []
         preference = state.founder.cafe_type_preference
+        proposals_by_source = {
+            proposal["seed_or_brand_id"]: proposal
+            for proposal in (agent_proposals or [])
+            if isinstance(proposal, dict)
+            and isinstance(proposal.get("seed_or_brand_id"), str)
+        }
         proposed_ids = (
             {
                 proposal["seed_or_brand_id"]
@@ -136,6 +142,7 @@ class SimpleProposalBuilder:
                     seed=seed,
                     evidence_records=evidence_records,
                     property_cost_override=property_cost_override,
+                    agent_proposal=proposals_by_source.get(seed.model_id),
                 )
                 for seed in self._seeds.select(state.founder)
                 if proposed_ids is None or seed.model_id in proposed_ids
@@ -203,6 +210,7 @@ class SimpleProposalBuilder:
         seed: IndependentSeedDefinition,
         evidence_records: list[dict[str, Any]],
         property_cost_override: PropertyCostOverride | None,
+        agent_proposal: dict[str, Any] | None,
     ) -> _CandidateDraft:
         profile = seed.finance_profile
         if profile is None:
@@ -265,8 +273,17 @@ class SimpleProposalBuilder:
         if gate.status == CapitalGateStatus.PASS and not evidence_refs:
             review_status = "CONDITIONAL_REVIEW"
             reason_codes.append("EVIDENCE_CONFIRMATION_REQUIRED")
-        return _CandidateDraft(
-            candidate={
+        adjusted_fields = set(
+            self._property_adjusted_fields(seed.model_id, property_cost_override)
+        )
+        adjusted_fields.update(
+            value["field_path"]
+            for value in (agent_proposal or {}).get("adjusted_parameters", [])
+            if isinstance(value, dict)
+            and isinstance(value.get("field_path"), str)
+            and value["field_path"]
+        )
+        candidate = {
                 "schema_version": "2.0.0",
                 "candidate_id": candidate_id,
                 "project_id": state.project_id,
@@ -282,10 +299,7 @@ class SimpleProposalBuilder:
                 "franchise": None,
                 "independent_model": {
                     "model_id": seed.model_id,
-                    "adjusted_fields": self._property_adjusted_fields(
-                        seed.model_id,
-                        property_cost_override,
-                    ),
+                    "adjusted_fields": sorted(adjusted_fields),
                 },
                 "evidence_refs": evidence_refs,
                 "assumption_refs": assumption_refs,
@@ -309,10 +323,29 @@ class SimpleProposalBuilder:
                 "risks": self._capital_risks(gate.status, evidence_refs),
                 "counterfactuals": self._counterfactuals(gate.minimum_required_reduction_krw),
                 "next_actions": self._next_actions(gate.status),
-            },
+            }
+        advisory = self._agent_advisory(agent_proposal)
+        if advisory is not None:
+            candidate["agent_advisory"] = advisory
+        return _CandidateDraft(
+            candidate=candidate,
             gate_status=gate.status,
             initial_cash_base=int(finance.initial_cash.base or 0),
         )
+
+    @staticmethod
+    def _agent_advisory(proposal: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(proposal, dict):
+            return None
+        fit_assessments = proposal.get("fit_assessments")
+        if not isinstance(fit_assessments, list) or len(fit_assessments) != 5:
+            return None
+        return {
+            "fit_assessments": deepcopy(fit_assessments),
+            "adjusted_parameters": deepcopy(proposal.get("adjusted_parameters", [])),
+            "missing_fields": deepcopy(proposal.get("missing_fields", [])),
+            "warnings": deepcopy(proposal.get("warnings", [])),
+        }
 
     def _franchise_drafts(
         self,

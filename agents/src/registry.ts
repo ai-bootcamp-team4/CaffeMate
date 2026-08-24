@@ -58,7 +58,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
   },
   PROPOSE_INDEPENDENT: {
     agentName: 'PROPOSAL_AGENT',
-    promptVersion: 'proposal-agent.v2',
+    promptVersion: 'proposal-agent.v3',
     inputSchemaId: 'caffemate.agent.independent-proposal-input.v1',
     outputSchemaId: 'caffemate.agent.independent-proposal-result.v1',
     deadlineSeconds: 60,
@@ -67,7 +67,7 @@ export const TASK_REGISTRY: Readonly<Record<TaskType, TaskRegistration>> = Objec
   },
   PROPOSE_FRANCHISE: {
     agentName: 'PROPOSAL_AGENT',
-    promptVersion: 'proposal-agent.v2',
+    promptVersion: 'proposal-agent.v3',
     inputSchemaId: 'caffemate.agent.franchise-proposal-input.v1',
     outputSchemaId: 'caffemate.agent.franchise-proposal-result.v1',
     deadlineSeconds: 60,
