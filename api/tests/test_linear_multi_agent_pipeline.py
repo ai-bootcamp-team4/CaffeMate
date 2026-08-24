@@ -938,7 +938,8 @@ def test_open_to_both_completes_with_production_sized_input_without_llm() -> Non
         for action in evidence_task["payload"]["executed_actions"]
         if action["tool_name"] == "list_franchise_universe"
     )
-    assert len(franchise_action["structured_result"]["evidence_records"]) == 15
+    # Vertex의 구조화 출력 스키마는 이 역할에서 후보 15개부터 요청을 거절한다.
+    assert len(franchise_action["structured_result"]["evidence_records"]) == 14
     assert runtime.task_types == [
         "EVIDENCE_ASSESS",
         "PROPOSE_INDEPENDENT",
@@ -950,6 +951,34 @@ def test_open_to_both_completes_with_production_sized_input_without_llm() -> Non
         "INDEPENDENT",
         "FRANCHISE",
     }
+
+
+def test_evidence_projection_distributes_vertex_capacity_across_sources() -> None:
+    actions = [
+        {
+            "action_id": f"action:{source}",
+            "claim_id": f"claim:{source}",
+            "tool_name": source,
+            "request_id": f"request:{source}",
+            "structured_result": {
+                "evidence_records": [
+                    {"evidence_id": f"{source}:{index}"} for index in range(8)
+                ],
+                "source_trace": [],
+                "data": [],
+            },
+        }
+        for source in ("area", "franchise", "official")
+    ]
+
+    projected = AgentTaskFactory._project_evidence_assess_actions(actions)
+
+    counts = [
+        len(action["structured_result"]["evidence_records"])
+        for action in projected
+    ]
+    assert counts == [5, 5, 4]
+    assert sum(counts) == 14
 
 
 def test_franchise_profile_reaches_agent_and_grounded_calculation_without_static_brand() -> None:
