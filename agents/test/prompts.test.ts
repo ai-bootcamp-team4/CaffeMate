@@ -7,6 +7,7 @@ const rolePrompts = [
   'proposal-agent.v2',
   'proposal-agent.v3',
   'document-analyst.v1',
+  'document-analyst.v2',
   'typed-candidate-auditor.v2',
 ] as const
 
@@ -37,5 +38,13 @@ describe('agent prompts', () => {
     expect(instruction).toContain('value_kind is neither DECLARED_ASSUMPTION nor UNKNOWN')
     expect(instruction).toContain('leave claim_refs and evidence_refs empty')
     expect(instruction).toContain('calculation_version, input_digest, output_digest, or candidate_id')
+  })
+
+  it('constrains document extraction ids and anchors to controller-supplied pools', () => {
+    const instruction = buildSystemInstruction('document-analyst.v2')
+    expect(instruction).toContain('claim_id_pool')
+    expect(instruction).toContain('copy one unused value exactly')
+    expect(instruction).toContain('copy one parser_blocks[].anchor object exactly')
+    expect(instruction).toContain('Do not create, shorten, translate, or reinterpret identifiers or anchors')
   })
 })

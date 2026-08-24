@@ -14,7 +14,7 @@
   },
   "allow_global_fallback": false,
   "network_mode": "GCP_CONNECTED",
-  "prompt_bundle_digest": "sha256:d958a653cd4b398f8fe27d8d61b7bc1cec17f7fde1bd2af5ac7e0c0beb8aa676",
+  "prompt_bundle_digest": "sha256:382d483263e4a2407a9afb79b7f7bd3d72053dc56cd9d0b9cc2e40c3ad42e9cc",
   "agent_contract_bundle_digest": "sha256:8f4a47cd37f65dc664a43fb0ff2f45db9678489c526f0b3c1ccb30b8dc663564",
   "mcp": {
     "protocol_revision": "2026-07-28",
@@ -162,7 +162,7 @@
     },
     "DOCUMENT_EXTRACT": {
       "agent_name": "DOCUMENT_ANALYST",
-      "prompt_version": "document-analyst.v1",
+      "prompt_version": "document-analyst.v2",
       "input_schema_id": "caffemate.agent.document-extract-input.v1",
       "output_schema_id": "caffemate.agent.document-extract-result.v1",
       "deadline_seconds": 60,
