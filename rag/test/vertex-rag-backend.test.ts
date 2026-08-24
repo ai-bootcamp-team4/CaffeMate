@@ -133,6 +133,43 @@ describe('Vertex RAG Engine backend', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
+  it('uses a pinned official file fence without relying on imported user metadata', async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        vertexRagStore: {
+          ragResources: [{
+            ragCorpus: `projects/${PROJECT_ID}/locations/${REGION}/ragCorpora/1234`,
+            ragFileIds: ['compose-eligibility', 'compose-opening-cost'],
+          }],
+        },
+        query: {
+          ragRetrievalConfig: { topK: 3 },
+        },
+      })
+      expect(JSON.parse(String(init?.body)).query.ragRetrievalConfig).not.toHaveProperty('filter')
+      return Response.json({ contexts: { contexts: [] } })
+    })
+    const backend = createVertexRagBackend({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl,
+      mapContext: () => null,
+    })
+
+    await backend({
+      corpusKind: 'OFFICIAL',
+      corpusId: '1234',
+      query: '컴포즈커피 개인 가맹 가능 여부',
+      sourceFamilies: ['COMPANY_OFFICIAL_FRANCHISE'],
+      ragFileIds: ['compose-eligibility', 'compose-opening-cost'],
+      asOf: '2026-08-25',
+      limit: 3,
+    })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects project retrieval when no server-side RAG file fence was resolved', async () => {
     const fetchImpl = vi.fn()
     const backend = createVertexRagBackend({

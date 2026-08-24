@@ -42,6 +42,10 @@ function documentHit(hit: RagHit) {
     excerpt: hit.excerpt,
     source_date: hit.sourceDate,
     evidence_id: hit.evidenceId,
+    ...(hit.sourceFamily ? { source_family: hit.sourceFamily } : {}),
+    ...(hit.claimType ? { claim_type: hit.claimType } : {}),
+    ...(hit.brandId ? { brand_id: hit.brandId } : {}),
+    ...(hit.sourceId ? { source_id: hit.sourceId } : {}),
   }
 }
 

@@ -235,6 +235,9 @@ async function awaitWithSignal<T>(operation: Promise<T>, signal: AbortSignal): P
 function metadataFilterFor(request: RagBackendRequest): string | undefined {
   const clauses: string[] = []
   if (request.corpusKind === 'OFFICIAL') {
+    // Imported RagFile metadata is provider-generated. A pinned file fence is
+    // the authoritative routing boundary when the registry has real file IDs.
+    if (request.ragFileIds?.length) return undefined
     return buildOfficialMetadataFilter(request.sourceFamilies ?? [], request.asOf ?? '')
   } else if (request.documentType) {
     clauses.push(`document_type == ${JSON.stringify(request.documentType)}`)

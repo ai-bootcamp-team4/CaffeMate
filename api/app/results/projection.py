@@ -127,6 +127,7 @@ def _project_candidate(
             case_type=case_type,
             grounded_refs=grounded_refs,
             evidence_by_id=evidence_by_id,
+            source_id=source_id,
         ),
         "official_document_gaps": _official_document_gaps(
             case_type=case_type,
@@ -209,6 +210,8 @@ _OFFICIAL_DOCUMENT_PURPOSES = {
     "INDEPENDENT_STARTUP_COST_BENCHMARK": "창업 비용 참고",
     "INDEPENDENT_OPERATING_COST_BENCHMARK": "운영 비용 참고",
     "FRANCHISE_DISCLOSURE_AVAILABILITY": "정보공개서 확인",
+    "FRANCHISE_INDIVIDUAL_ELIGIBILITY": "개인 가맹 가능 여부 확인",
+    "FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE": "공식 창업비 확인",
     "CAFE_OPENING_REQUIRED_PROCEDURES": "창업 절차 확인",
     "CAFE_CONTRACT_REQUIRED_CHECKS": "계약 전 확인",
 }
@@ -219,6 +222,7 @@ def project_evidence_for_candidate(
     *,
     project_id: str,
     case_type: str,
+    source_id: str | None = None,
 ) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """승인된 근거를 별도 검색 단계 없이 결과 후보가 쓰는 작은 보기로 만든다."""
 
@@ -233,6 +237,7 @@ def project_evidence_for_candidate(
         case_type=case_type,
         grounded_refs=set(evidence_by_id),
         evidence_by_id=evidence_by_id,
+        source_id=source_id,
     )
     document_refs = {
         evidence_id
@@ -262,6 +267,7 @@ def _official_documents(
     case_type: str,
     grounded_refs: set[str],
     evidence_by_id: dict[str, dict[str, Any]],
+    source_id: str | None = None,
 ) -> list[dict[str, Any]]:
     allowed_claims = {
         "CAFE_OPENING_REQUIRED_PROCEDURES",
@@ -275,7 +281,13 @@ def _official_documents(
             }
         )
     else:
-        allowed_claims.add("FRANCHISE_DISCLOSURE_AVAILABILITY")
+        allowed_claims.update(
+            {
+                "FRANCHISE_DISCLOSURE_AVAILABILITY",
+                "FRANCHISE_INDIVIDUAL_ELIGIBILITY",
+                "FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE",
+            }
+        )
 
     documents: dict[tuple[str, str, str], dict[str, Any]] = {}
     for evidence_id in sorted(evidence_by_id):
@@ -284,12 +296,27 @@ def _official_documents(
         source = record.get("source")
         anchor = record.get("original_anchor")
         value = record.get("value")
+        authority = source.get("authority") if isinstance(source, dict) else None
+        is_franchise_rag = claim_type in {
+            "FRANCHISE_INDIVIDUAL_ELIGIBILITY",
+            "FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE",
+        }
         if (
             claim_type not in allowed_claims
             or record.get("value_kind") != "EVIDENCED_FACT"
             or record.get("conflict_status") not in {"NONE", "RESOLVED"}
             or not isinstance(source, dict)
-            or source.get("authority") != "PRIMARY_OFFICIAL"
+            or authority
+            not in (
+                {"COMPANY_OFFICIAL"}
+                if is_franchise_rag
+                else {"PRIMARY_OFFICIAL"}
+            )
+            or (
+                is_franchise_rag
+                and source_id is not None
+                and record.get("metric") != source_id
+            )
             or not isinstance(anchor, dict)
             or not isinstance(value, dict)
         ):
@@ -314,12 +341,17 @@ def _official_documents(
                 "freshness_status": record.get("freshness_status"),
                 "document_version": document_version,
                 "excerpt": excerpt,
+                "source_family": source.get("source_family", "GOVERNMENT_GUIDE"),
+                "claim_types": [],
                 "purposes": [],
                 "evidence_refs": [],
                 "used_in_candidate": False,
             },
         )
         purpose = _OFFICIAL_DOCUMENT_PURPOSES[str(claim_type)]
+        projected["claim_types"] = sorted(
+            {*projected["claim_types"], str(claim_type)}
+        )
         projected["purposes"] = sorted({*projected["purposes"], purpose})
         projected["evidence_refs"] = sorted(
             {*projected["evidence_refs"], evidence_id}

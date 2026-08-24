@@ -356,11 +356,6 @@ class SimpleProposalBuilder:
         proposed_ids: set[str] | None,
         franchise_universe: list[dict[str, Any]] | None,
     ) -> list[_CandidateDraft]:
-        evidence_refs, signals, documents, document_gaps = project_evidence_for_candidate(
-            evidence_records,
-            project_id=state.project_id,
-            case_type="FRANCHISE",
-        )
         universe_by_id = {
             value["brand_id"]: value
             for value in (franchise_universe or [])
@@ -377,6 +372,17 @@ class SimpleProposalBuilder:
         for brand in brands:
             brand_id = brand["brand_id"]
             name = brand["display_name"]
+            (
+                brand_evidence_refs,
+                brand_signals,
+                brand_documents,
+                brand_document_gaps,
+            ) = project_evidence_for_candidate(
+                evidence_records,
+                project_id=state.project_id,
+                case_type="FRANCHISE",
+                source_id=brand_id,
+            )
             profile = brand.get("finance_profile")
             if not isinstance(profile, dict):
                 raise ValueError(f"Verified franchise has no finance profile: {brand_id}")
@@ -385,6 +391,15 @@ class SimpleProposalBuilder:
                 for value in brand.get("evidence_refs", [])
                 if isinstance(value, str)
             ]
+            candidate_evidence_refs = sorted(
+                set(brand_evidence_refs)
+                | set(eligibility_refs)
+                | {
+                    value
+                    for value in profile.get("evidence_refs", [])
+                    if isinstance(value, str)
+                }
+            )
             assumption_ref = f"declared-assumption:{brand_id}:2026-08-24"
             initial_cost_lines = [
                 self._franchise_cost_line(
@@ -464,20 +479,12 @@ class SimpleProposalBuilder:
                             "finance_profile": deepcopy(profile),
                         },
                         "independent_model": None,
-                        "evidence_refs": sorted(
-                            set(evidence_refs)
-                            | set(eligibility_refs)
-                            | {
-                                value
-                                for value in profile.get("evidence_refs", [])
-                                if isinstance(value, str)
-                            }
-                        ),
+                        "evidence_refs": candidate_evidence_refs,
                         "assumption_refs": [assumption_ref],
-                        "market_signals": signals,
-                        "official_documents": documents,
+                        "market_signals": brand_signals,
+                        "official_documents": brand_documents,
                         "official_document_gaps": sorted(
-                            set(document_gaps) | {"정보공개서 공식 문서"}
+                            set(brand_document_gaps) | {"정보공개서 공식 문서"}
                         ),
                         "financial_summary": {
                             "initial_cash": self._money(
@@ -509,7 +516,7 @@ class SimpleProposalBuilder:
                                 "risk_id": "FRANCHISE_CONDITIONS_INCOMPLETE",
                                 "severity": "HIGH",
                                 "summary": "출점 승인과 최신 정보공개서 확인이 필요합니다.",
-                                "evidence_refs": evidence_refs,
+                                "evidence_refs": candidate_evidence_refs,
                             }
                         ],
                         "counterfactuals": self._counterfactuals(

@@ -1,9 +1,26 @@
+import franchiseRegistry from '../data/franchise-rag-file-registry-20260825.json'
 import type { VertexRagContext } from '../../rag/src/vertex-rag-backend'
 import type { RagBackendRequest, RagHit } from '../../rag/src/retrieval'
 
-export const OFFICIAL_RAG_SOURCE = Object.freeze({
+export interface OfficialRagSource {
+  sourceId: string
+  brandId?: string
+  sourceFamily: string
+  claimType?: string
+  documentRevisionId: string
+  title: string
+  sourceDate: string
+  sourceRef: string
+  sourceUri: string
+  gcsGeneration?: string
+  ragFileId: string | null
+  contentDigest: string
+}
+
+export const OFFICIAL_RAG_SOURCE: OfficialRagSource = Object.freeze({
   sourceId: 'easylaw-csmSeq-706',
   sourceFamily: 'GOVERNMENT_GUIDE',
+  claimType: 'CAFE_OPENING_REQUIRED_PROCEDURES',
   documentRevisionId: 'easylaw-csmSeq-706@2026-07-15',
   title: '커피전문점 영업신고 및 사업자등록',
   sourceDate: '2026-07-15',
@@ -12,7 +29,34 @@ export const OFFICIAL_RAG_SOURCE = Object.freeze({
   gcsGeneration: '1787329995006379',
   ragFileId: '5769839172015160639',
   contentDigest: 'sha256:f44af895c9dd771ba22d3890016928ba8bfaa3ed2306d9cd0a5b5bb6ee9d9c34',
-} as const)
+})
+
+export const PREPARED_FRANCHISE_RAG_SOURCES: readonly OfficialRagSource[] =
+  franchiseRegistry.sources
+
+export const OFFICIAL_RAG_SOURCES: readonly OfficialRagSource[] = [
+  OFFICIAL_RAG_SOURCE,
+  ...PREPARED_FRANCHISE_RAG_SOURCES,
+]
+
+export function pinnedRagFileIdsBySourceFamily(
+  sources: readonly OfficialRagSource[],
+): Readonly<Record<string, readonly string[]>> {
+  const grouped = new Map<string, OfficialRagSource[]>()
+  for (const source of sources) {
+    const family = grouped.get(source.sourceFamily) ?? []
+    family.push(source)
+    grouped.set(source.sourceFamily, family)
+  }
+  return Object.fromEntries(
+    [...grouped]
+      .filter(([, family]) => family.every((source) => source.ragFileId !== null))
+      .map(([family, sourcesInFamily]) => [
+        family,
+        [...new Set(sourcesInFamily.map((source) => source.ragFileId as string))],
+      ]),
+  )
+}
 
 function chunkIdentity(chunk: unknown): { fileId: string; chunkId: string } | null {
   if (!chunk || typeof chunk !== 'object' || Array.isArray(chunk)) return null
@@ -22,25 +66,39 @@ function chunkIdentity(chunk: unknown): { fileId: string; chunkId: string } | nu
   return { fileId: value.fileId, chunkId: value.chunkId }
 }
 
-export function mapOfficialRagContext(context: VertexRagContext, request: RagBackendRequest): RagHit | null {
-  if (request.corpusKind !== 'OFFICIAL' || context.sourceUri !== OFFICIAL_RAG_SOURCE.sourceUri) return null
-  if (!request.sourceFamilies?.includes(OFFICIAL_RAG_SOURCE.sourceFamily)) return null
-  if (!request.asOf || OFFICIAL_RAG_SOURCE.sourceDate > request.asOf) return null
-  const chunk = chunkIdentity(context.chunk)
-  if (!chunk || chunk.fileId !== OFFICIAL_RAG_SOURCE.ragFileId) return null
+export function createOfficialRagContextMapper(sources: readonly OfficialRagSource[]) {
+  return (context: VertexRagContext, request: RagBackendRequest): RagHit | null => {
+    if (request.corpusKind !== 'OFFICIAL') return null
+    const chunk = chunkIdentity(context.chunk)
+    if (!chunk) return null
+    const source = sources.find((candidate) => (
+      candidate.ragFileId !== null
+      && context.sourceUri === candidate.sourceUri
+      && chunk.fileId === candidate.ragFileId
+    ))
+    if (!source) return null
+    if (!request.sourceFamilies?.includes(source.sourceFamily)) return null
+    if (!request.asOf || source.sourceDate > request.asOf) return null
 
-  return {
-    documentRevisionId: OFFICIAL_RAG_SOURCE.documentRevisionId,
-    title: OFFICIAL_RAG_SOURCE.title,
-    anchor: `${OFFICIAL_RAG_SOURCE.sourceRef}#rag-file=${chunk.fileId}&chunk=${chunk.chunkId}`,
-    excerpt: context.text,
-    sourceDate: OFFICIAL_RAG_SOURCE.sourceDate,
-    evidenceId: `rag:${chunk.fileId}:${chunk.chunkId}`,
-    source: {
-      sourceId: OFFICIAL_RAG_SOURCE.sourceId,
-      sourceRef: OFFICIAL_RAG_SOURCE.sourceRef,
-      dataDate: OFFICIAL_RAG_SOURCE.sourceDate,
-      contentDigest: OFFICIAL_RAG_SOURCE.contentDigest,
-    },
+    return {
+      documentRevisionId: source.documentRevisionId,
+      title: source.title,
+      anchor: `${source.sourceRef}#rag-file=${chunk.fileId}&chunk=${chunk.chunkId}`,
+      excerpt: context.text,
+      sourceDate: source.sourceDate,
+      evidenceId: `rag:${chunk.fileId}:${chunk.chunkId}`,
+      sourceFamily: source.sourceFamily,
+      ...(source.claimType ? { claimType: source.claimType } : {}),
+      ...(source.brandId ? { brandId: source.brandId } : {}),
+      sourceId: source.sourceId,
+      source: {
+        sourceId: source.sourceId,
+        sourceRef: source.sourceRef,
+        dataDate: source.sourceDate,
+        contentDigest: source.contentDigest,
+      },
+    }
   }
 }
+
+export const mapOfficialRagContext = createOfficialRagContextMapper(OFFICIAL_RAG_SOURCES)

@@ -159,6 +159,8 @@ def test_projects_accepted_official_document_as_candidate_evidence() -> None:
             "freshness_status": "FRESH",
             "document_version": "easylaw-csmSeq-706@2026-07-15",
             "excerpt": "휴게음식점 영업 신고 후 사업자등록을 진행합니다.",
+            "source_family": "GOVERNMENT_GUIDE",
+            "claim_types": ["CAFE_OPENING_REQUIRED_PROCEDURES"],
             "purposes": ["창업 절차 확인"],
             "evidence_refs": ["evidence-official-procedure"],
             "used_in_candidate": True,
@@ -181,4 +183,49 @@ def test_official_document_search_miss_is_not_fabricated() -> None:
         "창업 절차 공식 문서",
         "계약 전 확인 공식 문서",
         "정보공개서 공식 문서",
+    ]
+
+
+def test_projects_only_matching_brand_official_rag_citation() -> None:
+    compose = official_document_evidence(
+        "evidence-compose-cost",
+        claim_type="FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE",
+        source_ref="https://composecoffee.com/composefranchise",
+    )
+    compose["metric"] = "kr-compose-coffee"
+    compose["source"].update(
+        {
+            "title": "컴포즈커피 공식 창업비 안내",
+            "authority": "COMPANY_OFFICIAL",
+            "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+        }
+    )
+    ediya = official_document_evidence(
+        "evidence-ediya-cost",
+        claim_type="FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE",
+        source_ref="https://www.ediya.com/C/contents/franchise_02.html",
+    )
+    ediya["metric"] = "kr-ediya-coffee"
+    ediya["source"].update(
+        {
+            "title": "이디야커피 공식 창업비 안내",
+            "authority": "COMPANY_OFFICIAL",
+            "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+        }
+    )
+
+    evidence_refs, _, documents, _ = project_evidence_for_candidate(
+        [compose, ediya],
+        project_id="project-1",
+        case_type="FRANCHISE",
+        source_id="kr-compose-coffee",
+    )
+
+    assert evidence_refs == ["evidence-compose-cost"]
+    assert [document["source_ref"] for document in documents] == [
+        "https://composecoffee.com/composefranchise"
+    ]
+    assert documents[0]["source_family"] == "COMPANY_OFFICIAL_FRANCHISE"
+    assert documents[0]["claim_types"] == [
+        "FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE"
     ]

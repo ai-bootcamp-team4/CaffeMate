@@ -468,6 +468,8 @@
         "freshness_status",
         "document_version",
         "excerpt",
+        "source_family",
+        "claim_types",
         "purposes",
         "evidence_refs",
         "used_in_candidate"
@@ -481,6 +483,13 @@
         },
         "document_version": { "type": "string", "minLength": 1 },
         "excerpt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "source_family": { "type": "string", "minLength": 1 },
+        "claim_types": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
         "purposes": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
