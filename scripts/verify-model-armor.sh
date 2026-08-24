@@ -21,7 +21,7 @@ import os
 template = json.loads(os.environ["TEMPLATE"])
 assert template["filterConfig"]["sdpSettings"]["basicConfig"]["filterEnforcement"] == "ENABLED"
 assert template["templateMetadata"]["enforcementType"] == "INSPECT_ONLY"
-assert template["templateMetadata"]["logSanitizeOperations"] is False
+assert template["templateMetadata"].get("logSanitizeOperations", False) is False
 PY
 
 ready_revision="$(gcloud run services describe "$api_service" \

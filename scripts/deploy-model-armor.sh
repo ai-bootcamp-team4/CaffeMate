@@ -42,7 +42,7 @@ jq -e '
   .name == "'"$template_resource"'" and
   .filterConfig.sdpSettings.basicConfig.filterEnforcement == "ENABLED" and
   .templateMetadata.enforcementType == "INSPECT_ONLY" and
-  .templateMetadata.logSanitizeOperations == false
+  .templateMetadata.logSanitizeOperations != true
 ' "$response_file" >/dev/null
 
 gcloud projects add-iam-policy-binding "$project_id" \
