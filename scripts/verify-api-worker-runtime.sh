@@ -24,21 +24,27 @@ session_manager_role="projects/${project_id}/roles/caffemateAgentSessionManager"
 release_verifier_role="projects/${project_id}/roles/caffemateReleaseVerifier"
 
 for service in caffemate-api caffemate-worker; do
-  revision=$(gcloud run services describe "$service" --project="$project_id" \
+  ready_revision=$(gcloud run services describe "$service" --project="$project_id" \
+    --region="$region" --format='value(status.latestReadyRevisionName)')
+  revision=$(gcloud run revisions describe "$ready_revision" --project="$project_id" \
     --region="$region" --format='value(metadata.labels.source-revision)')
   [ "$revision" = "$source_revision" ] || {
     printf 'FAIL %s source revision\n' "$service" >&2; exit 1;
   }
-  image=$(gcloud run services describe "$service" --project="$project_id" \
-    --region="$region" --format='value(spec.template.spec.containers[0].image)')
+  image=$(gcloud run revisions describe "$ready_revision" --project="$project_id" \
+    --region="$region" --format='value(status.imageDigest)')
   case "$image" in *'@sha256:'*) ;; *) printf 'FAIL %s image digest\n' "$service" >&2; exit 1;; esac
   printf 'PASS %s source revision and digest image\n' "$service"
 done
 
-api_image=$(gcloud run services describe caffemate-api --project="$project_id" \
-  --region="$region" --format='value(spec.template.spec.containers[0].image)')
-worker_image=$(gcloud run services describe caffemate-worker --project="$project_id" \
-  --region="$region" --format='value(spec.template.spec.containers[0].image)')
+api_ready_revision=$(gcloud run services describe caffemate-api --project="$project_id" \
+  --region="$region" --format='value(status.latestReadyRevisionName)')
+worker_ready_revision=$(gcloud run services describe caffemate-worker --project="$project_id" \
+  --region="$region" --format='value(status.latestReadyRevisionName)')
+api_image=$(gcloud run revisions describe "$api_ready_revision" --project="$project_id" \
+  --region="$region" --format='value(status.imageDigest)')
+worker_image=$(gcloud run revisions describe "$worker_ready_revision" --project="$project_id" \
+  --region="$region" --format='value(status.imageDigest)')
 [ "$api_image" = "$worker_image" ] || {
   printf '%s\n' 'FAIL API and Worker image digests differ' >&2; exit 1;
 }

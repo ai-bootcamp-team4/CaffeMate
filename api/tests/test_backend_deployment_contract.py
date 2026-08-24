@@ -108,6 +108,28 @@ def test_selected_candidate_canary_reads_operational_revision_digest() -> None:
     assert "data['spec']['template']['spec']['containers'][0]['image']" not in verifier
 
 
+def test_selected_candidate_canary_tracks_the_single_recompute_stage() -> None:
+    verifier = (ROOT / "scripts" / "verify-selected-candidate-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'recomputed == {"RUN_PROPOSAL"}' in verifier
+    assert 'report.get("reused_stage_count") == 0' in verifier
+    assert '"CALCULATE_GATE_RANK"' not in verifier
+    assert '"CANDIDATE_AUDIT"' not in verifier
+    assert '"COMMIT_RESULT"' not in verifier
+
+
+def test_backend_verifier_reads_operational_revision_digests() -> None:
+    verifier = (ROOT / "scripts" / "verify-api-worker-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'gcloud run revisions describe "$ready_revision"' in verifier
+    assert "status.imageDigest" in verifier
+    assert 'spec.template.spec.containers[0].image' not in verifier
+
+
 def test_backend_deployment_contract_requires_operational_readback() -> None:
     documentation = (ROOT / "docs" / "backend-deployment.md").read_text(encoding="utf-8")
 
