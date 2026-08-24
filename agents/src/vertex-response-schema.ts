@@ -310,18 +310,13 @@ function applyEvidencePlanToolActionSchema(projected: JsonObject, task: AgentTas
 export function evidenceAssessOutputBounds(task: AgentTask): {
   claimCount: number
   candidateCount: number
-  claimIds: string[]
-  candidateIds: string[]
 } {
   if (task.task_type !== 'EVIDENCE_ASSESS') {
-    return { claimCount: 0, candidateCount: 0, claimIds: [], candidateIds: [] }
+    return { claimCount: 0, candidateCount: 0 }
   }
   const payload = asObject(task.payload)
   const claims = Array.isArray(payload?.claims) ? payload.claims : []
   const actions = Array.isArray(payload?.executed_actions) ? payload.executed_actions : []
-  const claimIds = claims
-    .map((rawClaim) => asObject(rawClaim)?.claim_id)
-    .filter((claimId): claimId is string => typeof claimId === 'string')
   const candidateIds = new Set<string>()
   for (const rawAction of actions) {
     const action = asObject(rawAction)
@@ -335,36 +330,21 @@ export function evidenceAssessOutputBounds(task: AgentTask): {
   return {
     claimCount: claims.length,
     candidateCount: candidateIds.size,
-    claimIds,
-    candidateIds: [...candidateIds],
   }
 }
 
 function applyEvidenceAssessBounds(projected: JsonObject, task: AgentTask): void {
-  // 사용자 의도: 제한된 근거 후보는 모두 한 번씩 평가되어야 하며,
-  // 모델이 한 건을 조용히 생략해 공식 근거가 사라지는 동작은 허용하지 않는다.
+  // 사용자 의도: Vertex에는 생성에 필요한 최소 길이 정보만 주고, 후보 누락·중복·잘못된
+  // 참조는 Runtime과 Control API가 검증한다. 동적 ID enum을 중복 적용해 요청을 거절시키지 않는다.
   const properties = asObject(projected.properties)
   if (!properties) throw new Error('VERTEX_EVIDENCE_ASSESS_SCHEMA_UNRESOLVED')
-  const { claimCount, candidateCount, claimIds, candidateIds } = evidenceAssessOutputBounds(task)
+  const { candidateCount } = evidenceAssessOutputBounds(task)
   const assessments = asObject(properties.assessments)
-  const missingClaims = asObject(properties.missing_claims)
-  const conflicts = asObject(properties.conflict_proposals)
-  if (!assessments || !missingClaims || !conflicts) {
+  if (!assessments) {
     throw new Error('VERTEX_EVIDENCE_ASSESS_BOUNDS_UNRESOLVED')
   }
   assessments.minItems = candidateCount
   assessments.maxItems = candidateCount
-  const assessmentItem = asObject(assessments.items)
-  const assessmentProperties = assessmentItem ? asObject(assessmentItem.properties) : null
-  const candidateRef = assessmentProperties ? asObject(assessmentProperties.candidate_ref) : null
-  const claimId = assessmentProperties ? asObject(assessmentProperties.claim_id) : null
-  if (!candidateRef || !claimId) {
-    throw new Error('VERTEX_EVIDENCE_ASSESS_REFERENCE_SCHEMA_UNRESOLVED')
-  }
-  candidateRef.enum = candidateIds
-  claimId.enum = claimIds
-  missingClaims.maxItems = claimCount
-  conflicts.maxItems = claimCount
 }
 
 const INTENT_ENUM_VALUES: Readonly<Record<string, readonly string[]>> = Object.freeze({

@@ -274,21 +274,33 @@ describe('Vertex role response schema projection', () => {
     })
   })
 
-  it('bounds evidence assessment output by the supplied claims and unique candidates', () => {
+  it('keeps the provider schema small while bounding evidence assessment output', () => {
     const task = evidenceAssessTask()
+    const payload = task.payload as Record<string, unknown>
+    const baseClaim = (payload.claims as Array<Record<string, unknown>>)[0]
+    payload.claims = Array.from(
+      { length: 10 },
+      (_, index) => ({ ...baseClaim, claim_id: `claim-${index + 1}` }),
+    )
+    payload.executed_actions = [{
+      structured_result: {
+        evidence_records: Array.from(
+          { length: 14 },
+          (_, index) => ({ evidence_id: `evidence-${index + 1}-${'x'.repeat(48)}` }),
+        ),
+      },
+    }]
     const roleSchema = buildVertexRolePayloadSchema(task) as ProjectedSchema
     const responseSchema = buildAgentTaskResultResponseJsonSchema(task) as ProjectedSchema
 
-    expect(roleSchema.properties?.assessments.minItems).toBe(2)
-    expect(roleSchema.properties?.assessments.maxItems).toBe(2)
-    expect(roleSchema.properties?.assessments.items?.properties?.candidate_ref.enum).toEqual([
-      'evidence-1',
-      'evidence-2',
-    ])
-    expect(roleSchema.properties?.missing_claims.maxItems).toBe(1)
-    expect(roleSchema.properties?.conflict_proposals.maxItems).toBe(1)
-    expect(responseSchema.properties?.evidence_refs.maxItems).toBe(2)
-    expect(responseSchema.properties?.missing_claim_ids.maxItems).toBe(1)
+    expect(roleSchema.properties?.assessments.minItems).toBe(14)
+    expect(roleSchema.properties?.assessments.maxItems).toBe(14)
+    expect(roleSchema.properties?.assessments.items?.properties?.candidate_ref.enum).toBeUndefined()
+    expect(roleSchema.properties?.assessments.items?.properties?.claim_id.enum).toBeUndefined()
+    expect(roleSchema.properties?.missing_claims.maxItems).toBeUndefined()
+    expect(roleSchema.properties?.conflict_proposals.maxItems).toBeUndefined()
+    expect(responseSchema.properties?.evidence_refs.maxItems).toBe(14)
+    expect(responseSchema.properties?.missing_claim_ids.maxItems).toBe(10)
   })
 
   it('bounds a proposal call to its single allocated source and separates assumptions from Evidence', () => {
