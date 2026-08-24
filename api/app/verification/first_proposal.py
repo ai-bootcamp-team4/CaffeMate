@@ -204,7 +204,35 @@ class FirstProposalCanary:
         self,
         *,
         cafe_type_preference: CafeTypePreference = CafeTypePreference.OPEN_TO_BOTH,
+        founder: FounderState | None = None,
+        area: AreaState | None = None,
     ) -> FirstProposalCanaryReport:
+        # 사용자 의도: 운영 평가는 고정된 한 입력이 아니라 합성 창업자 조건을 실제
+        # 온보딩 경로에 넣어야 하며, 입력하지 않은 기존 카나리 동작은 그대로 유지한다.
+        selected_founder = founder or FounderState(
+            target_area_input="서울특별시 마포구 망원동",
+            own_funds_krw=70_000_000,
+            borrowing_intent=BorrowingIntent.UNDECIDED,
+            cafe_type_preference=cafe_type_preference,
+            operation_mode=OperationMode.DIRECT_FULL_TIME,
+            preferences=["대학가 생활권", "개인카페와 프랜차이즈 비교"],
+        )
+        selected_area = area or AreaState(
+            resolution_status=AreaResolutionStatus.RESOLVED,
+            area_id="legal-dong:1144012300",
+            scope_type=AreaScopeType.LEGAL_DONG,
+            administrative_code="1144012300",
+            legal_dong_code="1144012300",
+            administrative_dong_codes=[],
+            mapping_status=AreaMappingStatus.UNVERIFIED,
+            candidate_set_completeness=CandidateSetCompleteness.UNVERIFIED,
+            source_revision="MOIS_LEGAL_DONG_20260301",
+            display_name="서울특별시 마포구 망원동",
+            boundary_version=None,
+            coverage_profile=CoverageProfile.R2_REGIONAL_CONNECTOR,
+            unavailable_fields=[],
+        )
+        selected_preference = selected_founder.cafe_type_preference
         canary_id = self._new_id()
         user_id = f"first-proposal-canary-{canary_id}"
         project: Project | None = None
@@ -218,29 +246,8 @@ class FirstProposalCanary:
                 project_id=project.project_id,
                 user_id=user_id,
                 idempotency_key=f"{canary_id}:onboarding",
-                founder=FounderState(
-                    target_area_input="서울특별시 마포구 망원동",
-                    own_funds_krw=70_000_000,
-                    borrowing_intent=BorrowingIntent.UNDECIDED,
-                    cafe_type_preference=cafe_type_preference,
-                    operation_mode=OperationMode.DIRECT_FULL_TIME,
-                    preferences=["대학가 생활권", "개인카페와 프랜차이즈 비교"],
-                ),
-                area=AreaState(
-                    resolution_status=AreaResolutionStatus.RESOLVED,
-                    area_id="legal-dong:1144012300",
-                    scope_type=AreaScopeType.LEGAL_DONG,
-                    administrative_code="1144012300",
-                    legal_dong_code="1144012300",
-                    administrative_dong_codes=[],
-                    mapping_status=AreaMappingStatus.UNVERIFIED,
-                    candidate_set_completeness=CandidateSetCompleteness.UNVERIFIED,
-                    source_revision="MOIS_LEGAL_DONG_20260301",
-                    display_name="서울특별시 마포구 망원동",
-                    boundary_version=None,
-                    coverage_profile=CoverageProfile.R2_REGIONAL_CONNECTOR,
-                    unavailable_fields=[],
-                ),
+                founder=selected_founder,
+                area=selected_area,
             )
             workflow = self._workflows.start(
                 project_id=project.project_id,
@@ -258,7 +265,7 @@ class FirstProposalCanary:
                 user_id=user_id,
                 workflow_run_id=workflow.workflow_run_id,
                 progress=progress,
-                cafe_type_preference=cafe_type_preference,
+                cafe_type_preference=selected_preference,
             )
         finally:
             if project is not None:
