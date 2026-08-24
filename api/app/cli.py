@@ -33,6 +33,14 @@ from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
+from app.security.content_protection import (
+    ContentBoundary,
+    ContentProtection,
+    ModelArmorContentProtection,
+)
+from app.security.content_protection import (
+    GoogleAccessTokenProvider as ModelArmorAccessTokenProvider,
+)
 from app.selections.preparation import PreparationGuideService
 from app.selections.property import PropertyTermsService
 from app.selections.service import CandidateSelectionService
@@ -70,6 +78,15 @@ class _StrictAgentCleanupSink:
         raise RuntimeError("Agent Runtime verification requires synchronous session deletion")
 
 
+def _content_protection(settings: RuntimeSettings) -> ContentProtection | None:
+    if not settings.model_armor_template:
+        return None
+    return ModelArmorContentProtection(
+        template_resource=settings.model_armor_template,
+        access_tokens=ModelArmorAccessTokenProvider(),
+    )
+
+
 def _production_workflow_repository(
     *,
     settings: RuntimeSettings,
@@ -88,6 +105,7 @@ def _production_workflow_repository(
         user_hmac_secret=cast(str, settings.agent_runtime_user_hmac_secret),
         access_tokens=GoogleAccessTokenProvider(),
         cleanup_sink=PostgresAgentCleanupSink(engine),
+        content_protection=_content_protection(settings),
     )
     mcp = McpHttpClient(
         base_url=cast(str, settings.mcp_base_url),
@@ -165,6 +183,7 @@ def main() -> None:
             "verify-live-evaluation",
             "verify-selected-candidate",
             "verify-document-storage",
+            "verify-model-armor",
         ],
     )
     parser.add_argument("--agent-fixture-id", default="evidence_plan-complete")
@@ -250,6 +269,7 @@ def main() -> None:
             user_hmac_secret=cast(str, settings.agent_runtime_user_hmac_secret),
             access_tokens=GoogleAccessTokenProvider(),
             cleanup_sink=_StrictAgentCleanupSink(),
+            content_protection=_content_protection(settings),
         )
         expected = _agent_runtime_probe_fixture(arguments.agent_fixture_id)["result"]
         summaries: list[dict[str, Any]] = []
@@ -489,6 +509,44 @@ def main() -> None:
         finally:
             handle.close()
         print(json.dumps(selected_canary_report.as_dict(), sort_keys=True))
+    elif arguments.command == "verify-model-armor":
+        settings = RuntimeSettings.from_environment()
+        protection = _content_protection(settings)
+        if protection is None or not settings.model_armor_template:
+            parser.error("MODEL_ARMOR_TEMPLATE configuration required")
+        input_safe = protection.inspect(
+            "카페 창업 비교 결과를 설명해 주세요.",
+            ContentBoundary.AGENT_INPUT,
+        )
+        sensitive = protection.inspect(
+            "테스트 담당자 이메일은 demo.person@example.com 입니다.",
+            ContentBoundary.AGENT_INPUT,
+        )
+        model_output = protection.inspect(
+            "현재 확인된 공식 자료를 기준으로 안내합니다.",
+            ContentBoundary.AGENT_OUTPUT,
+        )
+        if (
+            input_safe.match_state != "NO_MATCH_FOUND"
+            or sensitive.match_state != "MATCH_FOUND"
+            or sensitive.finding_count < 1
+            or model_output.match_state != "NO_MATCH_FOUND"
+        ):
+            raise RuntimeError("Model Armor operational verification did not match contract")
+        print(
+            json.dumps(
+                {
+                    "status": "verified",
+                    "template": settings.model_armor_template,
+                    "input_safe_match_state": input_safe.match_state,
+                    "sensitive_match_state": sensitive.match_state,
+                    "sensitive_finding_count": sensitive.finding_count,
+                    "sensitive_info_types": list(sensitive.info_types),
+                    "model_output_match_state": model_output.match_state,
+                },
+                sort_keys=True,
+            )
+        )
     elif arguments.command == "verify-document-storage":
         settings = RuntimeSettings.from_environment()
         if (
@@ -514,6 +572,7 @@ def main() -> None:
             user_hmac_secret=cast(str, settings.agent_runtime_user_hmac_secret),
             access_tokens=GoogleAccessTokenProvider(),
             cleanup_sink=_StrictAgentCleanupSink(),
+            content_protection=_content_protection(settings),
         )
         try:
             document_report = DocumentStorageCanary(

@@ -122,6 +122,10 @@ def record_safe_metric(event: str, **attributes: str | int | float | bool) -> No
         "elapsed_ms",
         "token_count",
         "http_status",
+        "content_boundary",
+        "invocation_result",
+        "match_state",
+        "finding_count",
     }
     payload = {
         key: value
