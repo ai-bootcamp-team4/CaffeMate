@@ -3,8 +3,8 @@
   "runtime_region": "asia-northeast3",
   "runtime": {
     "resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/reasoningEngines/4667470840374231040",
-    "source_revision": "6c4d45f7a3a4f594853e3ef4afdbaefee69964a8",
-    "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-agents/caffemate-agent-runtime@sha256:eed0b4969976a13acc19e1bbac83edacd7a41daa3e66ed4f45eff4196ca03fdf"
+    "source_revision": "bfdea1a06f2d537da4ff640c3ca52b8aabef0e49",
+    "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-agents/caffemate-agent-runtime@sha256:b6eb204a19c67492515d0a990ba5e61057bf68c381e7607287e8610a90292da0"
   },
   "model": {
     "id": "gemini-3.7-flash",
@@ -25,13 +25,13 @@
     "runtime": {
       "service_name": "caffemate-mcp",
       "region": "asia-northeast3",
-      "source_revision": "8c300914ca541d9fb4049e6503b8e1b2175f0f81",
-      "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-backend/mcp@sha256:3622486143ca394afb8635beba555d5c24bf4e4429b698223e02208f84381b58"
+      "source_revision": "bfdea1a06f2d537da4ff640c3ca52b8aabef0e49",
+      "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-backend/mcp@sha256:ac59ae246e0a7e9409c350094c5784d9d750e78b8ce078f04f3cf5a5e4fb5cb3"
     }
   },
   "mcp_manifest_digest": "sha256:18b74ede67b446f39fcedab4922c2fb8b4caad4065ba58ce8453c322fa58354b",
   "index_generation": {
-    "generation_id": "official-2026-08-22-v1",
+    "generation_id": "official-2026-08-25-v2",
     "status": "ACTIVE",
     "corpus_resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552",
     "parser_revision": "vertex-layout-parser.v1",
@@ -47,6 +47,60 @@
         "gcs_object_generation": "1787329995006379",
         "rag_file_resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552/ragFiles/5769839172015160639",
         "content_digest": "sha256:f44af895c9dd771ba22d3890016928ba8bfaa3ed2306d9cd0a5b5bb6ee9d9c34"
+      },
+      {
+        "document_revision_id": "compose-official-eligibility@2026-08-25",
+        "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+        "source_date": "2026-08-25",
+        "source_uri": "gs://proj-aj20-211200020328-caffemate-grounding/official/franchise/kr-compose-coffee/2026-08-25/eligibility.md",
+        "gcs_object_generation": "1787600507911396",
+        "rag_file_resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552/ragFiles/5772108981450584267",
+        "content_digest": "sha256:997072b8eb94b9fc372db8a361fb55d65bb1dace45304f57508f97754860da0f"
+      },
+      {
+        "document_revision_id": "compose-official-opening-cost@2026-08-25",
+        "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+        "source_date": "2026-08-25",
+        "source_uri": "gs://proj-aj20-211200020328-caffemate-grounding/official/franchise/kr-compose-coffee/2026-08-25/opening-cost.md",
+        "gcs_object_generation": "1787600509449787",
+        "rag_file_resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552/ragFiles/5772108981843176346",
+        "content_digest": "sha256:5f00656a64b1d71615bc78601ca251305ae26501872ed7d80fc83e98d654cf35"
+      },
+      {
+        "document_revision_id": "mega-mgc-official-eligibility@2026-08-25",
+        "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+        "source_date": "2026-08-25",
+        "source_uri": "gs://proj-aj20-211200020328-caffemate-grounding/official/franchise/kr-mega-mgc-coffee/2026-08-25/eligibility.md",
+        "gcs_object_generation": "1787600510867135",
+        "rag_file_resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552/ragFiles/5772108986826129110",
+        "content_digest": "sha256:9753d700622d293d07f79a8e03eb0fd009269b1377dc40147c570fabdcd055eb"
+      },
+      {
+        "document_revision_id": "mega-mgc-official-opening-cost@2026-08-25",
+        "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+        "source_date": "2026-08-25",
+        "source_uri": "gs://proj-aj20-211200020328-caffemate-grounding/official/franchise/kr-mega-mgc-coffee/2026-08-25/opening-cost.md",
+        "gcs_object_generation": "1787600512289931",
+        "rag_file_resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552/ragFiles/5772108987092121698",
+        "content_digest": "sha256:21d9b3a9e522161e2fdf3b4c26b93321f80dab1ed5bba190a234d4ac35f224ae"
+      },
+      {
+        "document_revision_id": "ediya-official-eligibility@2026-08-25",
+        "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+        "source_date": "2026-08-25",
+        "source_uri": "gs://proj-aj20-211200020328-caffemate-grounding/official/franchise/kr-ediya-coffee/2026-08-25/eligibility.md",
+        "gcs_object_generation": "1787600513637184",
+        "rag_file_resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552/ragFiles/5772108984100825805",
+        "content_digest": "sha256:240274fd2d823a0059cce21e4772142b9920f4b6d121bdc208cec2d5dfe14da3"
+      },
+      {
+        "document_revision_id": "ediya-official-opening-cost@2026-08-25",
+        "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+        "source_date": "2026-08-25",
+        "source_uri": "gs://proj-aj20-211200020328-caffemate-grounding/official/franchise/kr-ediya-coffee/2026-08-25/opening-cost.md",
+        "gcs_object_generation": "1787600515000531",
+        "rag_file_resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552/ragFiles/5772108981787235829",
+        "content_digest": "sha256:37c7d2254fc159341b1f12547e03cb24295dba4f4f5cd365b4e4d1dd11dba713"
       }
     ],
     "sealed_evaluation_digest": "sha256:90d31c4ff867a7929040de8e83c32312c9b629ec585b97f9b5f1f4035f145b1f"

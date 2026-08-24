@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { OFFICIAL_RAG_SOURCE } from '../../mcp/src/official-rag'
+import { OFFICIAL_RAG_SOURCES } from '../../mcp/src/official-rag'
 import { RAG_RANKER } from '../../rag/src/config'
 import fixtureMatrix from '../fixtures/task-matrix.json'
 import releaseManifest from '../release-manifest.json'
@@ -43,8 +43,8 @@ describe('local agent release manifest', () => {
       runtime: {
         service_name: 'caffemate-mcp',
         region: 'asia-northeast3',
-        source_revision: '8c300914ca541d9fb4049e6503b8e1b2175f0f81',
-        image_uri: 'asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-backend/mcp@sha256:3622486143ca394afb8635beba555d5c24bf4e4429b698223e02208f84381b58',
+        source_revision: 'bfdea1a06f2d537da4ff640c3ca52b8aabef0e49',
+        image_uri: 'asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-backend/mcp@sha256:ac59ae246e0a7e9409c350094c5784d9d750e78b8ce078f04f3cf5a5e4fb5cb3',
       },
     })
     const checkedInMcpManifestDigest = readFileSync('docs/contracts/mcp-tool-manifest.sha256', 'utf8').split(/\s+/)[0]
@@ -53,22 +53,22 @@ describe('local agent release manifest', () => {
     expect(releaseManifest.agent_contract_bundle_digest).toBe(computeAgentContractBundleDigest())
 
     expect(releaseManifest.index_generation).toEqual({
-      generation_id: 'official-2026-08-22-v1',
+      generation_id: 'official-2026-08-25-v2',
       status: 'ACTIVE',
       corpus_resource_name: 'projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552',
       parser_revision: 'vertex-layout-parser.v1',
       schema_version: 'caffemate.rag-index.v1',
       embedding_model_id: 'text-multilingual-embedding-002',
       reranker_id: RAG_RANKER.id,
-      source_revisions: [{
-        document_revision_id: OFFICIAL_RAG_SOURCE.documentRevisionId,
-        source_family: OFFICIAL_RAG_SOURCE.sourceFamily,
-        source_date: OFFICIAL_RAG_SOURCE.sourceDate,
-        source_uri: OFFICIAL_RAG_SOURCE.sourceUri,
-        gcs_object_generation: OFFICIAL_RAG_SOURCE.gcsGeneration,
-        rag_file_resource_name: `projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552/ragFiles/${OFFICIAL_RAG_SOURCE.ragFileId}`,
-        content_digest: OFFICIAL_RAG_SOURCE.contentDigest,
-      }],
+      source_revisions: OFFICIAL_RAG_SOURCES.map((source) => ({
+        document_revision_id: source.documentRevisionId,
+        source_family: source.sourceFamily,
+        source_date: source.sourceDate,
+        source_uri: source.sourceUri,
+        gcs_object_generation: source.gcsGeneration,
+        rag_file_resource_name: `projects/proj-aj20-211200020328/locations/asia-northeast3/ragCorpora/5148740273991319552/ragFiles/${source.ragFileId}`,
+        content_digest: source.contentDigest,
+      })),
       sealed_evaluation_digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
     })
     const sealedEvaluationInputDigest = `sha256:${createHash('sha256')
