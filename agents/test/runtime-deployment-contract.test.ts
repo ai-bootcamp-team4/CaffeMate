@@ -52,4 +52,14 @@ describe('Agent Runtime deployment provenance', () => {
     expect(standardVerify).toContain('CAFFEMATE_PREFLIGHT_AGENT_RUNTIME_IMAGE=${agent_runtime_image}')
     expect(standardVerify).toContain('CAFFEMATE_PREFLIGHT_MCP_IMAGE=${mcp_image}')
   })
+
+  it('runs the first proposal canary with the deployed Agent Runtime and Model Armor boundary', () => {
+    const standardVerify = script(standardVerifyPath)
+
+    expect(standardVerify).toContain('configured_model_armor_template=')
+    expect(standardVerify).toContain('AGENT_RUNTIME_PROJECT_ID=${project_id}')
+    expect(standardVerify).toContain('AGENT_RUNTIME_RESOURCE_ID=${configured_agent_resource}')
+    expect(standardVerify).toContain('MODEL_ARMOR_TEMPLATE=${configured_model_armor_template}')
+    expect(standardVerify).toContain('AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest')
+  })
 })

@@ -499,6 +499,8 @@ configured_db_ip_type=$(printf '%s' "$api_service_json" | python3 -c \
   'import json,sys; env={row["name"]:row.get("value") for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"]}; print(env["CLOUD_SQL_IP_TYPE"])')
 configured_policy=$(printf '%s' "$api_service_json" | python3 -c \
   'import json,sys; env={row["name"]:row.get("value") for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"]}; print(env["CAFFEMATE_POLICY_SNAPSHOT_ID"])')
+configured_model_armor_template=$(printf '%s' "$api_service_json" | python3 -c \
+  'import json,sys; env={row["name"]:row.get("value") for row in json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]["env"]}; print(env["MODEL_ARMOR_TEMPLATE"])')
 
 document_canary_job='caffemate-document-storage-canary'
 configure_document_canary_job() {
@@ -600,8 +602,8 @@ configure_first_proposal_job() {
     --project="$project_id" --region="$region" \
     --image="$api_image" --service-account="$api_sa" \
     --set-cloudsql-instances="$configured_instance" \
-    --set-env-vars="INSTANCE_CONNECTION_NAME=${configured_instance},DB_USER=${configured_db_user},DB_NAME=${configured_db_name},CLOUD_SQL_IP_TYPE=${configured_db_ip_type},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},CAFFEMATE_POLICY_SNAPSHOT_ID=${configured_policy}" \
-    --set-secrets='DB_PASS=caffemate-db-password:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
+    --set-env-vars="INSTANCE_CONNECTION_NAME=${configured_instance},DB_USER=${configured_db_user},DB_NAME=${configured_db_name},CLOUD_SQL_IP_TYPE=${configured_db_ip_type},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},CAFFEMATE_POLICY_SNAPSHOT_ID=${configured_policy},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${configured_agent_resource},MODEL_ARMOR_TEMPLATE=${configured_model_armor_template}" \
+    --set-secrets='DB_PASS=caffemate-db-password:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest,AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest' \
     --command=caffemate-api \
     --args="verify-first-proposal,--cafe-type-preference=${cafe_type_preference}" \
     --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=25m \
