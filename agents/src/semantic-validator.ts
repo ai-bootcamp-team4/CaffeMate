@@ -439,6 +439,8 @@ function validateEvidencePlan(taskPayload: JsonObject, resultPayload: JsonObject
 }
 
 function validateEvidenceAssess(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
+  // 사용자 의도: 모델의 생략을 근거 부재로 오해하지 않도록, 전달한 후보 전체가
+  // 정확히 한 번씩 평가됐는지 계약 경계에서 확인한다.
   const claims = new Map<string, JsonObject>()
   for (const rawClaim of array(taskPayload.claims)) {
     const claim = object(rawClaim)
@@ -446,12 +448,14 @@ function validateEvidenceAssess(taskPayload: JsonObject, resultPayload: JsonObje
   }
   const claimIds = new Set(claims.keys())
   const evidenceById = collectEvidenceRecords(taskPayload)
+  const assessedCandidateRefs: string[] = []
   for (const [index, rawAssessment] of array(resultPayload.assessments).entries()) {
     const assessment = object(rawAssessment)
     requirePoolMember(issues, claimIds, assessment.claim_id, `/payload/assessments/${index}/claim_id`)
 
     const claim = typeof assessment.claim_id === 'string' ? claims.get(assessment.claim_id) : undefined
     const evidence = typeof assessment.candidate_ref === 'string' ? evidenceById.get(assessment.candidate_ref) : undefined
+    if (typeof assessment.candidate_ref === 'string') assessedCandidateRefs.push(assessment.candidate_ref)
     if (!claim || !evidence) continue
 
     if (assessment.scope_status === 'MATCH' && scopesDefinitelyMismatch(claim.geographic_scope, evidence.geographic_scope)) {
@@ -480,6 +484,25 @@ function validateEvidenceAssess(taskPayload: JsonObject, resultPayload: JsonObje
         'MATCH is not allowed when the claim requires freshness and the EvidenceRecord is not FRESH',
       )
     }
+  }
+  const assessedCounts = new Map<string, number>()
+  for (const candidateRef of assessedCandidateRefs) {
+    assessedCounts.set(candidateRef, (assessedCounts.get(candidateRef) ?? 0) + 1)
+  }
+  const missingCandidateRefs = [...evidenceById.keys()]
+    .filter((candidateRef) => !assessedCounts.has(candidateRef))
+    .sort()
+  const duplicateCandidateRefs = [...assessedCounts.entries()]
+    .filter(([, count]) => count !== 1)
+    .map(([candidateRef]) => candidateRef)
+    .sort()
+  if (missingCandidateRefs.length > 0 || duplicateCandidateRefs.length > 0) {
+    add(
+      issues,
+      'EVIDENCE_ASSESS_COVERAGE_INCOMPLETE',
+      '/payload/assessments',
+      `every supplied candidate must be assessed exactly once; missing=${missingCandidateRefs.join(',')}; duplicate=${duplicateCandidateRefs.join(',')}`,
+    )
   }
   for (const [index, claimId] of strings(resultPayload.missing_claims).entries()) {
     requirePoolMember(issues, claimIds, claimId, `/payload/missing_claims/${index}`)

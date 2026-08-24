@@ -435,6 +435,28 @@ describe('agent semantic validator', () => {
     expect(validation.issues.some((issue) => issue.code === 'UNSUPPORTED_REFERENCE')).toBe(true)
   })
 
+  it('rejects Evidence Assess output that omits a supplied candidate', () => {
+    const { task, result } = fixture('EVIDENCE_ASSESS')
+    const first = evidenceRecord({ evidenceId: 'ev-first-candidate' })
+    const second = evidenceRecord({ evidenceId: 'ev-second-candidate' })
+    attachEvidenceAssessAction(task, first)
+    const action = (task.payload as { executed_actions: Array<{ structured_result: { evidence_records: unknown[] } }> })
+      .executed_actions[0]
+    action.structured_result.evidence_records.push(second)
+    result.payload = {
+      assessments: [{
+        claim_id: 'claim-1', candidate_ref: first.evidence_id, relation: 'SUPPORTS',
+        scope_status: 'MATCH', date_status: 'MATCH', freshness_status: 'FRESH',
+        anchor_status: 'VALID', authority_status: 'ACCEPTABLE', missing_context: [],
+      }],
+      missing_claims: [], conflict_proposals: [],
+    }
+
+    const validation = validateAgentSemantics(task, result)
+    expect(validation.ok).toBe(false)
+    expect(validation.issues.some((issue) => issue.code === 'EVIDENCE_ASSESS_COVERAGE_INCOMPLETE')).toBe(true)
+  })
+
   it('allows UNKNOWN evidence to be assessed as ambiguous without using it as evidence coverage', () => {
     const { task, result } = fixture('EVIDENCE_ASSESS')
     const evidence = evidenceRecord({

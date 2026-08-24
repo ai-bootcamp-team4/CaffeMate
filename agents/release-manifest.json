@@ -14,7 +14,7 @@
   },
   "allow_global_fallback": false,
   "network_mode": "GCP_CONNECTED",
-  "prompt_bundle_digest": "sha256:382d483263e4a2407a9afb79b7f7bd3d72053dc56cd9d0b9cc2e40c3ad42e9cc",
+  "prompt_bundle_digest": "sha256:b9a5d335d07f38d81e2a2c6f155aa5badd467da38f807d3cf812559e3ca518f0",
   "agent_contract_bundle_digest": "sha256:8f4a47cd37f65dc664a43fb0ff2f45db9678489c526f0b3c1ccb30b8dc663564",
   "mcp": {
     "protocol_revision": "2026-07-28",
@@ -135,7 +135,7 @@
     },
     "EVIDENCE_ASSESS": {
       "agent_name": "EVIDENCE_RESEARCHER",
-      "prompt_version": "evidence-assessor.v2",
+      "prompt_version": "evidence-assessor.v3",
       "input_schema_id": "caffemate.agent.evidence-assess-input.v1",
       "output_schema_id": "caffemate.agent.evidence-assess-result.v1",
       "deadline_seconds": 60,
