@@ -35,7 +35,7 @@ describe('Agent Control CLI core', () => {
 
   it('validates every checked-in role fixture', async () => {
     const output = await runAgentControl(['validate-fixtures'])
-    expect(output).toMatchObject({ ok: true, data: { total: 14, invalid: 0 } })
+    expect(output).toMatchObject({ ok: true, data: { total: 16, invalid: 0 } })
   })
 
   it('dispatches a complete fixture through the same deterministic core', async () => {

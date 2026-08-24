@@ -182,6 +182,30 @@ export interface FeedbackResolution {
   workflow: WorkflowRun | null
 }
 
+export interface ResultExplanationEvidence {
+  evidence_id: string
+  label: string
+  value: string | null
+  source_title: string | null
+  source_ref: string | null
+  data_date: string | null
+  caveat: string | null
+}
+
+export interface ResultExplanation {
+  explanation_id: string
+  result_bundle_id: string
+  candidate_id: string
+  intent: 'WHY_RECOMMENDED' | 'COMPARE' | 'FINANCE' | 'SOURCE' | 'MISSING_INFO' | 'COUNTERFACTUAL' | 'OTHER'
+  conclusion: string
+  reasons: string[]
+  evidence: ResultExplanationEvidence[]
+  unknowns: string[]
+  decision_change_conditions: string[]
+  suggested_action: 'NONE' | 'OPEN_CONDITION_CHANGE'
+  state_changed: false
+}
+
 export interface CandidateSelection {
   selection_id: string
   candidate_id: string
@@ -328,6 +352,7 @@ export interface ControlApiClient {
   startFirstProposal(projectId: string): Promise<WorkflowRun>
   getWorkflow(projectId: string, workflowRunId: string): Promise<WorkflowProgress>
   getResult(projectId: string): Promise<ResultView>
+  explainResult(projectId: string, result: ResultView, question: string, candidateId?: string): Promise<ResultExplanation>
   createFeedbackPreview(projectId: string, input: string): Promise<FeedbackPreview>
   confirmFeedback(projectId: string, preview: FeedbackPreview): Promise<FeedbackResolution>
   cancelFeedback(projectId: string, previewId: string): Promise<FeedbackResolution>
@@ -407,6 +432,14 @@ export function createControlApiClient(
     startFirstProposal: (projectId) => request(`/v1/projects/${projectId}/workflows/FIRST_PROPOSAL`, { method: 'POST', body: '{}' }, true),
     getWorkflow: (projectId, workflowRunId) => request(`/v1/projects/${projectId}/workflows/${workflowRunId}`),
     getResult: (projectId) => request(`/v1/projects/${projectId}/result`),
+    explainResult: (projectId, result, question, candidateId) => request(`/v1/projects/${projectId}/result:explain`, {
+      method: 'POST',
+      body: JSON.stringify({
+        result_bundle_id: result.result_bundle_id,
+        candidate_id: candidateId ?? result.primary_candidate_id,
+        question,
+      }),
+    }),
     createFeedbackPreview: (projectId, input) => request(`/v1/projects/${projectId}/feedback/previews`, { method: 'POST', body: JSON.stringify({ input }) }, true),
     confirmFeedback: (projectId, preview) => request(`/v1/projects/${projectId}/feedback/${preview.preview_id}/confirm`, {
       method: 'POST',

@@ -8,6 +8,7 @@ const ROLE_NAMES = [
   'PROPOSAL_AGENT',
   'DOCUMENT_ANALYST',
   'TYPED_CANDIDATE_AUDITOR',
+  'RESULT_EXPLAINER',
 ]
 
 describe('Agent Engine runtime entrypoint', () => {

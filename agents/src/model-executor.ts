@@ -165,5 +165,6 @@ export function createModelExecutors(
     PROPOSAL_AGENT: executorFor(client, approvedModel, 'PROPOSAL_AGENT'),
     DOCUMENT_ANALYST: executorFor(client, approvedModel, 'DOCUMENT_ANALYST'),
     TYPED_CANDIDATE_AUDITOR: executorFor(client, approvedModel, 'TYPED_CANDIDATE_AUDITOR'),
+    RESULT_EXPLAINER: executorFor(client, approvedModel, 'RESULT_EXPLAINER'),
   }
 }

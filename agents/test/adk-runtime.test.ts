@@ -36,7 +36,7 @@ async function collect(generator: AsyncGenerator<unknown, void, undefined>): Pro
 }
 
 describe('ADK Agent Runtime adapter', () => {
-  it('uses a deterministic non-LLM root and exactly the five pinned role children', () => {
+  it('uses a deterministic non-LLM root and exactly the pinned role children', () => {
     const modelClient: AgentModelClient = { generate: vi.fn() }
     const root = createCaffeMateAdkRoot({ modelClient, approvedModel: () => approvedModel })
 
@@ -48,6 +48,7 @@ describe('ADK Agent Runtime adapter', () => {
       'PROPOSAL_AGENT',
       'DOCUMENT_ANALYST',
       'TYPED_CANDIDATE_AUDITOR',
+      'RESULT_EXPLAINER',
     ])
     expect(root.subAgents.every((agent) => !isLlmAgent(agent))).toBe(true)
   })

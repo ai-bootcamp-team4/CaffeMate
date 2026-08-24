@@ -2042,6 +2042,194 @@
         ],
         "warnings": []
       }
+    },
+    {
+      "id": "result_explain-complete",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-8-complete",
+        "invocation_id": "inv-8-complete",
+        "agent_name": "RESULT_EXPLAINER",
+        "task_type": "RESULT_EXPLAIN",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-8",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "result-explainer.v1",
+        "input_schema_id": "caffemate.agent.result-explain-input.v1",
+        "output_schema_id": "caffemate.agent.result-explain-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:503330f7c14fe47a4af61186b7611b1a3f579e0a97e81f3cd47f1c6a19959516",
+        "deadline_at": "2026-08-24T00:00:30Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "question": "왜 이 후보를 먼저 보나요?",
+          "result_bundle_id": "result-1",
+          "selected_candidate": {
+            "candidate_id": "candidate-1",
+            "display_name": "소형 포장 중심 개인카페",
+            "case_type": "INDEPENDENT",
+            "review_status": "CONDITIONAL_REVIEW",
+            "summary": "현재 자금에 가장 가까운 검토 후보입니다.",
+            "reason_codes": ["CAPITAL_FIT_CLOSEST"],
+            "financial_summary": {},
+            "missing_fields": [],
+            "risks": [],
+            "counterfactuals": [],
+            "next_actions": []
+          },
+          "comparison_candidates": [
+            {
+              "candidate_id": "candidate-1",
+              "display_name": "소형 포장 중심 개인카페",
+              "case_type": "INDEPENDENT",
+              "review_status": "CONDITIONAL_REVIEW",
+              "summary": "현재 자금에 가장 가까운 검토 후보입니다.",
+              "rank": 1
+            }
+          ],
+          "evidence_catalog": [
+            {
+              "evidence_id": "evidence-1",
+              "label": "카페 점포 수",
+              "value": "139 STORES",
+              "source_title": "서울시 상권분석서비스",
+              "data_date": "2026-03-31",
+              "caveat": "행정동 집계입니다."
+            }
+          ]
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-8-complete",
+        "invocation_id": "inv-8-complete",
+        "agent_name": "RESULT_EXPLAINER",
+        "task_type": "RESULT_EXPLAIN",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-8",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:503330f7c14fe47a4af61186b7611b1a3f579e0a97e81f3cd47f1c6a19959516",
+        "output_schema_id": "caffemate.agent.result-explain-result.v1",
+        "status": "COMPLETE",
+        "payload": {
+          "intent": "WHY_RECOMMENDED",
+          "conclusion": "현재 자금에 가장 가까운 후보이기 때문입니다.",
+          "reasons": ["초기 필요자금 범위가 비교적 낮습니다."],
+          "evidence_refs": ["evidence-1"],
+          "unknowns": [],
+          "decision_change_conditions": [],
+          "suggested_action": "NONE"
+        },
+        "evidence_refs": ["evidence-1"],
+        "missing_claim_ids": [],
+        "reason_codes": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "result_explain-abstain",
+      "task": {
+        "schema_version": "1.0.0",
+        "task_id": "task-8-abstain",
+        "invocation_id": "inv-8-abstain",
+        "agent_name": "RESULT_EXPLAINER",
+        "task_type": "RESULT_EXPLAIN",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-8",
+        "transport_attempt": 1,
+        "repair_attempt": 0,
+        "venture_project_id": "project-1",
+        "head_fence": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "prompt_version": "result-explainer.v1",
+        "input_schema_id": "caffemate.agent.result-explain-input.v1",
+        "output_schema_id": "caffemate.agent.result-explain-result.v1",
+        "input_artifacts": [],
+        "input_digest": "sha256:0bf9a6883990a48764bf627c59e36fb022813ae9999cb70f2bc448adc7ce319a",
+        "deadline_at": "2026-08-24T00:00:30Z",
+        "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+        "tool_manifest_digest": null,
+        "available_tool_catalog": [],
+        "payload": {
+          "question": "확정해 주세요.",
+          "result_bundle_id": "result-1",
+          "selected_candidate": {
+            "candidate_id": "candidate-1",
+            "display_name": "소형 포장 중심 개인카페",
+            "case_type": "INDEPENDENT",
+            "review_status": "CONDITIONAL_REVIEW",
+            "summary": "현재 자금에 가장 가까운 검토 후보입니다.",
+            "reason_codes": [],
+            "financial_summary": {},
+            "missing_fields": [],
+            "risks": [],
+            "counterfactuals": [],
+            "next_actions": []
+          },
+          "comparison_candidates": [],
+          "evidence_catalog": []
+        }
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "task_id": "task-8-abstain",
+        "invocation_id": "inv-8-abstain",
+        "agent_name": "RESULT_EXPLAINER",
+        "task_type": "RESULT_EXPLAIN",
+        "workflow_run_id": "wf-fixture",
+        "stage_run_id": "stage-8",
+        "venture_project_id": "project-1",
+        "head_fence_seen": {
+          "workflow_generation": 1,
+          "state_version": 1,
+          "founder_snapshot_id": "founder-1",
+          "area_snapshot_id": "area-1",
+          "evidence_snapshot_id": "evidence-1",
+          "policy_snapshot_id": "policy-1",
+          "index_generation_id": "index-1",
+          "seed_registry_id": "seed-1"
+        },
+        "input_digest": "sha256:0bf9a6883990a48764bf627c59e36fb022813ae9999cb70f2bc448adc7ce319a",
+        "output_schema_id": "caffemate.agent.result-explain-result.v1",
+        "status": "ABSTAIN",
+        "payload": null,
+        "evidence_refs": [],
+        "missing_claim_ids": [],
+        "reason_codes": ["UNSAFE_CERTAINTY_REQUEST"],
+        "warnings": []
+      }
     }
   ]
 }

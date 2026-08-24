@@ -56,6 +56,10 @@ class FeedbackPreconditionError(DomainError):
     code = "FEEDBACK_PRECONDITION_FAILED"
 
 
+class ResultExplanationPreconditionError(DomainError):
+    code = "RESULT_EXPLANATION_PRECONDITION_FAILED"
+
+
 class CandidateSelectionPreconditionError(DomainError):
     code = "CANDIDATE_SELECTION_PRECONDITION_FAILED"
 
