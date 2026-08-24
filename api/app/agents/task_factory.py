@@ -48,7 +48,9 @@ FEEDBACK_ALLOWED_FIELD_PATHS = (
     "/founder/target_area_input",
 )
 
-MAX_EVIDENCE_ASSESS_CANDIDATES_PER_ACTION = 20
+# Vertex rejects this role's structured-output schema when maxItems reaches 15.
+# Keep the provider projection within the measured boundary; retrieval retains all records.
+MAX_EVIDENCE_ASSESS_CANDIDATES_TOTAL = 14
 
 
 def compute_agent_input_digest(task: dict[str, Any]) -> str:
@@ -294,6 +296,7 @@ class AgentTaskFactory:
         bounded projection.
         """
         projected: list[dict[str, Any]] = []
+        record_queues: list[list[dict[str, Any]]] = []
         seen_results: set[tuple[str, str, str]] = set()
         for action in executed_actions:
             if not isinstance(action, dict):
@@ -326,14 +329,28 @@ class AgentTaskFactory:
                 raise ContractValidationError(
                     "EVIDENCE_ASSESS tool data projection is invalid"
                 )
-            structured_result["evidence_records"] = records[
-                :MAX_EVIDENCE_ASSESS_CANDIDATES_PER_ACTION
-            ]
+            record_queues.append([record for record in records if isinstance(record, dict)])
+            structured_result["evidence_records"] = []
             structured_result["source_trace"] = source_trace[
-                :MAX_EVIDENCE_ASSESS_CANDIDATES_PER_ACTION
+                :MAX_EVIDENCE_ASSESS_CANDIDATES_TOTAL
             ]
             structured_result["data"] = []
             projected.append(bounded)
+
+        # 한 출처가 14자리를 독점하지 않도록 각 MCP 결과에서 한 건씩 고른다.
+        selected = 0
+        while selected < MAX_EVIDENCE_ASSESS_CANDIDATES_TOTAL:
+            added = False
+            for action, queue in zip(projected, record_queues, strict=True):
+                if not queue:
+                    continue
+                action["structured_result"]["evidence_records"].append(queue.pop(0))
+                selected += 1
+                added = True
+                if selected == MAX_EVIDENCE_ASSESS_CANDIDATES_TOTAL:
+                    break
+            if not added:
+                break
         return projected
 
     def build_independent_proposal(self, context: StageContext) -> dict[str, Any]:
