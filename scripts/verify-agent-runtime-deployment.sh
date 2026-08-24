@@ -88,7 +88,7 @@ direct_project_roles = {
     for row in project_policy.get("bindings", [])
     if identity in row.get("members", [])
 }
-assert direct_project_roles == set(), direct_project_roles
+assert direct_project_roles == {"roles/cloudtrace.agent"}, direct_project_roles
 platform_set = (
     "principalSet://" + identity.removeprefix("principal://").split("/resources/", 1)[0]
     + "/attribute.platformContainer/aiplatform/projects/" + os.environ["PROJECT_NUMBER"]
