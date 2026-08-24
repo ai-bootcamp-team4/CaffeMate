@@ -18,6 +18,7 @@ from app.agents.runtime import (
 from app.agents.task_factory import compute_agent_input_digest
 from app.cli import _agent_runtime_probe_task
 from app.contracts.schema_registry import ContractRegistry
+from app.security.content_protection import ContentBoundary, ContentInspection
 
 
 class FakeTokens:
@@ -31,6 +32,22 @@ class FakeCleanupSink:
 
     def enqueue_session_delete(self, **kwargs: str) -> None:
         self.calls.append(kwargs)
+
+
+class RecordingContentProtection:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, ContentBoundary]] = []
+
+    def inspect(self, content: str, boundary: ContentBoundary) -> ContentInspection:
+        self.calls.append((content, boundary))
+        return ContentInspection(
+            boundary=boundary,
+            invocation_result="SUCCESS",
+            match_state="NO_MATCH_FOUND",
+            finding_count=0,
+            info_types=(),
+            findings_truncated=False,
+        )
 
 
 class DeferredErrorStream(httpx.AsyncByteStream):
@@ -171,6 +188,33 @@ def test_runtime_uses_one_ephemeral_stream_and_validates_the_final_result() -> N
     assert json.loads(stream_input["message"]) == task
     assert requests[0]["headers"]["Authorization"] == "Bearer access-token"
     assert cleanup.calls == []
+
+
+def test_runtime_inspects_typed_agent_payload_before_and_after_gemini() -> None:
+    task, result = evidence_fixture()
+    protection = RecordingContentProtection()
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        event = {
+            "author": "EVIDENCE_RESEARCHER",
+            "partial": False,
+            "content": {"parts": [{"text": json.dumps(result)}]},
+        }
+        return httpx.Response(200, text=f'{json.dumps({"output": event})}\n')
+
+    loaded = runtime_client(
+        httpx.MockTransport(handler),
+        FakeCleanupSink(),
+        content_protection=protection,
+    ).invoke(task)
+
+    assert loaded == result
+    assert [boundary for _content, boundary in protection.calls] == [
+        ContentBoundary.AGENT_INPUT,
+        ContentBoundary.AGENT_OUTPUT,
+    ]
+    assert json.loads(protection.calls[0][0]) == task["payload"]
+    assert json.loads(protection.calls[1][0]) == result["payload"]
 
 
 def test_sixty_second_task_preserves_stream_budget_and_reserves_cleanup() -> None:

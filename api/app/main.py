@@ -107,6 +107,10 @@ from app.results.models import ResultView
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
 from app.results.unavailable_repository import UnavailableResultRepository
+from app.security.content_protection import (
+    GoogleAccessTokenProvider as ModelArmorAccessTokenProvider,
+)
+from app.security.content_protection import ModelArmorContentProtection
 from app.selections.models import (
     ApplyPropertyTermsRequest,
     CandidateSelection,
@@ -208,6 +212,14 @@ def create_app(
         results = result_service
 
     configured_agent_runtime = agent_runtime
+    content_protection = (
+        ModelArmorContentProtection(
+            template_resource=settings.model_armor_template,
+            access_tokens=ModelArmorAccessTokenProvider(),
+        )
+        if settings.model_armor_template
+        else None
+    )
     if (
         configured_agent_runtime is None
         and database_handle is not None
@@ -219,6 +231,7 @@ def create_app(
             user_hmac_secret=cast(str, settings.agent_runtime_user_hmac_secret),
             access_tokens=GoogleAccessTokenProvider(),
             cleanup_sink=PostgresAgentCleanupSink(database_handle.engine),
+            content_protection=content_protection,
         )
 
     configured_mcp_client = mcp_client

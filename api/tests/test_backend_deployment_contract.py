@@ -178,6 +178,27 @@ def test_document_storage_deployment_is_pinned_and_verified_end_to_end() -> None
     }
 
 
+def test_model_armor_is_inspect_only_and_verified_with_the_deployed_api_image() -> None:
+    deploy = (ROOT / "scripts" / "deploy-model-armor.sh").read_text(encoding="utf-8")
+    verifier = (ROOT / "scripts" / "verify-model-armor.sh").read_text(encoding="utf-8")
+
+    assert 'region="asia-northeast3"' in deploy
+    assert '"enforcementType": "INSPECT_ONLY"' in deploy
+    assert '"logSanitizeOperations": false' in deploy
+    assert '"filterEnforcement": "ENABLED"' in deploy
+    assert "roles/modelarmor.user" in deploy
+    assert "roles/modelarmor.admin" not in deploy
+    assert '--update-env-vars="MODEL_ARMOR_TEMPLATE=' in deploy
+
+    assert "latestReadyRevisionName" in verifier
+    assert "status.imageDigest" in verifier
+    assert '--args="verify-model-armor"' in verifier
+    assert "--max-retries=0" in verifier
+    assert 'template["templateMetadata"]["enforcementType"] == "INSPECT_ONLY"' in verifier
+    assert 'template["templateMetadata"]["logSanitizeOperations"] is False' in verifier
+    assert "MODEL_ARMOR_TEMPLATE" in verifier
+
+
 def test_backend_foundation_scripts_preserve_scope_and_secret_values() -> None:
     bootstrap = (ROOT / "scripts" / "bootstrap-backend-foundation.sh").read_text(
         encoding="utf-8"

@@ -27,6 +27,7 @@ from app.observability import (
     safe_agent_attributes,
     tracer,
 )
+from app.security.content_protection import ContentBoundary, ContentProtection
 
 CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 STREAM_CLEANUP_RESERVE_SECONDS = 2.0
@@ -193,6 +194,7 @@ class AgentRuntimeHttpClient:
         now: Callable[[], datetime] | None = None,
         sleep: Callable[[float], None] | None = None,
         new_invocation_id: Callable[[], str] | None = None,
+        content_protection: ContentProtection | None = None,
     ) -> None:
         if location != "asia-northeast3":
             raise ValueError("Agent Runtime location must be asia-northeast3")
@@ -222,6 +224,7 @@ class AgentRuntimeHttpClient:
         self._now = now or (lambda: datetime.now(UTC))
         self._sleep = sleep or time.sleep
         self._new_invocation_id = new_invocation_id or (lambda: str(uuid4()))
+        self._content_protection = content_protection
 
     def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
         self._contracts.validate_agent_task(task)
@@ -229,6 +232,11 @@ class AgentRuntimeHttpClient:
             raise AgentRuntimeError("RUNTIME_TASK_DIGEST_MISMATCH")
         if task["repair_attempt"] != 0:
             raise AgentRuntimeError("RUNTIME_REPAIR_TASK_NOT_ALLOWED")
+        if self._content_protection is not None:
+            self._content_protection.inspect(
+                rfc8785.dumps(task["payload"]).decode(),
+                ContentBoundary.AGENT_INPUT,
+            )
 
         attributes = safe_agent_attributes(
             task,
@@ -272,6 +280,11 @@ class AgentRuntimeHttpClient:
                 result_status=str(result.get("status", "UNKNOWN")),
                 elapsed_ms=round((time.monotonic() - started_at) * 1000),
             )
+            if self._content_protection is not None:
+                self._content_protection.inspect(
+                    rfc8785.dumps(result.get("payload")).decode(),
+                    ContentBoundary.AGENT_OUTPUT,
+                )
             return result
 
     def _invoke_logical(self, task: dict[str, Any]) -> dict[str, Any]:
