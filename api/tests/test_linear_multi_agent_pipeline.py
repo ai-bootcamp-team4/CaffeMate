@@ -338,6 +338,78 @@ def test_pipeline_queries_the_source_family_present_in_the_official_corpus() -> 
     assert official_call["arguments"]["source_families"] == ["GOVERNMENT_GUIDE"]
 
 
+def test_pipeline_maps_official_rag_hits_before_the_researcher_projection() -> None:
+    class OfficialRagMcp(FakeMcp):
+        async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+            if kwargs["tool_name"] != "retrieve_official_documents":
+                return await super().call_tool(**kwargs)
+            self.tool_names.append("retrieve_official_documents")
+            source_ref = "https://easylaw.go.kr/coffee-registration"
+            content = {
+                "schema_version": "1.0.0",
+                "request_id": "request-retrieve_official_documents",
+                "tool_name": "retrieve_official_documents",
+                "tool_version": "1.0.0",
+                "status": "OK",
+                "project_id": "project-1",
+                "evidence_records": [],
+                "missing_fields": [],
+                "conflicts": [],
+                "source_trace": [
+                    {
+                        "source_id": "easylaw-csmSeq-706",
+                        "source_ref": source_ref,
+                        "data_date": "2026-07-15",
+                        "retrieved_at": NOW.isoformat().replace("+00:00", "Z"),
+                        "content_digest": "sha256:" + "0" * 64,
+                    }
+                ],
+                "error_codes": [],
+                "observed_at": NOW.isoformat().replace("+00:00", "Z"),
+                "data": [
+                    {
+                        "document_revision_id": "easylaw-csmSeq-706@2026-07-15",
+                        "title": "커피전문점 영업신고 및 사업자등록",
+                        "anchor": f"{source_ref}#chunk-1",
+                        "excerpt": "커피전문점은 휴게음식점 영업신고를 해야 합니다.",
+                        "source_date": "2026-07-15",
+                        "evidence_id": "rag:file-1:chunk-1",
+                    }
+                ],
+            }
+            return McpCallOutcome(
+                request_id=content["request_id"],
+                tool_name="retrieve_official_documents",
+                tool_version="1.0.0",
+                status="OK",
+                is_complete=True,
+                structured_content=content,
+            )
+
+    runtime = FakeRuntime()
+
+    _pipeline(runtime, OfficialRagMcp()).run(
+        state=_state(),
+        head=_head(),
+        workflow_run_id="workflow-1",
+        evidence_records=[],
+    )
+
+    researcher_task = next(
+        task for task in runtime.tasks if task["task_type"] == "EVIDENCE_ASSESS"
+    )
+    action = next(
+        action
+        for action in researcher_task["payload"]["executed_actions"]
+        if action["tool_name"] == "retrieve_official_documents"
+    )
+    records = action["structured_result"]["evidence_records"]
+    assert len(records) == 1
+    assert records[0]["claim_type"] == "OFFICIAL_STARTUP_GUIDANCE"
+    assert records[0]["value"]["value"].startswith("커피전문점은")
+    assert records[0]["source"]["authority"] == "PRIMARY_OFFICIAL"
+
+
 def test_independent_proposal_receives_finance_snapshot_and_keeps_agent_advice() -> None:
     runtime = FakeRuntime()
 
