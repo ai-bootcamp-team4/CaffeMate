@@ -47,13 +47,12 @@ Worker는 사용자 제안을 실행하지 않는다. `WORKER_ID`, `AGENT_RUNTIM
 `AGENT_RUNTIME_RESOURCE_ID`와 DB 설정을 사용해 실패한 Agent session 정리와 dead-letter 운영만
 처리한다. 두 endpoint는 public API가 아니며 private Cloud Run IAM 호출만 허용해야 한다.
 
-`FIRST_PROPOSAL`은 Control API가 등록된 개인카페 모델, 프랜차이즈 기준값, 현재 State와 저장된
-Evidence를 읽어 한 번 계산하고 결과까지 같은 PostgreSQL transaction에 저장한다. 외부 조회나
-Agent 호출을 기다리는 stage queue, lease, heartbeat와 재시도 gate는 사용하지 않는다. 실행 기록은
-호환성을 위해 단일 `RUN_PROPOSAL` stage로 남긴다.
+`FIRST_PROPOSAL`은 Control API가 private MCP 조회, Evidence Researcher, 최대 세 개의 병렬
+Proposal Agent, 결정론적 계산과 Candidate Auditor를 한 번의 선형 호출 사슬로 실행한다. stage queue,
+lease, heartbeat와 중복 검증 gate는 사용하지 않으며 실행 기록은 단일 `RUN_PROPOSAL` stage로
+남긴다. Agent 오류를 등록 후보나 정적 결과로 조용히 대체하지 않는다.
 
-자연어 피드백과 문서 추출처럼 실제 언어 이해가 필요한 기능에서 관리형 Agent Runtime을
-사용하려면 다음 설정이 모두 필요하다.
+첫 제안, 자연어 피드백과 문서 추출에서 관리형 Agent Runtime을 사용하려면 다음 설정이 모두 필요하다.
 
 - `AGENT_RUNTIME_PROJECT_ID`
 - `AGENT_RUNTIME_RESOURCE_ID`

@@ -660,6 +660,7 @@
               "brand_id": { "type": "string", "minLength": 1 },
               "display_name": { "type": "string", "minLength": 1 },
               "individual_franchise_eligibility": { "const": "VERIFIED" },
+              "finance_profile": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/franchiseFinanceProfile" },
               "evidence_refs": {
                 "type": "array",
                 "items": { "type": "string" },

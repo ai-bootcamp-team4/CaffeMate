@@ -48,7 +48,7 @@ FEEDBACK_ALLOWED_FIELD_PATHS = (
     "/founder/target_area_input",
 )
 
-MAX_EVIDENCE_ASSESS_CANDIDATES_PER_ACTION = 1
+MAX_EVIDENCE_ASSESS_CANDIDATES_PER_ACTION = 20
 
 
 def compute_agent_input_digest(task: dict[str, Any]) -> str:
@@ -470,6 +470,102 @@ class AgentTaskFactory:
         self._contracts.validate_agent_task(task)
         return task
 
+    def build_result_bundle_audit(
+        self,
+        *,
+        project_id: str,
+        workflow_run_id: str,
+        stage_run_id: str,
+        head: HeadFence,
+        candidates: list[dict[str, Any]],
+        evidence_records: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Audit the already calculated public candidates without reviving staged control."""
+
+        if not candidates:
+            raise ContractValidationError("CANDIDATE_AUDIT requires candidates")
+        candidate_ids = [candidate.get("candidate_id") for candidate in candidates]
+        if any(not isinstance(value, str) or not value for value in candidate_ids):
+            raise ContractValidationError("CANDIDATE_AUDIT candidate identity is invalid")
+        candidate_contracts = ContractRegistry()
+        for candidate in candidates:
+            candidate_contracts.validate_candidate_result(candidate)
+            if (
+                candidate.get("project_id") != project_id
+                or candidate.get("state_version") != head.state_version
+            ):
+                raise ContractValidationError("CANDIDATE_AUDIT candidate crossed State head")
+
+        payload = {
+            "candidates": candidates,
+            "evidence_records": evidence_records,
+            "calculation_snapshot": {
+                "calculation_version": "simple-proposal-finance.v1",
+                "candidate_ids": candidate_ids,
+                "input_digest": self._content_digest(
+                    {
+                        "project_id": project_id,
+                        "state_version": head.state_version,
+                        "candidate_ids": candidate_ids,
+                    }
+                ),
+                "output_digest": self._content_digest(
+                    [
+                        {
+                            "candidate_id": candidate["candidate_id"],
+                            "financial_summary": candidate["financial_summary"],
+                            "review_status": candidate["review_status"],
+                            "rank": candidate["rank"],
+                        }
+                        for candidate in candidates
+                    ]
+                ),
+                "warning_codes": sorted(
+                    {
+                        code
+                        for candidate in candidates
+                        for code in candidate.get("reason_codes", [])
+                        if isinstance(code, str)
+                    }
+                ),
+            },
+            "gate_snapshot": {
+                "gate_version": "simple-proposal-gate.v1",
+                "candidate_gates": [
+                    self._result_candidate_gate(candidate) for candidate in candidates
+                ],
+            },
+        }
+        registry = self._release["tasks"]["CANDIDATE_AUDIT"]
+        task: dict[str, Any] = {
+            "schema_version": "1.0.0",
+            "task_id": f"task-{stage_run_id}",
+            "invocation_id": self._new_invocation_id(),
+            "agent_name": registry["agent_name"],
+            "task_type": "CANDIDATE_AUDIT",
+            "workflow_run_id": workflow_run_id,
+            "stage_run_id": stage_run_id,
+            "transport_attempt": 1,
+            "repair_attempt": 0,
+            "venture_project_id": project_id,
+            "head_fence": head.model_dump(mode="json"),
+            "prompt_version": registry["prompt_version"],
+            "input_schema_id": registry["input_schema_id"],
+            "output_schema_id": registry["output_schema_id"],
+            "input_artifacts": [],
+            "input_digest": "",
+            "deadline_at": self._deadline_for("CANDIDATE_AUDIT")
+            .isoformat()
+            .replace("+00:00", "Z"),
+            "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+            "tool_manifest_digest": None,
+            "available_tool_catalog": [],
+            "payload": payload,
+        }
+        task["input_digest"] = compute_agent_input_digest(task)
+        self._contracts.validate_agent_task(task)
+        return task
+
     def _build_proposal(
         self,
         context: StageContext,
@@ -669,6 +765,40 @@ class AgentTaskFactory:
             "economic_viability": economic_viability,
             "founder_fit": founder_fit,
             "risk_adjusted_status": decision,
+        }
+
+    @staticmethod
+    def _result_candidate_gate(candidate: dict[str, Any]) -> dict[str, str]:
+        review_status = candidate.get("review_status")
+        finance = candidate.get("financial_summary")
+        if review_status not in {
+            "REVIEW_RECOMMENDED",
+            "CONDITIONAL_REVIEW",
+            "EXCLUDED",
+        } or not isinstance(finance, dict):
+            raise ContractValidationError("Result candidate Gate input is invalid")
+        has_complete_economics = (
+            not finance.get("unknown_cost_fields")
+            and finance.get("break_even_monthly_sales_krw") is not None
+        )
+        if review_status == "EXCLUDED":
+            hard_constraint = "FAIL"
+            economic_viability = "FAIL"
+            founder_fit = "UNKNOWN"
+        elif review_status == "REVIEW_RECOMMENDED":
+            hard_constraint = "PASS"
+            economic_viability = "PASS" if has_complete_economics else "UNKNOWN"
+            founder_fit = "PASS"
+        else:
+            hard_constraint = "UNKNOWN"
+            economic_viability = "PASS" if has_complete_economics else "UNKNOWN"
+            founder_fit = "UNKNOWN"
+        return {
+            "candidate_id": candidate["candidate_id"],
+            "hard_constraint": hard_constraint,
+            "economic_viability": economic_viability,
+            "founder_fit": founder_fit,
+            "risk_adjusted_status": review_status,
         }
 
     @staticmethod

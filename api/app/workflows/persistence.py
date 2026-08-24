@@ -14,6 +14,7 @@ from app.domain.errors import ProjectNotFoundError, WorkflowPreconditionError
 from app.domain.models import VentureState
 from app.results.delta import build_result_decision_delta
 from app.workflows.first_proposal import FirstProposalStage, stage_input_digest
+from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import HeadFence, WorkflowCode, WorkflowRun, WorkflowStatus
 from app.workflows.simple_proposal import PropertyCostOverride, SimpleProposalBuilder
 
@@ -26,12 +27,14 @@ def persist_completed_first_proposal(
     state: VentureState,
     policy_snapshot_id: str,
     seed_registry_id: str,
-    builder: SimpleProposalBuilder,
+    pipeline: LinearMultiAgentProposalPipeline | None = None,
+    builder: SimpleProposalBuilder | None = None,
     now: datetime,
     new_id: Callable[[], str],
     source_workflow_run_id: str | None = None,
     source_result_bundle_id: str | None = None,
     property_cost_override: PropertyCostOverride | None = None,
+    franchise_universe: list[dict[str, Any]] | None = None,
 ) -> WorkflowRun:
     """Run and persist the complete first proposal in one transaction."""
 
@@ -58,12 +61,25 @@ def persist_completed_first_proposal(
         seed_registry_id=seed_registry_id,
     )
     evidence_records = _active_evidence(connection, project_id=project_id)
-    bundle = builder.build(
-        state=state,
-        evidence_records=evidence_records,
-        property_cost_override=effective_property_override,
-    )
     workflow_run_id = new_id()
+    if (pipeline is None) == (builder is None):
+        raise ValueError("Provide exactly one proposal pipeline or deterministic builder")
+    if pipeline is not None:
+        bundle = pipeline.run(
+            state=state,
+            head=head,
+            workflow_run_id=workflow_run_id,
+            evidence_records=evidence_records,
+            property_cost_override=effective_property_override,
+        )
+    else:
+        assert builder is not None
+        bundle = builder.build(
+            state=state,
+            evidence_records=evidence_records,
+            property_cost_override=effective_property_override,
+            franchise_universe=franchise_universe,
+        )
     result_bundle_id = new_id()
     stage_run_id = new_id()
     input_digest = _workflow_input_digest(

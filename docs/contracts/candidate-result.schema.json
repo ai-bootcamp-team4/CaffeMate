@@ -99,6 +99,9 @@
             "type": "string"
           },
           "uniqueItems": true
+        },
+        "finance_profile": {
+          "$ref": "./mcp-tool-contracts.schema.json#/$defs/franchiseFinanceProfile"
         }
       }
     },

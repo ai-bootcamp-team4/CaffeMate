@@ -1,5 +1,6 @@
 """사용자는 검증 게이트를 기다리지 않고 근거와 가정을 구분한 후보를 비교한다."""
 
+from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -28,59 +29,45 @@ from app.results.models import (
 )
 from app.results.projection import project_evidence_for_candidate
 
-_EDIYA_BRAND_ID = "kr-ediya-coffee"
-_EDIYA_OFFICIAL_COST_URL = "https://www.ediya.com/C/contents/franchise_02.html"
-_EDIYA_OFFICIAL_INTERIOR_URL = "https://www.ediya.com/C/contents/interior.html"
-_EDIYA_OFFICIAL_COSTS = {
-    CostCategory.FRANCHISE_INITIAL_FEES: MoneyRange(
-        low=19_000_000,
-        base=19_000_000,
-        high=19_000_000,
-    ),
-    CostCategory.OPENING_INVENTORY: MoneyRange(
-        low=8_000_000,
-        base=8_000_000,
-        high=8_000_000,
-    ),
-    CostCategory.CONSTRUCTION: MoneyRange(
-        low=54_900_000,
-        base=54_900_000,
-        high=54_900_000,
-    ),
-    CostCategory.EQUIPMENT: MoneyRange(
-        low=38_421_000,
-        base=38_421_000,
-        high=38_421_000,
-    ),
-}
-_EDIYA_ASSUMPTION_COSTS = {
-    CostCategory.DEPOSIT: MoneyRange(low=30_000_000, base=40_000_000, high=60_000_000),
+_FRANCHISE_BENCHMARK_COSTS = {
+    CostCategory.DEPOSIT: MoneyRange(low=20_000_000, base=35_000_000, high=60_000_000),
     CostCategory.ACQUISITION_OR_PREMIUM: MoneyRange(
         low=0,
         base=10_000_000,
         high=30_000_000,
     ),
-    CostCategory.PREOPENING: MoneyRange(low=3_000_000, base=5_000_000, high=8_000_000),
-    CostCategory.CONTINGENCY: MoneyRange(low=10_000_000, base=15_000_000, high=20_000_000),
+    CostCategory.CONSTRUCTION: MoneyRange(
+        low=10_000_000,
+        base=20_000_000,
+        high=35_000_000,
+    ),
+    CostCategory.EQUIPMENT: MoneyRange(low=18_000_000, base=26_000_000, high=38_000_000),
+    CostCategory.PREOPENING: MoneyRange(low=2_000_000, base=4_000_000, high=6_000_000),
+    CostCategory.OPENING_INVENTORY: MoneyRange(
+        low=1_500_000,
+        base=2_500_000,
+        high=4_000_000,
+    ),
+    CostCategory.CONTINGENCY: MoneyRange(low=6_000_000, base=10_000_000, high=16_000_000),
     CostCategory.OPERATING_RESERVE: MoneyRange(
-        low=20_000_000,
-        base=30_000_000,
-        high=40_000_000,
+        low=12_000_000,
+        base=20_000_000,
+        high=30_000_000,
     ),
     CostCategory.MONTHLY_OCCUPANCY: MoneyRange(
-        low=3_000_000,
-        base=4_500_000,
-        high=7_000_000,
+        low=2_500_000,
+        base=4_000_000,
+        high=6_500_000,
     ),
     CostCategory.MONTHLY_LABOR: MoneyRange(
-        low=6_000_000,
-        base=8_000_000,
-        high=12_000_000,
+        low=1_000_000,
+        base=2_500_000,
+        high=5_000_000,
     ),
     CostCategory.MONTHLY_OTHER_FIXED: MoneyRange(
-        low=1_500_000,
-        base=2_200_000,
-        high=3_500_000,
+        low=700_000,
+        base=1_100_000,
+        high=1_800_000,
     ),
 }
 
@@ -125,9 +112,20 @@ class SimpleProposalBuilder:
         state: VentureState,
         evidence_records: list[dict[str, Any]],
         property_cost_override: PropertyCostOverride | None = None,
+        agent_proposals: list[dict[str, Any]] | None = None,
+        franchise_universe: list[dict[str, Any]] | None = None,
     ) -> ResultBundlePayload:
         drafts: list[_CandidateDraft] = []
         preference = state.founder.cafe_type_preference
+        proposed_ids = (
+            {
+                proposal["seed_or_brand_id"]
+                for proposal in agent_proposals
+                if isinstance(proposal.get("seed_or_brand_id"), str)
+            }
+            if agent_proposals is not None
+            else None
+        )
         if preference in {
             CafeTypePreference.OPEN_TO_BOTH,
             CafeTypePreference.INDEPENDENT_ONLY,
@@ -140,6 +138,7 @@ class SimpleProposalBuilder:
                     property_cost_override=property_cost_override,
                 )
                 for seed in self._seeds.select(state.founder)
+                if proposed_ids is None or seed.model_id in proposed_ids
             )
         if preference in {
             CafeTypePreference.OPEN_TO_BOTH,
@@ -150,6 +149,8 @@ class SimpleProposalBuilder:
                     state=state,
                     evidence_records=evidence_records,
                     property_cost_override=property_cost_override,
+                    proposed_ids=proposed_ids,
+                    franchise_universe=franchise_universe,
                 )
             )
         if not drafts:
@@ -319,26 +320,44 @@ class SimpleProposalBuilder:
         state: VentureState,
         evidence_records: list[dict[str, Any]],
         property_cost_override: PropertyCostOverride | None,
+        proposed_ids: set[str] | None,
+        franchise_universe: list[dict[str, Any]] | None,
     ) -> list[_CandidateDraft]:
         evidence_refs, signals, documents, document_gaps = project_evidence_for_candidate(
             evidence_records,
             project_id=state.project_id,
             case_type="FRANCHISE",
         )
-        brands = (
-            (
-                _EDIYA_BRAND_ID,
-                "이디야커피",
-                "https://www.ediya.com/C/contents/franchise_01.html",
-            ),
-        )
+        universe_by_id = {
+            value["brand_id"]: value
+            for value in (franchise_universe or [])
+            if isinstance(value, dict)
+            and isinstance(value.get("brand_id"), str)
+            and value.get("individual_franchise_eligibility") == "VERIFIED"
+        }
+        brands = [
+            value
+            for brand_id, value in universe_by_id.items()
+            if proposed_ids is None or brand_id in proposed_ids
+        ]
         drafts: list[_CandidateDraft] = []
-        for brand_id, name, source_ref in brands:
-            assumption_ref = f"declared-assumption:{brand_id}:2026-08-23"
+        for brand in brands:
+            brand_id = brand["brand_id"]
+            name = brand["display_name"]
+            profile = brand.get("finance_profile")
+            if not isinstance(profile, dict):
+                raise ValueError(f"Verified franchise has no finance profile: {brand_id}")
+            eligibility_refs = [
+                value
+                for value in brand.get("evidence_refs", [])
+                if isinstance(value, str)
+            ]
+            assumption_ref = f"declared-assumption:{brand_id}:2026-08-24"
             initial_cost_lines = [
                 self._franchise_cost_line(
                     brand_id=brand_id,
                     category=category,
+                    finance_profile=profile,
                     property_cost_override=property_cost_override,
                 )
                 for category in sorted(INITIAL_COST_CATEGORIES, key=lambda item: item.value)
@@ -347,6 +366,7 @@ class SimpleProposalBuilder:
                 self._franchise_cost_line(
                     brand_id=brand_id,
                     category=category,
+                    finance_profile=profile,
                     property_cost_override=property_cost_override,
                 )
                 for category in sorted(
@@ -359,8 +379,8 @@ class SimpleProposalBuilder:
                     initial_cost_lines=initial_cost_lines,
                     monthly_fixed_cost_lines=monthly_fixed_cost_lines,
                     contribution_margin_bps=6_500,
-                    operating_days_per_month=30,
-                    average_ticket_krw=5_500,
+                    operating_days_per_month=26,
+                    average_ticket_krw=7_000,
                 )
             )
             gate = evaluate_capital_gate(
@@ -405,12 +425,21 @@ class SimpleProposalBuilder:
                         "franchise": {
                             "brand_id": brand_id,
                             "eligibility": "VERIFIED",
-                            "availability_status": "HQ_CONFIRMATION_REQUIRED",
-                            "eligibility_evidence_refs": [source_ref],
+                                "availability_status": "HQ_CONFIRMATION_REQUIRED",
+                            "eligibility_evidence_refs": eligibility_refs,
                             "disclosure_evidence_refs": [],
+                            "finance_profile": deepcopy(profile),
                         },
                         "independent_model": None,
-                        "evidence_refs": evidence_refs,
+                        "evidence_refs": sorted(
+                            set(evidence_refs)
+                            | set(eligibility_refs)
+                            | {
+                                value
+                                for value in profile.get("evidence_refs", [])
+                                if isinstance(value, str)
+                            }
+                        ),
                         "assumption_refs": [assumption_ref],
                         "market_signals": signals,
                         "official_documents": documents,
@@ -460,7 +489,11 @@ class SimpleProposalBuilder:
                         ],
                     },
                     gate_status=gate.status,
-                    initial_cash_base=int(finance.initial_cash.base or 0),
+                    initial_cash_base=(
+                        int(finance.initial_cash.base)
+                        if finance.initial_cash.base is not None
+                        else 10**18
+                    ),
                 )
             )
         return drafts
@@ -470,6 +503,7 @@ class SimpleProposalBuilder:
         *,
         brand_id: str,
         category: CostCategory,
+        finance_profile: dict[str, Any],
         property_cost_override: PropertyCostOverride | None,
     ) -> CostLine:
         if property_cost_override is not None and property_cost_override.source_id == brand_id:
@@ -489,30 +523,81 @@ class SimpleProposalBuilder:
                     provenance=ValueProvenance.USER_INPUT,
                     evidence_ref=property_cost_override.evidence_ref,
                 )
-        official = _EDIYA_OFFICIAL_COSTS.get(category)
-        if official is not None:
-            source_ref = (
-                _EDIYA_OFFICIAL_INTERIOR_URL
-                if category in {CostCategory.CONSTRUCTION, CostCategory.EQUIPMENT}
-                else _EDIYA_OFFICIAL_COST_URL
-            )
+        if category == CostCategory.FRANCHISE_INITIAL_FEES:
+            value = finance_profile.get("known_initial_cost_range_krw")
+            refs = [
+                ref
+                for ref in finance_profile.get("evidence_refs", [])
+                if isinstance(ref, str)
+            ]
+            if isinstance(value, dict) and refs:
+                return CostLine(
+                    field_id=category.value,
+                    category=category,
+                    amount=MoneyRange.model_validate(value),
+                    provenance=ValueProvenance.FACT,
+                    evidence_ref=refs[0],
+                )
             return CostLine(
                 field_id=category.value,
                 category=category,
-                amount=official,
-                provenance=ValueProvenance.FACT,
-                evidence_ref=source_ref,
+                amount=MoneyRange(low=None, base=None, high=None),
+                provenance=ValueProvenance.UNKNOWN,
             )
-        assumption = _EDIYA_ASSUMPTION_COSTS.get(category)
-        if assumption is None:
-            raise ValueError(f"Registered franchise cost is missing: {category.value}")
+        assumed_categories = SimpleProposalBuilder._franchise_assumed_categories(
+            finance_profile
+        )
+        if category not in assumed_categories:
+            return CostLine(
+                field_id=category.value,
+                category=category,
+                amount=MoneyRange(low=0, base=0, high=0),
+                provenance=ValueProvenance.DERIVED,
+            )
+        assumption = _FRANCHISE_BENCHMARK_COSTS[category]
+        if category == CostCategory.MONTHLY_OTHER_FIXED:
+            royalty = finance_profile.get("monthly_royalty_krw")
+            if isinstance(royalty, int):
+                assumption = MoneyRange(
+                    low=(assumption.low or 0) + royalty,
+                    base=(assumption.base or 0) + royalty,
+                    high=(assumption.high or 0) + royalty,
+                )
         return CostLine(
             field_id=category.value,
             category=category,
             amount=assumption,
             provenance=ValueProvenance.ASSUMPTION,
-            evidence_ref=f"declared-assumption:{brand_id}:2026-08-23",
+            evidence_ref=f"declared-assumption:{brand_id}:2026-08-24",
         )
+
+    @staticmethod
+    def _franchise_assumed_categories(
+        finance_profile: dict[str, Any],
+    ) -> set[CostCategory]:
+        values = {
+            value
+            for value in finance_profile.get("missing_costs", [])
+            if isinstance(value, str)
+        }
+        assumed = {
+            CostCategory.DEPOSIT,
+            CostCategory.ACQUISITION_OR_PREMIUM,
+            CostCategory.PREOPENING,
+            CostCategory.CONTINGENCY,
+            CostCategory.OPERATING_RESERVE,
+            CostCategory.MONTHLY_OCCUPANCY,
+            CostCategory.MONTHLY_LABOR,
+            CostCategory.MONTHLY_OTHER_FIXED,
+        }
+        for category in (
+            CostCategory.CONSTRUCTION,
+            CostCategory.EQUIPMENT,
+            CostCategory.OPENING_INVENTORY,
+        ):
+            if category.value in values:
+                assumed.add(category)
+        return assumed
 
     @staticmethod
     def _cost_line(

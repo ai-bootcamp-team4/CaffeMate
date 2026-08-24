@@ -20,6 +20,41 @@ from app.results.models import ResultOutcomeStatus
 from app.workflows.simple_proposal import PropertyCostOverride, SimpleProposalBuilder
 
 
+def _franchise_universe() -> list[dict[str, object]]:
+    """Verified franchise inputs are explicit; the builder must not invent a brand."""
+
+    return [
+        {
+            "brand_id": "kr-ediya-coffee",
+            "display_name": "이디야커피",
+            "individual_franchise_eligibility": "VERIFIED",
+            "evidence_refs": ["franchise-eligibility:ediya"],
+            "finance_profile": {
+                "currency": "KRW",
+                "coverage": "PARTIAL",
+                "value_kind": "EVIDENCED_FACT",
+                "known_initial_cost_range_krw": {
+                    "low": 27_000_000,
+                    "base": 27_000_000,
+                    "high": 27_000_000,
+                },
+                "reference_area_sqm": None,
+                "monthly_royalty_krw": 250_000,
+                "evidence_refs": ["franchise-cost:ediya"],
+                "source_refs": ["https://example.com/ediya"],
+                "scope_note": "unit test fixture",
+                "missing_costs": [
+                    "DEPOSIT",
+                    "ACQUISITION_OR_PREMIUM",
+                    "CONSTRUCTION",
+                    "EQUIPMENT",
+                    "OPERATING_RESERVE",
+                ],
+            },
+        }
+    ]
+
+
 def _state(preference: CafeTypePreference) -> VentureState:
     return VentureState(
         project_id="project-1",
@@ -60,6 +95,7 @@ def test_builder_returns_ranked_candidates_for_selected_path(
     result = SimpleProposalBuilder(IndependentSeedRegistry.load_default()).build(
         state=_state(preference),
         evidence_records=[],
+        franchise_universe=_franchise_universe(),
     )
 
     assert result.outcome_status == ResultOutcomeStatus.REVIEWABLE_CANDIDATES
@@ -121,7 +157,11 @@ def test_builder_replaces_selected_model_property_costs_with_user_input() -> Non
 def test_builder_replaces_selected_franchise_property_costs_with_user_input() -> None:
     builder = SimpleProposalBuilder(IndependentSeedRegistry.load_default())
     state = _state(CafeTypePreference.FRANCHISE_ONLY)
-    original = builder.build(state=state, evidence_records=[])
+    original = builder.build(
+        state=state,
+        evidence_records=[],
+        franchise_universe=_franchise_universe(),
+    )
 
     recalculated = builder.build(
         state=state,
@@ -134,14 +174,15 @@ def test_builder_replaces_selected_franchise_property_costs_with_user_input() ->
             management_fee_krw=200_000,
             key_money_krw=10_000_000,
         ),
+        franchise_universe=_franchise_universe(),
     )
 
     original_candidate = original.candidates[0]
     recalculated_candidate = recalculated.candidates[0]
     assert original_candidate["franchise"]["brand_id"] == "kr-ediya-coffee"
-    assert original_candidate["financial_summary"]["initial_cash"]["base"] == 220_321_000
-    assert recalculated_candidate["financial_summary"]["initial_cash"]["base"] == 210_321_000
-    assert recalculated_candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 12_600_000
+    assert original_candidate["financial_summary"]["initial_cash"]["base"] == 152_000_000
+    assert recalculated_candidate["financial_summary"]["initial_cash"]["base"] == 147_000_000
+    assert recalculated_candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 6_250_000
     assert (
         "property-input:property-input-2"
         in recalculated_candidate["financial_summary"]["initial_cash"]["provenance_refs"]

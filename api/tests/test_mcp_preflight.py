@@ -118,7 +118,7 @@ def test_preflight_consumes_all_pages_and_matches_checked_in_digest() -> None:
     assert report.protocol_revision == "2026-07-28"
     assert report.tool_count == 7
     assert report.manifest_digest == (
-        "0a16a2c31e21819e015f6b23de7e62b47576d1b80cbe44698b228a3008477e4c"
+        "df13dfea51e02ff058dad54a1ad5df8b77608cce8890d89cb6cad9a54a9e4b80"
     )
 
 

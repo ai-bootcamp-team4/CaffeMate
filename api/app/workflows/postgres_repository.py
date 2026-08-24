@@ -15,6 +15,7 @@ from app.domain.errors import (
     WorkflowPreconditionError,
 )
 from app.domain.models import VentureState
+from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import (
     HeadFence,
     StartWorkflowCommand,
@@ -23,7 +24,6 @@ from app.workflows.models import (
     WorkflowStageProgress,
 )
 from app.workflows.persistence import persist_completed_first_proposal
-from app.workflows.simple_proposal import SimpleProposalBuilder
 
 
 class PostgresWorkflowRepository:
@@ -33,6 +33,7 @@ class PostgresWorkflowRepository:
         *,
         policy_snapshot_id: str,
         seed_registry_id: str,
+        pipeline: LinearMultiAgentProposalPipeline,
         seed_registry: IndependentSeedRegistry | None = None,
         now: Callable[[], datetime] | None = None,
         new_id: Callable[[], str] | None = None,
@@ -47,7 +48,7 @@ class PostgresWorkflowRepository:
         self._engine = engine
         self._policy_snapshot_id = policy_snapshot_id
         self._seed_registry_id = seed_registry_id
-        self._builder = SimpleProposalBuilder(registry)
+        self._pipeline = pipeline
         self._now = now or (lambda: datetime.now(UTC))
         self._new_id = new_id or (lambda: str(uuid4()))
 
@@ -96,7 +97,7 @@ class PostgresWorkflowRepository:
                 state=state,
                 policy_snapshot_id=self._policy_snapshot_id,
                 seed_registry_id=self._seed_registry_id,
-                builder=self._builder,
+                pipeline=self._pipeline,
                 now=self._now(),
                 new_id=self._new_id,
             )
