@@ -49,17 +49,19 @@ function documentError(caught: unknown, fallback: string): string {
   return message
 }
 
-export function DocumentIntake({ client, projectId, enabled, onApplied }: {
+export function DocumentIntake({ client, projectId, enabled, onApplied, onViewResult }: {
   client: ControlApiClient
   projectId: string
   enabled: boolean
   onApplied: () => Promise<void>
+  onViewResult?: () => void
 }) {
   const [file, setFile] = useState<File | null>(null)
   const [documentType, setDocumentType] = useState<DocumentType>('PROPERTY_LISTING')
   const [form, setForm] = useState<DocumentExtractionForm | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
   const [busyAction, setBusyAction] = useState<'upload' | 'demo' | 'apply' | null>(null)
+  const [applied, setApplied] = useState(false)
   const [status, setStatus] = useState('PDF, JPG, PNG, DOCX · 최대 50MB')
   const [error, setError] = useState('')
   const busy = busyAction !== null
@@ -82,6 +84,7 @@ export function DocumentIntake({ client, projectId, enabled, onApplied }: {
     setBusyAction(action)
     setError('')
     setForm(null)
+    setApplied(false)
     try {
       setStatus('파일을 전송하고 있어요.')
       const uploadTicket = await client.beginDocumentUpload(projectId, nextFile, nextDocumentType, await sha256File(nextFile))
@@ -138,6 +141,7 @@ export function DocumentIntake({ client, projectId, enabled, onApplied }: {
       const progress = await waitForWorkflow(client, projectId, workflow)
       if (progress.status !== 'SUCCEEDED') throw new Error('재계산 일부를 완료하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.')
       await onApplied()
+      setApplied(true)
       setStatus('문서 값을 반영하고 창업안을 다시 계산했어요.')
     } catch (caught) {
       setError(documentError(caught, '문서 값을 반영하지 못했어요. 입력값을 확인한 뒤 다시 시도해 주세요.'))
@@ -169,10 +173,13 @@ export function DocumentIntake({ client, projectId, enabled, onApplied }: {
       <div className="document-extraction-form__intro"><strong>자동으로 채운 값</strong><p>빈 값과 검토 표시가 있는 값만 특히 확인해 주세요. 일일이 승인할 필요는 없어요.</p></div>
       {form.fields.map((field) => <label className="field document-extraction-field" key={field.field_id}>
         <span>{field.label}{field.unit ? ` (${field.unit})` : ''}</span>
-        <input aria-label={`${field.label}${field.unit ? ` (${field.unit})` : ''}`} value={values[field.field_id] ?? ''} onChange={(event) => setValues((current) => ({ ...current, [field.field_id]: event.target.value }))} />
+        <input aria-label={`${field.label}${field.unit ? ` (${field.unit})` : ''}`} value={values[field.field_id] ?? ''} onChange={(event) => {
+          setApplied(false)
+          setValues((current) => ({ ...current, [field.field_id]: event.target.value }))
+        }} />
         <small>{field.anchor ? `${field.anchor.page_index + 1}쪽${field.anchor.section_path ? ` · ${field.anchor.section_path}` : ''}` : '원문 위치 확인 필요'}{field.extraction_status !== 'AUTO_FILLED' ? ' · 직접 확인이 필요한 값' : ''}</small>
       </label>)}
-      <div className="document-intake__actions"><button className="btn btn--accent" type="button" disabled={busy} onClick={() => { setForm(null); setFile(null) }}>다른 문서 선택</button><button className="btn btn--primary" type="button" disabled={busy || !form.form_digest} aria-busy={busyAction === 'apply'} onClick={() => void apply()}>{busyAction === 'apply' ? '다시 계산 중' : form.apply_label}</button></div>
+      <div className="document-intake__actions"><button className="btn btn--accent" type="button" disabled={busy} onClick={() => { setForm(null); setFile(null); setApplied(false) }}>다른 문서 선택</button>{applied && onViewResult ? <button className="btn btn--primary" type="button" onClick={onViewResult}>다시 계산한 결과 보기</button> : <button className="btn btn--primary" type="button" disabled={busy || !form.form_digest} aria-busy={busyAction === 'apply'} onClick={() => void apply()}>{busyAction === 'apply' ? '다시 계산 중' : form.apply_label}</button>}</div>
     </div>}
     <p className="document-intake__status" aria-live="polite">{status}</p>
     {error && <p className="document-intake__error" role="alert">{error}</p>}

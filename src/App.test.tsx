@@ -462,7 +462,7 @@ describe('CaffeMate Control API integration', () => {
     await waitFor(() => expect(client.updateDocumentExtractionForm).toHaveBeenCalledWith('project-1', extractionForm, [{ field_id: 'monthly_rent_krw', value: 2_000_000 }]))
     await waitFor(() => expect(client.applyDocumentExtractionForm).toHaveBeenCalledWith('project-1', appliedForm))
     expect(await screen.findByText('문서 값을 반영하고 창업안을 다시 계산했어요.')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '결과 비교로 돌아가기' }))
+    fireEvent.click(screen.getByRole('button', { name: '다시 계산한 결과 보기' }))
     expect(await screen.findByRole('heading', { name: '문서 조건을 반영하니 지금 예산에는 맞지 않아요' })).toBeTruthy()
     expect(screen.getByText('문서 조건을 반영하니 현재 예산에는 맞지 않았어요. 조건을 바꾸어 다시 비교할 수 있어요.')).toBeTruthy()
     expect(screen.queryByText('입력 조건이 바뀌었어요.')).toBeNull()
