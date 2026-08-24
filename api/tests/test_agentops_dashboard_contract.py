@@ -25,10 +25,15 @@ def test_dashboard_is_agentops_readback_contract_without_fake_rag_series() -> No
 def test_readback_script_returns_dashboard_and_trace_console_paths() -> None:
     root = Path(__file__).resolve().parents[2]
     script = (root / "scripts/verify-agentops-observability.sh").read_text(encoding="utf-8")
+    deploy_script = (root / "scripts/deploy-agentops-observability.sh").read_text(
+        encoding="utf-8"
+    )
 
     assert "gcloud monitoring dashboards describe" in script
     assert "console.cloud.google.com/monitoring/dashboards" in script
     assert "console.cloud.google.com/traces/explorer" in script
+    assert "dashboard_etag" in deploy_script
+    assert "'.etag = $etag'" in deploy_script
 
 
 def test_production_deployments_enable_trace_with_the_source_revision() -> None:
