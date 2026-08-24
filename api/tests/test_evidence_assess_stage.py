@@ -4,8 +4,9 @@ from typing import Any
 
 import pytest
 
+from app.agents.runtime import AgentRuntimeError
 from app.agents.task_factory import AgentTaskFactory
-from app.domain.errors import ContractValidationError
+from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 from app.workflows.evidence_assess import EvidenceAssessStageHandler
 from tests.test_agent_boundary import evidence_record
 from tests.test_evidence_retrieval_stage import action, context
@@ -131,6 +132,36 @@ def test_agent_abstention_preserves_missing_state_and_continues_to_freeze() -> N
     assert assessment["status"] == "ABSTAIN"
     assert assessment["reason_codes"] == ["INSUFFICIENT_CONTEXT"]
     assert assessment["missing_claim_ids"] == ["claim:AREA_PROFILE"]
+
+
+def test_runtime_failure_preserves_retrieval_and_continues_as_missing_evidence() -> None:
+    class UnavailableRuntime(FakeRuntime):
+        def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+            self.tasks.append(task)
+            raise ExternalExecutionUnavailableError("runtime unavailable")
+
+    result = handler(UnavailableRuntime()).execute(assess_context())
+
+    assert result["stage_control"] == {
+        "disposition": "CONTINUE",
+        "reason_codes": ["EVIDENCE_ASSESS_RUNTIME_UNAVAILABLE"],
+    }
+    assessment = result["evidence_assessment"]
+    assert assessment["status"] == "NEEDS_EVIDENCE"
+    assert assessment["assessments"] == []
+    assert assessment["missing_claim_ids"] == ["claim:AREA_PROFILE"]
+    assert assessment["executed_actions"] == []
+    assert assessment["agent_trace"]["invocation_id"] == "invocation-assess"
+
+
+def test_runtime_auth_failure_remains_fatal() -> None:
+    class UnauthorizedRuntime(FakeRuntime):
+        def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+            self.tasks.append(task)
+            raise AgentRuntimeError("RUNTIME_UNAUTHENTICATED")
+
+    with pytest.raises(AgentRuntimeError, match="RUNTIME_UNAUTHENTICATED"):
+        handler(UnauthorizedRuntime()).execute(assess_context())
 
 
 def test_human_required_status_pauses_workflow() -> None:

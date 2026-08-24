@@ -3,7 +3,8 @@ from typing import Any
 from app.agents.boundary import validate_agent_boundary
 from app.agents.protocols import AgentRuntime
 from app.agents.task_factory import AgentTaskFactory
-from app.domain.errors import ContractValidationError
+from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
+from app.workflows.failure_policy import StageExecutionFailurePolicy
 from app.workflows.models import StageControl, StageDisposition
 from app.workflows.stage_context import StageContext
 
@@ -21,7 +22,12 @@ class EvidenceAssessStageHandler:
     def execute(self, context: StageContext) -> dict[str, object]:
         retrieval = self._retrieval(context)
         task = self._task_factory.build_evidence_assess(context)
-        result = self._runtime.invoke(task)
+        try:
+            result = self._runtime.invoke(task)
+        except ExternalExecutionUnavailableError as error:
+            if not StageExecutionFailurePolicy.can_degrade(error):
+                raise
+            return self._runtime_unavailable(task=task, retrieval=retrieval)
         boundary = validate_agent_boundary(
             task=task,
             result=result,
@@ -52,12 +58,7 @@ class EvidenceAssessStageHandler:
         payload_missing_claim_ids = {
             value for value in payload.get("missing_claims", []) if isinstance(value, str)
         }
-        all_claim_ids: set[str] = set()
-        for value in task["payload"]["claims"]:
-            if isinstance(value, dict):
-                claim_id = value.get("claim_id")
-                if isinstance(claim_id, str):
-                    all_claim_ids.add(claim_id)
+        all_claim_ids = self._claim_ids(task)
         assessed_claim_ids: set[str] = set()
         for value in payload.get("assessments", []):
             if isinstance(value, dict):
@@ -98,14 +99,54 @@ class EvidenceAssessStageHandler:
                 "failed_actions": failed_actions,
                 "retrieval_completeness": retrieval.get("completeness"),
                 "executed_actions": retrieval["executed_actions"],
-                "agent_trace": {
-                    "task_id": task["task_id"],
-                    "invocation_id": task["invocation_id"],
-                    "input_digest": task["input_digest"],
-                    "prompt_version": task["prompt_version"],
-                    "output_schema_id": task["output_schema_id"],
-                },
+                "agent_trace": self._trace(task),
             },
+        }
+
+    @classmethod
+    def _runtime_unavailable(
+        cls,
+        *,
+        task: dict[str, Any],
+        retrieval: dict[str, Any],
+    ) -> dict[str, object]:
+        reason_codes = ["EVIDENCE_ASSESS_RUNTIME_UNAVAILABLE"]
+        return {
+            "stage_control": StageControl(reason_codes=reason_codes).model_dump(mode="json"),
+            "evidence_assessment": {
+                "status": "NEEDS_EVIDENCE",
+                "claims": task["payload"]["claims"],
+                "assessments": [],
+                "missing_claims": [],
+                "conflict_proposals": [],
+                "evidence_refs": [],
+                "missing_claim_ids": sorted(cls._claim_ids(task)),
+                "reason_codes": reason_codes,
+                "warnings": [],
+                "failed_actions": retrieval.get("failed_actions", []),
+                "retrieval_completeness": retrieval.get("completeness"),
+                "executed_actions": retrieval.get("executed_actions", []),
+                "agent_trace": cls._trace(task),
+            },
+        }
+
+    @staticmethod
+    def _claim_ids(task: dict[str, Any]) -> set[str]:
+        return {
+            claim_id
+            for value in task["payload"]["claims"]
+            if isinstance(value, dict)
+            and isinstance((claim_id := value.get("claim_id")), str)
+        }
+
+    @staticmethod
+    def _trace(task: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "task_id": task["task_id"],
+            "invocation_id": task["invocation_id"],
+            "input_digest": task["input_digest"],
+            "prompt_version": task["prompt_version"],
+            "output_schema_id": task["output_schema_id"],
         }
 
     @staticmethod

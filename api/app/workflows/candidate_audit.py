@@ -5,10 +5,9 @@ from app.agents.protocols import AgentRuntime
 from app.agents.task_factory import AgentTaskFactory
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 from app.results.projection import project_candidate_results
+from app.workflows.failure_policy import StageExecutionFailurePolicy
 from app.workflows.models import StageControl
 from app.workflows.stage_context import StageContext
-
-CANDIDATE_AUDIT_RUNTIME_MAX_ATTEMPTS = 3
 
 
 class CandidateAuditStageHandler:
@@ -66,17 +65,7 @@ class CandidateAuditStageHandler:
         try:
             result = self._runtime.invoke(task)
         except ExternalExecutionUnavailableError as error:
-            if getattr(error, "runtime_code", None) == "RUNTIME_AGENT_OUTPUT_INVALID":
-                return self._result(
-                    candidates=task["payload"]["candidates"],
-                    audit_status="UNAVAILABLE",
-                    agent_status="ABSTAIN",
-                    candidate_audits=[],
-                    global_findings=[],
-                    reason_codes=["CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID"],
-                    agent_trace=self._trace(task),
-                )
-            if context.lease.attempt < CANDIDATE_AUDIT_RUNTIME_MAX_ATTEMPTS:
+            if not StageExecutionFailurePolicy.can_degrade(error):
                 raise
             return self._result(
                 candidates=task["payload"]["candidates"],
@@ -84,7 +73,12 @@ class CandidateAuditStageHandler:
                 agent_status="ABSTAIN",
                 candidate_audits=[],
                 global_findings=[],
-                reason_codes=["CANDIDATE_AUDIT_RUNTIME_UNAVAILABLE"],
+                reason_codes=[
+                    "CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID"
+                    if getattr(error, "runtime_code", None)
+                    == "RUNTIME_AGENT_OUTPUT_INVALID"
+                    else "CANDIDATE_AUDIT_RUNTIME_UNAVAILABLE"
+                ],
                 agent_trace=self._trace(task),
             )
 

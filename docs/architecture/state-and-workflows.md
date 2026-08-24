@@ -222,6 +222,9 @@ QUEUED
 - `WAITING_FOR_HUMAN`은 필요한 질문과 대상 field를 포함해야 한다.
 - timeout·retry 횟수와 tool trace를 저장한다.
 - 실패한 Agent output은 State input으로 승격하지 않는다.
+- Agent·MCP의 외부 실패는 이미 확인된 State·Evidence·결정론적 계산을 삭제하지 않는다. 안전한
+  대체 출력이 정의된 단계는 누락과 감사 미확보를 표시하고 계속하며, 지역 식별처럼 다음 계산의
+  전제조건이 없으면 `WAITING_FOR_HUMAN`으로 전환한다.
 - `CANCELLED`와 timeout 이후 결과는 full head가 같아도 적용하지 않는다.
 - `STALE`은 current full head 여덟 차원 중 하나라도 달라 checkpoint가 거절된 terminal 상태다.
 
@@ -243,4 +246,5 @@ QUEUED
 - 문서 변경은 의존하는 계산과 판단만 무효화한다.
 - 문서 추출 폼의 일괄 반영 전후가 하나의 Event와 State revision으로 추적된다.
 - 이전 State와 Decision은 감사 이력으로 남는다.
-- Agent 실패 후에도 partial candidate가 current 결과가 되지 않는다.
+- Agent 실패 뒤 남은 후보를 저장할 때는 등록된 seed·brand와 결정론적 계산만 사용하고, 실패한
+  Agent 평가를 Evidence나 통과 판정으로 표시하지 않는다.

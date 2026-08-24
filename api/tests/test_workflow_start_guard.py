@@ -62,13 +62,10 @@ def test_incomplete_first_proposal_composition_reports_every_missing_stage() -> 
     )
 
 
-def test_complete_composition_without_manifest_gate_is_rejected() -> None:
+def test_complete_composition_without_manifest_gate_is_accepted() -> None:
     guard = FirstProposalStartGuard(list(FirstProposalStage))
 
-    with pytest.raises(FirstProposalPreflightUnavailableError) as caught:
-        guard.validate(WorkflowCode.FIRST_PROPOSAL, project_id="project-1")
-
-    assert caught.value.reason_codes == ["MCP_MANIFEST_PREFLIGHT_UNCONFIGURED"]
+    guard.validate(WorkflowCode.FIRST_PROPOSAL, project_id="project-1")
 
 
 def test_manifest_start_gate_runs_full_preflight_with_project_scope() -> None:

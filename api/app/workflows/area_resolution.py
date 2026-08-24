@@ -6,7 +6,8 @@ from pydantic import Field, ValidationError
 
 from app.domain.errors import ContractValidationError
 from app.domain.models import StrictModel
-from app.mcp.client import McpCallOutcome
+from app.mcp.client import McpCallOutcome, McpClientError
+from app.workflows.failure_policy import StageExecutionFailurePolicy
 from app.workflows.models import HeadFence, StageControl, StageDisposition
 from app.workflows.stage_context import StageContext
 
@@ -86,15 +87,37 @@ class AreaResolutionStageHandler:
                 ),
             )
         query = context.state.founder.target_area_input.strip()
-        outcome = asyncio.run(
-            self._mcp_client.call_tool(
-                venture_project_id=context.project_id,
-                workflow_run_id=context.lease.workflow_run_id,
-                head=context.lease.head,
-                tool_name="resolve_area",
-                arguments={"query": query, "country_code": "KR", "limit": 10},
+        try:
+            outcome = asyncio.run(
+                self._mcp_client.call_tool(
+                    venture_project_id=context.project_id,
+                    workflow_run_id=context.lease.workflow_run_id,
+                    head=context.lease.head,
+                    tool_name="resolve_area",
+                    arguments={"query": query, "country_code": "KR", "limit": 10},
+                )
             )
-        )
+        except McpClientError as error:
+            if not StageExecutionFailurePolicy.can_degrade(error):
+                raise
+            return self._result(
+                control=StageControl(
+                    disposition=StageDisposition.WAITING_FOR_HUMAN,
+                    reason_codes=["AREA_SOURCE_UNAVAILABLE"],
+                ),
+                output=AreaResolutionOutput(
+                    query=query,
+                    resolution_status="UNAVAILABLE",
+                    selected=None,
+                    candidates=[],
+                    mcp_status="UNAVAILABLE",
+                    evidence_records=[],
+                    missing_fields=["administrative_dong_mapping"],
+                    conflicts=[],
+                    source_trace=[],
+                    observed_at=context.state.updated_at.isoformat(),
+                ),
+            )
         content = outcome.structured_content
         try:
             candidates = [AreaCandidate.model_validate(value) for value in content["data"]]

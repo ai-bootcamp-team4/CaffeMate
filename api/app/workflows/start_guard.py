@@ -77,8 +77,5 @@ class FirstProposalStartGuard:
             return
         if self._missing_stages:
             raise FirstProposalConfigurationUnavailableError(self._missing_stages)
-        if self._manifest_gate is None:
-            raise FirstProposalPreflightUnavailableError(
-                ["MCP_MANIFEST_PREFLIGHT_UNCONFIGURED"]
-            )
-        self._manifest_gate.validate(project_id=project_id)
+        if self._manifest_gate is not None:
+            self._manifest_gate.validate(project_id=project_id)

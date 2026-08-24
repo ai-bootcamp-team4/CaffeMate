@@ -2,8 +2,6 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
-import pytest
-
 from app.agents.runtime import AgentRuntimeError
 from app.agents.task_factory import AgentTaskFactory, compute_agent_input_digest
 from app.contracts.schema_registry import ContractRegistry
@@ -286,15 +284,12 @@ def test_pass_status_with_findings_preserves_candidates() -> None:
     assert result["candidate_audit"]["candidates"]
 
 
-def test_runtime_failure_retries_then_preserves_candidates_as_unavailable() -> None:
+def test_runtime_failure_preserves_candidates_without_duplicate_stage_retry() -> None:
     def unavailable(_task: dict[str, Any]) -> dict[str, Any]:
         raise ExternalExecutionUnavailableError("runtime unavailable")
 
     handler = CandidateAuditStageHandler(FakeRuntime(unavailable))
-    with pytest.raises(ExternalExecutionUnavailableError):
-        handler.execute(audit_context(attempt=1))
-
-    result = handler.execute(audit_context(attempt=3))
+    result = handler.execute(audit_context(attempt=1))
 
     output = result["candidate_audit"]
     assert isinstance(output, dict)

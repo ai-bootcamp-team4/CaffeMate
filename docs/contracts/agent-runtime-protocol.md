@@ -2,13 +2,13 @@
 
 > 상태: active implementation contract
 >
-> 계약 버전: `1.1.0`
+> 계약 버전: `1.2.0`
 >
 > 제품 정본: [제품 명세](../product-spec.md)
 >
 > 기술 기준: [Agent·RAG 런타임 상세 계약](../product-very-spec.md)
 >
-> 갱신일: 2026-08-23
+> 갱신일: 2026-08-24
 
 ## 1. 목적과 권한
 
@@ -406,12 +406,17 @@ Worker의 Control API 요청 상한은 70초로 둔다. Agent의 logical `deadli
 연장하고 Agent 호출의 deadline을 연장하지 않는다.
 
 ```text
-POST   /v1/projects/{venture_project_id}/workflows/{workflow_code}
+POST   /v1/projects/{venture_project_id}/workflows/FIRST_PROPOSAL
 GET    /v1/projects/{venture_project_id}/workflows/{workflow_run_id}
+GET    /v1/projects/{venture_project_id}/result
 GET    /v1/projects/{venture_project_id}/workflows/{workflow_run_id}/events
 POST   /v1/projects/{venture_project_id}/workflows/{workflow_run_id}:cancel
 POST   /internal/v1/workflows/{workflow_run_id}/stages/{stage_run_id}:execute
 ```
+
+첫 세 공개 동작은 `FirstProposalService`의 run, progress, result 진입점으로 모은다. Durable DAG,
+Agent fan-out, MCP 조회, 계산과 reducer는 이 진입점 뒤의 기존 모듈을 그대로 사용하며 React가
+stage 내부 API나 canary를 호출하지 않는다.
 
 `/internal/**`은 제품·브라우저 API가 아니라 Worker service identity만 호출하는 내부 계약이다.
 현재 Control API는 브라우저 API를 위해 public invoker를 사용하므로 이 path 자체는 transport 경계에서
@@ -545,9 +550,9 @@ tool 이름, input·output Schema와 version은 [MCP Tool Manifest](./mcp-tool-m
 
 인구·업소·개폐업·프랜차이즈 구조화 필드는 나머지 typed connector tool로 조회하며 문서 RAG context를 정형 수치의 최종값으로 사용하지 않는다. RAG retrieval hit도 바로 Evidence가 아니며 tool output Schema, 원문 anchor·source revision·scope·freshness 검사를 통과한 뒤에만 `evidence_records`에 들어간다.
 
-배포 preflight는 pagination을 끝까지 소비한 `tools/list`의 name·version·inputSchema·outputSchema를 RFC 8785로 정규화한다. 관측 목록은 Production Capability의 세 tool과 정확히 비교하고, 각 Schema는 전체 manifest의 해당 definition과 비교한다. Production Capability가 pin한 전체 manifest digest도 [manifest digest](./mcp-tool-manifest.sha256)와 일치해야 한다. 운영 connector의 누락·추가, 미래 tool의 잘못된 광고, schema 차이 또는 digest 차이가 하나라도 있으면 `MCP_MANIFEST_MISMATCH`로 Workflow 시작을 막는다. `server/discover`는 capability preflight에만 쓰며 business request의 선행 handshake가 아니다.
+배포 preflight는 pagination을 끝까지 소비한 `tools/list`의 name·version·inputSchema·outputSchema를 RFC 8785로 정규화한다. 관측 목록은 Production Capability의 세 tool과 정확히 비교하고, 각 Schema는 전체 manifest의 해당 definition과 비교한다. Production Capability가 pin한 전체 manifest digest도 [manifest digest](./mcp-tool-manifest.sha256)와 일치해야 한다. 운영 connector의 누락·추가, 미래 tool의 잘못된 광고, schema 차이 또는 digest 차이가 하나라도 있으면 `MCP_MANIFEST_MISMATCH`로 release 승격을 막는다. `server/discover`는 capability preflight에만 쓰며 business request의 선행 handshake가 아니다.
 
-Control API는 `FIRST_PROPOSAL` Workflow를 저장하기 전에 Python SDK의 `McpManifestPreflight`를 실행한다. 이 검사는 discover revision, pagination 전체, tool version, input·output Schema와 RFC 8785 manifest digest를 모두 확인한다. MCP 미설정, transport 실패 또는 manifest 불일치 시 Workflow row와 outbox를 만들지 않고 `FIRST_PROPOSAL_PREFLIGHT_UNAVAILABLE`과 구체적인 MCP reason code를 반환한다. 배포 검증도 Control API image와 runtime service account로 같은 preflight를 실행해야 한다.
+`McpManifestPreflight`는 배포 검증과 canary에서 Control API image의 runtime service account로 실행한다. 사용자 `FIRST_PROPOSAL` 시작 요청은 이 원격 점검을 실행하지 않고 로컬 stage 구성, State 전제조건과 DB transaction만 검증한 뒤 Workflow row와 outbox를 저장한다. 배포 뒤 MCP가 일시적으로 실패하면 각 조회 action은 `failed_actions`와 missing Claim으로 남으며, 지역 식별 자체가 불가능한 경우에만 `WAITING_FOR_HUMAN`으로 전환한다.
 
 ## 9. 역할별 Workflow handoff
 
@@ -560,7 +565,7 @@ Control API Claim Plan
 → MCP tools/call in parallel
 → validate structuredContent
 → EVIDENCE_ASSESS AgentTask
-→ validate the actual Agent final event or fail the Stage with the original Runtime code
+→ validate the actual Agent final event or preserve every Claim as missing
 → freeze EvidenceSnapshot
 → eligible seed·brand별 PROPOSE_INDEPENDENT and/or PROPOSE_FRANCHISE AgentTask 병렬 실행
 → Control API가 유효한 개별 proposal을 입력 순서로 집계
@@ -607,9 +612,10 @@ anchor와 checksum을 가진 값만 결정론적으로 함께 동결한다. 이 
 
 이 단계는 `low` 사고 수준, 최대 16,384 출력 토큰, 60초 deadline으로 고정한다. output schema의
 `assessments`와 `evidence_refs` 최대 개수는 입력의 unique Evidence 수로, missing과 conflict 최대
-개수는 Claim 수로 제한한다. timeout·transport·`MAX_TOKENS` 실패는 가짜 Agent 결과로 바꾸지 않고
-원래 Runtime code를 가진 명시적 Stage 실패로 남긴다. 이미 완료된 MCP 조회를 Agent 실패 때문에
-다시 실행하거나 다른 모델·endpoint·리전으로 전환하지 않는다.
+개수는 Claim 수로 제한한다. timeout·transport·`MAX_TOKENS` 실패 시 평가 성공을 만들지 않는다.
+Control API는 assessment와 accepted Evidence를 비우고 모든 Claim을 missing으로 보존하여
+`NEEDS_EVIDENCE`로 다음 단계에 전달한다. 이미 완료된 MCP 조회를 Agent 실패 때문에 다시 실행하거나
+다른 모델·endpoint·리전으로 전환하지 않는다.
 
 `resolve_area`는 행정안전부의 기준일이 붙은 법정동 코드 전체 자료를 MCP 이미지에 포함하여
 동네 이름을 먼저 결정론적으로 검색한다. 이 경로는 외부 주소 검색 API를 호출하지 않으며 법정동
@@ -649,7 +655,9 @@ Control API에서 다시 거절되는 split validation을 막을 수 있다.
 없다. 해당 값 때문에 확인이 필요하면 정확한 field path를 지정하고 Evidence·Claim 참조 배열은
 비운다. 관리형 Runtime의 최초 생성과 1회 수리가 모두 출력 의미 검증에서 거절되면 Control API는
 후보·결정론적 계산·순위를 보존하고 `CANDIDATE_AUDIT_AGENT_OUTPUT_INVALID`로 감사 미확보 상태를
-기록한다. 요청 계약 위반, 인증 실패, transport 장애는 이 경로로 숨기지 않는다.
+기록한다. transport 장애도 후보·계산·순위를 버리지 않고 같은 감사 미확보 상태로 남긴다. 요청
+계약 위반, 인증·권한 실패, project fence와 State 무결성 오류는 이 경로로 숨기지 않고 Stage를
+실패시킨다.
 
 `COMMIT_RESULT`는 검토 가능한 후보가 한 개 이상이면 연속 순위와 주력 후보를 가진 일반 결과를
 저장한다. 확인된 필수 조건 위반으로 모든 후보가 제외되면 `ABSTAIN`으로 이전 결과를 남기지 않고,

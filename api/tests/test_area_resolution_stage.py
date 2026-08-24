@@ -14,7 +14,7 @@ from app.domain.models import (
     VentureState,
     VentureStatus,
 )
-from app.mcp.client import McpCallOutcome
+from app.mcp.client import McpCallOutcome, McpClientError
 from app.workflows.area_resolution import AreaResolutionStageHandler
 from app.workflows.models import HeadFence, StageLease
 from app.workflows.stage_context import StageContext
@@ -199,3 +199,27 @@ def test_empty_ok_result_abstains_instead_of_inventing_an_area() -> None:
         "disposition": "ABSTAIN",
         "reason_codes": ["AREA_NOT_FOUND"],
     }
+
+
+def test_mcp_transport_failure_waits_for_area_confirmation_instead_of_failing() -> None:
+    class UnavailableMcpClient:
+        async def call_tool(self, **_kwargs: Any) -> McpCallOutcome:
+            raise McpClientError("MCP_TRANSPORT_ERROR")
+
+    result = AreaResolutionStageHandler(UnavailableMcpClient()).execute(stage_context())
+
+    assert result["stage_control"] == {
+        "disposition": "WAITING_FOR_HUMAN",
+        "reason_codes": ["AREA_SOURCE_UNAVAILABLE"],
+    }
+    assert result["area_resolution"]["resolution_status"] == "UNAVAILABLE"
+    assert result["area_resolution"]["candidates"] == []
+
+
+def test_mcp_auth_failure_remains_fatal() -> None:
+    class UnauthorizedMcpClient:
+        async def call_tool(self, **_kwargs: Any) -> McpCallOutcome:
+            raise McpClientError("MCP_UNAUTHENTICATED")
+
+    with pytest.raises(McpClientError, match="MCP_UNAUTHENTICATED"):
+        AreaResolutionStageHandler(UnauthorizedMcpClient()).execute(stage_context())
