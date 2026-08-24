@@ -506,6 +506,112 @@
         }
       }
     },
+    "resultExplainInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question",
+        "result_bundle_id",
+        "selected_candidate",
+        "comparison_candidates",
+        "evidence_catalog"
+      ],
+      "properties": {
+        "question": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "result_bundle_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "selected_candidate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidate_id",
+            "display_name",
+            "case_type",
+            "review_status",
+            "summary",
+            "reason_codes",
+            "financial_summary",
+            "missing_fields",
+            "risks",
+            "counterfactuals",
+            "next_actions"
+          ],
+          "properties": {
+            "candidate_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "display_name": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "case_type": { "enum": ["INDEPENDENT", "FRANCHISE"] },
+            "review_status": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "reason_codes": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "maxItems": 12,
+              "uniqueItems": true
+            },
+            "financial_summary": { "type": "object", "additionalProperties": true },
+            "missing_fields": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "maxItems": 20 },
+            "risks": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "maxItems": 20 },
+            "counterfactuals": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "maxItems": 12 },
+            "next_actions": { "type": "array", "items": { "type": "string" }, "maxItems": 12 }
+          }
+        },
+        "comparison_candidates": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["candidate_id", "display_name", "case_type", "review_status", "summary", "rank"],
+            "properties": {
+              "candidate_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "display_name": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "case_type": { "enum": ["INDEPENDENT", "FRANCHISE"] },
+              "review_status": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
+              "rank": { "type": ["integer", "null"], "minimum": 1 }
+            }
+          }
+        },
+        "evidence_catalog": {
+          "type": "array",
+          "maxItems": 24,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["evidence_id", "label", "value", "source_title", "data_date", "caveat"],
+            "properties": {
+              "evidence_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "label": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "value": { "type": ["string", "null"], "maxLength": 512 },
+              "source_title": { "type": ["string", "null"], "maxLength": 256 },
+              "data_date": { "type": ["string", "null"], "maxLength": 32 },
+              "caveat": { "type": ["string", "null"], "maxLength": 1000 }
+            }
+          }
+        }
+      }
+    },
+    "resultExplainResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent",
+        "conclusion",
+        "reasons",
+        "evidence_refs",
+        "unknowns",
+        "decision_change_conditions",
+        "suggested_action"
+      ],
+      "properties": {
+        "intent": { "enum": ["WHY_RECOMMENDED", "COMPARE", "FINANCE", "SOURCE", "MISSING_INFO", "COUNTERFACTUAL", "OTHER"] },
+        "conclusion": { "type": "string", "minLength": 1, "maxLength": 1200 },
+        "reasons": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "maxItems": 4 },
+        "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 128 }, "maxItems": 6, "uniqueItems": true },
+        "unknowns": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "maxItems": 4 },
+        "decision_change_conditions": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "maxItems": 4 },
+        "suggested_action": { "enum": ["NONE", "OPEN_CONDITION_CHANGE"] }
+      }
+    },
     "evidencePlanInput": {
       "type": "object",
       "additionalProperties": false,

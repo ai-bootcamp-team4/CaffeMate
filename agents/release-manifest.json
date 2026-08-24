@@ -14,8 +14,8 @@
   },
   "allow_global_fallback": false,
   "network_mode": "GCP_CONNECTED",
-  "prompt_bundle_digest": "sha256:64ccdbe0fadfd2676dfa137de55813a6b914c53e674317d75680cca839a24e79",
-  "agent_contract_bundle_digest": "sha256:dc9dd1ea3494e9050d4a6de79086418411b2029875e7bb01a601788721b8f34e",
+  "prompt_bundle_digest": "sha256:d958a653cd4b398f8fe27d8d61b7bc1cec17f7fde1bd2af5ac7e0c0beb8aa676",
+  "agent_contract_bundle_digest": "sha256:33f32b810be86426cd9e81a50764efd0ca0ed8670ae13879c4810e81558fa752",
   "mcp": {
     "protocol_revision": "2026-07-28",
     "server_sdk": "@modelcontextprotocol/server@2.0.0",
@@ -52,6 +52,15 @@
     "sealed_evaluation_digest": "sha256:90d31c4ff867a7929040de8e83c32312c9b629ec585b97f9b5f1f4035f145b1f"
   },
   "tasks": {
+    "RESULT_EXPLAIN": {
+      "agent_name": "RESULT_EXPLAINER",
+      "prompt_version": "result-explainer.v1",
+      "input_schema_id": "caffemate.agent.result-explain-input.v1",
+      "output_schema_id": "caffemate.agent.result-explain-result.v1",
+      "deadline_seconds": 30,
+      "thinking_level": "low",
+      "max_output_tokens": 2048
+    },
     "INTENT_DELTA": {
       "agent_name": "INTENT_INTERPRETER",
       "prompt_version": "intent-interpreter.v2",

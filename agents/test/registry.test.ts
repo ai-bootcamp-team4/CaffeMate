@@ -9,6 +9,7 @@ const expected = {
   PROPOSE_FRANCHISE: 'PROPOSAL_AGENT',
   DOCUMENT_EXTRACT: 'DOCUMENT_ANALYST',
   CANDIDATE_AUDIT: 'TYPED_CANDIDATE_AUDITOR',
+  RESULT_EXPLAIN: 'RESULT_EXPLAINER',
 } as const
 
 const expectedDeadlines = {
@@ -19,6 +20,7 @@ const expectedDeadlines = {
   PROPOSE_FRANCHISE: 60,
   DOCUMENT_EXTRACT: 60,
   CANDIDATE_AUDIT: 60,
+  RESULT_EXPLAIN: 30,
 } as const
 
 describe('task registry', () => {

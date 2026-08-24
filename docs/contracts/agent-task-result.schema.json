@@ -43,7 +43,8 @@
         "EVIDENCE_RESEARCHER",
         "PROPOSAL_AGENT",
         "DOCUMENT_ANALYST",
-        "TYPED_CANDIDATE_AUDITOR"
+        "TYPED_CANDIDATE_AUDITOR",
+        "RESULT_EXPLAINER"
       ]
     },
     "task_type": {
@@ -54,7 +55,8 @@
         "PROPOSE_INDEPENDENT",
         "PROPOSE_FRANCHISE",
         "DOCUMENT_EXTRACT",
-        "CANDIDATE_AUDIT"
+        "CANDIDATE_AUDIT",
+        "RESULT_EXPLAIN"
       ]
     },
     "workflow_run_id": {
@@ -165,6 +167,23 @@
       "then": {
         "properties": {
           "reason_codes": { "type": "array", "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "task_type": { "const": "RESULT_EXPLAIN" } }
+      },
+      "then": {
+        "properties": {
+          "agent_name": { "const": "RESULT_EXPLAINER" },
+          "output_schema_id": { "const": "caffemate.agent.result-explain-result.v1" },
+          "payload": {
+            "anyOf": [
+              { "$ref": "./agent-role-payloads.schema.json#/$defs/resultExplainResult" },
+              { "type": "null" }
+            ]
+          }
         }
       }
     },

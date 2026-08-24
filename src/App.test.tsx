@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import type { AuthGateway, AuthSession } from './auth'
 import { ControlApiError } from './apiClient'
-import type { AreaSearchResult, ControlApiClient, FeedbackPreview, HeadFence, PreparationGuide, Project, ResultView, WorkflowProgress } from './apiClient'
+import type { AreaSearchResult, ControlApiClient, FeedbackPreview, HeadFence, PreparationGuide, Project, ResultExplanation, ResultView, WorkflowProgress } from './apiClient'
 
 afterEach(cleanup)
 
@@ -106,6 +106,28 @@ const feedbackPreview: FeedbackPreview = {
   proposal_digest: `sha256:${'d'.repeat(64)}`,
 }
 
+const resultExplanation: ResultExplanation = {
+  explanation_id: 'explanation-1',
+  result_bundle_id: 'result-1',
+  candidate_id: 'candidate-1',
+  intent: 'WHY_RECOMMENDED',
+  conclusion: '현재 자금에 가장 가까운 후보지만 본사 확인이 필요합니다.',
+  reasons: ['초기 필요자금 하한이 비교 후보 중 가장 낮습니다.'],
+  evidence: [{
+    evidence_id: 'evidence-market-cafes',
+    label: '카페 점포 수',
+    value: '208개',
+    source_title: '서울시 상권분석서비스',
+    source_ref: 'https://data.seoul.go.kr/dataList/OA-15577/S/1/datasetView.do',
+    data_date: '2026-03-31',
+    caveat: '행정동 집계이며 개별 점포 경쟁력을 뜻하지 않습니다.',
+  }],
+  unknowns: ['본사의 실제 출점 가능 여부'],
+  decision_change_conditions: ['본사가 출점을 거절하면 이 후보는 제외됩니다.'],
+  suggested_action: 'NONE',
+  state_changed: false,
+}
+
 const workflow = { workflow_run_id: 'workflow-1', project_id: 'project-1', workflow_code: 'FIRST_PROPOSAL' as const, status: 'SUCCEEDED' as const, head, created_at: '2026-08-22T00:01:00Z', updated_at: '2026-08-22T00:02:00Z' }
 const progress: WorkflowProgress = { ...workflow, completed_stage_count: 9, total_stage_count: 9, current_stage_codes: [], terminal_reason_codes: [], human_review_requests: [], poll_after_ms: null }
 const preparationGuide: PreparationGuide = {
@@ -156,6 +178,7 @@ function setup(nextResult: ResultView = result) {
     startFirstProposal: vi.fn(async () => workflow),
     getWorkflow: vi.fn(async () => progress),
     getResult: vi.fn(async () => nextResult),
+    explainResult: vi.fn(async () => resultExplanation),
     createFeedbackPreview: vi.fn(async () => { throw new Error('not used') }),
     confirmFeedback: vi.fn(async () => { throw new Error('not used') }),
     cancelFeedback: vi.fn(async () => { throw new Error('not used') }),
@@ -509,15 +532,102 @@ describe('CaffeMate Control API integration', () => {
     await waitFor(() => expect((screen.getByLabelText('바꾸고 싶은 조건') as HTMLTextAreaElement).value).toBe('현재 자기자금 범위에 더 가까운 작은 개인카페 운영안으로 다시 보고 싶어요.'))
   })
 
-  it('shows condition feedback only after a result and explains the preview-before-apply flow', async () => {
+  it('shows a read-only result explainer first and keeps condition change secondary', async () => {
     setup()
 
-    expect(screen.queryByRole('heading', { name: '조건 변경 제안' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: '결과에 대해 물어보기' })).toBeNull()
     await completeOnboarding()
 
-    expect(await screen.findByRole('heading', { name: '조건 변경 제안' })).toBeTruthy()
-    expect(screen.getByText(/변경안을 먼저 보여드리고, 확인한 뒤에만 결과에 반영해요/)).toBeTruthy()
-    expect(screen.getByRole('button', { name: '변경안 미리보기' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '결과에 대해 물어보기' })).toBeTruthy()
+    expect(screen.getByText(/현재 결과와 확인된 근거 안에서 설명해 드려요/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '조건 바꾸기' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '조건 변경 제안' })).toBeNull()
+  })
+
+  it('answers a result question with evidence without changing state', async () => {
+    const { client } = setup()
+    await completeOnboarding()
+
+    fireEvent.click(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' }))
+
+    expect(await screen.findByText(resultExplanation.conclusion)).toBeTruthy()
+    expect(screen.getByText('서울시 상권분석서비스')).toBeTruthy()
+    expect(screen.getByRole('link', { name: '서울시 상권분석서비스 근거 원문 보기' })).toBeTruthy()
+    expect(screen.getByText('답변을 확인했어요. 현재 결과는 바뀌지 않았습니다.')).toBeTruthy()
+    expect(client.explainResult).toHaveBeenCalledWith('project-1', result, '왜 이 안을 먼저 보나요?', 'candidate-1')
+  })
+
+  it('moves the latest explanation into view after answering', async () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+    try {
+      setup()
+      await completeOnboarding()
+
+      fireEvent.click(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' }))
+
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' }))
+    } finally {
+      delete (Element.prototype as Partial<Element>).scrollIntoView
+    }
+  })
+
+  it('keeps internal codes and identifiers out of the explanation UI', async () => {
+    const { client } = setup()
+    vi.mocked(client.explainResult).mockResolvedValueOnce({
+      ...resultExplanation,
+      conclusion: 'HQ_CONFIRMATION_REQUIRED 상태이며 risk-a1b2c3를 확인해야 합니다.',
+      reasons: ['candidate-123의 MATERIAL_COST_UNKNOWN 항목을 확인합니다.'],
+      evidence: [{
+        ...resultExplanation.evidence[0],
+        label: 'evidence.internal_code',
+        value: 'proposal-123',
+        source_title: 'brand-secret-id',
+      }],
+      unknowns: ['FRANCHISE_AREA_AVAILABILITY_UNCONFIRMED'],
+      decision_change_conditions: ['assumption.hidden_value가 바뀌는 경우'],
+    })
+    await completeOnboarding()
+
+    fireEvent.click(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' }))
+
+    await screen.findByText(/본사 확인 필요 상태이며/)
+    const visibleText = document.body.textContent ?? ''
+    expect(visibleText).not.toContain('HQ_CONFIRMATION_REQUIRED')
+    expect(visibleText).not.toContain('risk-a1b2c3')
+    expect(visibleText).not.toContain('candidate-123')
+    expect(visibleText).not.toContain('MATERIAL_COST_UNKNOWN')
+    expect(visibleText).not.toContain('evidence.internal_code')
+    expect(visibleText).not.toContain('proposal-123')
+    expect(visibleText).not.toContain('brand-secret-id')
+    expect(visibleText).not.toContain('FRANCHISE_AREA_AVAILABILITY_UNCONFIRMED')
+    expect(visibleText).not.toContain('assumption.hidden_value')
+  })
+
+  it.each([
+    [
+      409,
+      'RESULT_EXPLANATION_PRECONDITION_FAILED',
+      '결과가 갱신되었거나 아직 설명할 준비가 끝나지 않았어요. 최신 결과를 다시 확인한 뒤 질문해 주세요.',
+    ],
+    [
+      503,
+      'RESULT_EXPLANATION_UNAVAILABLE',
+      '결과 설명 기능에 잠시 연결할 수 없어요. 현재 결과는 그대로 보관되어 있으니 잠시 후 다시 질문해 주세요.',
+    ],
+  ])('shows a friendly recovery action when explanation fails with %i', async (status, code, expectedMessage) => {
+    const { client } = setup()
+    vi.mocked(client.explainResult).mockRejectedValueOnce(new ControlApiError(status, code, code))
+    await completeOnboarding()
+
+    fireEvent.click(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' }))
+
+    expect(await screen.findByText(expectedMessage)).toBeTruthy()
+    expect(document.body.textContent).not.toContain(code)
   })
 
   it('previews a condition change before applying it', async () => {
@@ -529,6 +639,8 @@ describe('CaffeMate Control API integration', () => {
       workflow: null,
     })
     await completeOnboarding()
+
+    fireEvent.click(screen.getByRole('button', { name: '조건 바꾸기' }))
 
     fireEvent.change(screen.getByLabelText('바꾸고 싶은 조건'), {
       target: { value: feedbackPreview.latest_user_input },
@@ -549,6 +661,8 @@ describe('CaffeMate Control API integration', () => {
   it('exposes empty-input and preview-loading states accessibly', async () => {
     const { client } = setup()
     await completeOnboarding()
+
+    fireEvent.click(screen.getByRole('button', { name: '조건 바꾸기' }))
 
     fireEvent.click(screen.getByRole('button', { name: '변경안 미리보기' }))
     const input = screen.getByLabelText('바꾸고 싶은 조건') as HTMLTextAreaElement
@@ -584,6 +698,8 @@ describe('CaffeMate Control API integration', () => {
       workflow: null,
     })
     await completeOnboarding()
+
+    fireEvent.click(screen.getByRole('button', { name: '조건 바꾸기' }))
 
     fireEvent.change(screen.getByLabelText('바꾸고 싶은 조건'), {
       target: { value: '브랜드를 빼고 싶어요.' },

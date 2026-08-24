@@ -4,6 +4,7 @@ export type AgentName =
   | 'PROPOSAL_AGENT'
   | 'DOCUMENT_ANALYST'
   | 'TYPED_CANDIDATE_AUDITOR'
+  | 'RESULT_EXPLAINER'
 
 export type TaskType =
   | 'INTENT_DELTA'
@@ -13,6 +14,7 @@ export type TaskType =
   | 'PROPOSE_FRANCHISE'
   | 'DOCUMENT_EXTRACT'
   | 'CANDIDATE_AUDIT'
+  | 'RESULT_EXPLAIN'
 
 export interface HeadFence {
   workflow_generation: number

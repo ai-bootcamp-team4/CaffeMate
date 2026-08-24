@@ -126,6 +126,45 @@ class AgentTaskFactory:
         self._contracts.validate_agent_task(task)
         return task
 
+    def build_result_explain(
+        self,
+        *,
+        project_id: str,
+        workflow_run_id: str,
+        explanation_id: str,
+        head: HeadFence,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """사용자 의도: 현재 결과를 설명하되 어떤 권위 State도 수정하지 않는다."""
+        registry = self._release["tasks"]["RESULT_EXPLAIN"]
+        deadline = self._deadline_for("RESULT_EXPLAIN")
+        task: dict[str, Any] = {
+            "schema_version": "1.0.0",
+            "task_id": f"task-result-explain-{explanation_id}",
+            "invocation_id": self._new_invocation_id(),
+            "agent_name": registry["agent_name"],
+            "task_type": "RESULT_EXPLAIN",
+            "workflow_run_id": workflow_run_id,
+            "stage_run_id": f"result-explain-{explanation_id}",
+            "transport_attempt": 1,
+            "repair_attempt": 0,
+            "venture_project_id": project_id,
+            "head_fence": head.model_dump(mode="json"),
+            "prompt_version": registry["prompt_version"],
+            "input_schema_id": registry["input_schema_id"],
+            "output_schema_id": registry["output_schema_id"],
+            "input_artifacts": [],
+            "input_digest": "",
+            "deadline_at": deadline.isoformat().replace("+00:00", "Z"),
+            "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
+            "tool_manifest_digest": None,
+            "available_tool_catalog": [],
+            "payload": payload,
+        }
+        task["input_digest"] = compute_agent_input_digest(task)
+        self._contracts.validate_agent_task(task)
+        return task
+
     def build_intent_delta(
         self,
         *,

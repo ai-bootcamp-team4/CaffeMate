@@ -28,6 +28,7 @@ import {
   type PropertyTermsInput,
   type Project,
   type ResultCandidate,
+  type ResultExplanation,
   type ResultView,
   type WorkflowProgress,
 } from "./apiClient";
@@ -185,6 +186,21 @@ function userError(error: unknown, fallback: string) {
     /\b(?:candidate|result|state|workflow|contract)\b/i.test(message)
     ? fallback
     : message;
+}
+
+function explanationError(error: unknown) {
+  if (error instanceof ControlApiError) {
+    if (error.status === 409) {
+      return "결과가 갱신되었거나 아직 설명할 준비가 끝나지 않았어요. 최신 결과를 다시 확인한 뒤 질문해 주세요.";
+    }
+    if (error.status === 503) {
+      return "결과 설명 기능에 잠시 연결할 수 없어요. 현재 결과는 그대로 보관되어 있으니 잠시 후 다시 질문해 주세요.";
+    }
+  }
+  return userError(
+    error,
+    "답변을 만들지 못했어요. 현재 결과는 바뀌지 않았으니 질문을 조금 다르게 적어 다시 시도해 주세요.",
+  );
 }
 
 function displayValue(value: unknown): string {
@@ -973,7 +989,7 @@ function RisksPanel({ candidate }: { candidate: ResultCandidate }) {
   );
 }
 
-function FeedbackPanel({
+function ConditionChangePanel({
   client,
   projectId,
   onResult,
@@ -1109,11 +1125,7 @@ function FeedbackPanel({
       )
     : [];
   return (
-    <section
-      className="feedback-panel"
-      id="resultFeedback"
-      aria-labelledby="feedbackTitle"
-    >
+    <div className="condition-change-panel">
       <div className="feedback-panel__head">
         <Badge tone="accent">변경 전 확인 필수</Badge>
         <h2 id="feedbackTitle">조건 변경 제안</h2>
@@ -1240,6 +1252,261 @@ function FeedbackPanel({
       <p className="feedback-note">
         계약, 결제, 본사 연락은 자동으로 실행하지 않습니다.
       </p>
+    </div>
+  );
+}
+
+const EXPLANATION_SAMPLES = [
+  "왜 이 안을 먼저 보나요?",
+  "예산에서 가장 위험한 부분은 뭐예요?",
+  "무엇이 바뀌면 판단이 달라지나요?",
+] as const;
+
+function FeedbackPanel({
+  client,
+  projectId,
+  result,
+  candidate,
+  onResult,
+  suggestion,
+}: {
+  client: ControlApiClient;
+  projectId: string;
+  result: ResultView;
+  candidate: ResultCandidate;
+  onResult: (result: ResultView) => void;
+  suggestion?: string;
+}) {
+  const [mode, setMode] = useState<"explain" | "condition">("explain");
+  const [question, setQuestion] = useState("");
+  const [answers, setAnswers] = useState<
+    Array<{ question: string; answer: ResultExplanation }>
+  >([]);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState(
+    "궁금한 점을 고르거나 직접 입력해 주세요.",
+  );
+  const [statusTone, setStatusTone] = useState<
+    "idle" | "loading" | "error" | "success"
+  >("idle");
+  const [invalid, setInvalid] = useState(false);
+  const explanationInputRef = useRef<HTMLTextAreaElement>(null);
+  const latestAnswerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!suggestion) return;
+    const timer = window.setTimeout(() => setMode("condition"), 0);
+    return () => window.clearTimeout(timer);
+  }, [suggestion]);
+
+  useEffect(() => {
+    if (answers.length === 0) return;
+    latestAnswerRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [answers.length]);
+
+  // 추천 질문도 한 번의 선택으로 답을 받을 수 있어야 하며, 질문만으로 결과 상태를 바꾸지 않는다.
+  const submitQuestion = async (rawQuestion: string) => {
+    if (busy) return;
+    const trimmed = rawQuestion.trim();
+    if (!trimmed) {
+      setInvalid(true);
+      setStatus("궁금한 점을 한 문장 이상 입력해 주세요.");
+      setStatusTone("error");
+      explanationInputRef.current?.focus();
+      return;
+    }
+    setInvalid(false);
+    setBusy(true);
+    setStatus("현재 결과와 근거를 확인하고 있어요.");
+    setStatusTone("loading");
+    try {
+      const answer = await client.explainResult(
+        projectId,
+        result,
+        trimmed,
+        candidate.candidate_id,
+      );
+      setAnswers((current) => [...current, { question: trimmed, answer }]);
+      setQuestion("");
+      setStatus("답변을 확인했어요. 현재 결과는 바뀌지 않았습니다.");
+      setStatusTone("success");
+    } catch (error) {
+      setStatus(explanationError(error));
+      setStatusTone("error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const ask = (event: FormEvent) => {
+    event.preventDefault();
+    void submitQuestion(question);
+  };
+
+  return (
+    <section
+      className="feedback-panel"
+      id="resultFeedback"
+      aria-labelledby={
+        mode === "explain" ? "resultAssistantTitle" : "feedbackTitle"
+      }
+    >
+      {mode === "explain" ? (
+        <>
+          <div className="feedback-panel__head">
+            <Badge tone="accent">결과 설명</Badge>
+            <h2 id="resultAssistantTitle">결과에 대해 물어보기</h2>
+            <p>
+              현재 결과와 확인된 근거 안에서 설명해 드려요. 질문만으로 조건이나
+              결과가 바뀌지는 않아요.
+            </p>
+          </div>
+          {answers.length > 0 && (
+            <div className="feedback-thread" aria-label="결과 설명 대화">
+              {answers.map((entry, index) => (
+                <div
+                  className="explanation-turn"
+                  key={entry.answer.explanation_id}
+                  ref={index === answers.length - 1 ? latestAnswerRef : undefined}
+                >
+                  <p className="chat-bubble chat-bubble--user">{entry.question}</p>
+                  <article className="explanation-answer">
+                    <strong>{displayText(entry.answer.conclusion)}</strong>
+                    {entry.answer.reasons.length > 0 && (
+                      <ul className="explanation-list">
+                        {entry.answer.reasons.map((reason) => (
+                          <li key={reason}>{displayText(reason)}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {entry.answer.evidence.length > 0 && (
+                      <div className="explanation-evidence">
+                        <span>확인한 근거</span>
+                        {entry.answer.evidence.map((evidence) => (
+                          <div key={evidence.evidence_id}>
+                            <strong>
+                              {displayText(evidence.source_title ?? evidence.label)}
+                            </strong>
+                            {evidence.value && (
+                              <span>{displayText(evidence.value)}</span>
+                            )}
+                            {evidence.source_ref && (
+                              <a
+                                href={evidence.source_ref}
+                                target="_blank"
+                                rel="noreferrer"
+                                aria-label={`${displayText(evidence.source_title ?? evidence.label)} 근거 원문 보기`}
+                              >
+                                근거 원문 보기
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {entry.answer.unknowns.length > 0 && (
+                      <p className="explanation-caveat">
+                        아직 확인할 정보:{" "}
+                        {entry.answer.unknowns.map(displayText).join(" · ")}
+                      </p>
+                    )}
+                    {entry.answer.decision_change_conditions.length > 0 && (
+                      <p className="explanation-caveat">
+                        판단이 달라질 조건:{" "}
+                        {entry.answer.decision_change_conditions
+                          .map(displayText)
+                          .join(" · ")}
+                      </p>
+                    )}
+                    {entry.answer.suggested_action === "OPEN_CONDITION_CHANGE" && (
+                      <button
+                        className="btn"
+                        type="button"
+                        onClick={() => setMode("condition")}
+                      >
+                        조건 변경으로 이동
+                      </button>
+                    )}
+                  </article>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="sample-row" aria-label="추천 질문">
+            {EXPLANATION_SAMPLES.map((sample) => (
+              <button
+                className="sample-chip"
+                disabled={busy}
+                type="button"
+                key={sample}
+                onClick={() => {
+                  setQuestion(sample);
+                  setInvalid(false);
+                  void submitQuestion(sample);
+                }}
+              >
+                {sample}
+              </button>
+            ))}
+          </div>
+          <form className="feedback-form" onSubmit={ask}>
+            <div className="field" data-state={busy ? "loading" : invalid ? "error" : undefined}>
+              <label htmlFor="explanationInput">궁금한 점</label>
+              <div className="feedback-compose">
+                <textarea
+                  id="explanationInput"
+                  ref={explanationInputRef}
+                  value={question}
+                  disabled={busy}
+                  aria-busy={busy || undefined}
+                  aria-invalid={invalid || undefined}
+                  aria-describedby="explanationStatus"
+                  onChange={(event) => {
+                    setQuestion(event.target.value);
+                    if (invalid) setInvalid(false);
+                  }}
+                  placeholder="예: 이 후보가 제 예산에 맞나요?"
+                />
+                <button className="btn btn--primary" disabled={busy} aria-busy={busy || undefined} type="submit">
+                  {busy ? "근거 확인 중" : "답변 보기"}
+                </button>
+              </div>
+            </div>
+          </form>
+          <p
+            className="feedback-status"
+            id="explanationStatus"
+            data-tone={statusTone === "idle" ? undefined : statusTone}
+            aria-live="polite"
+          >
+            {status}
+          </p>
+          <button
+            className="feedback-mode-link"
+            id="conditionModeButton"
+            type="button"
+            onClick={() => setMode("condition")}
+          >
+            조건 바꾸기
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            className="feedback-mode-link"
+            type="button"
+            onClick={() => setMode("explain")}
+          >
+            결과 설명으로 돌아가기
+          </button>
+          <ConditionChangePanel
+            client={client}
+            projectId={projectId}
+            onResult={onResult}
+            suggestion={suggestion}
+          />
+        </>
+      )}
     </section>
   );
 }
@@ -1986,8 +2253,11 @@ function ResultScreen({
           <aside className="rail">
             <div className="rail__inner">
               <FeedbackPanel
+                key={`${result.result_bundle_id}-${activeCandidate.candidate_id}`}
                 client={client}
                 projectId={project.project_id}
+                result={result}
+                candidate={activeCandidate}
                 onResult={updateResult}
                 suggestion={feedbackSuggestion}
               />
@@ -2021,9 +2291,10 @@ function ResultScreen({
                     <button
                       className="btn btn--accent"
                       type="button"
-                      onClick={() =>
-                        document.getElementById("feedbackInput")?.focus()
-                      }
+                      onClick={() => {
+                        document.getElementById("conditionModeButton")?.click();
+                        window.setTimeout(() => document.getElementById("feedbackInput")?.focus(), 0);
+                      }}
                     >
                       조건 바꾸기
                     </button>
@@ -2032,6 +2303,7 @@ function ResultScreen({
                   <button
                     className="btn btn--primary"
                     onClick={() => {
+                      document.getElementById("conditionModeButton")?.click();
                       setFeedbackSuggestion(
                         "현재 자기자금에 맞도록 점포 비용이나 카페 규모를 줄인 안으로 다시 보고 싶어요.",
                       );
@@ -2051,6 +2323,7 @@ function ResultScreen({
                     <button
                       className="btn btn--primary"
                       onClick={() => {
+                        document.getElementById("conditionModeButton")?.click();
                         setFeedbackSuggestion(
                           "현재 자기자금 범위에 더 가까운 작은 개인카페 운영안으로 다시 보고 싶어요.",
                         );
@@ -2085,9 +2358,10 @@ function ResultScreen({
                     </button>
                     <button
                       className="btn btn--accent"
-                      onClick={() =>
-                        document.getElementById("feedbackInput")?.focus()
-                      }
+                      onClick={() => {
+                        document.getElementById("conditionModeButton")?.click();
+                        window.setTimeout(() => document.getElementById("feedbackInput")?.focus(), 0);
+                      }}
                     >
                       조건 바꾸기
                     </button>

@@ -123,6 +123,7 @@ const ROLE_DESCRIPTIONS: Readonly<Record<AgentName, string>> = Object.freeze({
   PROPOSAL_AGENT: 'Produces typed independent or franchise candidate proposals.',
   DOCUMENT_ANALYST: 'Produces typed document extraction proposals.',
   TYPED_CANDIDATE_AUDITOR: 'Audits typed candidate payloads without authoritative writes.',
+  RESULT_EXPLAINER: 'Explains a current result from bounded evidence without authoritative writes.',
 })
 
 export function createCaffeMateAdkRoot(dependencies: CaffeMateAdkDependencies): BaseAgent {

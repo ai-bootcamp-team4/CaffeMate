@@ -59,6 +59,7 @@ from app.domain.errors import (
     IdempotencyKeyReusedError,
     PersistenceUnavailableError,
     ProjectNotFoundError,
+    ResultExplanationPreconditionError,
     ResultNotFoundError,
     StateVersionConflictError,
     UnauthenticatedError,
@@ -94,6 +95,11 @@ from app.mcp.scope import ScopeTokenSigner
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.projects.unavailable_repository import UnavailableProjectRepository
+from app.results.explanation import (
+    ResultExplanationService,
+    UnavailableResultExplanationService,
+)
+from app.results.explanation_models import ResultExplanation, ResultExplanationRequest
 from app.results.models import ResultView
 from app.results.postgres_repository import PostgresResultRepository
 from app.results.service import ResultService
@@ -143,6 +149,9 @@ def create_app(
     project_service: ProjectService | None = None,
     workflow_service: WorkflowService | None = None,
     result_service: ResultService | None = None,
+    result_explanation_service: (
+        ResultExplanationService | UnavailableResultExplanationService | None
+    ) = None,
     feedback_service: FeedbackService | UnavailableFeedbackService | None = None,
     candidate_selection_service: (
         CandidateSelectionService | UnavailableCandidateSelectionService | None
@@ -240,6 +249,13 @@ def create_app(
     else:
         workflows = workflow_service
     first_proposal = FirstProposalService(workflows, results)
+
+    if result_explanation_service is not None:
+        result_explanations = result_explanation_service
+    elif configured_agent_runtime is not None:
+        result_explanations = ResultExplanationService(results, configured_agent_runtime)
+    else:
+        result_explanations = UnavailableResultExplanationService()
 
     if feedback_service is not None:
         feedback = feedback_service
@@ -389,6 +405,7 @@ def create_app(
             WorkflowNotFoundError: status.HTTP_404_NOT_FOUND,
             WorkflowPreconditionError: status.HTTP_409_CONFLICT,
             FeedbackPreconditionError: status.HTTP_409_CONFLICT,
+            ResultExplanationPreconditionError: status.HTTP_409_CONFLICT,
             FeedbackPreviewNotFoundError: status.HTTP_404_NOT_FOUND,
             CandidateSelectionPreconditionError: status.HTTP_409_CONFLICT,
             DocumentNotFoundError: status.HTTP_404_NOT_FOUND,
@@ -474,6 +491,23 @@ def create_app(
         user_id: Annotated[str, Depends(current_user)],
     ) -> ResultView:
         return first_proposal.result(project_id=project_id, user_id=user_id)
+
+    @app.post(
+        "/v1/projects/{project_id}/result:explain",
+        response_model=ResultExplanation,
+    )
+    def explain_current_result(
+        project_id: str,
+        request: ResultExplanationRequest,
+        user_id: Annotated[str, Depends(current_user)],
+    ) -> ResultExplanation:
+        return result_explanations.explain(
+            project_id=project_id,
+            user_id=user_id,
+            result_bundle_id=request.result_bundle_id,
+            candidate_id=request.candidate_id,
+            question=request.question,
+        )
 
     @app.post(
         "/v1/projects/{project_id}/feedback/previews",

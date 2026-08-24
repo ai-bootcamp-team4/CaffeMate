@@ -26,6 +26,7 @@ const ROLE_PAYLOAD_DEF: Readonly<Record<TaskType, string>> = Object.freeze({
   PROPOSE_FRANCHISE: 'franchiseProposalResult',
   DOCUMENT_EXTRACT: 'documentExtractResult',
   CANDIDATE_AUDIT: 'candidateAuditResult',
+  RESULT_EXPLAIN: 'resultExplainResult',
 })
 
 const SUPPORTED_KEYS = new Set([

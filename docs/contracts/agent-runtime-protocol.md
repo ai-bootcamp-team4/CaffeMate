@@ -155,6 +155,7 @@ EVIDENCE_ASSESS                     → EVIDENCE_RESEARCHER
 PROPOSE_INDEPENDENT | PROPOSE_FRANCHISE → PROPOSAL_AGENT
 DOCUMENT_EXTRACT                    → DOCUMENT_ANALYST
 CANDIDATE_AUDIT                     → TYPED_CANDIDATE_AUDITOR
+RESULT_EXPLAIN                      → RESULT_EXPLAINER
 ```
 
 dispatcher는 모델을 호출하기 전에 `AgentTask` Schema, `task_type → agent_name → prompt_version → input/output schema` 조합과 `NO_DIRECT_TOOL_CALLS`를 검증한다. 그 뒤 정확히 한 child Agent의 `run_async`만 실행한다. LLM이 역할을 고르거나 다른 Agent로 transfer하지 않으며 root 자체도 생성 모델을 호출하지 않는다.
@@ -187,7 +188,7 @@ Control API가 수용하는 final event는 다음 조건을 모두 만족해야 
 schema_version: "1.0.0"
 task_id: logical stage task id
 invocation_id: physical call id
-agent_name: one of five roles
+agent_name: registered role
 task_type: registered task
 workflow_run_id: required
 stage_run_id: required
@@ -217,6 +218,7 @@ trace_context: optional W3C trace context
 | `PROPOSE_FRANCHISE` | `PROPOSAL_AGENT` | Founder·Area snapshot, verified franchise universe, Evidence | franchise candidate proposals | 60초 |
 | `DOCUMENT_EXTRACT` | `DOCUMENT_ANALYST` | extraction contract, parser blocks, anchors | proposed Claims·risk flags | batch당 60초 |
 | `CANDIDATE_AUDIT` | `TYPED_CANDIDATE_AUDITOR` | frozen candidate·Evidence·calculation·Gate | audit findings | 60초 |
+| `RESULT_EXPLAIN` | `RESULT_EXPLAINER` | current Result Bundle의 bounded 후보·재무·누락·반전 조건·Evidence catalog와 사용자 질문 | 결론·이유·근거 참조·미확인 정보·판단 반전 조건 | 30초 |
 
 각 row의 `input_schema_id`와 `output_schema_id`는 배포 manifest에 고정한다. Agent code를 구현하기 전에 역할별 payload Schema와 최소 정상·기권 fixture가 존재해야 한다. 이름만 맞고 payload Schema가 없는 Agent는 배포할 수 없다.
 
@@ -231,6 +233,7 @@ trace_context: optional W3C trace context
 - Proposal의 관점별 signal은 계산·Hard Gate·순위·주력 후보 선택이 아니다. 이 권한은 계속 Control API의 결정론적 단계에만 있다.
 - Evidence Assessment 입력은 Control API가 실행하고 검증한 tool result만 포함한다.
 - Document 입력은 한 revision의 허용 parser block·anchor만 포함한다.
+- Result Explanation 입력은 현재 Result Bundle의 최대 후보 3개와 최대 Evidence 24개만 포함한다. Agent는 새 근거를 검색하지 않고, 응답의 Evidence ID는 Control API가 현재 결과의 허용 목록과 다시 대조한다.
 
 ### 5.3 `input_digest` 계산
 
@@ -571,6 +574,19 @@ Evidence Researcher는 MCP 결과의 scope, 날짜, 원문 위치와 출처 권�
 담당한다.
 
 ### 9.2 RESULT_FEEDBACK
+
+기본 경로는 읽기 전용 설명이다.
+
+```text
+user question
+→ current Result Bundle and candidate check
+→ bounded RESULT_EXPLAIN AgentTask
+→ output Schema validation
+→ Evidence ID allow-list reconciliation
+→ explanation response, no State write
+```
+
+조건 변경은 사용자가 `조건 바꾸기`를 선택한 뒤에만 아래 별도 경로로 들어간다.
 
 ```text
 latest user input
