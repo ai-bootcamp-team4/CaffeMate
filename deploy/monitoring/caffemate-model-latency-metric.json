@@ -1,0 +1,18 @@
+{
+  "name": "caffemate_model_latency_ms",
+  "description": "Vertex Gemini generation latency in milliseconds.",
+  "filter": "jsonPayload.event=\"VERTEX_AGENT_GENERATION\"",
+  "valueExtractor": "EXTRACT(jsonPayload.elapsed_ms)",
+  "metricDescriptor": {
+    "metricKind": "DELTA",
+    "valueType": "DISTRIBUTION",
+    "unit": "ms"
+  },
+  "bucketOptions": {
+    "exponentialBuckets": {
+      "numFiniteBuckets": 20,
+      "growthFactor": 2,
+      "scale": 10
+    }
+  }
+}

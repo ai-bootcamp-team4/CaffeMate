@@ -1,0 +1,18 @@
+{
+  "name": "caffemate_model_tokens",
+  "description": "Vertex Gemini total tokens per generation.",
+  "filter": "jsonPayload.event=\"VERTEX_AGENT_GENERATION\" AND jsonPayload.total_token_count:*",
+  "valueExtractor": "EXTRACT(jsonPayload.total_token_count)",
+  "metricDescriptor": {
+    "metricKind": "DELTA",
+    "valueType": "DISTRIBUTION",
+    "unit": "1"
+  },
+  "bucketOptions": {
+    "exponentialBuckets": {
+      "numFiniteBuckets": 20,
+      "growthFactor": 2,
+      "scale": 32
+    }
+  }
+}

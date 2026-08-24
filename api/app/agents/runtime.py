@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import os
 import time
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
@@ -20,6 +21,12 @@ from sqlalchemy import Engine, text
 from app.agents.task_factory import compute_agent_input_digest
 from app.contracts.schema_registry import AgentContractValidator, ContractRegistry
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
+from app.observability import (
+    current_trace_carrier,
+    record_safe_metric,
+    safe_agent_attributes,
+    tracer,
+)
 
 CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 STREAM_CLEANUP_RESERVE_SECONDS = 2.0
@@ -223,14 +230,49 @@ class AgentRuntimeHttpClient:
         if task["repair_attempt"] != 0:
             raise AgentRuntimeError("RUNTIME_REPAIR_TASK_NOT_ALLOWED")
 
-        try:
-            return self._invoke_logical(task)
-        except _RepairableResultError as first_error:
-            repair_task = self._build_repair_task(task, first_error)
+        attributes = safe_agent_attributes(
+            task,
+            model_id=os.getenv("AGENT_MODEL_ID"),
+            source_revision=os.getenv("CAFFEMATE_SOURCE_REVISION"),
+        )
+        with tracer().start_as_current_span(
+            "caffemate.agent.runtime.invoke",
+            attributes=attributes,
+        ) as span:
+            traced_task = deepcopy(task)
+            carrier = current_trace_carrier()
+            if carrier:
+                traced_task["trace_context"] = carrier
+            started_at = time.monotonic()
             try:
-                return self._invoke_with_transport_retries(repair_task)
-            except _RepairableResultError as second_error:
-                raise AgentRuntimeError("RUNTIME_RESULT_SCHEMA_INVALID") from second_error
+                try:
+                    result = self._invoke_logical(traced_task)
+                except _RepairableResultError as first_error:
+                    repair_task = self._build_repair_task(traced_task, first_error)
+                    try:
+                        result = self._invoke_with_transport_retries(repair_task)
+                    except _RepairableResultError as second_error:
+                        raise AgentRuntimeError("RUNTIME_RESULT_SCHEMA_INVALID") from second_error
+            except Exception as error:
+                span.record_exception(error)
+                record_safe_metric(
+                    "CAFFEMATE_AGENT_INVOCATION",
+                    agent_role=str(task["agent_name"]),
+                    task_type=str(task["task_type"]),
+                    prompt_version=str(task["prompt_version"]),
+                    result_status="ERROR",
+                    elapsed_ms=round((time.monotonic() - started_at) * 1000),
+                )
+                raise
+            record_safe_metric(
+                "CAFFEMATE_AGENT_INVOCATION",
+                agent_role=str(task["agent_name"]),
+                task_type=str(task["task_type"]),
+                prompt_version=str(task["prompt_version"]),
+                result_status=str(result.get("status", "UNKNOWN")),
+                elapsed_ms=round((time.monotonic() - started_at) * 1000),
+            )
+            return result
 
     def _invoke_logical(self, task: dict[str, Any]) -> dict[str, Any]:
         return self._invoke_with_transport_retries(task)
@@ -503,10 +545,12 @@ class AgentRuntimeHttpClient:
         return value
 
     def _headers(self) -> dict[str, str]:
-        return {
+        headers = {
             "Authorization": f"Bearer {self._access_tokens.token()}",
             "Content-Type": "application/json; charset=utf-8",
         }
+        headers.update(current_trace_carrier())
+        return headers
 
     def _runtime_user_id(self, venture_project_id: str) -> str:
         digest = hmac.new(self._secret, venture_project_id.encode(), hashlib.sha256).hexdigest()

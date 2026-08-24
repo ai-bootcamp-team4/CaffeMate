@@ -76,7 +76,13 @@ print(json.dumps({
     "spec": {
         "classMethods": data["classMethods"],
         "deploymentSpec": {
-            "env": [{"name": "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "value": "true"}],
+            "env": [
+                {"name": "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "value": "true"},
+                {"name": "CAFFEMATE_OTEL_ENABLED", "value": "true"},
+                {"name": "CAFFEMATE_ENVIRONMENT", "value": "production"},
+                {"name": "CAFFEMATE_SOURCE_REVISION", "value": os.environ["SOURCE_REVISION"]},
+                {"name": "AGENT_MODEL_ID", "value": "gemini-3.7-flash"},
+            ],
             "minInstances": 1,
             "maxInstances": 10,
             "resourceLimits": {"cpu": "1", "memory": "2Gi"},

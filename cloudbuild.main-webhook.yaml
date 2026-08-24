@@ -165,6 +165,7 @@ steps:
           --service-account="${_API_RUNTIME_SERVICE_ACCOUNT}" \
           --port=8080 \
           --ingress=all \
+          --update-env-vars="CAFFEMATE_OTEL_ENABLED=true,CAFFEMATE_ENVIRONMENT=production,CAFFEMATE_SOURCE_REVISION=$${revision}" \
           --update-labels="source-revision=$${revision},managed-by=cloud-build" \
           --quiet
 
@@ -192,7 +193,7 @@ steps:
           --args=worker.main:app,--host,0.0.0.0,--port,8080 \
           --port=8080 \
           --ingress=internal \
-          --update-env-vars="CONTROL_API_URL=$${api_url},CONTROL_API_AUDIENCE=$${api_url}" \
+          --update-env-vars="CONTROL_API_URL=$${api_url},CONTROL_API_AUDIENCE=$${api_url},CAFFEMATE_OTEL_ENABLED=true,CAFFEMATE_ENVIRONMENT=production,CAFFEMATE_SOURCE_REVISION=$${revision}" \
           --update-labels="source-revision=$${revision},managed-by=cloud-build" \
           --quiet
 

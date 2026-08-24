@@ -1,0 +1,17 @@
+steps:
+  - id: build-agentops-canary
+    name: gcr.io/cloud-builders/docker
+    env: [DOCKER_BUILDKIT=1]
+    args:
+      - build
+      - --file
+      - deploy/backend.Dockerfile
+      - --tag
+      - ${_IMAGE}
+      - .
+  - id: push-agentops-canary
+    name: gcr.io/cloud-builders/docker
+    args: [push, "${_IMAGE}"]
+images: ["${_IMAGE}"]
+options:
+  logging: CLOUD_LOGGING_ONLY

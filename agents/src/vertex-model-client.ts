@@ -8,6 +8,7 @@ import {
 } from './vertex-response-schema'
 import type { AgentModelClient, AgentModelInvocation, AgentModelResponse } from './model-executor'
 import type { AgentTask } from './types'
+import { injectCurrentTrace, setCurrentSpanAttributes, withActiveSpan } from './telemetry'
 import {
   buildVertexGenerationRequest,
   parseVertexGenerationResponse,
@@ -215,6 +216,18 @@ export class VertexAgentModelClient implements AgentModelClient {
   }
 
   async generate(invocation: AgentModelInvocation): Promise<AgentModelResponse> {
+    return withActiveSpan(
+      'gen_ai.generate_content',
+      {
+        'caffemate.agent.task_type': invocation.taskType,
+        'caffemate.prompt.version': invocation.task.prompt_version,
+        'gen_ai.request.model': invocation.model,
+      },
+      () => this.generateTraced(invocation),
+    )
+  }
+
+  private async generateTraced(invocation: AgentModelInvocation): Promise<AgentModelResponse> {
     if (invocation.region !== this.options.region) {
       throw new VertexAgentModelError('VERTEX_REGION_NOT_ALLOWED', 'invocation region differs from the pinned client region')
     }
@@ -234,10 +247,10 @@ export class VertexAgentModelClient implements AgentModelClient {
     const startedAt = Date.now()
     const response = await this.fetchImpl(endpoint, {
       method: 'POST',
-      headers: {
+      headers: injectCurrentTrace({
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
-      },
+      }),
       body: requestBody,
     })
 
@@ -259,6 +272,16 @@ export class VertexAgentModelClient implements AgentModelClient {
     }
 
     const providerPayload = await response.json()
+    const usage = record(record(providerPayload)?.usageMetadata)
+    setCurrentSpanAttributes({
+      'http.response.status_code': response.status,
+      ...(numericMetric(usage?.promptTokenCount) === null
+        ? {}
+        : { 'gen_ai.usage.input_tokens': numericMetric(usage?.promptTokenCount) as number }),
+      ...(numericMetric(usage?.candidatesTokenCount) === null
+        ? {}
+        : { 'gen_ai.usage.output_tokens': numericMetric(usage?.candidatesTokenCount) as number }),
+    })
     console.info(JSON.stringify(safeGenerationTelemetry({
       invocation,
       elapsedMs: Date.now() - startedAt,
