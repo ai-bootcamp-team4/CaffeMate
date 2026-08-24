@@ -117,6 +117,38 @@ def test_builder_keeps_registered_assumptions_distinct_from_evidence() -> None:
     assert all(candidate["assumption_refs"] for candidate in result.candidates)
 
 
+def test_registry_exposes_four_general_models_and_activates_conditional_interest() -> None:
+    """사용자는 기본 네 유형과 명시적으로 원하는 조건부 유형만 추천받는다."""
+
+    registry = IndependentSeedRegistry.load_default()
+    founder = _state(CafeTypePreference.INDEPENDENT_ONLY).founder
+
+    assert [model.model_id for model in registry.select(founder)] == [
+        "independent-small-takeout-v1",
+        "independent-balanced-v1",
+        "independent-seating-focused-v1",
+        "independent-specialty-v1",
+    ]
+
+    dessert_founder = founder.model_copy(
+        update={"preferences": ["직접 만든 디저트와 베이커리 중심"]}
+    )
+    dessert_ids = [model.model_id for model in registry.select(dessert_founder)]
+    assert dessert_ids[0] == "independent-dessert-bakery-v1"
+    assert "independent-destination-experience-v1" not in dessert_ids
+
+
+def test_registry_prioritizes_the_general_model_matching_founder_preference() -> None:
+    """명시한 운영 방향은 비용 순서보다 먼저 Proposal Agent 입력에 반영한다."""
+
+    registry = IndependentSeedRegistry.load_default()
+    founder = _state(CafeTypePreference.INDEPENDENT_ONLY).founder.model_copy(
+        update={"preferences": ["원두와 핸드드립 중심의 스페셜티 카페"]}
+    )
+
+    assert registry.select(founder)[0].model_id == "independent-specialty-v1"
+
+
 def test_builder_preserves_matching_independent_agent_advice() -> None:
     registry = IndependentSeedRegistry.load_default()
     seed = registry.select(_state(CafeTypePreference.INDEPENDENT_ONLY).founder)[0]

@@ -63,6 +63,8 @@ class IndependentSeedDefinition(StrictModel):
     allowed_parameters: list[AllowedParameter] = Field(min_length=1)
     finance_profile: IndependentFinanceProfile | None = None
     support_refs: list[str] = Field(min_length=1)
+    selection_keywords: list[str] = Field(default_factory=list)
+    requires_explicit_interest: bool = False
 
     @model_validator(mode="after")
     def validate_unique_values(self) -> "IndependentSeedDefinition":
@@ -73,6 +75,8 @@ class IndependentSeedDefinition(StrictModel):
             raise ValueError("allowed parameter paths must be unique")
         if len(self.support_refs) != len(set(self.support_refs)):
             raise ValueError("support refs must be unique")
+        if len(self.selection_keywords) != len(set(self.selection_keywords)):
+            raise ValueError("selection keywords must be unique")
         return self
 
 
@@ -104,15 +108,28 @@ class IndependentSeedRegistry:
         return cls.load(Path(__file__).with_name("independent_seed_registry.json"))
 
     def select(self, founder: FounderState) -> list[IndependentSeedDefinition]:
-        return [
-            model
-            for model in self._document.models
-            if founder.operation_mode in model.allowed_operation_modes
-            and (
-                model.minimum_own_funds_krw is None
-                or founder.own_funds_krw >= model.minimum_own_funds_krw
+        # 사용자가 말한 운영 방향을 먼저 보되, 말하지 않은 고비용 조건부 모델은 열지 않는다.
+        preference_text = " ".join(
+            [*founder.preferences, founder.prior_cafe_experience or ""]
+        ).casefold()
+        eligible: list[tuple[int, int, IndependentSeedDefinition]] = []
+        for index, model in enumerate(self._document.models):
+            if founder.operation_mode not in model.allowed_operation_modes:
+                continue
+            if (
+                model.minimum_own_funds_krw is not None
+                and founder.own_funds_krw < model.minimum_own_funds_krw
+            ):
+                continue
+            preference_matches = sum(
+                keyword.casefold() in preference_text
+                for keyword in model.selection_keywords
             )
-        ]
+            if model.requires_explicit_interest and preference_matches == 0:
+                continue
+            eligible.append((-preference_matches, index, model))
+        eligible.sort(key=lambda value: (value[0], value[1]))
+        return [model for _, _, model in eligible]
 
     def get(self, model_id: str) -> IndependentSeedDefinition | None:
         return next(
