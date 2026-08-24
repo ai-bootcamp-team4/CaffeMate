@@ -695,8 +695,28 @@ assert report["elapsed_ms"] <= 120_000, report
 assert report["candidate_count"] >= 1
 assert set(report.get("candidate_case_types", [])) == {"FRANCHISE"}, report
 assert report.get("franchise_candidate_brand_ids"), report
+citations = report.get("franchise_official_citations", [])
+assert citations, report
+required_claims = {
+    "FRANCHISE_INDIVIDUAL_ELIGIBILITY",
+    "FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE",
+}
+for brand_id in report["franchise_candidate_brand_ids"]:
+    brand_citations = [row for row in citations if row.get("brand_id") == brand_id]
+    claims = {
+        claim
+        for row in brand_citations
+        for claim in row.get("claim_types", [])
+    }
+    assert required_claims <= claims, {"brand_id": brand_id, "citations": brand_citations}
+    assert all(
+        row.get("source_family") == "COMPANY_OFFICIAL_FRANCHISE"
+        and str(row.get("source_ref", "")).startswith("https://")
+        and row.get("data_date")
+        for row in brand_citations
+    ), brand_citations
 assert report["result_freshness"] == "CURRENT"
-print("PASS FRANCHISE_ONLY reached a ranked verified real-brand candidate")
+print("PASS FRANCHISE_ONLY returned ranked real-brand candidates with official citations")
 PY
 unset franchise_canary_reports
 

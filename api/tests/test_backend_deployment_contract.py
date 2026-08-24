@@ -393,6 +393,9 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert 'report["requested_cafe_type_preference"] == "FRANCHISE_ONLY"' in verifier
     assert 'set(report.get("candidate_case_types", [])) == {"FRANCHISE"}' in verifier
     assert 'report.get("franchise_candidate_brand_ids")' in verifier
+    assert 'report.get("franchise_official_citations"' in verifier
+    assert '"FRANCHISE_INDIVIDUAL_ELIGIBILITY"' in verifier
+    assert '"FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE"' in verifier
     assert 'jsonPayload.event=\\"VERTEX_AGENT_GENERATION\\"' in verifier
     assert 'jsonPayload.event=\\"AGENT_RESULT_VALIDATION\\"' in verifier
     assert "Worker has public invoker policy" in verifier
