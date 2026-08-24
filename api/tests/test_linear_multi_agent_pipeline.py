@@ -1,5 +1,6 @@
 """사용자는 단순한 한 요청 안에서도 실제 세 Agent 역할의 결과를 받아야 한다."""
 
+import asyncio
 from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
@@ -951,6 +952,22 @@ def test_open_to_both_completes_with_production_sized_input_without_llm() -> Non
         "INDEPENDENT",
         "FRANCHISE",
     }
+
+
+def test_franchise_universe_keeps_unknown_cost_without_crashing() -> None:
+    outcome = asyncio.run(
+        FranchiseMcp().call_tool(tool_name="list_franchise_universe")
+    )
+
+    universe = LinearMultiAgentProposalPipeline._franchise_universe(
+        [outcome],
+        evidence_records=[{"evidence_id": "eligibility:mega"}],
+    )
+
+    assert [candidate["brand_id"] for candidate in universe] == [
+        "kr-mega-mgc-coffee"
+    ]
+    assert universe[0]["finance_profile"]["known_initial_cost_range_krw"] is None
 
 
 def test_evidence_projection_distributes_vertex_capacity_across_sources() -> None:
