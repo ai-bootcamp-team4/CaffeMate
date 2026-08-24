@@ -97,7 +97,7 @@
         "query": { "type": "string", "minLength": 1, "maxLength": 1000 },
         "source_families": {
           "type": "array",
-          "items": { "enum": ["LAW", "GOVERNMENT_GUIDE", "PUBLIC_DATA", "FRANCHISE_DISCLOSURE", "OFFICIAL_PROCEDURE"] },
+          "items": { "enum": ["LAW", "GOVERNMENT_GUIDE", "PUBLIC_DATA", "FRANCHISE_DISCLOSURE", "COMPANY_OFFICIAL_FRANCHISE", "OFFICIAL_PROCEDURE"] },
           "minItems": 1,
           "uniqueItems": true
         },
@@ -370,7 +370,11 @@
         "anchor": { "type": "string", "minLength": 1 },
         "excerpt": { "type": "string", "minLength": 1, "maxLength": 4000 },
         "source_date": { "type": ["string", "null"], "format": "date" },
-        "evidence_id": { "type": "string", "minLength": 1 }
+        "evidence_id": { "type": "string", "minLength": 1 },
+        "source_family": { "type": "string", "minLength": 1 },
+        "claim_type": { "type": "string", "minLength": 1 },
+        "brand_id": { "type": "string", "minLength": 1 },
+        "source_id": { "type": "string", "minLength": 1 }
       }
     },
     "procedureStep": {

@@ -7,6 +7,10 @@ export interface RagHit {
   excerpt: string
   sourceDate: string | null
   evidenceId: string
+  sourceFamily?: string
+  claimType?: string
+  brandId?: string
+  sourceId?: string
   source?: {
     sourceId: string
     sourceRef: string
@@ -67,6 +71,7 @@ export class RagError extends Error {
 
 export interface RetrievalCoordinatorConfig {
   officialCorpusId?: string
+  officialRagFileIdsBySourceFamily?: Readonly<Record<string, readonly string[]>>
 }
 
 export class RetrievalCoordinator {
@@ -81,6 +86,9 @@ export class RetrievalCoordinator {
     if (!this.config.officialCorpusId) {
       throw new RagError('RAG_UNAVAILABLE', 'official RAG corpus is not configured')
     }
+    const pinnedIds = input.sourceFamilies.flatMap(
+      (family) => this.config.officialRagFileIdsBySourceFamily?.[family] ?? [],
+    )
     return backend({
       corpusKind: 'OFFICIAL',
       corpusId: this.config.officialCorpusId,
@@ -88,6 +96,7 @@ export class RetrievalCoordinator {
       sourceFamilies: [...input.sourceFamilies],
       asOf: input.asOf,
       limit: input.limit,
+      ...(pinnedIds.length ? { ragFileIds: [...new Set(pinnedIds)] } : {}),
       ...(input.signal ? { signal: input.signal } : {}),
     })
   }

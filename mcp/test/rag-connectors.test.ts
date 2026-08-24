@@ -18,6 +18,10 @@ function hit(documentRevisionId = 'docrev-1'): RagHit {
     excerpt: '검색된 문서 내용',
     sourceDate: '2026-08-01',
     evidenceId: 'ev-1',
+    sourceFamily: 'COMPANY_OFFICIAL_FRANCHISE',
+    claimType: 'FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE',
+    brandId: 'kr-compose-coffee',
+    sourceId: 'compose-official-opening-cost',
   }
 }
 
@@ -67,6 +71,10 @@ describe('MCP RAG connectors', () => {
         excerpt: '검색된 문서 내용',
         source_date: '2026-08-01',
         evidence_id: 'ev-1',
+        source_family: 'COMPANY_OFFICIAL_FRANCHISE',
+        claim_type: 'FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE',
+        brand_id: 'kr-compose-coffee',
+        source_id: 'compose-official-opening-cost',
       }],
     })
   })

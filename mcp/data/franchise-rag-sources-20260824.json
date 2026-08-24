@@ -19,10 +19,10 @@
     },
     {
       "source_id": "compose-official-franchise-guide", "brand_id": "kr-compose-coffee",
-      "source_family": "COMPANY_OFFICIAL_FRANCHISE", "source_ref": "https://composecoffee.co.kr/",
-      "source_title": "컴포즈커피 공식 창업 안내", "source_anchor": "성공창업, 컴포즈커피가 함께합니다",
+      "source_family": "COMPANY_OFFICIAL_FRANCHISE", "source_ref": "https://composecoffee.com/composefranchise",
+      "source_title": "컴포즈커피 공식 창업 안내", "source_anchor": "가맹 절차·10평 및 15평 기준 창업비용",
       "published_or_data_date": null, "checked_at": "2026-08-24", "content_type": "text/html",
-      "ingestion_status": "READY", "retrieval_usage": ["ELIGIBILITY"]
+      "ingestion_status": "READY", "retrieval_usage": ["ELIGIBILITY", "OPENING_COST"]
     },
     {
       "source_id": "paiks-official-franchise-guide", "brand_id": "kr-paiks-coffee",

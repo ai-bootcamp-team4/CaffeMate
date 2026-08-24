@@ -314,7 +314,7 @@ def test_pipeline_calls_research_proposals_and_auditor_in_one_linear_flow() -> N
     assert {candidate["case_type"] for candidate in bundle.candidates} == {"INDEPENDENT"}
 
 
-def test_pipeline_queries_the_source_family_present_in_the_official_corpus() -> None:
+def test_pipeline_builds_government_and_claim_specific_franchise_rag_queries() -> None:
     class InspectingMcp(FakeMcp):
         def __init__(self) -> None:
             super().__init__()
@@ -327,16 +327,30 @@ def test_pipeline_queries_the_source_family_present_in_the_official_corpus() -> 
     mcp = InspectingMcp()
 
     _pipeline(FakeRuntime(), mcp).run(
-        state=_state(),
+        state=_state(CafeTypePreference.OPEN_TO_BOTH),
         head=_head(),
         workflow_run_id="workflow-1",
         evidence_records=[],
     )
 
-    official_call = next(
+    official_calls = [
         call for call in mcp.calls if call["tool_name"] == "retrieve_official_documents"
+    ]
+    assert len(official_calls) == 7
+    assert official_calls[0]["arguments"]["source_families"] == ["GOVERNMENT_GUIDE"]
+    franchise_calls = official_calls[1:]
+    assert all(
+        call["arguments"]["source_families"] == ["COMPANY_OFFICIAL_FRANCHISE"]
+        for call in franchise_calls
     )
-    assert official_call["arguments"]["source_families"] == ["GOVERNMENT_GUIDE"]
+    assert {call["arguments"]["query"] for call in franchise_calls} == {
+        "컴포즈커피 개인 가맹점 창업 신청 가맹 모집 가능 여부 공식 안내",
+        "컴포즈커피 공식 창업 비용 10평 15평 포함 제외 항목",
+        "메가MGC커피 개인 가맹점 창업 신청 가맹 모집 가능 여부 공식 안내",
+        "메가MGC커피 공식 창업 비용 10평 포함 제외 항목",
+        "이디야커피 개인 가맹점 창업 신청 가맹 모집 가능 여부 공식 안내",
+        "이디야커피 공식 창업 비용 가맹비 월 로열티 포함 제외 항목",
+    }
 
 
 def test_pipeline_maps_official_rag_hits_before_the_researcher_projection() -> None:
@@ -409,6 +423,88 @@ def test_pipeline_maps_official_rag_hits_before_the_researcher_projection() -> N
     assert records[0]["claim_type"] == "OFFICIAL_STARTUP_GUIDANCE"
     assert records[0]["value"]["value"].startswith("커피전문점은")
     assert records[0]["source"]["authority"] == "PRIMARY_OFFICIAL"
+
+
+def test_pipeline_preserves_franchise_rag_metadata_in_evidence_record() -> None:
+    class FranchiseRagMcp(FakeMcp):
+        async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+            if (
+                kwargs["tool_name"] != "retrieve_official_documents"
+                or kwargs["arguments"]["source_families"]
+                != ["COMPANY_OFFICIAL_FRANCHISE"]
+            ):
+                return await super().call_tool(**kwargs)
+            source_ref = "https://composecoffee.com/composefranchise"
+            content = {
+                "schema_version": "1.0.0",
+                "request_id": f"request-{len(self.tool_names)}",
+                "tool_name": "retrieve_official_documents",
+                "tool_version": "1.0.0",
+                "status": "OK",
+                "project_id": "project-1",
+                "evidence_records": [],
+                "missing_fields": [],
+                "conflicts": [],
+                "source_trace": [
+                    {
+                        "source_id": "compose-official-opening-cost",
+                        "source_ref": source_ref,
+                        "data_date": "2026-08-25",
+                        "retrieved_at": NOW.isoformat().replace("+00:00", "Z"),
+                        "content_digest": "sha256:" + "2" * 64,
+                    }
+                ],
+                "error_codes": [],
+                "observed_at": NOW.isoformat().replace("+00:00", "Z"),
+                "data": [
+                    {
+                        "document_revision_id": "compose-official-opening-cost@2026-08-25",
+                        "title": "컴포즈커피 공식 창업비 안내",
+                        "anchor": f"{source_ref}#chunk-cost",
+                        "excerpt": "10평 기준 공식 창업비 안내입니다.",
+                        "source_date": "2026-08-25",
+                        "evidence_id": "rag:compose:cost",
+                        "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+                        "claim_type": "FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE",
+                        "brand_id": "kr-compose-coffee",
+                        "source_id": "compose-official-opening-cost",
+                    }
+                ],
+            }
+            return McpCallOutcome(
+                request_id=content["request_id"],
+                tool_name="retrieve_official_documents",
+                tool_version="1.0.0",
+                status="OK",
+                is_complete=True,
+                structured_content=content,
+            )
+
+    runtime = FakeRuntime()
+    _pipeline(runtime, FranchiseRagMcp()).run(
+        state=_state(CafeTypePreference.OPEN_TO_BOTH),
+        head=_head(),
+        workflow_run_id="workflow-1",
+        evidence_records=[],
+    )
+
+    researcher_task = next(
+        task for task in runtime.tasks if task["task_type"] == "EVIDENCE_ASSESS"
+    )
+    records = [
+        record
+        for action in researcher_task["payload"]["executed_actions"]
+        for record in action["structured_result"]["evidence_records"]
+        if record.get("metric") == "kr-compose-coffee"
+    ]
+    assert records
+    assert records[0]["claim_type"] == "FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE"
+    assert records[0]["source"]["authority"] == "COMPANY_OFFICIAL"
+    assert records[0]["source"]["source_family"] == "COMPANY_OFFICIAL_FRANCHISE"
+    assert records[0]["source"]["source_ref"] == (
+        "https://composecoffee.com/composefranchise"
+    )
+    assert records[0]["source"]["published_or_data_date"] == "2026-08-25"
 
 
 def test_independent_proposal_receives_finance_snapshot_and_keeps_agent_advice() -> None:

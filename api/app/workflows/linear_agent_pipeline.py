@@ -37,6 +37,15 @@ from app.workflows.simple_proposal import (
 )
 from app.workflows.stage_context import StageContext
 
+FRANCHISE_RAG_QUERIES: tuple[str, ...] = (
+    "컴포즈커피 개인 가맹점 창업 신청 가맹 모집 가능 여부 공식 안내",
+    "컴포즈커피 공식 창업 비용 10평 15평 포함 제외 항목",
+    "메가MGC커피 개인 가맹점 창업 신청 가맹 모집 가능 여부 공식 안내",
+    "메가MGC커피 공식 창업 비용 10평 포함 제외 항목",
+    "이디야커피 개인 가맹점 창업 신청 가맹 모집 가능 여부 공식 안내",
+    "이디야커피 공식 창업 비용 가맹비 월 로열티 포함 제외 항목",
+)
+
 
 class ProposalMcp(Protocol):
     async def call_tool(
@@ -242,6 +251,19 @@ class LinearMultiAgentProposalPipeline:
                 },
             )
         )
+        if state.founder.cafe_type_preference != CafeTypePreference.INDEPENDENT_ONLY:
+            calls.extend(
+                (
+                    "retrieve_official_documents",
+                    {
+                        "query": query,
+                        "source_families": ["COMPANY_OFFICIAL_FRANCHISE"],
+                        "as_of": as_of,
+                        "limit": 3,
+                    },
+                )
+                for query in FRANCHISE_RAG_QUERIES
+            )
         return list(
             await asyncio.gather(
                 *[
@@ -312,12 +334,22 @@ class LinearMultiAgentProposalPipeline:
                 continue
             trace = matching_traces[0]
             excerpt = cast(str, required["excerpt"])
+            source_family = hit.get("source_family")
+            claim_type = hit.get("claim_type")
+            brand_id = hit.get("brand_id")
+            is_company_franchise = source_family == "COMPANY_OFFICIAL_FRANCHISE"
             record = {
                 "schema_version": "2.0.0",
                 "evidence_id": f"official-rag:{required['evidence_id']}",
                 "project_id": project_id,
-                "claim_type": "OFFICIAL_STARTUP_GUIDANCE",
-                "metric": None,
+                "claim_type": (
+                    claim_type
+                    if isinstance(claim_type, str) and claim_type
+                    else "OFFICIAL_STARTUP_GUIDANCE"
+                ),
+                "metric": (
+                    brand_id if isinstance(brand_id, str) and brand_id else None
+                ),
                 "value": {"kind": "STRING", "value": excerpt},
                 "value_kind": "EVIDENCED_FACT",
                 "unit": None,
@@ -329,8 +361,17 @@ class LinearMultiAgentProposalPipeline:
                 "source": {
                     "title": required["title"],
                     "source_ref": trace["source_ref"],
-                    "authority": "PRIMARY_OFFICIAL",
+                    "authority": (
+                        "COMPANY_OFFICIAL"
+                        if is_company_franchise
+                        else "PRIMARY_OFFICIAL"
+                    ),
                     "source_type": "WEB",
+                    **(
+                        {"source_family": source_family}
+                        if isinstance(source_family, str) and source_family
+                        else {}
+                    ),
                     "published_or_data_date": source_date,
                     "source_observed_at": observed_at,
                     "document_version": required["document_revision_id"],
@@ -344,7 +385,11 @@ class LinearMultiAgentProposalPipeline:
                 "freshness_status": self._freshness_status(source_date),
                 "conflict_status": "NONE",
                 "retrieved_at": observed_at,
-                "missing_context": [],
+                "missing_context": (
+                    ["AREA_AVAILABILITY_REQUIRES_HEADQUARTERS_CONFIRMATION"]
+                    if claim_type == "FRANCHISE_INDIVIDUAL_ELIGIBILITY"
+                    else []
+                ),
                 "durable_evidence_refs": [
                     trace["source_ref"],
                     required["document_revision_id"],
@@ -675,9 +720,10 @@ class LinearMultiAgentProposalPipeline:
         state: VentureState,
         outcomes: list[McpCallOutcome],
     ) -> list[dict[str, Any]]:
+        claim_ids = self._claim_ids(outcomes)
         return [
             {
-                "claim_id": f"claim:{outcome.tool_name}",
+                "claim_id": claim_id,
                 "claim_type": {
                     "get_area_profile": "AREA_DEMAND_SIGNALS",
                     "search_cafe_observations": "AREA_DEMAND_SIGNALS",
@@ -701,24 +747,39 @@ class LinearMultiAgentProposalPipeline:
                 ),
                 "required_freshness": "P365D",
             }
-            for outcome in outcomes
+            for outcome, claim_id in zip(outcomes, claim_ids, strict=True)
         ]
 
     @staticmethod
     def _executed_actions(
         outcomes: list[McpCallOutcome],
     ) -> list[dict[str, Any]]:
+        claim_ids = LinearMultiAgentProposalPipeline._claim_ids(outcomes)
         return [
             {
-                "action_id": f"action:{outcome.tool_name}",
-                "claim_id": f"claim:{outcome.tool_name}",
+                "action_id": claim_id.replace("claim:", "action:", 1),
+                "claim_id": claim_id,
                 "polarity": "SUPPORT",
                 "tool_name": outcome.tool_name,
                 "request_id": outcome.request_id,
                 "structured_result": outcome.structured_content,
             }
-            for outcome in outcomes
+            for outcome, claim_id in zip(outcomes, claim_ids, strict=True)
         ]
+
+    @staticmethod
+    def _claim_ids(outcomes: list[McpCallOutcome]) -> list[str]:
+        totals: dict[str, int] = {}
+        for outcome in outcomes:
+            totals[outcome.tool_name] = totals.get(outcome.tool_name, 0) + 1
+        observed: dict[str, int] = {}
+        claim_ids: list[str] = []
+        for outcome in outcomes:
+            tool_name = outcome.tool_name
+            observed[tool_name] = observed.get(tool_name, 0) + 1
+            suffix = f":{observed[tool_name]}" if totals[tool_name] > 1 else ""
+            claim_ids.append(f"claim:{tool_name}{suffix}")
+        return claim_ids
 
     @staticmethod
     def _deduplicate_evidence(

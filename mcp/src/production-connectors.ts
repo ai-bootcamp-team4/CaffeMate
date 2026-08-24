@@ -4,7 +4,11 @@ import { createVertexRagBackend } from '../../rag/src/vertex-rag-backend'
 import { createConnectorRegistry } from './connectors'
 import { createBigQueryGroundingConnectors } from './bigquery-grounding'
 import { createFranchiseCatalogConnector } from './franchise-catalog'
-import { mapOfficialRagContext } from './official-rag'
+import {
+  mapOfficialRagContext,
+  pinnedRagFileIdsBySourceFamily,
+  PREPARED_FRANCHISE_RAG_SOURCES,
+} from './official-rag'
 import { createOfficialRagHealthSource } from './official-rag-health'
 import { createOfficialProcedureRagConnector } from './procedure-rag'
 import { createRagMcpConnectors } from './rag-connectors'
@@ -56,7 +60,12 @@ export function createProductionMcpConnectors(options: ProductionMcpConnectorOpt
   })
   const retrieval = new RetrievalCoordinator(
     { official: officialBackend },
-    { officialCorpusId: options.officialCorpusResource },
+    {
+      officialCorpusId: options.officialCorpusResource,
+      officialRagFileIdsBySourceFamily: pinnedRagFileIdsBySourceFamily(
+        PREPARED_FRANCHISE_RAG_SOURCES,
+      ),
+    },
   )
   const rag = createRagMcpConnectors({
     retrieval,

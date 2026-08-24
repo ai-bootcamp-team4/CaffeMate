@@ -95,6 +95,27 @@ describe('RAG retrieval coordinator', () => {
     expect(project).not.toHaveBeenCalled()
   })
 
+  it('pins official retrieval to indexed RAG files when the requested source family has a complete registry', async () => {
+    const official = vi.fn(async () => [hit('official-rev-1')])
+    const coordinator = new RetrievalCoordinator({ official }, {
+      officialCorpusId: officialCorpusResource,
+      officialRagFileIdsBySourceFamily: {
+        COMPANY_OFFICIAL_FRANCHISE: ['compose-eligibility', 'compose-opening-cost'],
+      },
+    })
+
+    await coordinator.retrieveOfficial({
+      query: '컴포즈커피 개인 가맹 가능 여부',
+      sourceFamilies: ['COMPANY_OFFICIAL_FRANCHISE'],
+      asOf: '2026-08-25',
+      limit: 3,
+    })
+
+    expect(official).toHaveBeenCalledWith(expect.objectContaining({
+      ragFileIds: ['compose-eligibility', 'compose-opening-cost'],
+    }))
+  })
+
   it('threads caller cancellation to the official backend request', async () => {
     const controller = new AbortController()
     const official = vi.fn(async () => [hit('official-rev-1')])

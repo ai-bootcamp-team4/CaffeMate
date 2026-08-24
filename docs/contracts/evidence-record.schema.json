@@ -84,6 +84,10 @@
         "source_type": {
           "enum": ["API", "DATASET", "WEB", "PDF", "USER_DOCUMENT", "USER_FIELD"]
         },
+        "source_family": {
+          "type": "string",
+          "minLength": 1
+        },
         "published_or_data_date": {
           "type": ["string", "null"],
           "format": "date"
