@@ -86,6 +86,7 @@ class FirstProposalCanaryReport:
     franchise_candidate_brand_ids: tuple[str, ...]
     market_signals: tuple[dict[str, object], ...]
     result_freshness: str
+    franchise_official_citations: tuple[dict[str, object], ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -98,6 +99,7 @@ class FirstProposalCanaryReport:
             "candidate_count": self.candidate_count,
             "candidate_case_types": list(self.candidate_case_types),
             "franchise_candidate_brand_ids": list(self.franchise_candidate_brand_ids),
+            "franchise_official_citations": list(self.franchise_official_citations),
             "market_signals": list(self.market_signals),
             "result_freshness": self.result_freshness,
         }
@@ -400,6 +402,61 @@ class FirstProposalCanary:
                     "candidate_count": len(result.candidates),
                 },
             )
+        franchise_official_citations = sorted(
+            (
+                {
+                    "brand_id": str(franchise["brand_id"]),
+                    "title": str(document["title"]),
+                    "source_ref": str(document["source_ref"]),
+                    "data_date": str(document["data_date"]),
+                    "source_family": str(document["source_family"]),
+                    "claim_types": sorted(
+                        str(claim_type) for claim_type in document["claim_types"]
+                    ),
+                    "used_in_candidate": document["used_in_candidate"],
+                }
+                for candidate in result.candidates
+                if candidate.get("case_type") == "FRANCHISE"
+                and isinstance((franchise := candidate.get("franchise")), dict)
+                and isinstance(franchise.get("brand_id"), str)
+                for document in candidate.get("official_documents", [])
+                if isinstance(document, dict)
+                and document.get("source_family") == "COMPANY_OFFICIAL_FRANCHISE"
+                and isinstance(document.get("title"), str)
+                and isinstance(document.get("source_ref"), str)
+                and isinstance(document.get("data_date"), str)
+                and isinstance(document.get("claim_types"), list)
+                and isinstance(document.get("used_in_candidate"), bool)
+            ),
+            key=lambda item: (
+                str(item["brand_id"]),
+                str(item["source_ref"]),
+                str(item["title"]),
+            ),
+        )
+        required_franchise_claims = {
+            "FRANCHISE_INDIVIDUAL_ELIGIBILITY",
+            "FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE",
+        }
+        citation_claims_by_brand = {
+            brand_id: {
+                str(claim_type)
+                for citation in franchise_official_citations
+                if citation["brand_id"] == brand_id
+                for claim_type in citation["claim_types"]
+            }
+            for brand_id in franchise_brand_ids
+        }
+        missing_citation_brands = sorted(
+            brand_id
+            for brand_id, claim_types in citation_claims_by_brand.items()
+            if not required_franchise_claims <= claim_types
+        )
+        if missing_citation_brands:
+            raise FirstProposalCanaryError(
+                "CANARY_FRANCHISE_OFFICIAL_CITATION_MISSING",
+                {"brand_ids": missing_citation_brands},
+            )
         ungrounded_recommendations = [
             str(candidate.get("candidate_id"))
             for candidate in result.candidates
@@ -454,6 +511,7 @@ class FirstProposalCanary:
             candidate_count=len(result.candidates),
             candidate_case_types=tuple(case_types),
             franchise_candidate_brand_ids=tuple(franchise_brand_ids),
+            franchise_official_citations=tuple(franchise_official_citations),
             market_signals=tuple(market_signals),
             result_freshness=result.freshness.value,
         )

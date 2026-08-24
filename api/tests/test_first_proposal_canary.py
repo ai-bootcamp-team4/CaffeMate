@@ -222,6 +222,24 @@ def result() -> ResultView:
                     "brand_id": "kr-ediya-coffee",
                     "eligibility": "VERIFIED",
                 },
+                "official_documents": [
+                    {
+                        "title": "이디야커피 공식 가맹 안내",
+                        "source_ref": "https://www.ediya.com/C/contents/franchise_01.html",
+                        "data_date": "2026-08-25",
+                        "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+                        "claim_types": ["FRANCHISE_INDIVIDUAL_ELIGIBILITY"],
+                        "used_in_candidate": True,
+                    },
+                    {
+                        "title": "이디야커피 공식 창업비 안내",
+                        "source_ref": "https://www.ediya.com/C/contents/franchise_02.html",
+                        "data_date": "2026-08-25",
+                        "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+                        "claim_types": ["FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE"],
+                        "used_in_candidate": True,
+                    },
+                ],
                 "market_signals": [],
             },
         ],
@@ -257,6 +275,26 @@ def test_canary_requires_single_execution_and_current_result_then_cleans() -> No
         "candidate_count": 2,
         "candidate_case_types": ["FRANCHISE", "INDEPENDENT"],
         "franchise_candidate_brand_ids": ["kr-ediya-coffee"],
+        "franchise_official_citations": [
+            {
+                "brand_id": "kr-ediya-coffee",
+                "claim_types": ["FRANCHISE_INDIVIDUAL_ELIGIBILITY"],
+                "data_date": "2026-08-25",
+                "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+                "source_ref": "https://www.ediya.com/C/contents/franchise_01.html",
+                "title": "이디야커피 공식 가맹 안내",
+                "used_in_candidate": True,
+            },
+            {
+                "brand_id": "kr-ediya-coffee",
+                "claim_types": ["FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE"],
+                "data_date": "2026-08-25",
+                "source_family": "COMPANY_OFFICIAL_FRANCHISE",
+                "source_ref": "https://www.ediya.com/C/contents/franchise_02.html",
+                "title": "이디야커피 공식 창업비 안내",
+                "used_in_candidate": True,
+            },
+        ],
         "market_signals": [
             {
                 "signal_type": "CAFE_COUNT",
