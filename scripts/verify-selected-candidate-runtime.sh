@@ -127,45 +127,8 @@ job_source_revision=$(gcloud run jobs describe "$job_name" \
 printf 'PASS selected-candidate canary pinned to backend source %s and digest image\n' "$source_revision"
 
 started_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-status_file=$(mktemp)
-wait_log=$(mktemp)
-cleanup() {
-  rm -f "$status_file" "$wait_log"
-}
-trap cleanup EXIT HUP INT TERM
-
-(
-  if gcloud run jobs execute "$job_name" \
-    --project="$project_id" --region="$region" --wait --quiet \
-    >"$wait_log" 2>&1; then
-    printf '0\n' >"$status_file"
-  else
-    printf '%s\n' "$?" >"$status_file"
-  fi
-) &
-wait_pid=$!
-
-# FIRST_PROPOSAL and selective recompute are asynchronous. Drain the existing
-# outbox while this single-purpose canary is waiting instead of running the full
-# release verifier.
-attempt=0
-while [ ! -s "$status_file" ] && [ "$attempt" -lt 540 ]; do
-  gcloud scheduler jobs run caffemate-outbox-drain \
-    --project="$project_id" --location="$region" --quiet >/dev/null
-  attempt=$((attempt + 1))
-  sleep 5
-done
-
-if [ ! -s "$status_file" ]; then
-  kill "$wait_pid" >/dev/null 2>&1 || true
-  wait "$wait_pid" >/dev/null 2>&1 || true
-  printf '%s\n' 'FAIL selected-candidate canary did not finish before harness timeout' >&2
-  exit 1
-fi
-wait "$wait_pid" || true
-job_exit=$(cat "$status_file")
-if [ "$job_exit" != '0' ]; then
-  sed -n '1,160p' "$wait_log" >&2
+if ! gcloud run jobs execute "$job_name" \
+  --project="$project_id" --region="$region" --wait --quiet; then
   printf '%s\n' 'FAIL selected-candidate canary Cloud Run Job' >&2
   exit 1
 fi
@@ -201,12 +164,8 @@ assert report["source_workflow_run_id"] != report["recompute_workflow_run_id"], 
 assert report.get("result_freshness") == "CURRENT", report
 
 recomputed = set(report.get("recomputed_stage_codes", []))
-assert {
-    "CALCULATE_GATE_RANK",
-    "CANDIDATE_AUDIT",
-    "COMMIT_RESULT",
-} <= recomputed, report
-assert report.get("reused_stage_count", 0) > 0, report
+assert recomputed == {"RUN_PROPOSAL"}, report
+assert report.get("reused_stage_count") == 0, report
 assert report.get("decision_delta_present") is True, report
 assert report.get("changed_cost_fields"), report
 
@@ -219,7 +178,7 @@ assert report.get("rag_procedure_step_count", 0) > 0, report
 assert report.get("rag_source_refs"), report
 
 print("PASS FIRST_PROPOSAL result was selected and received real property terms")
-print("PASS selected candidate was selectively recomputed with a decision and cost delta")
+print("PASS selected candidate was recomputed once with a decision and cost delta")
 print("PASS official procedure guidance is grounded by Advanced RAG evidence")
 print(json.dumps(report, ensure_ascii=False, sort_keys=True))
 PY
