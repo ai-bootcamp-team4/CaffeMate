@@ -185,6 +185,7 @@ def test_model_armor_is_inspect_only_and_verified_with_the_deployed_api_image() 
     assert 'region="asia-northeast3"' in deploy
     assert '"enforcementType": "INSPECT_ONLY"' in deploy
     assert '"logSanitizeOperations": false' in deploy
+    assert ".templateMetadata.logSanitizeOperations != true" in deploy
     assert '"filterEnforcement": "ENABLED"' in deploy
     assert "roles/modelarmor.user" in deploy
     assert "roles/modelarmor.admin" not in deploy
@@ -195,7 +196,10 @@ def test_model_armor_is_inspect_only_and_verified_with_the_deployed_api_image() 
     assert '--args="verify-model-armor"' in verifier
     assert "--max-retries=0" in verifier
     assert 'template["templateMetadata"]["enforcementType"] == "INSPECT_ONLY"' in verifier
-    assert 'template["templateMetadata"]["logSanitizeOperations"] is False' in verifier
+    assert (
+        'template["templateMetadata"].get("logSanitizeOperations", False) is False'
+        in verifier
+    )
     assert "MODEL_ARMOR_TEMPLATE" in verifier
 
 
