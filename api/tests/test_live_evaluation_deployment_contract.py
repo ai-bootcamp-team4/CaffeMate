@@ -15,6 +15,8 @@ def test_live_evaluation_deployment_pins_source_and_required_services() -> None:
     assert "--max-retries=0" in deploy
     assert "--task-timeout=60m" in deploy
     assert "roles/run.invoker" in deploy
+    assert "run.jobs.runWithOverrides" in deploy
+    assert "caffemateEvaluationJobRunner" in deploy
     assert "roles/storage.objectAdmin" in deploy
     assert "roles/aiplatform.user" in deploy
 

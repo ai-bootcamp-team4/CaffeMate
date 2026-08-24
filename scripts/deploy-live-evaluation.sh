@@ -70,6 +70,28 @@ for role in roles/aiplatform.user roles/logging.logWriter; do
     --quiet >/dev/null
 done
 
+# 사용자 의도: Pipeline은 다른 Cloud Run 자원을 관리하지 않고, 평가 Job에 실행별
+# 보고서 경로를 넘기는 override 실행 권한만 가져야 한다.
+runner_role='caffemateEvaluationJobRunner'
+runner_permissions='run.jobs.get,run.jobs.run,run.jobs.runWithOverrides,run.executions.get,run.executions.list'
+if gcloud iam roles describe "$runner_role" --project="$project_id" >/dev/null 2>&1; then
+  gcloud iam roles update "$runner_role" \
+    --project="$project_id" \
+    --title='CaffeMate evaluation job runner' \
+    --description='Execute the evaluation Job with a report URI override' \
+    --stage=GA \
+    --permissions="$runner_permissions" \
+    --quiet >/dev/null
+else
+  gcloud iam roles create "$runner_role" \
+    --project="$project_id" \
+    --title='CaffeMate evaluation job runner' \
+    --description='Execute the evaluation Job with a report URI override' \
+    --stage=GA \
+    --permissions="$runner_permissions" \
+    --quiet >/dev/null
+fi
+
 tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-backend/backend:${source_revision}"
 build_sa="projects/${project_id}/serviceAccounts/caffemate-backend-build@${project_id}.iam.gserviceaccount.com"
 if ! gcloud artifacts docker images describe "$tagged_image" \
@@ -127,6 +149,12 @@ gcloud run jobs add-iam-policy-binding "$job_name" \
   --region="$region" \
   --member="serviceAccount:${pipeline_sa}" \
   --role='roles/run.invoker' \
+  --quiet >/dev/null
+gcloud run jobs add-iam-policy-binding "$job_name" \
+  --project="$project_id" \
+  --region="$region" \
+  --member="serviceAccount:${pipeline_sa}" \
+  --role="projects/${project_id}/roles/${runner_role}" \
   --quiet >/dev/null
 
 printf 'evaluation job: %s\n' "$job_name"
