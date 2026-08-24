@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -9,6 +11,18 @@ from app.observability import (
     current_trace_carrier,
     safe_agent_attributes,
 )
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_serverless_trace_export_is_immediate_in_python_and_agent_runtime() -> None:
+    python_source = (ROOT / "api/app/observability.py").read_text(encoding="utf-8")
+    agent_source = (ROOT / "agents/src/telemetry.ts").read_text(encoding="utf-8")
+
+    assert "SimpleSpanProcessor" in python_source
+    assert "BatchSpanProcessor" not in python_source
+    assert "SimpleSpanProcessor" in agent_source
+    assert "BatchSpanProcessor" not in agent_source
 
 
 def test_current_trace_carrier_is_w3c_and_contains_no_business_identifier() -> None:

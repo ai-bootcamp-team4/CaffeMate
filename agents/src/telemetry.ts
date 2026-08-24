@@ -62,7 +62,7 @@ export function safeAgentSpanAttributes(
 export function initializeAgentTelemetry(env: NodeJS.ProcessEnv = process.env): void {
   if (initialized || !['1', 'true'].includes((env.CAFFEMATE_OTEL_ENABLED ?? '').toLowerCase())) return
   const { NodeTracerProvider } = require('@opentelemetry/sdk-trace-node') as typeof import('@opentelemetry/sdk-trace-node')
-  const { BatchSpanProcessor } = require('@opentelemetry/sdk-trace-base') as typeof import('@opentelemetry/sdk-trace-base')
+  const { SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-base') as typeof import('@opentelemetry/sdk-trace-base')
   const { resourceFromAttributes } = require('@opentelemetry/resources') as typeof import('@opentelemetry/resources')
   const { TraceExporter } = require('@google-cloud/opentelemetry-cloud-trace-exporter') as typeof import('@google-cloud/opentelemetry-cloud-trace-exporter')
   const resource = resourceFromAttributes({
@@ -72,7 +72,9 @@ export function initializeAgentTelemetry(env: NodeJS.ProcessEnv = process.env): 
   })
   const provider = new NodeTracerProvider({
     resource,
-    spanProcessors: [new BatchSpanProcessor(new TraceExporter({ projectId: env.GOOGLE_CLOUD_PROJECT }))],
+    // User intent: finish each managed Agent span in Cloud Trace while the
+    // request still owns CPU; deferred timers are unreliable on serverless.
+    spanProcessors: [new SimpleSpanProcessor(new TraceExporter({ projectId: env.GOOGLE_CLOUD_PROJECT }))],
   })
   provider.register()
   agentTracer = trace.getTracer('caffemate.agent-runtime')

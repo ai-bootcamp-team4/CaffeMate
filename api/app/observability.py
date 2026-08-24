@@ -11,7 +11,7 @@ from opentelemetry import propagate, trace
 from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.trace import SpanKind, Status, StatusCode
 
 TRACER_NAME: Final = "caffemate.control-api"
@@ -68,8 +68,10 @@ def configure_cloud_trace(
         }
     )
     provider = TracerProvider(resource=resource)
+    # User intent: a completed request must be visible in Cloud Trace before
+    # Cloud Run throttles the instance CPU. Do not defer export to a timer.
     provider.add_span_processor(
-        BatchSpanProcessor(CloudTraceSpanExporter(project_id=project_id))  # type: ignore[no-untyped-call]
+        SimpleSpanProcessor(CloudTraceSpanExporter(project_id=project_id))  # type: ignore[no-untyped-call]
     )
     trace.set_tracer_provider(provider)
     _configured = True
