@@ -26,7 +26,6 @@ from app.auth import (
 )
 from app.candidates.seed_registry import IndependentSeedRegistry
 from app.database import DatabaseHandle, create_database_handle
-from app.documents.demo import DemoFixtureDocumentRuntime, demo_parser_request
 from app.documents.extraction import (
     DocumentExtractionService,
     UnavailableDocumentExtractionService,
@@ -44,6 +43,8 @@ from app.documents.models import (
     SignedUpload,
     UpdateExtractionFormRequest,
 )
+from app.documents.parser import GoogleVisionOcrClient, OperationalDocumentParser
+from app.documents.processing import DocumentProcessingService
 from app.documents.service import DocumentService, UnavailableDocumentService
 from app.documents.storage import GoogleCloudDocumentStorage
 from app.domain.errors import (
@@ -164,6 +165,7 @@ def create_app(
     document_extraction_service: (
         DocumentExtractionService | UnavailableDocumentExtractionService | None
     ) = None,
+    document_processing_service: DocumentProcessingService | None = None,
     evidence_refresh_service: (
         EvidenceRefreshService | UnavailableEvidenceRefreshService | None
     ) = None,
@@ -293,17 +295,19 @@ def create_app(
     else:
         property_terms = UnavailablePropertyTermsService()
 
+    document_storage: GoogleCloudDocumentStorage | None = None
     if document_service is not None:
         documents = document_service
     elif database_handle is not None and settings.has_document_storage_configuration:
+        document_storage = GoogleCloudDocumentStorage(
+            cast(str, settings.document_bucket),
+            signing_service_account_email=cast(
+                str, settings.document_signing_service_account_email
+            ),
+        )
         documents = DocumentService(
             database_handle.engine,
-            GoogleCloudDocumentStorage(
-                cast(str, settings.document_bucket),
-                signing_service_account_email=cast(
-                    str, settings.document_signing_service_account_email
-                ),
-            ),
+            document_storage,
         )
     else:
         documents = UnavailableDocumentService()
@@ -312,10 +316,24 @@ def create_app(
         document_extraction = document_extraction_service
     elif database_handle is not None and configured_agent_runtime is not None:
         document_extraction = DocumentExtractionService(
-            database_handle.engine, DemoFixtureDocumentRuntime(configured_agent_runtime)
+            database_handle.engine, configured_agent_runtime
         )
     else:
         document_extraction = UnavailableDocumentExtractionService()
+
+    document_processing = document_processing_service
+    if (
+        document_processing is None
+        and document_storage is not None
+        and isinstance(documents, DocumentService)
+        and isinstance(document_extraction, DocumentExtractionService)
+    ):
+        document_processing = DocumentProcessingService(
+            documents=documents,
+            extraction=document_extraction,
+            storage=document_storage,
+            parser=OperationalDocumentParser(ocr=GoogleVisionOcrClient()),
+        )
 
     if evidence_refresh_service is not None:
         evidence_refresh = evidence_refresh_service
@@ -666,25 +684,11 @@ def create_app(
             project_id=project_id,
             user_id=user_id,
             document_revision_id=request.document_revision_id,
+            enqueue_processing=document_processing is None,
         )
-        parser_request = demo_parser_request(completed)
-        if parser_request is None or completed.status.value != "SCAN_PENDING":
+        if document_processing is None or completed.status.value != "SCAN_PENDING":
             return completed
-        documents.record_scan_result(
-            project_id=project_id,
-            document_revision_id=request.document_revision_id,
-            clean=True,
-            threat_codes=[],
-        )
-        document_extraction.accept_parser_result(
-            document_revision_id=request.document_revision_id,
-            request=parser_request,
-        )
-        return documents.get_revision(
-            project_id=project_id,
-            user_id=user_id,
-            document_revision_id=request.document_revision_id,
-        )
+        return document_processing.process(revision=completed, user_id=user_id)
 
     @app.get(
         "/v1/projects/{project_id}/documents/{document_revision_id}",

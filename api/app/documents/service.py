@@ -231,6 +231,7 @@ class DocumentService:
         project_id: str,
         user_id: str,
         document_revision_id: str,
+        enqueue_processing: bool = True,
     ) -> DocumentRevision:
         current = self._load_owned(
             project_id=project_id,
@@ -288,7 +289,7 @@ class DocumentService:
                     "revision_id": document_revision_id,
                 },
             )
-            if final_status == DocumentRevisionStatus.SCAN_PENDING:
+            if final_status == DocumentRevisionStatus.SCAN_PENDING and enqueue_processing:
                 self._insert_outbox(
                     connection,
                     topic="DOCUMENT_SCAN_REQUESTED",
@@ -317,6 +318,7 @@ class DocumentService:
         document_revision_id: str,
         clean: bool,
         threat_codes: list[str],
+        enqueue_parsing: bool = True,
     ) -> DocumentRevision:
         occurred_at = self._now()
         with self._engine.begin() as connection:
@@ -360,7 +362,7 @@ class DocumentService:
                     "revision_id": document_revision_id,
                 },
             )
-            if status == DocumentRevisionStatus.READY_FOR_PARSING:
+            if status == DocumentRevisionStatus.READY_FOR_PARSING and enqueue_parsing:
                 self._insert_outbox(
                     connection,
                     topic="DOCUMENT_PARSE_REQUESTED",
@@ -379,6 +381,59 @@ class DocumentService:
             updated.update(
                 status=status.value,
                 failure_codes=sorted(set(codes)),
+                updated_at=occurred_at,
+            )
+            return self._revision(cast(RowMapping, updated))
+
+    def mark_extraction_failed(
+        self,
+        *,
+        project_id: str,
+        document_revision_id: str,
+        failure_code: str,
+    ) -> DocumentRevision:
+        occurred_at = self._now()
+        with self._engine.begin() as connection:
+            row = connection.execute(
+                text(
+                    """
+                    SELECT r.*, d.document_type, d.owner_user_id
+                    FROM document_revisions r JOIN documents d ON d.document_id=r.document_id
+                    WHERE r.project_id=:project_id
+                      AND r.document_revision_id=:revision_id
+                    FOR UPDATE OF r
+                    """
+                ),
+                {"project_id": project_id, "revision_id": document_revision_id},
+            ).mappings().one_or_none()
+            if row is None:
+                raise DocumentNotFoundError("Document revision does not exist")
+            if row["status"] in {
+                DocumentRevisionStatus.EXTRACTION_READY.value,
+                DocumentRevisionStatus.APPLIED.value,
+                DocumentRevisionStatus.QUARANTINED.value,
+                DocumentRevisionStatus.DELETED.value,
+            }:
+                return self._revision(row)
+            connection.execute(
+                text(
+                    """
+                    UPDATE document_revisions
+                    SET status='EXTRACTION_FAILED', failure_codes=CAST(:codes AS JSONB),
+                        updated_at=:updated_at
+                    WHERE document_revision_id=:revision_id
+                    """
+                ),
+                {
+                    "codes": json.dumps([failure_code]),
+                    "updated_at": occurred_at,
+                    "revision_id": document_revision_id,
+                },
+            )
+            updated = dict(row)
+            updated.update(
+                status=DocumentRevisionStatus.EXTRACTION_FAILED.value,
+                failure_codes=[failure_code],
                 updated_at=occurred_at,
             )
             return self._revision(cast(RowMapping, updated))
@@ -548,6 +603,9 @@ class UnavailableDocumentService:
         raise PersistenceUnavailableError("Document storage is unavailable")
 
     def record_scan_result(self, **_: Any) -> DocumentRevision:
+        raise PersistenceUnavailableError("Document storage is unavailable")
+
+    def mark_extraction_failed(self, **_: Any) -> DocumentRevision:
         raise PersistenceUnavailableError("Document storage is unavailable")
 
     def get_download(self, **_: Any) -> DocumentDownload:

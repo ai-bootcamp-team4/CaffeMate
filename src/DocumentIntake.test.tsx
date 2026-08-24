@@ -49,16 +49,12 @@ const extractionForm: DocumentExtractionForm = {
 afterEach(() => cleanup())
 
 describe('DocumentIntake', () => {
-  it('runs the bundled property document through the real upload and extraction path', async () => {
+  it('runs a selected property document through upload and extraction', async () => {
     const fileArrayBuffer = Object.getOwnPropertyDescriptor(File.prototype, 'arrayBuffer')
     Object.defineProperty(File.prototype, 'arrayBuffer', {
       configurable: true,
       value: async () => new TextEncoder().encode('demo property document').buffer,
     })
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      blob: async () => new Blob(['demo property document'], { type: 'application/pdf' }),
-    } as Response)
     const client = {
       beginDocumentUpload: vi.fn().mockResolvedValue({
         document_id: 'document-1',
@@ -87,47 +83,26 @@ describe('DocumentIntake', () => {
         />,
       )
 
-      fireEvent.click(screen.getByRole('button', { name: '데모 자료로 검증하기' }))
+      const file = new File(['property document'], 'property-listing.pdf', {
+        type: 'application/pdf',
+      })
+      fireEvent.change(screen.getByLabelText('파일 선택'), { target: { files: [file] } })
+      fireEvent.click(screen.getByRole('button', { name: '업로드하고 값 찾기' }))
 
       await waitFor(() => expect(client.beginDocumentUpload).toHaveBeenCalled())
       const [, uploadedFile, uploadedType] = vi.mocked(client.beginDocumentUpload).mock.calls[0]
-      expect(uploadedFile.name).toBe('05_demo_property_listing.pdf')
+      expect(uploadedFile.name).toBe('property-listing.pdf')
       expect(uploadedType).toBe('PROPERTY_LISTING')
       expect(client.uploadDocument).toHaveBeenCalled()
       expect(await screen.findByText('자동으로 채운 값')).toBeTruthy()
       expect(screen.getByDisplayValue('2200000')).toBeTruthy()
     } finally {
-      fetchSpy.mockRestore()
       if (fileArrayBuffer) Object.defineProperty(File.prototype, 'arrayBuffer', fileArrayBuffer)
       else Reflect.deleteProperty(File.prototype, 'arrayBuffer')
     }
   })
 
-  it('keeps the demo action retryable when the bundled file cannot be loaded', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false } as Response)
-    const client = { beginDocumentUpload: vi.fn() } as unknown as ControlApiClient
-
-    try {
-      render(
-        <DocumentIntake
-          client={client}
-          projectId="project-1"
-          enabled
-          onApplied={async () => undefined}
-        />,
-      )
-
-      fireEvent.click(screen.getByRole('button', { name: '데모 자료로 검증하기' }))
-
-      expect((await screen.findByRole('alert')).textContent).toBe('데모 자료를 불러오지 못했어요. 잠시 뒤 다시 시도해 주세요.')
-      expect(client.beginDocumentUpload).not.toHaveBeenCalled()
-      expect((screen.getByRole('button', { name: '데모 자료로 검증하기' }) as HTMLButtonElement).disabled).toBe(false)
-    } finally {
-      fetchSpy.mockRestore()
-    }
-  })
-
-  it('selects the matching document type for a bundled demo file', () => {
+  it('keeps the user-selected document type when a file is chosen', () => {
     render(
       <DocumentIntake
         client={{} as ControlApiClient}
@@ -137,7 +112,10 @@ describe('DocumentIntake', () => {
       />,
     )
 
-    const file = new File(['demo'], '02_demo_franchise_disclosure_summary.pdf', {
+    fireEvent.change(screen.getByLabelText('자료 종류'), {
+      target: { value: 'FRANCHISE_DISCLOSURE' },
+    })
+    const file = new File(['disclosure'], 'brand-disclosure.pdf', {
       type: 'application/pdf',
     })
     fireEvent.change(screen.getByLabelText('파일 선택'), {
@@ -147,7 +125,7 @@ describe('DocumentIntake', () => {
     expect((screen.getByLabelText('자료 종류') as HTMLSelectElement).value).toBe(
       'FRANCHISE_DISCLOSURE',
     )
-    expect(screen.getByText('데모 파일에 맞는 자료 종류를 자동으로 선택했어요.')).toBeTruthy()
+    expect(screen.getByText('자료 종류와 파일이 맞는지 확인한 뒤 값을 찾아드릴게요.')).toBeTruthy()
     expect(
       (screen.getByRole('button', { name: '업로드하고 값 찾기' }) as HTMLButtonElement).disabled,
     ).toBe(false)

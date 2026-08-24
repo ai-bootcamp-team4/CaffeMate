@@ -30,6 +30,8 @@ class DocumentStorage(Protocol):
 
     def inspect(self, *, object_path: str) -> StoredObject | None: ...
 
+    def read(self, *, object_path: str) -> bytes: ...
+
     def sign_download(self, *, object_path: str, expires_at: datetime) -> str: ...
 
 
@@ -95,6 +97,12 @@ class GoogleCloudDocumentStorage:
             size_bytes=len(content),
             sha256=hashlib.sha256(content).hexdigest(),
         )
+
+    def read(self, *, object_path: str) -> bytes:
+        blob = self._bucket.get_blob(object_path)
+        if blob is None:
+            raise FileNotFoundError("Document object does not exist")
+        return cast(bytes, blob.download_as_bytes())
 
     @staticmethod
     def _detect_content_type(content: bytes) -> str:
