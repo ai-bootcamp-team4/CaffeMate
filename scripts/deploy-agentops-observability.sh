@@ -77,8 +77,15 @@ ensure_distribution_metric \
 existing_id="$(gcloud monitoring dashboards list --project="${project_id}" --format=json | \
   python3 -c 'import json,sys; print(next((v["name"] for v in json.load(sys.stdin) if v.get("displayName") == "CaffeMate AgentOps"), ""))')"
 if [[ -n "${existing_id}" ]]; then
+  dashboard_etag="$(gcloud monitoring dashboards describe "${existing_id}" \
+    --project="${project_id}" --format='value(etag)')"
+  if [[ -z "${dashboard_etag}" ]]; then
+    echo "CaffeMate AgentOps dashboard etag is unavailable" >&2
+    exit 1
+  fi
+  dashboard_config="$(jq --arg etag "${dashboard_etag}" '.etag = $etag' "${dashboard_file}")"
   dashboard_name="$(gcloud monitoring dashboards update "${existing_id}" \
-    --config-from-file="${dashboard_file}" --project="${project_id}" --format='value(name)')"
+    --config="${dashboard_config}" --project="${project_id}" --format='value(name)')"
 else
   dashboard_name="$(gcloud monitoring dashboards create \
     --config-from-file="${dashboard_file}" --project="${project_id}" --format='value(name)')"
