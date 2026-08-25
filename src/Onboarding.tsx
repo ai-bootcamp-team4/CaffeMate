@@ -146,7 +146,6 @@ export default function Onboarding({
     }
     setMessage('좋아요. 다음 조건을 확인할게요.')
     setStep((current) => Math.min(current + 1, steps.length - 1))
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const submit = async (event: FormEvent) => {
@@ -284,7 +283,6 @@ export default function Onboarding({
                     aria-describedby="targetAreaHelp"
                     aria-invalid={message.includes('필수') && !values.targetAreaInput.trim()}
                     required
-                    autoFocus
                   />
                   {isLocationListOpen && locationSuggestions.length > 0 && (
                     <ul className="location-suggestions" id="locationSuggestions" role="listbox" aria-label="연관 지역">
@@ -316,7 +314,7 @@ export default function Onboarding({
                 <div className="field onboarding-field">
                   <label htmlFor="ownFunds">현재 자기자금</label>
                   <div className="money-input">
-                    <input id="ownFunds" type="text" inputMode={fundUnit === '억원' ? 'decimal' : 'numeric'} value={formatMoneyInput(fundInput)} placeholder={(moneyUnits.find((item) => item.label === fundUnit) ?? moneyUnits[0]).placeholder} onChange={(event) => updateFunds(event.target.value)} aria-describedby="fundsHelp fundsConverted" required autoFocus />
+                    <input id="ownFunds" type="text" inputMode={fundUnit === '억원' ? 'decimal' : 'numeric'} value={formatMoneyInput(fundInput)} placeholder={(moneyUnits.find((item) => item.label === fundUnit) ?? moneyUnits[0]).placeholder} onChange={(event) => updateFunds(event.target.value)} aria-describedby="fundsHelp fundsConverted" required />
                     <label className="sr-only" htmlFor="fundUnit">금액 단위</label>
                     <select id="fundUnit" aria-label="금액 단위" value={fundUnit} onChange={(event) => changeFundUnit(event.target.value as MoneyUnit)}>
                       {moneyUnits.map((unit) => <option value={unit.label} key={unit.label}>{unit.label}</option>)}
