@@ -20,7 +20,9 @@ const APPROVED_MODEL = {
 function completeFixture(taskType: string) {
   const item = fixtureMatrix.cases.find((entry) => entry.task.task_type === taskType && entry.result.status === 'COMPLETE')
   if (!item) throw new Error(`missing fixture ${taskType}`)
-  return structuredClone(item) as unknown as { task: AgentTask; result: AgentTaskResult }
+  const value = structuredClone(item) as unknown as { task: AgentTask; result: AgentTaskResult }
+  value.task.deadline_at = new Date(Date.now() + 60_000).toISOString()
+  return value
 }
 
 function semanticResult(result: AgentTaskResult) {
@@ -94,7 +96,7 @@ describe('local model-backed Agent executors', () => {
     })
   })
 
-  it('rejects an invalid Candidate Audit result without another model generation', async () => {
+  it('repairs an invalid Candidate Audit status contract once', async () => {
     const { task, result } = completeFixture('CANDIDATE_AUDIT')
     const invalid = {
       ...result,
@@ -102,20 +104,61 @@ describe('local model-backed Agent executors', () => {
       missing_claim_ids: [],
       reason_codes: ['INSUFFICIENT_CONTEXT'],
     }
-    const generate = vi.fn(async (invocation: AgentModelInvocation) => {
-      expect(invocation.repairAttempt).toBe(0)
-      return {
-        kind: 'TEXT' as const,
-        text: JSON.stringify(semanticResult(invalid)),
-      }
-    })
+    const generate = vi.fn(async (invocation: AgentModelInvocation) => ({
+      kind: 'TEXT' as const,
+      text: JSON.stringify(semanticResult(invocation.repairAttempt === 0 ? invalid : result)),
+    }))
 
-    await expect(dispatchAgentTask(
+    const repaired = await dispatchAgentTask(
       task, createModelExecutors({ generate }, APPROVED_MODEL),
-    )).rejects.toMatchObject({ code: 'RESULT_SCHEMA_INVALID' })
+    )
 
-    expect(generate).toHaveBeenCalledTimes(1)
+    expect(repaired).toEqual(result)
+    expect(generate).toHaveBeenCalledTimes(2)
     expect(generate.mock.calls[0]?.[0].repairAttempt).toBe(0)
+    expect(generate.mock.calls[1]?.[0].repairAttempt).toBe(1)
+    expect(generate.mock.calls[1]?.[0].task.repair_context).toMatchObject({
+      validator_errors: expect.arrayContaining([
+        expect.objectContaining({ code: 'RESULT_SCHEMA_MINITEMS' }),
+      ]),
+    })
+  })
+
+  it('repairs an unsupported EVIDENCE_ASSESS candidate reference before returning it', async () => {
+    const { task, result } = completeFixture('EVIDENCE_ASSESS')
+    const invalid = structuredClone(result)
+    if (!invalid.payload || typeof invalid.payload !== 'object' || Array.isArray(invalid.payload)) {
+      throw new Error('evidence assess fixture payload is invalid')
+    }
+    const assessments = (invalid.payload as { assessments: Array<Record<string, unknown>> }).assessments
+    assessments.push({
+      claim_id: 'claim-1',
+      candidate_ref: 'invented-evidence',
+      relation: 'AMBIGUOUS',
+      scope_status: 'UNKNOWN',
+      date_status: 'UNKNOWN',
+      freshness_status: 'UNKNOWN',
+      anchor_status: 'MISSING',
+      authority_status: 'UNKNOWN',
+      missing_context: ['unsupported candidate'],
+    })
+    const generate = vi.fn(async (invocation: AgentModelInvocation) => ({
+      kind: 'TEXT' as const,
+      text: JSON.stringify(semanticResult(invocation.repairAttempt === 0 ? invalid : result)),
+    }))
+
+    const repaired = await dispatchAgentTask(
+      task,
+      createModelExecutors({ generate }, APPROVED_MODEL),
+    )
+
+    expect(repaired).toEqual(result)
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(generate.mock.calls[1]?.[0].task.repair_context).toMatchObject({
+      validator_errors: expect.arrayContaining([
+        expect.objectContaining({ code: 'UNSUPPORTED_REFERENCE' }),
+      ]),
+    })
   })
 
   it('returns partial Candidate Audit coverage after one model generation', async () => {
@@ -171,6 +214,27 @@ describe('local model-backed Agent executors', () => {
     } finally {
       info.mockRestore()
     }
+  })
+
+  it('repairs one malformed JSON model response with the original text and validator error', async () => {
+    const { task, result } = completeFixture('INTENT_DELTA')
+    const generate = vi.fn(async (invocation: AgentModelInvocation) => ({
+      kind: 'TEXT' as const,
+      text: invocation.repairAttempt === 0 ? '{not-json' : JSON.stringify(semanticResult(result)),
+    }))
+
+    const repaired = await dispatchAgentTask(
+      task,
+      createModelExecutors({ generate }, APPROVED_MODEL),
+    )
+
+    expect(repaired).toEqual(result)
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(generate.mock.calls[1]?.[0].task.repair_context).toMatchObject({
+      previous_response_text: '{not-json',
+      validator_errors: [expect.objectContaining({ code: 'MODEL_JSON_INVALID' })],
+    })
+    expect(generate.mock.calls[1]?.[0].systemInstruction).toContain(PROMPTS['repair.v1'])
   })
 
   it('rejects prose or Markdown instead of extracting JSON from it', async () => {

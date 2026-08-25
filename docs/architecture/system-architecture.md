@@ -8,20 +8,21 @@
 
 ## 1. 현재 결정
 
-CaffeMate는 GCP 배포 단위와 Multi-Agent 경계를 유지하되, 첫 제안 요청을 여러 비동기 단계로
-쪼개지 않는다. 사용자가 분석을 시작하면 Control API가 한 트랜잭션에서 후보 생성, 재무 계산,
-자금 Gate, 순위, 결과 저장을 끝낸다.
+CaffeMate는 GCP 배포 단위와 Multi-Agent 경계를 유지한다. 첫 제안의 비즈니스 계산은 현재의
+단일 `LinearMultiAgentProposalPipeline`을 유지하되, HTTP 요청 수명과 분리된 durable workflow로
+실행한다. 사용자에게는 파이프라인 내부의 실제 처리 경계만 progress checkpoint로 노출한다.
 
 배포 단위는 다음과 같다.
 
 1. `caffemate-web`: React 사용자 화면
 2. `caffemate-api`: 인증, 권위 State, 제안 실행, 계산, 결과와 유일한 State 쓰기 권한
-3. `caffemate-worker`: Agent Runtime 세션 정리와 운영 실패 레코드 관리
+3. `caffemate-worker`: Workflow queue·lease·heartbeat·redelivery와 Agent Runtime 세션 정리
 4. `caffemate-mcp`: 공식 자료와 프로젝트 자료를 읽는 비공개 도구 서비스
 5. `caffemate-agents`: 비정형 입력을 구조화하는 ADK Multi-Agent 애플리케이션
 
-첫 제안에는 Pub/Sub stage queue, stage lease, heartbeat, redelivery와 단계별 validator를 사용하지
-않는다. Worker도 첫 제안 실행에 참여하지 않는다.
+첫 제안은 Outbox + Pub/Sub로 `RUN_PROPOSAL` 실행권을 Worker에 전달한다. Worker는 비즈니스 계산을
+직접 소유하지 않고 lease와 heartbeat를 관리하며 Worker identity로 Control API 내부 실행 endpoint를
+호출한다. Control API가 Agent/MCP 호출, 계산, checkpoint와 최종 결과 저장을 계속 소유한다.
 
 ## 2. 구조도
 
@@ -37,6 +38,9 @@ flowchart LR
     mcp --> area
     mcp --> official[Official Sources]
     worker[Cloud Run Worker] --> state
+    api -->|Outbox publish| pubsub[Pub/Sub]
+    pubsub -->|OIDC push| worker
+    worker -->|leased internal execute| api
     worker -->|expired session delete| agents
     scheduler[Cloud Scheduler] --> worker
 ```
@@ -66,17 +70,17 @@ GET  /v1/projects/{project_id}/result
 ```text
 인증과 프로젝트 소유권 확인
 → 현재 Venture State 잠금
-→ 등록된 개인카페 모델과 프랜차이즈 기준 로드
-→ 수용된 Evidence 투영
-→ 후보별 결정론적 재무 계산
-→ 자금 Gate와 다음 검토 우선순위 계산
-→ 결과와 RUN_PROPOSAL 성공 기록을 한 트랜잭션에 저장
-→ 완료된 workflow와 결과 반환
+→ QUEUED workflow + RUN_PROPOSAL + progress rows + Outbox commit
+→ 202 반환
+→ Pub/Sub → Worker lease·heartbeat
+→ Control API 내부 pipeline 실행
+→ 근거 조회 → 근거 평가 → 후보 생성 → 재무·순위 → 후보 감사 checkpoint
+→ 결과와 COMMIT_RESULT + RUN_PROPOSAL + workflow 성공을 한 트랜잭션에 저장
 ```
 
-`FirstProposalService.run()`이 첫 제안의 단일 진입점이다. 한 번의 실행은 정확히 하나의
-`RUN_PROPOSAL` 기록을 만든다. 삭제된 13단계 Workflow 이름이나 순서를 새로운 코드와 문서에
-다시 도입하지 않는다.
+`FirstProposalService.run()`이 첫 제안의 공개 진입점이다. 한 번의 실행은 정확히 하나의 내부
+`RUN_PROPOSAL` lease 기록과 여섯 사용자 progress row를 만든다. 삭제된 13단계 비즈니스 DAG를
+복원하지 않으며, checkpoint는 현재 단순 파이프라인에서 사용자가 실제로 기다리는 경계만 표현한다.
 
 ### 4.1 후보 생성
 
@@ -172,18 +176,24 @@ URL로 전송하고, API가 파일 형식·크기·digest와 프로젝트 소유
 
 ## 8. Worker와 운영 자동화
 
-Worker는 첫 제안을 실행하지 않는다. 현재 Python Worker의 책임은 다음 두 가지다.
+Worker는 장시간 첫 제안과 재계산의 **실행권**을 소유하되 비즈니스 계산 자체는 소유하지 않는다.
+현재 Python Worker의 책임은 다음과 같다.
 
-1. Agent Runtime에서 삭제되지 않은 관리형 세션 정리
-2. 운영 실패 레코드 조회와 명시적 재처리
+1. Pub/Sub `WORKFLOW_STAGE_READY`를 받아 `RUN_PROPOSAL` lease를 획득하고 heartbeat를 유지
+2. Worker service identity로 Control API 내부 실행 endpoint를 호출하고 retry/중복 전달을 정리
+3. 발행되지 못한 workflow Outbox를 Scheduler 요청으로 다시 drain
+4. Agent Runtime에서 삭제되지 않은 관리형 세션 정리
+5. 운영 실패 레코드 조회와 명시적 재처리
 
-Cloud Scheduler는 비공개 Worker의 `/internal/v1/agent-sessions:cleanup`만 호출한다. Worker는 public
-invoker를 허용하지 않는다. 문서 parsing·indexing 모듈은 별도 파이프라인 경계에 유지하며, 실제
-배포 경로가 연결되기 전에는 Worker가 이를 운영한다고 표현하지 않는다.
+Cloud Scheduler는 비공개 Worker의 `/internal/v1/outbox:publish`와
+`/internal/v1/agent-sessions:cleanup`을 호출한다. Pub/Sub push는 별도 service identity로
+`/internal/v1/pubsub/workflow-stages`를 호출한다. Worker는 public invoker를 허용하지 않는다.
+문서 parsing·indexing 모듈은 별도 파이프라인 경계에 유지한다.
 
 ## 9. 실패 원칙
 
-- 첫 제안은 외부 모델이나 검색 서비스의 응답을 기다리지 않으므로 해당 장애 때문에 중단되지 않는다.
+- 공개 시작 요청은 외부 모델이나 검색 서비스의 응답을 기다리지 않고 `202`를 반환한다. 이후
+  Worker가 실행한 분석은 외부 의존성 장애를 명시적으로 기록하며 retryable 실패만 제한적으로 재시도한다.
 - 수용된 근거가 없으면 숫자나 출처를 생성하지 않고 등록 가정과 미확인 항목을 구분한다.
 - Agent, MCP와 문서 처리 실패는 호출 기능에서 명시적인 오류로 반환하며 다른 모델이나 자료로
   조용히 전환하지 않는다.
@@ -205,12 +215,13 @@ invoker를 허용하지 않는다. 문서 parsing·indexing 모듈은 별도 파
 
 변경 완료를 판단하기 전에 다음을 확인한다.
 
-1. 단위 테스트와 PostgreSQL 통합 테스트가 단일 `RUN_PROPOSAL`을 확인한다.
+1. 단위 테스트와 PostgreSQL 통합 테스트가 내부 `RUN_PROPOSAL` lease 실행과 여섯 개의 공개
+   progress checkpoint를 확인한다.
 2. 개인카페와 프랜차이즈 경로가 각각 후보와 현재 결과를 만든다.
 3. 후보 선택 뒤 실제 점포 입력이 해당 후보 비용만 바꾸고 결과 이력을 남긴다.
 4. 자연어 피드백과 문서 적용이 새 결과를 만든다.
 5. 배포 검증은 API `/health` HTTP 200과 실제 공개 요청 경로를 확인한다.
-6. Worker 외부 호출은 거절되고, 인증된 Agent session cleanup 호출은 성공한다.
+6. Worker 외부 호출은 거절되고, 인증된 Pub/Sub push·Outbox drain·Agent session cleanup 호출은 성공한다.
 7. 배포 확인 전에는 운영 반영 상태를 `pending`으로 보고한다.
 
 ## 12. 분리 조건

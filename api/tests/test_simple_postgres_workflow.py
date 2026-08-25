@@ -1,4 +1,4 @@
-"""사용자 분석 요청은 한 트랜잭션에서 실행 결과와 단일 진행 기록을 저장해야 한다."""
+"""Selected-property recompute integration tests."""
 
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -36,6 +36,7 @@ from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.selective_start import start_selective_first_proposal
 from app.workflows.service import WorkflowService
 from app.workflows.simple_proposal import SimpleProposalBuilder
+from tests.workflow_test_support import IdentityFixture, execute_queued_workflow, workflow_service
 
 
 class _Identity:
@@ -173,7 +174,7 @@ def postgres_engine() -> Iterator[Engine]:
         engine.dispose()
 
 
-def test_start_persists_result_and_one_completed_stage(
+def test_queued_start_persists_completed_result_and_progress(
     postgres_engine: Engine,
 ) -> None:
     projects = ProjectService(PostgresProjectRepository(postgres_engine))
@@ -210,6 +211,7 @@ def test_start_persists_result_and_one_completed_stage(
         workflow_code=WorkflowCode.FIRST_PROPOSAL,
         idempotency_key="analysis-1",
     )
+    execute_queued_workflow(postgres_engine, first.workflow_run_id)
     replay = workflows.start(
         project_id=project.project_id,
         user_id="user-1",
@@ -226,11 +228,18 @@ def test_start_persists_result_and_one_completed_stage(
         user_id="user-1",
     )
 
-    assert first.status == WorkflowStatus.SUCCEEDED
+    assert first.status == WorkflowStatus.QUEUED
+    assert replay.status == WorkflowStatus.SUCCEEDED
     assert replay.workflow_run_id == first.workflow_run_id
-    assert progress.completed_stage_count == 1
-    assert progress.total_stage_count == 1
-    assert [stage.stage_code for stage in progress.stages] == ["RUN_PROPOSAL"]
+    assert progress.completed_stage_count == progress.total_stage_count == 6
+    assert {stage.stage_code for stage in progress.stages} == {
+        "EVIDENCE_RETRIEVAL",
+        "EVIDENCE_ASSESS",
+        "PROPOSAL_GENERATION",
+        "FINANCE_AND_RANK",
+        "CANDIDATE_AUDIT",
+        "COMMIT_RESULT",
+    }
     assert 1 <= len(result.candidates) <= 3
     assert result.workflow_run_id == first.workflow_run_id
     with postgres_engine.connect() as connection:
@@ -238,7 +247,7 @@ def test_start_persists_result_and_one_completed_stage(
             connection.execute(
                 text("SELECT count(*) FROM workflow_outbox WHERE topic='WORKFLOW_STAGE_READY'")
             ).scalar_one()
-            == 0
+            == 1
         )
 
 
@@ -282,12 +291,13 @@ def test_public_start_returns_completed_run_and_result(
             headers={**headers, "Idempotency-Key": "analysis-user-2"},
             json={},
         )
+        execute_queued_workflow(postgres_engine, started.json()["workflow_run_id"])
         result = client.get(f"/v1/projects/{project_id}/result", headers=headers)
 
     assert created.status_code == 201
     assert onboarded.status_code == 200
     assert started.status_code == 202
-    assert started.json()["status"] == "SUCCEEDED"
+    assert started.json()["status"] == "QUEUED"
     assert result.status_code == 200
     assert len(result.json()["candidates"]) >= 1
 
@@ -304,8 +314,8 @@ def test_property_terms_recalculate_selected_candidate_with_actual_costs(
     headers = {"Authorization": "Bearer test-token"}
     with TestClient(
         create_app(
-            identity_verifier=_Identity(),
-            workflow_service=_workflow_service(postgres_engine),
+            identity_verifier=IdentityFixture(),
+            workflow_service=workflow_service(postgres_engine),
         )
     ) as client:
         project_id = client.post(
@@ -326,11 +336,12 @@ def test_property_terms_recalculate_selected_candidate_with_actual_costs(
                 }
             },
         )
-        client.post(
+        started = client.post(
             f"/v1/projects/{project_id}/workflows/FIRST_PROPOSAL",
             headers={**headers, "Idempotency-Key": "property-analysis"},
             json={},
         )
+        execute_queued_workflow(postgres_engine, started.json()["workflow_run_id"])
         first = client.get(f"/v1/projects/{project_id}/result", headers=headers).json()
         selected_candidate = next(
             candidate
@@ -368,6 +379,40 @@ def test_property_terms_recalculate_selected_candidate_with_actual_costs(
             },
         )
         assert application_response.status_code == 201
+        application = application_response.json()
+        assert application["recompute_workflow"]["status"] == "QUEUED"
+        queued_progress = client.get(
+            (
+                f"/v1/projects/{project_id}/workflows/"
+                f"{application['recompute_workflow']['workflow_run_id']}"
+            ),
+            headers=headers,
+        ).json()
+        assert queued_progress["completed_stage_count"] == 0
+        assert queued_progress["total_stage_count"] == 6
+        execute_queued_workflow(
+            postgres_engine,
+            application["recompute_workflow"]["workflow_run_id"],
+        )
+        finished_progress = client.get(
+            (
+                f"/v1/projects/{project_id}/workflows/"
+                f"{application['recompute_workflow']['workflow_run_id']}"
+            ),
+            headers=headers,
+        ).json()
+        assert finished_progress["completed_stage_count"] == 6
+        stage_statuses = {
+            stage["stage_code"]: stage["status"] for stage in finished_progress["stages"]
+        }
+        assert stage_statuses == {
+            "EVIDENCE_RETRIEVAL": "SKIPPED",
+            "EVIDENCE_ASSESS": "SKIPPED",
+            "PROPOSAL_GENERATION": "SKIPPED",
+            "FINANCE_AND_RANK": "SUCCEEDED",
+            "CANDIDATE_AUDIT": "SKIPPED",
+            "COMMIT_RESULT": "SUCCEEDED",
+        }
         current = client.get(
             f"/v1/projects/{project_id}/result",
             headers=headers,
@@ -414,8 +459,8 @@ def test_later_recompute_preserves_latest_selected_property_terms(
     headers = {"Authorization": "Bearer test-token"}
     with TestClient(
         create_app(
-            identity_verifier=_Identity(),
-            workflow_service=_workflow_service(postgres_engine),
+            identity_verifier=IdentityFixture(),
+            workflow_service=workflow_service(postgres_engine),
         )
     ) as client:
         project_id = client.post(
@@ -436,11 +481,12 @@ def test_later_recompute_preserves_latest_selected_property_terms(
                 }
             },
         )
-        client.post(
+        started = client.post(
             f"/v1/projects/{project_id}/workflows/FIRST_PROPOSAL",
             headers={**headers, "Idempotency-Key": "retained-property-analysis"},
             json={},
         )
+        execute_queued_workflow(postgres_engine, started.json()["workflow_run_id"])
         first = client.get(f"/v1/projects/{project_id}/result", headers=headers).json()
         selected_candidate = next(
             candidate
@@ -477,6 +523,10 @@ def test_later_recompute_preserves_latest_selected_property_terms(
             },
         )
         assert applied.status_code == 201
+        execute_queued_workflow(
+            postgres_engine,
+            applied.json()["recompute_workflow"]["workflow_run_id"],
+        )
         property_result = client.get(
             f"/v1/projects/{project_id}/result",
             headers=headers,
@@ -503,7 +553,8 @@ def test_later_recompute_preserves_latest_selected_property_terms(
             json={},
         )
         assert rerun.status_code == 202
-        assert rerun.json()["status"] == "SUCCEEDED"
+        assert rerun.json()["status"] == "QUEUED"
+        execute_queued_workflow(postgres_engine, rerun.json()["workflow_run_id"])
         retained = client.get(
             f"/v1/projects/{project_id}/result",
             headers=headers,
@@ -540,8 +591,8 @@ def test_property_terms_recalculate_selected_franchise_with_actual_costs(
     headers = {"Authorization": "Bearer test-token"}
     with TestClient(
         create_app(
-            identity_verifier=_Identity(),
-            workflow_service=_workflow_service(postgres_engine),
+            identity_verifier=IdentityFixture(),
+            workflow_service=workflow_service(postgres_engine),
         )
     ) as client:
         project_id = client.post(
@@ -562,11 +613,12 @@ def test_property_terms_recalculate_selected_franchise_with_actual_costs(
                 }
             },
         )
-        client.post(
+        started = client.post(
             f"/v1/projects/{project_id}/workflows/FIRST_PROPOSAL",
             headers={**headers, "Idempotency-Key": "franchise-property-analysis"},
             json={},
         )
+        execute_queued_workflow(postgres_engine, started.json()["workflow_run_id"])
         first = client.get(f"/v1/projects/{project_id}/result", headers=headers).json()
         selected_candidate = next(
             candidate
@@ -604,6 +656,21 @@ def test_property_terms_recalculate_selected_franchise_with_actual_costs(
             },
         )
         assert application_response.status_code == 201
+        application = application_response.json()
+        assert application["recompute_workflow"]["status"] == "QUEUED"
+        queued_progress = client.get(
+            (
+                f"/v1/projects/{project_id}/workflows/"
+                f"{application['recompute_workflow']['workflow_run_id']}"
+            ),
+            headers=headers,
+        ).json()
+        assert queued_progress["completed_stage_count"] == 0
+        assert queued_progress["total_stage_count"] == 6
+        execute_queued_workflow(
+            postgres_engine,
+            application["recompute_workflow"]["workflow_run_id"],
+        )
         current = client.get(
             f"/v1/projects/{project_id}/result",
             headers=headers,
@@ -678,11 +745,12 @@ def test_confirmed_franchise_percentage_royalty_recalculates_variable_margin(
                 }
             },
         )
-        client.post(
+        started = client.post(
             f"/v1/projects/{project_id}/workflows/FIRST_PROPOSAL",
             headers={**headers, "Idempotency-Key": "royalty-analysis"},
             json={},
         )
+        execute_queued_workflow(postgres_engine, started.json()["workflow_run_id"])
         first = client.get(f"/v1/projects/{project_id}/result", headers=headers).json()
         selected_candidate = next(
             candidate
@@ -813,7 +881,7 @@ def test_confirmed_franchise_percentage_royalty_recalculates_variable_margin(
                 index_generation_id=current_head_row["index_generation_id"],
                 seed_registry_id=current_head_row["seed_registry_id"],
             )
-            start_selective_first_proposal(
+            recompute = start_selective_first_proposal(
                 connection,
                 project_id=project_id,
                 user_id="user-2",
@@ -823,6 +891,7 @@ def test_confirmed_franchise_percentage_royalty_recalculates_variable_margin(
                 now=datetime(2026, 8, 25, 5, 5, tzinfo=UTC),
                 new_id=lambda: str(uuid4()),
             )
+        execute_queued_workflow(postgres_engine, recompute.workflow_run_id)
         current = client.get(f"/v1/projects/{project_id}/result", headers=headers).json()
 
     recalculated = next(
@@ -894,11 +963,12 @@ def test_confirmed_interior_quote_claim_replaces_seed_cost_on_recompute(
                 }
             },
         )
-        client.post(
+        started = client.post(
             f"/v1/projects/{project_id}/workflows/FIRST_PROPOSAL",
             headers={**headers, "Idempotency-Key": "claim-analysis"},
             json={},
         )
+        execute_queued_workflow(postgres_engine, started.json()["workflow_run_id"])
         first = client.get(f"/v1/projects/{project_id}/result", headers=headers).json()
         selected_candidate = next(
             candidate
@@ -1039,7 +1109,7 @@ def test_confirmed_interior_quote_claim_replaces_seed_cost_on_recompute(
                 index_generation_id=current_head_row["index_generation_id"],
                 seed_registry_id=current_head_row["seed_registry_id"],
             )
-            start_selective_first_proposal(
+            recompute = start_selective_first_proposal(
                 connection,
                 project_id=project_id,
                 user_id="user-2",
@@ -1049,6 +1119,7 @@ def test_confirmed_interior_quote_claim_replaces_seed_cost_on_recompute(
                 now=datetime(2026, 8, 25, 4, 5, tzinfo=UTC),
                 new_id=lambda: str(uuid4()),
             )
+        execute_queued_workflow(postgres_engine, recompute.workflow_run_id)
         current = client.get(f"/v1/projects/{project_id}/result", headers=headers).json()
 
     recalculated = next(

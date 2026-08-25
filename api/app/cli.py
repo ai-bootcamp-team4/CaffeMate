@@ -14,7 +14,6 @@ from uuid import uuid4
 from app.agents.runtime import (
     AgentRuntimeHttpClient,
     GoogleAccessTokenProvider,
-    PostgresAgentCleanupSink,
     verify_agent_runtime_iam,
 )
 from app.agents.task_factory import compute_agent_input_digest
@@ -55,15 +54,12 @@ from app.verification.live_evaluation import (
     GoogleCloudLiveEvaluationReportStore,
     LiveEvaluationRunner,
 )
+from app.verification.runtime import build_verification_workflows
 from app.verification.selected_candidate import (
     SelectedCandidateCanary,
     SelectedCandidateCanaryError,
 )
-from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import HeadFence
-from app.workflows.postgres_repository import PostgresWorkflowRepository
-from app.workflows.service import WorkflowService
-from app.workflows.simple_proposal import SimpleProposalBuilder
 
 
 class _StrictAgentCleanupSink:
@@ -84,50 +80,6 @@ def _content_protection(settings: RuntimeSettings) -> ContentProtection | None:
     return ModelArmorContentProtection(
         template_resource=settings.model_armor_template,
         access_tokens=ModelArmorAccessTokenProvider(),
-    )
-
-
-def _production_workflow_repository(
-    *,
-    settings: RuntimeSettings,
-    engine: Any,
-    seed_registry: IndependentSeedRegistry,
-) -> PostgresWorkflowRepository:
-    if (
-        not settings.policy_snapshot_id
-        or not settings.has_agent_runtime_configuration
-        or not settings.has_mcp_configuration
-    ):
-        raise ValueError("FIRST_PROPOSAL requires database, Agent Runtime, MCP and policy")
-    runtime = AgentRuntimeHttpClient(
-        gcp_project_id=cast(str, settings.agent_runtime_project_id),
-        resource_id=cast(str, settings.agent_runtime_resource_id),
-        user_hmac_secret=cast(str, settings.agent_runtime_user_hmac_secret),
-        access_tokens=GoogleAccessTokenProvider(),
-        cleanup_sink=PostgresAgentCleanupSink(engine),
-        content_protection=_content_protection(settings),
-    )
-    mcp = McpHttpClient(
-        base_url=cast(str, settings.mcp_base_url),
-        audience=cast(str, settings.mcp_audience),
-        identity_provider=GoogleIdentityTokenProvider(),
-        scope_signer=ScopeTokenSigner(
-            secret=cast(str, settings.mcp_scope_hmac_secret),
-            issuer="caffemate-control-api",
-            audience="caffemate-mcp",
-        ),
-    )
-    return PostgresWorkflowRepository(
-        engine,
-        policy_snapshot_id=settings.policy_snapshot_id,
-        seed_registry_id=seed_registry.registry_id,
-        pipeline=LinearMultiAgentProposalPipeline(
-            runtime=runtime,
-            mcp=mcp,
-            seed_registry=seed_registry,
-            builder=SimpleProposalBuilder(seed_registry),
-        ),
-        seed_registry=seed_registry,
     )
 
 
@@ -372,12 +324,11 @@ def main() -> None:
             parser.error("database configuration required")
         seed_registry = IndependentSeedRegistry.load_default()
         projects = ProjectService(PostgresProjectRepository(handle.engine))
-        workflows = WorkflowService(
-            _production_workflow_repository(
-                settings=settings,
-                engine=handle.engine,
-                seed_registry=seed_registry,
-            ),
+        workflows = build_verification_workflows(
+            settings=settings,
+            engine=handle.engine,
+            seed_registry=seed_registry,
+            content_protection=_content_protection(settings),
         )
         try:
             with tracer().start_as_current_span("caffemate.canary.first_proposal"):
@@ -426,12 +377,11 @@ def main() -> None:
             parser.error("database configuration required")
         seed_registry = IndependentSeedRegistry.load_default()
         projects = ProjectService(PostgresProjectRepository(handle.engine))
-        workflows = WorkflowService(
-            _production_workflow_repository(
-                settings=settings,
-                engine=handle.engine,
-                seed_registry=seed_registry,
-            ),
+        workflows = build_verification_workflows(
+            settings=settings,
+            engine=handle.engine,
+            seed_registry=seed_registry,
+            content_protection=_content_protection(settings),
         )
         try:
             with tracer().start_as_current_span("caffemate.evaluation.live_e2e"):
@@ -477,12 +427,11 @@ def main() -> None:
             parser.error("database configuration required")
         seed_registry = IndependentSeedRegistry.load_default()
         projects = ProjectService(PostgresProjectRepository(handle.engine))
-        workflows = WorkflowService(
-            _production_workflow_repository(
-                settings=settings,
-                engine=handle.engine,
-                seed_registry=seed_registry,
-            ),
+        workflows = build_verification_workflows(
+            settings=settings,
+            engine=handle.engine,
+            seed_registry=seed_registry,
+            content_protection=_content_protection(settings),
         )
         try:
             mcp_client = McpHttpClient(

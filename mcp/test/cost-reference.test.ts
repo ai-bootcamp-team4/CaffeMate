@@ -8,6 +8,13 @@ const scope = {
   requestId: 'request-1',
 }
 
+type CostReferenceResult = Record<string, unknown> & {
+  status: string
+  data: Array<Record<string, unknown>>
+  evidence_records: Array<Record<string, unknown>>
+  missing_fields: string[]
+}
+
 describe('cost reference connector', () => {
   it('returns the minimum-wage schedule effective on the requested date', async () => {
     const connector = createCostReferenceConnector({
@@ -21,7 +28,7 @@ describe('cost reference connector', () => {
         as_of: '2026-08-25',
       },
       scope,
-    ) as Record<string, any>
+    ) as CostReferenceResult
 
     expect(result).toMatchObject({
       status: 'OK',
@@ -67,7 +74,7 @@ describe('cost reference connector', () => {
         as_of: '2027-01-02',
       },
       scope,
-    ) as Record<string, any>
+    ) as CostReferenceResult
 
     expect(result.data).toEqual([
       expect.objectContaining({
@@ -91,7 +98,7 @@ describe('cost reference connector', () => {
         as_of: '2026-08-25',
       },
       scope,
-    ) as Record<string, any>
+    ) as CostReferenceResult
 
     expect(result.status).toBe('OK')
     expect(result.data).toEqual(expect.arrayContaining([
@@ -119,7 +126,7 @@ describe('cost reference connector', () => {
     ]))
     expect(result.evidence_records).toHaveLength(5)
     expect(result.evidence_records.filter(
-      (record: Record<string, any>) => String(record.metric).startsWith('EMPLOYER_SOCIAL_INSURANCE_'),
+      (record) => String(record.metric).startsWith('EMPLOYER_SOCIAL_INSURANCE_'),
     )).toHaveLength(4)
   })
 
@@ -133,7 +140,7 @@ describe('cost reference connector', () => {
         as_of: '2027-01-02',
       },
       scope,
-    ) as Record<string, any>
+    ) as CostReferenceResult
 
     expect(result.status).toBe('PARTIAL')
     expect(result.missing_fields).toEqual(['cost_reference:EMPLOYER_SOCIAL_INSURANCE'])

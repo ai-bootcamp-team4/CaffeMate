@@ -1,4 +1,4 @@
-"""사용자가 입력한 실제 점포 조건은 선택 후보 비용을 즉시 다시 계산해야 한다."""
+"""사용자가 입력한 실제 점포 조건은 저장 후 durable 재계산 Workflow를 시작한다."""
 
 import hashlib
 import json

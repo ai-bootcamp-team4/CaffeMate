@@ -289,7 +289,10 @@ export function createPropertyReferenceConnector(options: PropertyReferenceOptio
       }
     })
     const evidenceRecords = data.map((value) => value._evidence)
-    const publicData = data.map(({ _evidence, ...value }) => value)
+    const publicData = data.map(({ _evidence: evidence, ...value }) => {
+      void evidence
+      return value
+    })
     return {
       ...base(scope, now),
       status: 'OK',

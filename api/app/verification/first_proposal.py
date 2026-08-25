@@ -1,4 +1,4 @@
-"""운영 검증은 동기식 단일 제안 실행과 저장 결과를 즉시 대조한다."""
+"""운영 검증은 durable 첫 제안 실행의 공개 progress와 저장 결과를 대조한다."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -21,8 +21,8 @@ from app.domain.models import (
     Project,
 )
 from app.results.models import ResultFreshness, ResultOutcomeStatus, ResultView
-from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import WorkflowCode, WorkflowProgress, WorkflowRun, WorkflowStatus
+from app.workflows.progress import FIRST_PROPOSAL_PROGRESS_STAGES
 
 
 class ProjectOperations(Protocol):
@@ -295,7 +295,7 @@ class FirstProposalCanary:
                     ],
                 },
             )
-        expected_stages = {FirstProposalStage.RUN_PROPOSAL.value}
+        expected_stages = {stage.value for stage in FIRST_PROPOSAL_PROGRESS_STAGES}
         observed_stages = {stage.stage_code for stage in progress.stages}
         unsuccessful = [
             stage.stage_code for stage in progress.stages if stage.status.value != "SUCCEEDED"

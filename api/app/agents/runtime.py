@@ -537,12 +537,14 @@ class AgentRuntimeHttpClient:
 
     def _raise_for_http_status(self, response: httpx.Response, *, stage: str) -> None:
         status = response.status_code
+        provider_code = self._response_error_code(response)
+        if provider_code == "RUNTIME_TIMED_OUT":
+            raise AgentRuntimeError("RUNTIME_TIMED_OUT")
         if status in {408, 429} or 500 <= status <= 599:
             raise _RetryableTransportError(
                 f"RUNTIME_{stage}_TRANSPORT_FAILED",
                 retry_after_seconds=self._retry_after_seconds(response),
             )
-        provider_code = self._response_error_code(response)
         if provider_code in {
             "MODEL_JSON_INVALID",
             "RESULT_SCHEMA_INVALID",

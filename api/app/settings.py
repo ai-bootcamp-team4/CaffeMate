@@ -14,9 +14,12 @@ class RuntimeSettings:
     database_name: str | None
     cloud_sql_ip_type: str
     policy_snapshot_id: str | None
+    control_api_url: str | None
     control_api_audience: str | None
     worker_service_account_email: str | None
     worker_id: str | None
+    workflow_stage_topic_resource: str | None
+    pubsub_subscription: str | None
     agent_runtime_project_id: str | None
     agent_runtime_resource_id: str | None
     agent_runtime_user_hmac_secret: str | None
@@ -40,9 +43,12 @@ class RuntimeSettings:
             database_name=os.getenv("DB_NAME"),
             cloud_sql_ip_type=os.getenv("CLOUD_SQL_IP_TYPE", "PRIVATE"),
             policy_snapshot_id=os.getenv("CAFFEMATE_POLICY_SNAPSHOT_ID"),
+            control_api_url=os.getenv("CONTROL_API_URL"),
             control_api_audience=os.getenv("CONTROL_API_AUDIENCE"),
             worker_service_account_email=os.getenv("WORKER_SERVICE_ACCOUNT_EMAIL"),
             worker_id=os.getenv("WORKER_ID") or os.getenv("HOSTNAME"),
+            workflow_stage_topic_resource=os.getenv("WORKFLOW_STAGE_TOPIC_RESOURCE"),
+            pubsub_subscription=os.getenv("PUBSUB_SUBSCRIPTION"),
             agent_runtime_project_id=os.getenv("AGENT_RUNTIME_PROJECT_ID")
             or os.getenv("GOOGLE_CLOUD_PROJECT"),
             agent_runtime_resource_id=os.getenv("AGENT_RUNTIME_RESOURCE_ID"),

@@ -47,8 +47,13 @@ esac
 instance_connection_name=$(gcloud sql instances describe "$instance_id" \
   --project="$project_id" \
   --format='value(connectionName)')
+topic_id='caffemate-workflow-stage-ready'
+subscription_id='caffemate-workflow-stage-worker'
+topic_resource="projects/${project_id}/topics/${topic_id}"
+subscription_resource="projects/${project_id}/subscriptions/${subscription_id}"
 api_sa="caffemate-api-runtime@${project_id}.iam.gserviceaccount.com"
 worker_sa="caffemate-worker-runtime@${project_id}.iam.gserviceaccount.com"
+push_sa="caffemate-pubsub-push@${project_id}.iam.gserviceaccount.com"
 scheduler_sa="caffemate-scheduler@${project_id}.iam.gserviceaccount.com"
 mcp_url=$(gcloud run services describe caffemate-mcp \
   --project="$project_id" --region="$region" --format='value(status.url)')
@@ -275,7 +280,20 @@ create_service_account() {
   fi
 }
 
+create_service_account caffemate-pubsub-push 'CaffeMate Pub Sub push caller'
 create_service_account caffemate-scheduler 'CaffeMate Scheduler caller'
+
+if ! gcloud pubsub topics describe "$topic_id" \
+  --project="$project_id" >/dev/null 2>&1; then
+  gcloud pubsub topics create "$topic_id" --project="$project_id" --quiet >/dev/null
+fi
+for publisher in "$api_sa" "$worker_sa"; do
+  gcloud pubsub topics add-iam-policy-binding "$topic_id" \
+    --project="$project_id" \
+    --member="serviceAccount:${publisher}" \
+    --role='roles/pubsub.publisher' \
+    --quiet >/dev/null
+done
 
 common_database_env="INSTANCE_CONNECTION_NAME=${instance_connection_name},DB_USER=caffemate_app,DB_NAME=caffemate,CLOUD_SQL_IP_TYPE=PUBLIC"
 model_armor_template="projects/${project_id}/locations/${region}/templates/${model_armor_template_id}"
@@ -298,7 +316,7 @@ gcloud run deploy caffemate-api \
   --image="$image" \
   --service-account="$api_sa" \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CORS_ALLOWED_ORIGINS=https://caffemate-web-hfgnuuc55q-du.a.run.app;https://caffemate-web-424808310695.asia-northeast3.run.app,CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},DOCUMENT_BUCKET=${document_bucket},DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa},MODEL_ARMOR_TEMPLATE=${model_armor_template},CAFFEMATE_OTEL_ENABLED=true,CAFFEMATE_ENVIRONMENT=production,CAFFEMATE_SOURCE_REVISION=${source_revision}${api_audience_env}" \
+  --set-env-vars="${common_database_env},FIREBASE_PROJECT_ID=${project_id},CORS_ALLOWED_ORIGINS=https://caffemate-web-hfgnuuc55q-du.a.run.app;https://caffemate-web-424808310695.asia-northeast3.run.app,CAFFEMATE_POLICY_SNAPSHOT_ID=policy-v1,WORKER_SERVICE_ACCOUNT_EMAIL=${worker_sa},WORKFLOW_STAGE_TOPIC_RESOURCE=${topic_resource},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},MCP_BASE_URL=${mcp_url},MCP_AUDIENCE=${mcp_url},DOCUMENT_BUCKET=${document_bucket},DOCUMENT_SIGNING_SERVICE_ACCOUNT_EMAIL=${api_sa},MODEL_ARMOR_TEMPLATE=${model_armor_template},CAFFEMATE_OTEL_ENABLED=true,CAFFEMATE_ENVIRONMENT=production,CAFFEMATE_SOURCE_REVISION=${source_revision}${api_audience_env}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest,AGENT_RUNTIME_USER_HMAC_SECRET=caffemate-agent-runtime-user-hmac:latest,MCP_SCOPE_HMAC_SECRET=caffemate-mcp-scope-hmac:latest' \
   --port=8080 \
   --timeout=600 \
@@ -308,7 +326,7 @@ gcloud run deploy caffemate-api \
   --allow-unauthenticated \
   --cpu=1 \
   --memory=512Mi \
-  --min=0 \
+  --min=1 \
   --max=10 \
   --labels="source-revision=${source_revision},managed-by=caffemate-deploy" \
   --quiet >/dev/null
@@ -341,7 +359,7 @@ gcloud run deploy caffemate-worker \
   --command=uvicorn \
   --args=worker.main:app,--host,0.0.0.0,--port,8080 \
   --set-cloudsql-instances="$instance_connection_name" \
-  --set-env-vars="${common_database_env},WORKER_ID=caffemate-worker,AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},DOCUMENT_BUCKET=${document_bucket},CAFFEMATE_OTEL_ENABLED=true,CAFFEMATE_ENVIRONMENT=production,CAFFEMATE_SOURCE_REVISION=${source_revision}" \
+  --set-env-vars="${common_database_env},CONTROL_API_URL=${api_url},CONTROL_API_AUDIENCE=${api_url},WORKER_ID=caffemate-worker,PUBSUB_SUBSCRIPTION=${subscription_resource},WORKFLOW_STAGE_TOPIC_RESOURCE=${topic_resource},AGENT_RUNTIME_PROJECT_ID=${project_id},AGENT_RUNTIME_RESOURCE_ID=${agent_runtime_resource_id},DOCUMENT_BUCKET=${document_bucket},CAFFEMATE_OTEL_ENABLED=true,CAFFEMATE_ENVIRONMENT=production,CAFFEMATE_SOURCE_REVISION=${source_revision}" \
   --set-secrets='DB_PASS=caffemate-db-password:latest' \
   --port=8080 \
   --timeout=600 \
@@ -358,19 +376,83 @@ worker_url=$(gcloud run services describe caffemate-worker \
   --region="$region" \
   --format='value(status.url)')
 
-gcloud run services add-iam-policy-binding caffemate-api \
+for caller in "$worker_sa" "$push_sa" "$scheduler_sa"; do
+  target='caffemate-api'
+  if [ "$caller" != "$worker_sa" ]; then target='caffemate-worker'; fi
+  gcloud run services add-iam-policy-binding "$target" \
+    --project="$project_id" \
+    --region="$region" \
+    --member="serviceAccount:${caller}" \
+    --role='roles/run.invoker' \
+    --quiet >/dev/null
+done
+
+project_number=$(gcloud projects describe "$project_id" --format='value(projectNumber)')
+pubsub_agent="service-${project_number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+gcloud iam service-accounts add-iam-policy-binding "$push_sa" \
   --project="$project_id" \
-  --region="$region" \
-  --member="serviceAccount:${worker_sa}" \
-  --role='roles/run.invoker' \
+  --member="serviceAccount:${pubsub_agent}" \
+  --role='roles/iam.serviceAccountTokenCreator' \
   --quiet >/dev/null
 
-gcloud run services add-iam-policy-binding caffemate-worker \
+if gcloud pubsub subscriptions describe "$subscription_id" \
+  --project="$project_id" >/dev/null 2>&1; then
+  gcloud pubsub subscriptions update "$subscription_id" \
+    --project="$project_id" \
+    --push-endpoint="${worker_url}/internal/v1/pubsub/workflow-stages" \
+    --push-auth-service-account="$push_sa" \
+    --push-auth-token-audience="$worker_url" \
+    --ack-deadline=600 \
+    --min-retry-delay=10s \
+    --max-retry-delay=300s \
+    --expiration-period=never \
+    --quiet >/dev/null
+else
+  gcloud pubsub subscriptions create "$subscription_id" \
+    --project="$project_id" \
+    --topic="$topic_id" \
+    --push-endpoint="${worker_url}/internal/v1/pubsub/workflow-stages" \
+    --push-auth-service-account="$push_sa" \
+    --push-auth-token-audience="$worker_url" \
+    --ack-deadline=600 \
+    --min-retry-delay=10s \
+    --max-retry-delay=300s \
+    --expiration-period=never \
+    --quiet >/dev/null
+fi
+
+scheduler_uri="${worker_url}/internal/v1/outbox:publish"
+if gcloud scheduler jobs describe caffemate-outbox-drain \
   --project="$project_id" \
-  --region="$region" \
-  --member="serviceAccount:${scheduler_sa}" \
-  --role='roles/run.invoker' \
-  --quiet >/dev/null
+  --location="$region" >/dev/null 2>&1; then
+  gcloud scheduler jobs update http caffemate-outbox-drain \
+    --project="$project_id" \
+    --location="$region" \
+    --schedule='* * * * *' \
+    --time-zone='Asia/Seoul' \
+    --uri="$scheduler_uri" \
+    --http-method=POST \
+    --update-headers='Content-Type=application/json' \
+    --message-body='{"limit":20}' \
+    --oidc-service-account-email="$scheduler_sa" \
+    --oidc-token-audience="$worker_url" \
+    --attempt-deadline=30s \
+    --quiet >/dev/null
+else
+  gcloud scheduler jobs create http caffemate-outbox-drain \
+    --project="$project_id" \
+    --location="$region" \
+    --schedule='* * * * *' \
+    --time-zone='Asia/Seoul' \
+    --uri="$scheduler_uri" \
+    --http-method=POST \
+    --headers='Content-Type=application/json' \
+    --message-body='{"limit":20}' \
+    --oidc-service-account-email="$scheduler_sa" \
+    --oidc-token-audience="$worker_url" \
+    --attempt-deadline=30s \
+    --quiet >/dev/null
+fi
 
 scheduler_uri="${worker_url}/internal/v1/agent-sessions:cleanup"
 if gcloud scheduler jobs describe caffemate-agent-session-cleanup \

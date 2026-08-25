@@ -29,6 +29,11 @@ from app.workflows.franchise_grounding import (
 )
 from app.workflows.independent_finance_snapshot import independent_finance_snapshot
 from app.workflows.models import HeadFence, StageLease
+from app.workflows.progress import (
+    FirstProposalProgressStage,
+    NullWorkflowProgressSink,
+    WorkflowProgressSink,
+)
 from app.workflows.proposal_evidence_retrieval import (
     ProposalEvidenceRetriever,
     ProposalMcp,
@@ -83,6 +88,7 @@ class LinearMultiAgentProposalPipeline:
         evidence_records: list[dict[str, Any]],
         property_context: PropertyContext | None = None,
         case_fact_resolution: CaseFactResolution | None = None,
+        progress: WorkflowProgressSink | None = None,
     ) -> ResultBundlePayload:
         with tracer().start_as_current_span("caffemate.pipeline.first_proposal"):
             return self._run_traced(
@@ -92,6 +98,7 @@ class LinearMultiAgentProposalPipeline:
                 evidence_records=evidence_records,
                 property_context=property_context,
                 case_fact_resolution=case_fact_resolution,
+                progress=progress or NullWorkflowProgressSink(),
             )
 
     def _run_traced(
@@ -103,7 +110,9 @@ class LinearMultiAgentProposalPipeline:
         evidence_records: list[dict[str, Any]],
         property_context: PropertyContext | None,
         case_fact_resolution: CaseFactResolution | None,
+        progress: WorkflowProgressSink,
     ) -> ResultBundlePayload:
+        progress.start(FirstProposalProgressStage.EVIDENCE_RETRIEVAL)
         outcomes = asyncio.run(
             self._evidence_retriever.retrieve(
                 state=state,
@@ -111,6 +120,7 @@ class LinearMultiAgentProposalPipeline:
                 workflow_run_id=workflow_run_id,
             )
         )
+        progress.complete(FirstProposalProgressStage.EVIDENCE_RETRIEVAL)
         # 공식 RAG 검색 결과도 다른 MCP 근거와 같은 EvidenceRecord 계약으로 전달한다.
         outcomes = [
             self._evidence_retriever.with_official_rag_evidence(outcome)
@@ -124,6 +134,7 @@ class LinearMultiAgentProposalPipeline:
                 if isinstance(record, dict)
             ]
         )
+        progress.start(FirstProposalProgressStage.EVIDENCE_ASSESS)
         evidence_task = self._tasks.build_evidence_assess(
             self._context(
                 state=state,
@@ -160,7 +171,9 @@ class LinearMultiAgentProposalPipeline:
             outcomes=outcomes,
             evidence_records=retrieved_records,
         )
+        progress.complete(FirstProposalProgressStage.EVIDENCE_ASSESS)
 
+        progress.start(FirstProposalProgressStage.PROPOSAL_GENERATION)
         proposal_tasks = self._proposal_tasks(
             state=state,
             head=head,
@@ -184,7 +197,9 @@ class LinearMultiAgentProposalPipeline:
         proposals = self._validated_proposals(proposal_tasks, proposal_results)
         if not proposals:
             raise ContractValidationError("No usable Agent proposal is available")
+        progress.complete(FirstProposalProgressStage.PROPOSAL_GENERATION)
 
+        progress.start(FirstProposalProgressStage.FINANCE_AND_RANK)
         bundle = self._builder.build(
             state=state,
             evidence_records=retrieved_records,
@@ -209,6 +224,8 @@ class LinearMultiAgentProposalPipeline:
                 disclosure_resolution=disclosure_resolution,
             ),
         )
+        progress.complete(FirstProposalProgressStage.FINANCE_AND_RANK)
+        progress.start(FirstProposalProgressStage.CANDIDATE_AUDIT)
         audit_task = self._tasks.build_result_bundle_audit(
             project_id=state.project_id,
             workflow_run_id=workflow_run_id,
@@ -221,7 +238,9 @@ class LinearMultiAgentProposalPipeline:
             audit_result = self._invoke_accepted(audit_task, head)
         except ExternalExecutionUnavailableError:
             audit_result = None
-        return self._apply_audit(bundle, audit_result)
+        audited = self._apply_audit(bundle, audit_result)
+        progress.complete(FirstProposalProgressStage.CANDIDATE_AUDIT)
+        return audited
 
     def _proposal_tasks(
         self,

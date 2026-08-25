@@ -95,6 +95,19 @@ class StageLease(StrictModel):
     head: HeadFence
 
 
+class FailureOutcome(StrEnum):
+    RETRY_SCHEDULED = "RETRY_SCHEDULED"
+    TERMINAL_FAILED = "TERMINAL_FAILED"
+    DUPLICATE_DISCARDED = "DUPLICATE_DISCARDED"
+    STALE_DISCARDED = "STALE_DISCARDED"
+    LEASE_REJECTED = "LEASE_REJECTED"
+
+
+class StageFailure(StrictModel):
+    code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{0,63}$")
+    retryable: bool
+
+
 class StartWorkflowCommand(StrictModel):
     project_id: str
     user_id: str

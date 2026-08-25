@@ -1,4 +1,4 @@
-"""사용자 요청은 한 번 계산해 결과와 단일 실행 기록을 같은 트랜잭션에 저장한다."""
+"""Workflow queue와 결과 commit이 공유하는 PostgreSQL persistence helpers."""
 
 import hashlib
 import json
@@ -183,8 +183,6 @@ def persist_completed_first_proposal(
         created_at=now,
         updated_at=now,
     )
-
-
 def _next_head(
     project: RowMapping,
     *,
@@ -278,6 +276,13 @@ def _insert_workflow_run(
     source_result_bundle_id: str | None,
     now: datetime,
 ) -> None:
+    """Persist the legacy synchronous caller's terminal workflow row.
+
+    The durable queue path uses async_persistence._insert_queued_workflow_run;
+    this helper remains for the explicit one-transaction compatibility entry
+    point above and is not used by the worker path.
+    """
+
     connection.execute(
         text(
             """
@@ -556,6 +561,28 @@ def _load_current_property_context(
         monthly_rent_krw=int(row["monthly_rent_krw"]),
         management_fee_krw=int(row["management_fee_krw"]),
         key_money_krw=(int(row["key_money_krw"]) if row["key_money_krw"] is not None else None),
+    )
+
+
+def _load_current_property_override(
+    connection: Connection,
+    *,
+    project_id: str,
+    user_id: str,
+    state: VentureState,
+) -> PropertyContext | None:
+    """Compatibility boundary for the durable worker's legacy keyword.
+
+    The worker still calls this lookup an override, but the selected-property
+    contract now carries the complete PropertyContext so address/area/floor
+    cannot be lost during a durable rerun.
+    """
+
+    return _load_current_property_context(
+        connection,
+        project_id=project_id,
+        user_id=user_id,
+        state=state,
     )
 
 

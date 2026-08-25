@@ -79,7 +79,10 @@ describe('property reference connector', () => {
         as_of: '2026-08-25',
       },
       scope,
-    ) as Record<string, any>
+    ) as Record<string, unknown> & {
+      data: Array<Record<string, unknown>>
+      evidence_records: Array<Record<string, unknown>>
+    }
 
     expect(result).toMatchObject({
       status: 'OK',

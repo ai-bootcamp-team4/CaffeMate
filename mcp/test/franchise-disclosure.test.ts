@@ -60,7 +60,11 @@ describe('FTC franchise disclosure connector', () => {
       'get_franchise_disclosure',
       { brand_id: 'kr-ediya-coffee', as_of: '2026-08-25' },
       scope,
-    ) as Record<string, any>
+    ) as {
+      status: string
+      data: Array<Record<string, unknown>>
+      evidence_records: Array<Record<string, unknown>>
+    }
 
     expect(result.status).toBe('PARTIAL')
     expect(result.data).toHaveLength(5)

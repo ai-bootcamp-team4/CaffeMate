@@ -47,9 +47,9 @@ function evidenceAssessTask(): AgentTask {
   payload.executed_actions = [{
     structured_result: {
       evidence_records: [
-        { evidence_id: 'evidence-1' },
-        { evidence_id: 'evidence-2' },
-        { evidence_id: 'evidence-2' },
+        { evidence_id: 'evidence-1', value_kind: 'EVIDENCED_FACT' },
+        { evidence_id: 'evidence-2', value_kind: 'EVIDENCED_FACT' },
+        { evidence_id: 'evidence-2', value_kind: 'EVIDENCED_FACT' },
       ],
     },
   }]
@@ -59,6 +59,14 @@ function evidenceAssessTask(): AgentTask {
 function independentProposalTask(): AgentTask {
   const item = fixtureMatrix.cases.find((entry) => entry.task.task_type === 'PROPOSE_INDEPENDENT' && entry.result.status === 'COMPLETE')
   if (!item) throw new Error('missing PROPOSE_INDEPENDENT fixture')
+  return structuredClone(item.task) as unknown as AgentTask
+}
+
+function taskByType(taskType: AgentTask['task_type']): AgentTask {
+  const item = fixtureMatrix.cases.find(
+    (entry) => entry.task.task_type === taskType && entry.result.status === 'COMPLETE',
+  )
+  if (!item) throw new Error(`missing ${taskType} fixture`)
   return structuredClone(item.task) as unknown as AgentTask
 }
 
@@ -174,6 +182,9 @@ describe('Vertex role response schema projection', () => {
     const actionSchema = schema.properties?.claim_plans.items?.properties?.support_actions.items
     if (!actionSchema?.properties) throw new Error('missing projected tool-action schema')
 
+    expect(schema.properties?.claim_plans.items?.properties?.claim_id.enum).toBeUndefined()
+    expect(actionSchema.properties.action_id?.enum).toBeUndefined()
+    expect(actionSchema.properties.claim_id?.enum).toBeUndefined()
     expect(actionSchema.properties.tool_name?.enum).toEqual(['get_area_profile', 'get_source_health'])
     expect(actionSchema.anyOf).toBeUndefined()
     const argumentSchemas = actionSchema.properties.typed_arguments?.anyOf
@@ -286,7 +297,10 @@ describe('Vertex role response schema projection', () => {
       structured_result: {
         evidence_records: Array.from(
           { length: 14 },
-          (_, index) => ({ evidence_id: `evidence-${index + 1}-${'x'.repeat(48)}` }),
+          (_, index) => ({
+            evidence_id: `evidence-${index + 1}-${'x'.repeat(48)}`,
+            value_kind: 'EVIDENCED_FACT',
+          }),
         ),
       },
     }]
@@ -298,9 +312,12 @@ describe('Vertex role response schema projection', () => {
     expect(roleSchema.properties?.assessments.items?.properties?.candidate_ref.enum).toBeUndefined()
     expect(roleSchema.properties?.assessments.items?.properties?.claim_id.enum).toBeUndefined()
     expect(roleSchema.properties?.missing_claims.maxItems).toBeUndefined()
-    expect(roleSchema.properties?.conflict_proposals.maxItems).toBeUndefined()
+    expect(roleSchema.properties?.conflict_proposals.items?.properties?.candidate_refs.maxItems).toBeUndefined()
+    expect(responseSchema.properties?.evidence_refs.items?.enum).toBeUndefined()
     expect(responseSchema.properties?.evidence_refs.maxItems).toBe(14)
+    expect(responseSchema.properties?.missing_claim_ids.items?.enum).toBeUndefined()
     expect(responseSchema.properties?.missing_claim_ids.maxItems).toBe(10)
+    expect(new TextEncoder().encode(JSON.stringify(responseSchema)).byteLength).toBeLessThan(24_000)
   })
 
   it('bounds a proposal call to its single allocated source and separates assumptions from Evidence', () => {
@@ -317,7 +334,7 @@ describe('Vertex role response schema projection', () => {
     expect(proposal?.properties?.display_name.enum).toEqual(['소형 개인카페 모델'])
     expect(proposal?.properties?.evidence_refs.maxItems).toBe(0)
     expect(proposal?.properties?.assumption_refs.maxItems).toBe(1)
-    expect(proposal?.properties?.assumption_refs.items?.type).toBe('string')
+    expect(proposal?.properties?.assumption_refs.items?.enum).toBeUndefined()
     expect(proposal?.properties?.fit_assessments.minItems).toBeUndefined()
     expect(proposal?.properties?.fit_assessments.maxItems).toBe(5)
     expect(proposal?.properties?.fit_assessments.items?.properties?.axis.enum).toEqual([
@@ -329,5 +346,48 @@ describe('Vertex role response schema projection', () => {
     ])
     expect(responseSchema.properties?.evidence_refs.maxItems).toBe(0)
     expect(responseSchema.properties?.missing_claim_ids.maxItems).toBe(0)
+  })
+
+  it('does not offer UNKNOWN Evidence as independent adjusted-parameter support', () => {
+    const task = independentProposalTask()
+    const payload = task.payload as Record<string, unknown>
+    payload.evidence_records = [{ evidence_id: 'ev-unknown', value_kind: 'UNKNOWN' }]
+    const roleSchema = buildVertexRolePayloadSchema(task) as ProjectedSchema
+    const proposal = roleSchema.properties?.candidate_proposals.items
+
+    expect(proposal?.properties?.assumption_refs.items?.enum).toBeUndefined()
+  })
+
+  it('keeps document extraction provider schema compact while generation constraints carry exact ids', () => {
+    const schema = buildVertexRolePayloadSchema(taskByType('DOCUMENT_EXTRACT')) as ProjectedSchema
+    const claim = schema.properties?.proposed_claims.items
+
+    expect(schema.properties?.proposed_claims.maxItems).toBeUndefined()
+    expect(claim?.properties?.claim_id.enum).toBeUndefined()
+    expect(claim?.properties?.predicate.enum).toBeUndefined()
+    expect(claim?.properties?.document_revision_id.enum).toBeUndefined()
+  })
+
+  it('pins Candidate Audit references to candidates, evidence and calculation snapshot ids', () => {
+    const task = taskByType('CANDIDATE_AUDIT')
+    const payload = task.payload as Record<string, unknown>
+    payload.evidence_records = [{ evidence_id: 'audit-evidence-1', value_kind: 'EVIDENCED_FACT' }]
+    const schema = buildVertexRolePayloadSchema(task) as ProjectedSchema
+    const audit = schema.properties?.candidate_audits.items
+    const finding = audit?.properties?.findings.items
+
+    expect(audit?.properties?.candidate_id.enum).toEqual(['candidate-1'])
+    expect(finding?.properties?.evidence_refs.items?.enum).toBeUndefined()
+    expect(finding?.properties?.calculation_refs.items?.enum).toBeUndefined()
+  })
+
+  it('pins Result Explain evidence refs to the current result evidence catalog', () => {
+    const task = taskByType('RESULT_EXPLAIN')
+    const roleSchema = buildVertexRolePayloadSchema(task) as ProjectedSchema
+    const responseSchema = buildAgentTaskResultResponseJsonSchema(task) as ProjectedSchema
+
+    expect(roleSchema.properties?.evidence_refs.items?.enum).toBeUndefined()
+    expect(responseSchema.properties?.evidence_refs.items?.enum).toBeUndefined()
+    expect(responseSchema.properties?.evidence_refs.maxItems).toBe(1)
   })
 })

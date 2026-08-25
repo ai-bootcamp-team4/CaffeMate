@@ -4,15 +4,13 @@ from inspect import signature
 
 from app.finance.labor_benchmark import replay_minimum_wage_references
 from app.finance.property_benchmark import replay_property_rent_benchmarks
+from app.workflows.execution import _franchise_universe_from_bundle
 from app.workflows.first_proposal import (
     FirstProposalStage,
     stage_input_digest,
 )
 from app.workflows.models import HeadFence
-from app.workflows.selective_start import (
-    _franchise_universe,
-    start_selective_first_proposal,
-)
+from app.workflows.selective_start import start_selective_first_proposal
 
 
 def test_first_proposal_has_one_execution_unit() -> None:
@@ -196,7 +194,7 @@ def test_selective_recompute_replays_grounded_franchise_finance_profile() -> Non
         ]
     }
 
-    universe = _franchise_universe(source_bundle)
+    universe = _franchise_universe_from_bundle(source_bundle)
 
     assert universe == [
         {
