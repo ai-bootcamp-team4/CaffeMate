@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ControlApiError } from './apiClient'
-import type { FeedbackPreview, HeadFence, ResultView, WorkflowProgress } from './apiClient'
+import type { HeadFence, ResultView, WorkflowProgress } from './apiClient'
 import { completeOnboarding, enterOnboarding, feedbackPreview, head, progress, project, result, resultExplanation, setup, workflow } from './testSupport/appHarness'
 
 afterEach(cleanup)
@@ -131,8 +131,8 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.getByRole('heading', { name: '같이 살펴본 상권 정보' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: '자료를 넣으면 다시 판단할 수 있어요' })).toBeTruthy()
     const externalHeading = screen.getByRole('heading', { name: 'CaffeMate 밖에서 확인해야 해요' })
-    const assistantHeading = screen.getByRole('heading', { name: '결과에 대해 물어보기' })
-    expect(externalHeading.compareDocumentPosition(assistantHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const assistantInput = screen.getByLabelText('CaffeMate에게 물어보기')
+    expect(externalHeading.compareDocumentPosition(assistantInput) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.queryByRole('tab', { name: '필요자금' })).toBeNull()
     expect(screen.queryByRole('tab', { name: '상권 신호' })).toBeNull()
   })
@@ -349,7 +349,7 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.getByRole('button', { name: '이 조건으로 다시 판단' })).toBeTruthy()
   })
 
-  it('shows an authoritative funding failure and opens condition change', async () => {
+  it('shows an authoritative funding failure without a separate condition-change CTA', async () => {
     const failedCandidate = {
       ...result.candidates[0],
       review_status: 'EXCLUDED' as const,
@@ -362,20 +362,22 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.getByText('자금 조건이 현재 판단을 막고 있어요.')).toBeTruthy()
     expect(screen.getByText('최소 부족액')).toBeTruthy()
     expect(screen.getByText('20,000,000원')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '내 조건을 바꾸고 다시 비교하기' }))
-    await waitFor(() => expect((screen.getByLabelText('바꾸고 싶은 조건') as HTMLTextAreaElement).value).toMatch(/예산|조건/))
+    expect(screen.queryByRole('button', { name: '내 조건을 바꾸고 다시 비교하기' })).toBeNull()
+    expect(screen.getByLabelText('CaffeMate에게 물어보기')).toBeTruthy()
   })
 
-  it('shows a read-only result explainer first and keeps condition change secondary', async () => {
+  it('shows one persistent bottom assistant for explanations and condition changes', async () => {
     setup()
 
-    expect(screen.queryByRole('heading', { name: '결과에 대해 물어보기' })).toBeNull()
+    expect(screen.queryByLabelText('CaffeMate에게 물어보기')).toBeNull()
     await completeOnboarding()
 
-    expect(await screen.findByRole('heading', { name: '결과에 대해 물어보기' })).toBeTruthy()
-    expect(screen.getByText(/현재 결과와 확인된 근거 안에서 설명해 드려요/)).toBeTruthy()
+    const assistant = screen.getByTestId('result-assistant-dock')
+    expect(assistant.classList.contains('result-assistant-dock')).toBe(true)
+    expect(screen.getByLabelText('CaffeMate에게 물어보기')).toBeTruthy()
     expect(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '조건 바꾸기' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '예산을 1억으로 바꿔줘' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '조건 바꾸기' })).toBeNull()
     expect(screen.queryByRole('heading', { name: '조건 변경 제안' })).toBeNull()
   })
 
@@ -390,6 +392,7 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.getByRole('link', { name: '서울시 상권분석서비스 근거 원문 보기' })).toBeTruthy()
     expect(screen.getByText('답변을 확인했어요. 현재 결과는 바뀌지 않았습니다.')).toBeTruthy()
     expect(client.explainResult).toHaveBeenCalledWith('project-1', result, '왜 이 안을 먼저 보나요?', 'candidate-1')
+    expect(client.createFeedbackPreview).not.toHaveBeenCalled()
   })
 
   it('moves the latest explanation into view after answering', async () => {
@@ -464,8 +467,9 @@ describe('CaffeMate Control API integration', () => {
     expect(document.body.textContent).not.toContain(code)
   })
 
-  it('previews a condition change before applying it', async () => {
+  it('routes a condition-change utterance from the same chat into preview before applying it', async () => {
     const { client } = setup()
+    vi.mocked(client.explainResult).mockResolvedValueOnce({ ...resultExplanation, suggested_action: 'OPEN_CONDITION_CHANGE' })
     vi.mocked(client.createFeedbackPreview).mockResolvedValueOnce(feedbackPreview)
     vi.mocked(client.confirmFeedback).mockResolvedValueOnce({
       preview: { ...feedbackPreview, status: 'CONFIRMED' },
@@ -474,16 +478,15 @@ describe('CaffeMate Control API integration', () => {
     })
     await completeOnboarding()
 
-    fireEvent.click(screen.getByRole('button', { name: '조건 바꾸기' }))
-
-    fireEvent.change(screen.getByLabelText('바꾸고 싶은 조건'), {
+    fireEvent.change(screen.getByLabelText('CaffeMate에게 물어보기'), {
       target: { value: feedbackPreview.latest_user_input },
     })
-    fireEvent.click(screen.getByRole('button', { name: '변경안 미리보기' }))
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
 
     expect(await screen.findByRole('heading', { name: '적용 전 변경 확인' })).toBeTruthy()
-    expect(screen.getByText('변경안 미리보기를 만들었습니다. 적용 전 내용을 확인해 주세요.')).toBeTruthy()
-    expect((screen.getByLabelText('바꾸고 싶은 조건') as HTMLTextAreaElement).disabled).toBe(true)
+    expect(screen.getByText('조건 변경안을 만들었습니다. 적용 전 내용을 확인해 주세요.')).toBeTruthy()
+    expect((screen.getByLabelText('CaffeMate에게 물어보기') as HTMLTextAreaElement).disabled).toBe(true)
+    expect(client.explainResult).toHaveBeenCalledWith('project-1', result, feedbackPreview.latest_user_input, 'candidate-1')
     expect(client.createFeedbackPreview).toHaveBeenCalledWith('project-1', feedbackPreview.latest_user_input)
 
     fireEvent.click(screen.getByRole('button', { name: '변경 적용' }))
@@ -492,28 +495,26 @@ describe('CaffeMate Control API integration', () => {
     expect(await screen.findByText('확인한 변경안을 반영하고 결과를 갱신했습니다.')).toBeTruthy()
   })
 
-  it('exposes empty-input and preview-loading states accessibly', async () => {
+  it('exposes empty-input and unified-chat loading states accessibly', async () => {
     const { client } = setup()
     await completeOnboarding()
 
-    fireEvent.click(screen.getByRole('button', { name: '조건 바꾸기' }))
-
-    fireEvent.click(screen.getByRole('button', { name: '변경안 미리보기' }))
-    const input = screen.getByLabelText('바꾸고 싶은 조건') as HTMLTextAreaElement
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    const input = screen.getByLabelText('CaffeMate에게 물어보기') as HTMLTextAreaElement
     expect(input.getAttribute('aria-invalid')).toBe('true')
-    expect(screen.getByText('바꾸고 싶은 조건을 한 문장 이상 입력해 주세요.')).toBeTruthy()
+    expect(screen.getByText('궁금한 점이나 바꾸고 싶은 조건을 입력해 주세요.')).toBeTruthy()
 
-    let resolvePreview: ((value: FeedbackPreview) => void) | undefined
-    vi.mocked(client.createFeedbackPreview).mockImplementationOnce(() => new Promise((resolve) => { resolvePreview = resolve }))
-    fireEvent.change(input, { target: { value: feedbackPreview.latest_user_input } })
+    let resolveExplanation: ((value: typeof resultExplanation) => void) | undefined
+    vi.mocked(client.explainResult).mockImplementationOnce(() => new Promise((resolve) => { resolveExplanation = resolve }))
+    fireEvent.change(input, { target: { value: '왜 이 안을 먼저 보나요?' } })
     expect(input.getAttribute('aria-invalid')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '변경안 미리보기' }))
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
 
-    const loadingButton = screen.getByRole('button', { name: '미리보기 만드는 중' })
+    const loadingButton = screen.getByRole('button', { name: '확인 중' })
     expect(loadingButton.getAttribute('aria-busy')).toBe('true')
     expect((loadingButton as HTMLButtonElement).disabled).toBe(true)
-    resolvePreview?.(feedbackPreview)
-    expect(await screen.findByRole('heading', { name: '적용 전 변경 확인' })).toBeTruthy()
+    resolveExplanation?.(resultExplanation)
+    expect(await screen.findByText(resultExplanation.conclusion)).toBeTruthy()
   })
 
   it('returns clarification requests to an editable condition input', async () => {
@@ -525,6 +526,7 @@ describe('CaffeMate Control API integration', () => {
       proposal_digest: null,
     }
     const { client } = setup()
+    vi.mocked(client.explainResult).mockResolvedValueOnce({ ...resultExplanation, suggested_action: 'OPEN_CONDITION_CHANGE' })
     vi.mocked(client.createFeedbackPreview).mockResolvedValueOnce(clarification)
     vi.mocked(client.cancelFeedback).mockResolvedValueOnce({
       preview: { ...clarification, status: 'CANCELLED' },
@@ -533,18 +535,16 @@ describe('CaffeMate Control API integration', () => {
     })
     await completeOnboarding()
 
-    fireEvent.click(screen.getByRole('button', { name: '조건 바꾸기' }))
-
-    fireEvent.change(screen.getByLabelText('바꾸고 싶은 조건'), {
+    fireEvent.change(screen.getByLabelText('CaffeMate에게 물어보기'), {
       target: { value: '브랜드를 빼고 싶어요.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: '변경안 미리보기' }))
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
 
     expect(await screen.findByText('어떤 브랜드를 제외할지 알려 주세요.')).toBeTruthy()
     expect((screen.getByRole('button', { name: '변경 적용' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: '입력 다시 하기' }))
 
-    await waitFor(() => expect((screen.getByLabelText('바꾸고 싶은 조건') as HTMLTextAreaElement).disabled).toBe(false))
+    await waitFor(() => expect((screen.getByLabelText('CaffeMate에게 물어보기') as HTMLTextAreaElement).disabled).toBe(false))
     expect(screen.getByText('입력을 수정할 수 있습니다. 현재 결과는 바뀌지 않았습니다.')).toBeTruthy()
   })
 

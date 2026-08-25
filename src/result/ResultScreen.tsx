@@ -30,7 +30,6 @@ export function ResultScreen({ client, project, initialResult }: {
   const [preparationGuide, setPreparationGuide] = useState<PreparationGuide | null>(null)
   const [preparationBusy, setPreparationBusy] = useState(false)
   const [preparationError, setPreparationError] = useState('')
-  const [feedbackSuggestion, setFeedbackSuggestion] = useState('')
 
   const candidates = result.candidates
   const activeCandidate = candidates.find((candidate) => candidate.candidate_id === activeCandidateId) ?? candidates[0]
@@ -135,14 +134,6 @@ export function ResultScreen({ client, project, initialResult }: {
     )
   }
 
-  const openConditionChange = (suggestion?: string) => {
-    if (suggestion) setFeedbackSuggestion(suggestion)
-    document.getElementById('conditionModeButton')?.click()
-    window.setTimeout(() => {
-      document.getElementById('resultFeedback')?.scrollIntoView?.({ block: 'start' })
-      document.getElementById('feedbackInput')?.focus()
-    }, 0)
-  }
 
   if (!activeCandidate) {
     return <main className="analysis-stage"><h1>분석할 창업안을 만들지 못했어요</h1><p>희망 지역과 자금 조건을 확인한 뒤 다시 분석해 주세요.</p></main>
@@ -201,18 +192,13 @@ export function ResultScreen({ client, project, initialResult }: {
           <div className="action-group">
             {selection ? (
               <button className="btn btn--primary" type="button" onClick={() => { setVerificationOpen(true); window.scrollTo({ top: 0 }) }}>검증 계속하기</button>
-            ) : activeCandidate.review_status === 'EXCLUDED' ? (
-              <button className="btn btn--primary" type="button" onClick={() => openConditionChange('현재 조건에서 막힌 이유를 줄일 수 있도록 예산이나 운영 조건을 바꾸고 다시 비교하고 싶어요.')}>내 조건을 바꾸고 다시 비교하기</button>
-            ) : (
+            ) : activeCandidate.review_status !== 'EXCLUDED' ? (
               <button className="btn btn--primary" disabled={selectionBusy} type="button" onClick={select}>{selectionBusy ? '검증 준비 중' : '실제 조건으로 검증하기'}</button>
-            )}
-            {activeCandidate.review_status !== 'EXCLUDED' && (
-              <button className="btn btn--accent" type="button" onClick={() => openConditionChange()}>내 조건을 바꾸고 다시 비교하기</button>
-            )}
+            ) : null}
           </div>
         </section>
 
-        <div className="result-assistant-wrap">
+        <div className="result-assistant-wrap result-assistant-dock" data-testid="result-assistant-dock">
           <FeedbackPanel
             key={`${result.result_bundle_id}-${activeCandidate.candidate_id}`}
             client={client}
@@ -220,7 +206,6 @@ export function ResultScreen({ client, project, initialResult }: {
             result={result}
             candidate={activeCandidate}
             onResult={updateResult}
-            suggestion={feedbackSuggestion}
           />
         </div>
       </main>

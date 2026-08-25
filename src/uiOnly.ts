@@ -232,7 +232,7 @@ export function createUiOnlyDependencies(): {
     startFirstProposal: async () => workflow,
     getWorkflow: async () => progress,
     getResult: async () => currentResult,
-    explainResult: async (_projectId, _result, _question, candidateId): Promise<ResultExplanation> => ({
+    explainResult: async (_projectId, _result, question, candidateId): Promise<ResultExplanation> => ({
       explanation_id: 'ui-only-explanation',
       result_bundle_id: currentResult.result_bundle_id,
       candidate_id: candidateId ?? currentResult.primary_candidate_id ?? currentResult.candidates[0].candidate_id,
@@ -242,7 +242,7 @@ export function createUiOnlyDependencies(): {
       evidence: [],
       unknowns: ['실제 데이터는 연결되어 있지 않습니다.'],
       decision_change_conditions: [],
-      suggested_action: 'NONE',
+      suggested_action: /바꿔|제외|변경/.test(question) ? 'OPEN_CONDITION_CHANGE' : 'NONE',
       state_changed: false,
     }),
     createFeedbackPreview: async (_projectId, input): Promise<FeedbackPreview> => ({

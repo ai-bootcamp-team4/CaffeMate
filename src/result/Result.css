@@ -55,3 +55,55 @@
   .result-next-action { align-items: stretch; flex-direction: column; }
   .action-list li { flex-direction: column; }
 }
+
+/* Result assistant is a single persistent surface for both explanation and condition changes. */
+.result-page { padding-bottom: 15rem; }
+.result-assistant-wrap {
+  position: fixed;
+  inset-inline: 1rem;
+  inset-block-end: 1rem;
+  z-index: calc(var(--z-sticky) + 1);
+  width: min(900px, calc(100% - 2rem));
+  max-width: none;
+  margin: 0 auto;
+}
+.result-assistant-wrap .feedback-panel {
+  max-height: min(68dvh, 38rem);
+  padding: .75rem;
+  border-color: var(--color-rule-strong);
+  background: color-mix(in oklch, var(--color-paper) 92%, transparent);
+  backdrop-filter: blur(1.25rem);
+  box-shadow: 0 24px 70px -34px var(--color-overlay);
+  overflow: hidden;
+}
+.result-assistant-wrap .feedback-thread {
+  max-height: min(42dvh, 23rem);
+  overflow-y: auto;
+}
+.feedback-compose--dock {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-xs);
+  align-items: end;
+}
+.feedback-compose--dock textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 3rem;
+  max-height: 8rem;
+  padding: .75rem 1rem;
+  resize: vertical;
+  border: var(--rule-thin) solid var(--color-rule-strong);
+  border-radius: var(--radius-round);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+.feedback-compose--dock[data-state="error"] textarea { border-color: var(--color-error); }
+.feedback-compose--dock[data-state="loading"] textarea { border-color: var(--color-info); }
+.result-assistant-wrap .feedback-status { margin: 0; padding-inline: .4rem; font-size: var(--text-xs); }
+@media (max-width: 760px) {
+  .result-page { padding-bottom: 14rem; }
+  .result-assistant-wrap { inset-inline: .5rem; inset-block-end: .5rem; width: calc(100% - 1rem); }
+  .feedback-compose--dock { grid-template-columns: minmax(0, 1fr) auto; }
+  .result-assistant-wrap .sample-row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: .25rem; }
+}
