@@ -72,4 +72,28 @@ describe('agent contract fixtures', () => {
 
     expect(validateAgentTaskResult(fixture.result as AgentTaskResult).ok).toBe(false)
   })
+
+  it('accepts a tool action when two tools share the same argument schema', () => {
+    const fixture = structuredClone(fixtureMatrix.cases.find(
+      (item) => item.id === 'evidence_plan-complete',
+    ))
+    if (!fixture || !fixture.result.payload) throw new Error('missing EVIDENCE_PLAN fixture')
+    const payload = fixture.result.payload as {
+      claim_plans: Array<{ support_actions: Array<Record<string, unknown>> }>
+    }
+    payload.claim_plans[0].support_actions[0] = {
+      ...payload.claim_plans[0].support_actions[0],
+      tool_name: 'get_area_profile',
+      typed_arguments: {
+        administrative_code: '11200690',
+        boundary_version: '2026-01',
+        as_of: '2026-08-21',
+      },
+    }
+
+    expect(validateAgentTaskResult(fixture.result as AgentTaskResult)).toEqual({
+      ok: true,
+      errors: [],
+    })
+  })
 })

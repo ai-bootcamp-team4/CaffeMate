@@ -172,7 +172,7 @@
         },
         "tool_version": { "const": "1.0.0" },
         "typed_arguments": {
-          "oneOf": [
+          "anyOf": [
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/resolveAreaInput" },
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getAreaProfileInput" },
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getPropertyReferenceInput" },
