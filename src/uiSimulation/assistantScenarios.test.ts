@@ -88,4 +88,20 @@ describe('result assistant scenarios', () => {
     expect(answer.evidence[0]?.value).toMatch(/^\d[\d,]*원(?: ~ \d[\d,]*원)?$/)
     expect(answer.evidence[0]?.value).not.toContain('기준')
   })
+
+  it('selects the Korean object particle from the candidate name ending', () => {
+    const { result } = scenarioResult()
+    const answer = explainSimulationResult('왜 이 안을 먼저 보나요?', result, result.primary_candidate_id ?? undefined)
+
+    expect(answer.conclusion).toContain('개인카페를 현재')
+    expect(answer.conclusion).not.toContain('개인카페을')
+  })
+
+  it('selects the Korean topic particle for dynamic source labels', () => {
+    const { result } = scenarioResult()
+    const answer = explainSimulationResult('월 점유비 출처가 뭐야?', result, result.primary_candidate_id ?? undefined)
+
+    expect(answer.conclusion).toContain('월 점유비는')
+    expect(answer.conclusion).not.toContain('월 점유비은')
+  })
 })

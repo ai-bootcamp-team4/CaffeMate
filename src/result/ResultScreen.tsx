@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   waitForWorkflow,
   type CandidateSelection,
@@ -61,6 +61,23 @@ export function ResultScreen({ client, project, initialResult }: {
   const [preparationError, setPreparationError] = useState('')
   const [recalculation, setRecalculation] = useState<RecalculationView | null>(null)
   const resultScrollYRef = useRef(0)
+  const recalculationActive = recalculation !== null
+
+  useEffect(() => {
+    if (!recalculationActive) return
+
+    const documentElement = document.documentElement
+    const body = document.body
+    const previousDocumentElementOverflow = documentElement.style.overflow
+    const previousBodyOverflow = body.style.overflow
+    documentElement.style.overflow = 'hidden'
+    body.style.overflow = 'hidden'
+
+    return () => {
+      documentElement.style.overflow = previousDocumentElementOverflow
+      body.style.overflow = previousBodyOverflow
+    }
+  }, [recalculationActive])
 
   const waitForResultWorkflow = async (
     workflow: WorkflowRun,

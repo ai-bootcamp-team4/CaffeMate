@@ -4,6 +4,7 @@ import type {
   ResultExplanationEvidence,
   ResultView,
 } from '../apiClient'
+import { withParticle } from '../korean'
 import type { OnboardingValues } from '../onboardingState'
 import { formatRange } from '../presentation'
 import type { ResultCandidate } from '../resultContracts'
@@ -242,16 +243,16 @@ export function explainSimulationResult(
   let changeConditions = selected.counterfactuals.map((item) => item.condition)
 
   if (intent === 'WHY_RECOMMENDED') {
-    conclusion = `${selected.display_name}을 현재 ${selected.rank ?? '검토'}순위로 보는 핵심은 자금 조건과 후보 간 비용·운영 부담 비교입니다.`
+    conclusion = `${withParticle(selected.display_name, '을/를')} 현재 ${selected.rank ?? '검토'}순위로 보는 핵심은 자금 조건과 후보 간 비용·운영 부담 비교입니다.`
     reasons = [rankReason(selected), gateReason(selected)]
   } else if (intent === 'COMPARE') {
     conclusion = comparison
-      ? `${selected.display_name}과 ${comparison.display_name}은 초기 필요자금과 월 고정비, 현재 검토 상태에서 차이가 납니다.`
+      ? `${withParticle(selected.display_name, '과/와')} ${withParticle(comparison.display_name, '은/는')} 초기 필요자금과 월 고정비, 현재 검토 상태에서 차이가 납니다.`
       : `${selected.display_name}만 현재 비교 대상으로 남아 있습니다.`
     reasons = comparison ? [
-      `${selected.display_name} 초기 필요자금은 ${formatRange(selected.financial_summary.initial_cash)}, ${comparison.display_name}은 ${formatRange(comparison.financial_summary.initial_cash)}입니다.`,
-      `${selected.display_name} 월 고정비는 ${formatRange(selected.financial_summary.monthly_fixed_cost)}, ${comparison.display_name}은 ${formatRange(comparison.financial_summary.monthly_fixed_cost)}입니다.`,
-      `${selected.display_name}은 ${selected.rank ?? '순위 제외'}, ${comparison.display_name}은 ${comparison.rank ?? '순위 제외'} 상태입니다.`,
+      `${selected.display_name} 초기 필요자금은 ${formatRange(selected.financial_summary.initial_cash)}, ${withParticle(comparison.display_name, '은/는')} ${formatRange(comparison.financial_summary.initial_cash)}입니다.`,
+      `${selected.display_name} 월 고정비는 ${formatRange(selected.financial_summary.monthly_fixed_cost)}, ${withParticle(comparison.display_name, '은/는')} ${formatRange(comparison.financial_summary.monthly_fixed_cost)}입니다.`,
+      `${withParticle(selected.display_name, '은/는')} ${selected.rank ?? '순위 제외'}, ${withParticle(comparison.display_name, '은/는')} ${comparison.rank ?? '순위 제외'} 상태입니다.`,
     ] : [gateReason(selected)]
   } else if (intent === 'FINANCE') {
     const initial = selected.financial_summary.initial_cash
@@ -267,7 +268,7 @@ export function explainSimulationResult(
     const sourceInput = (selected.decision_inputs ?? []).find((item) => item.field === 'MONTHLY_OCCUPANCY' && item.source)
       ?? (selected.decision_inputs ?? []).find((item) => item.source)
     conclusion = sourceInput?.source
-      ? `${sourceInput.label ?? sourceInput.field}은 ${sourceInput.source.title}의 ${sourceInput.source.data_date ?? '현재 확인 기준'} 자료를 사용했습니다.`
+      ? `${withParticle(sourceInput.label ?? sourceInput.field, '은/는')} ${sourceInput.source.title}의 ${sourceInput.source.data_date ?? '현재 확인 기준'} 자료를 사용했습니다.`
       : '현재 선택 후보에서 바로 연결할 수 있는 공식 출처를 추가로 확인해야 합니다.'
     reasons = sourceInput?.source ? [
       sourceInput.source.geographic_scope
@@ -280,7 +281,7 @@ export function explainSimulationResult(
     evidence = evidenceFromCandidate(selected, 'MONTHLY_OCCUPANCY')
   } else if (intent === 'MISSING_INFO') {
     const requirements = selected.verification_requirements ?? []
-    conclusion = `${selected.display_name}은 CaffeMate 안에서 확정할 수 없는 외부 확인 ${requirements.length}건과 실제값 정밀화 항목이 남아 있습니다.`
+    conclusion = `${withParticle(selected.display_name, '은/는')} CaffeMate 안에서 확정할 수 없는 외부 확인 ${requirements.length}건과 실제값 정밀화 항목이 남아 있습니다.`
     reasons = [
       ...requirements.slice(0, 3).map((item) => `${item.label}: ${item.reason}`),
       ...selected.next_actions.slice(0, 2),
