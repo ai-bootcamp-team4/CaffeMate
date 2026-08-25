@@ -70,6 +70,16 @@ export interface WorkflowRun {
 }
 
 export interface WorkflowProgress extends WorkflowRun {
+  stages: Array<{
+    stage_run_id: string
+    stage_code: string
+    status: 'PENDING' | 'READY' | 'RUNNING' | 'CHECKPOINTED' | 'SUCCEEDED' | 'SKIPPED' | 'WAITING_FOR_HUMAN' | 'TIMED_OUT' | 'FAILED' | 'CANCELLED'
+    attempt: number
+    reason_codes: string[]
+    failure_code: string | null
+    updated_at: string
+    completed_at: string | null
+  }>
   completed_stage_count: number
   total_stage_count: number
   current_stage_codes: string[]

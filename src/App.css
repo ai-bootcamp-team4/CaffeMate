@@ -17,6 +17,19 @@
   font-weight: 700;
   box-shadow: var(--shadow-whisper);
 }
+.workflow-progress-view { display: grid; gap: var(--space-md); width: min(100%, 44rem); }
+.workflow-progress-view__summary { display: flex; justify-content: space-between; gap: var(--space-md); align-items: baseline; }
+.workflow-progress-view__summary strong { color: var(--color-ink); }
+.workflow-progress-view__summary span { color: var(--color-neutral); font-size: var(--text-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.workflow-progress-view__track { overflow: hidden; height: .5rem; border-radius: var(--radius-round); background: var(--color-paper-3); }
+.workflow-progress-view__track > span { display: block; inline-size: 100%; block-size: 100%; border-radius: inherit; background: var(--color-accent); transform-origin: left center; transition: transform var(--dur-long) var(--ease-out); }
+.workflow-progress-view__stages { display: grid; gap: var(--space-xs); margin: 0; padding: 0; list-style: none; }
+.workflow-progress-view__stages li { display: grid; grid-template-columns: .75rem minmax(0, 1fr); gap: var(--space-sm); align-items: center; color: var(--color-neutral); font-size: var(--text-sm); }
+.workflow-progress-view__stages li > span:first-child { inline-size: .6rem; block-size: .6rem; border: var(--rule-thin) solid var(--color-rule-strong); border-radius: var(--radius-round); background: var(--color-paper); }
+.workflow-progress-view__stages li[data-state="RUNNING"] { color: var(--color-ink); font-weight: 700; }
+.workflow-progress-view__stages li[data-state="RUNNING"] > span:first-child { border-color: var(--color-accent); background: var(--color-accent); }
+.workflow-progress-view__stages li[data-state="SUCCEEDED"] > span:first-child { border-color: var(--color-success); background: var(--color-success); }
+.workflow-progress-view[data-compact="true"] { gap: var(--space-xs); width: 100%; }
 .topbar {
   display: flex;
   align-items: center;

@@ -129,7 +129,7 @@ const resultExplanation: ResultExplanation = {
 }
 
 const workflow = { workflow_run_id: 'workflow-1', project_id: 'project-1', workflow_code: 'FIRST_PROPOSAL' as const, status: 'SUCCEEDED' as const, head, created_at: '2026-08-22T00:01:00Z', updated_at: '2026-08-22T00:02:00Z' }
-const progress: WorkflowProgress = { ...workflow, completed_stage_count: 9, total_stage_count: 9, current_stage_codes: [], terminal_reason_codes: [], human_review_requests: [], poll_after_ms: null }
+const progress: WorkflowProgress = { ...workflow, stages: [], completed_stage_count: 6, total_stage_count: 6, current_stage_codes: [], terminal_reason_codes: [], human_review_requests: [], poll_after_ms: null }
 const preparationGuide: PreparationGuide = {
   project_id: 'project-1',
   selection_id: 'selection-1',

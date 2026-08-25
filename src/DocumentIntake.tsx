@@ -3,10 +3,12 @@ import {
   type ControlApiClient,
   type DocumentExtractionForm,
   type DocumentType,
+  type WorkflowProgress,
   sha256File,
   waitForWorkflow,
 } from './apiClient'
 import { changedExtractionFields, valueForExtractionInput } from './documentExtractionValues'
+import { WorkflowProgressView } from './WorkflowProgressView'
 
 const documentTypes: Array<{ value: DocumentType; label: string }> = [
   { value: 'PROPERTY_LISTING', label: '점포 매물 자료' },
@@ -49,6 +51,7 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
   const [applied, setApplied] = useState(false)
   const [status, setStatus] = useState('PDF, JPG, PNG, DOCX · 최대 50MB')
   const [error, setError] = useState('')
+  const [workflowProgress, setWorkflowProgress] = useState<WorkflowProgress | null>(null)
   const busy = busyAction !== null
 
   const waitForExtraction = async (revisionId: string) => {
@@ -96,6 +99,7 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
     if (!form) return
     setBusyAction('apply')
     setError('')
+    setWorkflowProgress(null)
     try {
       const edits = changedExtractionFields(form, values)
       const updated = edits.length
@@ -104,7 +108,7 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
       const application = await client.applyDocumentExtractionForm(projectId, updated)
       setStatus('확인한 값을 반영해 비용과 위험을 다시 계산하고 있어요.')
       const workflow = await client.getWorkflow(projectId, application.recompute_workflow_run_id)
-      const progress = await waitForWorkflow(client, projectId, workflow)
+      const progress = await waitForWorkflow(client, projectId, workflow, setWorkflowProgress)
       if (progress.status !== 'SUCCEEDED') throw new Error('재계산 일부를 완료하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.')
       await onApplied()
       setApplied(true)
@@ -143,6 +147,7 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
       <div className="document-intake__actions"><button className="btn btn--accent" type="button" disabled={busy} onClick={() => { setForm(null); setFile(null); setApplied(false) }}>다른 문서 선택</button>{applied && onViewResult ? <button className="btn btn--primary" type="button" onClick={onViewResult}>다시 계산한 결과 보기</button> : <button className="btn btn--primary" type="button" disabled={busy || !form.form_digest} aria-busy={busyAction === 'apply'} onClick={() => void apply()}>{busyAction === 'apply' ? '다시 계산 중' : form.apply_label}</button>}</div>
     </div>}
     <p className="document-intake__status" aria-live="polite">{status}</p>
+    {workflowProgress && busyAction === 'apply' && <WorkflowProgressView progress={workflowProgress} compact />}
     {error && <p className="document-intake__error" role="alert">{error}</p>}
   </article>
 }

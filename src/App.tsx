@@ -11,6 +11,7 @@ import Welcome from "./Welcome";
 import ProjectChooser from "./ProjectChooser";
 import { DocumentIntake } from "./DocumentIntake";
 import { PreparationProcedures } from "./PreparationProcedures";
+import { WorkflowProgressView } from "./WorkflowProgressView";
 import {
   createFirebaseAuthGateway,
   type AuthGateway,
@@ -133,6 +134,8 @@ const internalLabels: Record<string, string> = {
   EVIDENCE_PLAN: "자료 조사 계획",
   EVIDENCE_RETRIEVAL: "자료 조회",
   EVIDENCE_ASSESS: "자료 신뢰도 검토",
+  PROPOSAL_GENERATION: "창업안 후보 만들기",
+  FINANCE_AND_RANK: "비용·현실성 비교",
   EVIDENCE_FREEZE: "근거 확정",
   INDEPENDENT_SEED: "개인카페 운영안 준비",
   FRANCHISE_ELIGIBILITY: "가맹 후보 확인",
@@ -1012,6 +1015,8 @@ function ConditionChangePanel({
   const [busyAction, setBusyAction] = useState<
     "preview" | "cancel" | "confirm" | null
   >(null);
+  const [workflowProgress, setWorkflowProgress] =
+    useState<WorkflowProgress | null>(null);
   const busy = busyAction !== null;
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1034,6 +1039,7 @@ function ConditionChangePanel({
       return;
     }
     setInputInvalid(false);
+    setWorkflowProgress(null);
     setBusyAction("preview");
     setStatus("변경안 미리보기를 만들고 있습니다.");
     setStatusTone("loading");
@@ -1061,6 +1067,7 @@ function ConditionChangePanel({
   const cancel = async () => {
     if (!preview) return;
     const needsRevision = preview.status !== "REVIEW_REQUIRED";
+    setWorkflowProgress(null);
     setBusyAction("cancel");
     setStatus("변경안을 닫고 입력 화면으로 돌아가고 있습니다.");
     setStatusTone("loading");
@@ -1084,6 +1091,7 @@ function ConditionChangePanel({
 
   const confirm = async () => {
     if (!preview?.proposal_digest) return;
+    setWorkflowProgress(null);
     setBusyAction("confirm");
     setStatus("확인한 변경안을 반영하고 결과를 다시 계산하고 있습니다.");
     setStatusTone("loading");
@@ -1094,10 +1102,12 @@ function ConditionChangePanel({
           client,
           projectId,
           resolution.workflow,
-          (next) =>
+          (next) => {
+            setWorkflowProgress(next);
             setStatus(
               `결과 재계산 ${next.completed_stage_count}/${next.total_stage_count}`,
-            ),
+            );
+          },
         );
         if (!["SUCCEEDED", "PARTIAL"].includes(progress.status))
           throw new Error(
@@ -1249,6 +1259,9 @@ function ConditionChangePanel({
       >
         {status}
       </p>
+      {workflowProgress && busyAction === "confirm" && (
+        <WorkflowProgressView progress={workflowProgress} compact />
+      )}
       <p className="feedback-note">
         계약, 결제, 본사 연락은 자동으로 실행하지 않습니다.
       </p>
@@ -1919,6 +1932,8 @@ function ResultScreen({
   const [actionStatus, setActionStatus] = useState(
     "결과를 확인하고 지금 상황에 맞는 다음 단계를 선택해 주세요.",
   );
+  const [actionWorkflowProgress, setActionWorkflowProgress] =
+    useState<WorkflowProgress | null>(null);
   const [selectionBusy, setSelectionBusy] = useState(false);
   const [preparationOpen, setPreparationOpen] = useState(false);
   const [preparationGuide, setPreparationGuide] =
@@ -1962,6 +1977,7 @@ function ResultScreen({
   };
 
   const select = async () => {
+    setActionWorkflowProgress(null);
     setSelectionBusy(true);
     try {
       let selectionResult = result;
@@ -1973,10 +1989,12 @@ function ResultScreen({
           client,
           project.project_id,
           workflow,
-          (progress) =>
+          (progress) => {
+            setActionWorkflowProgress(progress);
             setActionStatus(
               `최신 조건 반영 ${progress.completed_stage_count}/${progress.total_stage_count}`,
-            ),
+            );
+          },
         );
         if (terminal.status !== "SUCCEEDED") {
           throw new Error(
@@ -2023,6 +2041,7 @@ function ResultScreen({
     terms: PropertyTermsInput,
   ): Promise<PropertyRecalculation> => {
     if (!selection) throw new Error("선택한 창업안이 없습니다.");
+    setActionWorkflowProgress(null);
     const application = await client.applyPropertyTerms(
       project.project_id,
       selection.selection_id,
@@ -2033,10 +2052,12 @@ function ResultScreen({
       client,
       project.project_id,
       application.recompute_workflow,
-      (progress) =>
+      (progress) => {
+        setActionWorkflowProgress(progress);
         setActionStatus(
           `점포 조건 재계산 ${progress.completed_stage_count}/${progress.total_stage_count}`,
-        ),
+        );
+      },
     );
     if (terminal.status !== "SUCCEEDED")
       throw new Error("점포 조건 재계산을 완료하지 못했습니다.");
@@ -2275,6 +2296,9 @@ function ResultScreen({
               <p className="action-dock__status" aria-live="polite">
                 {actionStatus}
               </p>
+              {actionWorkflowProgress && (
+                <WorkflowProgressView progress={actionWorkflowProgress} compact />
+              )}
               <div className="action-group">
                 {selection ? (
                   <>
@@ -2577,16 +2601,7 @@ export default function App({ authGateway, apiFactory }: AppProps = {}) {
           {projectError ||
             "프로젝트 목록을 벗어나도 분석은 계속됩니다. 현재 단계를 확인해 주세요."}
         </p>
-        {!projectError && (
-          <div className="analysis-checks" aria-label="분석 진행 항목">
-            <span>지역 확인</span>
-            <span>비용 범위</span>
-            <span>후보 비교</span>
-          </div>
-        )}
-        {progress && (
-          <p className="workflow-progress">{`분석 진행 ${progress.completed_stage_count}/${progress.total_stage_count} · ${progress.current_stage_codes.length ? uniqueLabels(progress.current_stage_codes).join(" · ") : internalLabel(progress.status)}`}</p>
-        )}
+        {!projectError && progress && <WorkflowProgressView progress={progress} />}
         {projectError && (
           <button
             className="btn btn--accent"
@@ -2615,13 +2630,7 @@ export default function App({ authGateway, apiFactory }: AppProps = {}) {
               .candidates;
           }}
         />
-        {progress && (
-          <p className="workflow-progress" aria-live="polite">
-            {progress.status === "WAITING_FOR_HUMAN"
-              ? `추가 확인 필요 · ${uniqueLabels(progress.human_review_requests.flatMap((request) => request.reason_codes)).join(" · ")}`
-              : `분석 진행 ${progress.completed_stage_count}/${progress.total_stage_count} · ${progress.current_stage_codes.length ? uniqueLabels(progress.current_stage_codes).join(" · ") : internalLabel(progress.status)}`}
-          </p>
-        )}
+        {progress && <div className="workflow-progress"><WorkflowProgressView progress={progress} compact /></div>}
       </>
     );
   if (client && project && result)
