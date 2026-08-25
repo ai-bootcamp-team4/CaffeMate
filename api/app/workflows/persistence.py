@@ -12,6 +12,8 @@ from sqlalchemy.engine import Connection, RowMapping
 
 from app.domain.errors import ProjectNotFoundError, WorkflowPreconditionError
 from app.domain.models import VentureState
+from app.finance.case_fact_repository import load_current_case_fact_resolution
+from app.finance.case_facts import CaseFactResolution
 from app.results.delta import build_result_decision_delta
 from app.workflows.first_proposal import FirstProposalStage, stage_input_digest
 from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
@@ -34,6 +36,7 @@ def persist_completed_first_proposal(
     source_workflow_run_id: str | None = None,
     source_result_bundle_id: str | None = None,
     property_cost_override: PropertyCostOverride | None = None,
+    case_fact_resolution: CaseFactResolution | None = None,
     franchise_universe: list[dict[str, Any]] | None = None,
 ) -> WorkflowRun:
     """Run and persist the complete first proposal in one transaction."""
@@ -50,6 +53,13 @@ def persist_completed_first_proposal(
             connection,
             project_id=project_id,
             user_id=user_id,
+            state=state,
+        )
+    effective_case_resolution = case_fact_resolution
+    if effective_case_resolution is None:
+        effective_case_resolution = load_current_case_fact_resolution(
+            connection,
+            project_id=project_id,
             state=state,
         )
 
@@ -71,6 +81,7 @@ def persist_completed_first_proposal(
             workflow_run_id=workflow_run_id,
             evidence_records=evidence_records,
             property_cost_override=effective_property_override,
+            case_fact_resolution=effective_case_resolution,
         )
     else:
         assert builder is not None
@@ -78,6 +89,7 @@ def persist_completed_first_proposal(
             state=state,
             evidence_records=evidence_records,
             property_cost_override=effective_property_override,
+            case_fact_resolution=effective_case_resolution,
             franchise_universe=franchise_universe,
         )
     result_bundle_id = new_id()

@@ -1,14 +1,9 @@
 """Deterministic proposal finance inputs and case-specific cost overrides."""
 
-from dataclasses import dataclass
 from typing import Any
 
-from app.finance.models import (
-    CostCategory,
-    CostLine,
-    MoneyRange,
-    ValueProvenance,
-)
+from app.finance.case_facts import FinancialInputResolver, PropertyCostOverride
+from app.finance.models import CostCategory, CostLine, MoneyRange, ValueProvenance
 
 FRANCHISE_BENCHMARK_COSTS = {
     CostCategory.DEPOSIT: MoneyRange(low=20_000_000, base=35_000_000, high=60_000_000),
@@ -53,48 +48,20 @@ FRANCHISE_BENCHMARK_COSTS = {
 }
 
 
-@dataclass(frozen=True)
-class PropertyCostOverride:
-    """Actual lease terms that replace proposal-level reference assumptions."""
-
-    property_input_id: str
-    source_id: str
-    deposit_krw: int
-    monthly_rent_krw: int
-    management_fee_krw: int
-    key_money_krw: int | None
-
-    @property
-    def evidence_ref(self) -> str:
-        return f"property-input:{self.property_input_id}"
-
-
 def independent_cost_line(
     model_id: str,
     category: CostCategory,
     amount: MoneyRange,
-    property_cost_override: PropertyCostOverride | None,
+    resolver: FinancialInputResolver,
 ) -> CostLine:
-    actual_value = property_cost_value(
-        category=category,
-        value=property_cost_override,
-        expected_source_id=model_id,
-    )
-    if actual_value is not None and property_cost_override is not None:
-        return CostLine(
-            field_id=category.value,
-            category=category,
-            amount=MoneyRange(low=actual_value, base=actual_value, high=actual_value),
-            provenance=ValueProvenance.USER_INPUT,
-            evidence_ref=property_cost_override.evidence_ref,
-        )
-    return CostLine(
+    fallback = CostLine(
         field_id=category.value,
         category=category,
         amount=amount,
         provenance=ValueProvenance.ASSUMPTION,
         evidence_ref=f"declared-assumption:{model_id}",
     )
+    return resolver.resolve_cost_line(source_id=model_id, fallback=fallback)
 
 
 def franchise_cost_line(
@@ -102,21 +69,22 @@ def franchise_cost_line(
     brand_id: str,
     category: CostCategory,
     finance_profile: dict[str, Any],
-    property_cost_override: PropertyCostOverride | None,
+    resolver: FinancialInputResolver,
 ) -> CostLine:
-    actual_value = property_cost_value(
+    fallback = _franchise_fallback_line(
+        brand_id=brand_id,
         category=category,
-        value=property_cost_override,
-        expected_source_id=brand_id,
+        finance_profile=finance_profile,
     )
-    if actual_value is not None and property_cost_override is not None:
-        return CostLine(
-            field_id=category.value,
-            category=category,
-            amount=MoneyRange(low=actual_value, base=actual_value, high=actual_value),
-            provenance=ValueProvenance.USER_INPUT,
-            evidence_ref=property_cost_override.evidence_ref,
-        )
+    return resolver.resolve_cost_line(source_id=brand_id, fallback=fallback)
+
+
+def _franchise_fallback_line(
+    *,
+    brand_id: str,
+    category: CostCategory,
+    finance_profile: dict[str, Any],
+) -> CostLine:
     if category == CostCategory.FRANCHISE_INITIAL_FEES:
         value = finance_profile.get("known_initial_cost_range_krw")
         refs = [
@@ -187,23 +155,6 @@ def franchise_assumed_categories(finance_profile: dict[str, Any]) -> set[CostCat
         if category.value in values:
             assumed.add(category)
     return assumed
-
-
-def property_cost_value(
-    *,
-    category: CostCategory,
-    value: PropertyCostOverride | None,
-    expected_source_id: str,
-) -> int | None:
-    if value is None or value.source_id != expected_source_id:
-        return None
-    if category == CostCategory.DEPOSIT:
-        return value.deposit_krw
-    if category == CostCategory.ACQUISITION_OR_PREMIUM:
-        return value.key_money_krw
-    if category == CostCategory.MONTHLY_OCCUPANCY:
-        return value.monthly_rent_krw + value.management_fee_krw
-    return None
 
 
 def cost_refs(lines: list[CostLine]) -> list[str]:

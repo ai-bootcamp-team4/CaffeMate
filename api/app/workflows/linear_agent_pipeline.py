@@ -21,6 +21,7 @@ from app.contracts.schema_registry import ContractRegistry
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 from app.domain.models import CafeTypePreference, VentureState
 from app.finance.calculator import calculate_finance
+from app.finance.case_facts import CaseFactResolution
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
     MONTHLY_FIXED_COST_CATEGORIES,
@@ -103,6 +104,7 @@ class LinearMultiAgentProposalPipeline:
         workflow_run_id: str,
         evidence_records: list[dict[str, Any]],
         property_cost_override: PropertyCostOverride | None = None,
+        case_fact_resolution: CaseFactResolution | None = None,
     ) -> ResultBundlePayload:
         with tracer().start_as_current_span("caffemate.pipeline.first_proposal"):
             return self._run_traced(
@@ -111,6 +113,7 @@ class LinearMultiAgentProposalPipeline:
                 workflow_run_id=workflow_run_id,
                 evidence_records=evidence_records,
                 property_cost_override=property_cost_override,
+                case_fact_resolution=case_fact_resolution,
             )
 
     def _run_traced(
@@ -121,6 +124,7 @@ class LinearMultiAgentProposalPipeline:
         workflow_run_id: str,
         evidence_records: list[dict[str, Any]],
         property_cost_override: PropertyCostOverride | None,
+        case_fact_resolution: CaseFactResolution | None,
     ) -> ResultBundlePayload:
         outcomes = asyncio.run(
             self._retrieve_evidence(
@@ -199,6 +203,7 @@ class LinearMultiAgentProposalPipeline:
             state=state,
             evidence_records=retrieved_records,
             property_cost_override=property_cost_override,
+            case_fact_resolution=case_fact_resolution,
             agent_proposals=proposals,
             franchise_universe=self._franchise_universe(
                 outcomes,

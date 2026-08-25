@@ -29,6 +29,7 @@ from app.domain.models import (
     VentureState,
 )
 from app.finance.calculator import calculate_finance, evaluate_capital_gate
+from app.finance.case_facts import CaseFactResolution, FinancialInputResolver
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
     MONTHLY_FIXED_COST_CATEGORIES,
@@ -71,7 +72,6 @@ class _CandidateDraft:
     decision_input: CandidateDecisionInput
 
 
-
 class SimpleProposalBuilder:
     """Build a reviewable proposal without a multi-stage control plane.
 
@@ -89,10 +89,15 @@ class SimpleProposalBuilder:
         state: VentureState,
         evidence_records: list[dict[str, Any]],
         property_cost_override: PropertyCostOverride | None = None,
+        case_fact_resolution: CaseFactResolution | None = None,
         agent_proposals: list[dict[str, Any]] | None = None,
         franchise_universe: list[dict[str, Any]] | None = None,
     ) -> ResultBundlePayload:
         drafts: list[_CandidateDraft] = []
+        finance_resolver = FinancialInputResolver(
+            property_cost_override=property_cost_override,
+            case_resolution=case_fact_resolution,
+        )
         preference = state.founder.cafe_type_preference
         proposals_by_source = {
             proposal["seed_or_brand_id"]: proposal
@@ -119,6 +124,7 @@ class SimpleProposalBuilder:
                     seed=seed,
                     evidence_records=evidence_records,
                     property_cost_override=property_cost_override,
+                    finance_resolver=finance_resolver,
                     agent_proposal=proposals_by_source.get(seed.model_id),
                 )
                 for seed in self._seeds.select(state.founder)
@@ -133,6 +139,7 @@ class SimpleProposalBuilder:
                     state=state,
                     evidence_records=evidence_records,
                     property_cost_override=property_cost_override,
+                    finance_resolver=finance_resolver,
                     proposed_ids=proposed_ids,
                     franchise_universe=franchise_universe,
                 )
@@ -219,6 +226,7 @@ class SimpleProposalBuilder:
         seed: IndependentSeedDefinition,
         evidence_records: list[dict[str, Any]],
         property_cost_override: PropertyCostOverride | None,
+        finance_resolver: FinancialInputResolver,
         agent_proposal: dict[str, Any] | None,
     ) -> _CandidateDraft:
         profile = seed.finance_profile
@@ -230,7 +238,7 @@ class SimpleProposalBuilder:
                 seed.model_id,
                 category,
                 profile.cost_ranges[category],
-                property_cost_override,
+                finance_resolver,
             )
             for category in sorted(INITIAL_COST_CATEGORIES, key=lambda item: item.value)
             if category != CostCategory.FRANCHISE_INITIAL_FEES
@@ -248,7 +256,7 @@ class SimpleProposalBuilder:
                 seed.model_id,
                 category,
                 profile.cost_ranges[category],
-                property_cost_override,
+                finance_resolver,
             )
             for category in sorted(MONTHLY_FIXED_COST_CATEGORIES, key=lambda item: item.value)
         ]
@@ -322,6 +330,7 @@ class SimpleProposalBuilder:
                     monthly_fixed_cost_lines=monthly_fixed_cost_lines,
                     evidence_records=evidence_records,
                     case_type="INDEPENDENT",
+                    decision_sources=finance_resolver.decision_sources,
                 ),
                 "verification_requirements": [],
                 "financial_summary": {
@@ -385,6 +394,7 @@ class SimpleProposalBuilder:
         state: VentureState,
         evidence_records: list[dict[str, Any]],
         property_cost_override: PropertyCostOverride | None,
+        finance_resolver: FinancialInputResolver,
         proposed_ids: set[str] | None,
         franchise_universe: list[dict[str, Any]] | None,
     ) -> list[_CandidateDraft]:
@@ -438,7 +448,7 @@ class SimpleProposalBuilder:
                     brand_id=brand_id,
                     category=category,
                     finance_profile=profile,
-                    property_cost_override=property_cost_override,
+                    resolver=finance_resolver,
                 )
                 for category in sorted(INITIAL_COST_CATEGORIES, key=lambda item: item.value)
             ]
@@ -447,7 +457,7 @@ class SimpleProposalBuilder:
                     brand_id=brand_id,
                     category=category,
                     finance_profile=profile,
-                    property_cost_override=property_cost_override,
+                    resolver=finance_resolver,
                 )
                 for category in sorted(
                     MONTHLY_FIXED_COST_CATEGORIES,
@@ -518,6 +528,7 @@ class SimpleProposalBuilder:
                             monthly_fixed_cost_lines=monthly_fixed_cost_lines,
                             evidence_records=evidence_records,
                             case_type="FRANCHISE",
+                            decision_sources=finance_resolver.decision_sources,
                         ),
                         "verification_requirements": project_verification_requirements(
                             case_type="FRANCHISE",

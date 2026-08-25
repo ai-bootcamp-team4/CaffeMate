@@ -52,6 +52,7 @@ def project_finance_decision_inputs(
     monthly_fixed_cost_lines: list[CostLine],
     evidence_records: list[dict[str, Any]],
     case_type: str,
+    decision_sources: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     evidence_by_id = {
         str(record["evidence_id"]): record
@@ -64,6 +65,7 @@ def project_finance_decision_inputs(
         source = evidence_by_id.get(line.evidence_ref or "")
         source_metadata = source.get("source") if isinstance(source, dict) else None
         anchor = source.get("original_anchor") if isinstance(source, dict) else None
+        decision_source = (decision_sources or {}).get(line.evidence_ref or "")
         values.append(
             DecisionInput(
                 field=line.field_id,
@@ -75,30 +77,55 @@ def project_finance_decision_inputs(
                     str(source_metadata.get("title"))
                     if isinstance(source_metadata, dict)
                     and isinstance(source_metadata.get("title"), str)
-                    else _synthetic_source_title(line)
+                    else (
+                        str(decision_source.get("source_title"))
+                        if isinstance(decision_source, dict)
+                        and isinstance(decision_source.get("source_title"), str)
+                        else _synthetic_source_title(line)
+                    )
                 ),
                 source_ref=(
                     str(source_metadata.get("source_ref"))
                     if isinstance(source_metadata, dict)
                     and isinstance(source_metadata.get("source_ref"), str)
-                    else None
+                    else (
+                        str(decision_source.get("source_ref"))
+                        if isinstance(decision_source, dict)
+                        and isinstance(decision_source.get("source_ref"), str)
+                        else None
+                    )
                 ),
                 data_date=(
                     str(source_metadata.get("published_or_data_date"))
                     if isinstance(source_metadata, dict)
                     and isinstance(source_metadata.get("published_or_data_date"), str)
-                    else None
+                    else (
+                        str(decision_source.get("data_date"))
+                        if isinstance(decision_source, dict)
+                        and isinstance(decision_source.get("data_date"), str)
+                        else None
+                    )
                 ),
                 geographic_scope=(
                     source.get("geographic_scope")
                     if isinstance(source, dict)
                     and isinstance(source.get("geographic_scope"), dict)
-                    else None
+                    else (
+                        decision_source.get("geographic_scope")
+                        if isinstance(decision_source, dict)
+                        and isinstance(decision_source.get("geographic_scope"), dict)
+                        else None
+                    )
                 ),
                 source_anchor=(
                     str(anchor.get("locator"))
                     if isinstance(anchor, dict) and isinstance(anchor.get("locator"), str)
-                    else None
+                    else (
+                        str(decision_source.get("source_anchor"))
+                        if isinstance(decision_source, dict)
+                        and isinstance(decision_source.get("source_anchor"), str)
+                        else None
+                    )
                 ),
                 applied_to=_applied_to(line.category),
                 replaceable_by=(

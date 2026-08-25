@@ -620,6 +620,7 @@ class DocumentExtractionService:
                 connection,
                 project_id=project_id,
                 case_id=state.active_case_id,
+                document_type=str(row["document_type"]),
                 claims=claims,
                 occurred_at=occurred_at,
             )
@@ -853,6 +854,7 @@ class DocumentExtractionService:
         *,
         project_id: str,
         case_id: str,
+        document_type: str,
         claims: list[AppliedDocumentClaim],
         occurred_at: datetime,
     ) -> list[DocumentClaimConflict]:
@@ -863,17 +865,20 @@ class DocumentExtractionService:
                 connection.execute(
                     text(
                         """
-                    SELECT claim_id, value_json, materiality
-                    FROM venture_claims
-                    WHERE project_id=:project_id AND case_id=:case_id
-                      AND claim_type=:claim_type AND status='CONFIRMED'
-                    ORDER BY created_at, claim_id
+                    SELECT claim.claim_id, claim.value_json, claim.materiality
+                    FROM venture_claims claim
+                    JOIN documents document ON document.document_id=claim.document_id
+                    WHERE claim.project_id=:project_id AND claim.case_id=:case_id
+                      AND claim.claim_type=:claim_type AND claim.status='CONFIRMED'
+                      AND document.document_type=:document_type
+                    ORDER BY claim.created_at, claim.claim_id
                     """
                     ),
                     {
                         "project_id": project_id,
                         "case_id": case_id,
                         "claim_type": claim.claim_type,
+                        "document_type": document_type,
                     },
                 )
                 .mappings()

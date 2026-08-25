@@ -64,3 +64,106 @@ def test_result_delta_marks_removed_and_added_candidates_without_inventing_amoun
     assert all(
         value.initial_cash_base_delta_krw is None for value in delta.candidate_changes
     )
+
+
+def test_result_delta_explains_changed_inputs_reasons_and_gate_transition() -> None:
+    previous_candidate = candidate(candidate_id="candidate-1")
+    previous_candidate["reason_codes"] = ["MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS"]
+    previous_candidate["decision_inputs"] = [
+        {
+            "field": "CONSTRUCTION",
+            "value_range_krw": {"low": 20_000_000, "base": 32_000_000, "high": 48_000_000},
+            "provenance": "ASSUMPTION",
+            "resolution_status": "ASSUMED",
+            "decision_role": "FINANCE_INPUT",
+            "source_title": "등록 창업안 가정",
+            "source_ref": None,
+            "data_date": None,
+            "geographic_scope": None,
+            "source_anchor": None,
+            "applied_to": ["INITIAL_CASH", "CAPITAL_GATE", "RANK"],
+            "replaceable_by": ["DOCUMENT_INTAKE"],
+            "resolution_action": {
+                "action_type": "DOCUMENT_INTAKE",
+                "target_fields": ["finance.CONSTRUCTION"],
+                "accepted_document_types": ["INTERIOR_QUOTE"],
+            },
+            "limitation_code": "REPLACE_WITH_CASE_DATA",
+        }
+    ]
+    previous_candidate["gate_results"] = [
+        {
+            "gate_type": "CAPITAL",
+            "status": "FAIL",
+            "reason_code": "MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS",
+            "decisive_input_refs": ["founder.own_funds_krw", "finance.initial_cash.low"],
+            "metrics": {
+                "own_funds_krw": 100_000_000,
+                "minimum_required_krw": 110_000_000,
+                "maximum_required_krw": 150_000_000,
+                "shortfall_krw": 10_000_000,
+            },
+        }
+    ]
+    current_candidate = deepcopy(previous_candidate)
+    current_candidate["reason_codes"] = ["OWN_FUNDS_COVER_HIGH_SCENARIO"]
+    current_candidate["decision_inputs"][0].update(
+        {
+            "value_range_krw": {
+                "low": 26_400_000,
+                "base": 26_400_000,
+                "high": 26_400_000,
+            },
+            "provenance": "USER_INPUT",
+            "resolution_status": "RESOLVED_USER_CONFIRMED",
+            "source_title": "interior.pdf",
+            "source_anchor": "revision-1#page=1",
+            "replaceable_by": [],
+            "resolution_action": {
+                "action_type": "NONE",
+                "target_fields": [],
+                "accepted_document_types": [],
+            },
+            "limitation_code": None,
+        }
+    )
+    current_candidate["gate_results"][0].update(
+        {
+            "status": "PASS",
+            "reason_code": "OWN_FUNDS_COVER_HIGH_SCENARIO",
+            "metrics": {
+                "own_funds_krw": 100_000_000,
+                "minimum_required_krw": 80_000_000,
+                "maximum_required_krw": 95_000_000,
+                "shortfall_krw": 0,
+            },
+        }
+    )
+
+    delta = build_result_decision_delta(
+        previous_result_bundle_id="result-old",
+        current_result_bundle_id="result-new",
+        previous_bundle={"candidates": [previous_candidate], "primary_candidate_id": "candidate-1"},
+        current_bundle={"candidates": [current_candidate], "primary_candidate_id": "candidate-1"},
+    )
+
+    change = delta.candidate_changes[0]
+    assert change.reason_codes_removed == ["MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS"]
+    assert change.reason_codes_added == ["OWN_FUNDS_COVER_HIGH_SCENARIO"]
+    assert len(change.input_changes) == 1
+    input_change = change.input_changes[0]
+    assert input_change.field == "CONSTRUCTION"
+    assert input_change.previous is not None
+    assert input_change.previous.provenance == "ASSUMPTION"
+    assert input_change.current is not None
+    assert input_change.current.provenance == "USER_INPUT"
+    assert input_change.affected_calculations == ["CAPITAL_GATE", "INITIAL_CASH", "RANK"]
+    assert len(change.gate_transitions) == 1
+    transition = change.gate_transitions[0]
+    assert transition.gate_type == "CAPITAL"
+    assert transition.previous_status == "FAIL"
+    assert transition.current_status == "PASS"
+    assert transition.previous_metrics["shortfall_krw"] == 10_000_000
+    assert transition.current_metrics["shortfall_krw"] == 0
+    assert "DECISION_INPUT_CHANGED" in delta.human_review_reason_codes
+    assert "GATE_DECISION_CHANGED" in delta.human_review_reason_codes
