@@ -861,6 +861,7 @@ def test_area_observation_reaches_proposal_agent_and_result_card() -> None:
     assert bundle.candidates[0]["market_signals"] == [
         {
             "signal_type": "CAFE_COUNT",
+            "decision_role": "CONTEXT_ONLY",
             "value": 139,
             "unit": "STORES",
             "data_date": "2026-03-31",

@@ -225,6 +225,21 @@ def test_capital_gate_fails_only_on_confirmed_unfunded_minimum() -> None:
     assert result.status == CapitalGateStatus.FAIL
     assert result.reason_code == "MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS"
     assert result.minimum_required_reduction_krw == 8_000_000
+    assert result.trace is not None
+    assert result.trace.gate_type == "CAPITAL"
+    assert result.trace.status == CapitalGateStatus.FAIL
+    assert result.trace.reason_code == result.reason_code
+    assert result.trace.decisive_input_refs == [
+        "founder.borrowing_intent",
+        "founder.own_funds_krw",
+        "finance.initial_cash.low",
+    ]
+    assert result.trace.metrics == {
+        "own_funds_krw": 50_000_000,
+        "minimum_required_krw": 58_000_000,
+        "maximum_required_krw": 72_000_000,
+        "shortfall_krw": 8_000_000,
+    }
 
 
 @pytest.mark.parametrize("borrowing_intent", [BorrowingIntent.YES, BorrowingIntent.UNDECIDED])

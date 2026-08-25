@@ -6,6 +6,7 @@ from app.finance.models import (
     CapitalGateInput,
     CapitalGateResult,
     CapitalGateStatus,
+    CapitalGateTrace,
     CostCategory,
     CostLine,
     FinanceInput,
@@ -41,25 +42,78 @@ def calculate_finance(value: FinanceInput) -> FinanceResult:
 def evaluate_capital_gate(value: CapitalGateInput) -> CapitalGateResult:
     low = value.initial_cash.low
     high = value.initial_cash.high
+    metrics = {
+        "own_funds_krw": value.own_funds_krw,
+        "minimum_required_krw": low,
+        "maximum_required_krw": high,
+        "shortfall_krw": None,
+    }
     if low is None:
-        return CapitalGateResult(
+        return _capital_gate_result(
             status=CapitalGateStatus.CONDITIONAL,
             reason_code="INITIAL_CASH_LOW_UNKNOWN",
+            decisive_input_refs=[
+                "founder.own_funds_krw",
+                "finance.initial_cash.low",
+            ],
+            metrics=metrics,
         )
     if high is not None and high <= value.own_funds_krw:
-        return CapitalGateResult(
+        metrics["shortfall_krw"] = 0
+        return _capital_gate_result(
             status=CapitalGateStatus.PASS,
             reason_code="OWN_FUNDS_COVER_HIGH_SCENARIO",
+            decisive_input_refs=[
+                "founder.own_funds_krw",
+                "finance.initial_cash.high",
+            ],
+            metrics=metrics,
         )
     if value.borrowing_intent == "NO" and low > value.own_funds_krw:
-        return CapitalGateResult(
+        reduction = low - value.own_funds_krw
+        metrics["shortfall_krw"] = reduction
+        return _capital_gate_result(
             status=CapitalGateStatus.FAIL,
             reason_code="MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS",
-            minimum_required_reduction_krw=low - value.own_funds_krw,
+            decisive_input_refs=[
+                "founder.borrowing_intent",
+                "founder.own_funds_krw",
+                "finance.initial_cash.low",
+            ],
+            metrics=metrics,
+            minimum_required_reduction_krw=reduction,
         )
-    return CapitalGateResult(
+    return _capital_gate_result(
         status=CapitalGateStatus.CONDITIONAL,
         reason_code="CAPITAL_COVERAGE_REQUIRES_CONFIRMATION",
+        decisive_input_refs=[
+            "founder.borrowing_intent",
+            "founder.own_funds_krw",
+            "finance.initial_cash.low",
+            "finance.initial_cash.high",
+        ],
+        metrics=metrics,
+    )
+
+
+def _capital_gate_result(
+    *,
+    status: CapitalGateStatus,
+    reason_code: str,
+    decisive_input_refs: list[str],
+    metrics: dict[str, int | None],
+    minimum_required_reduction_krw: int | None = None,
+) -> CapitalGateResult:
+    return CapitalGateResult(
+        status=status,
+        reason_code=reason_code,
+        minimum_required_reduction_krw=minimum_required_reduction_krw,
+        trace=CapitalGateTrace(
+            status=status,
+            reason_code=reason_code,
+            decisive_input_refs=decisive_input_refs,
+            metrics=metrics,
+        ),
     )
 
 

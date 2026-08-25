@@ -105,6 +105,46 @@ def test_builder_returns_ranked_candidates_for_selected_path(
         range(1, len(result.candidates) + 1)
     )
     assert result.primary_candidate_id == result.candidates[0]["candidate_id"]
+    assert all(candidate["gate_results"] for candidate in result.candidates)
+    assert all(candidate["rank_trace"] for candidate in result.candidates)
+    assert all(candidate["decision_inputs"] for candidate in result.candidates)
+    assert all(
+        all(
+            signal["decision_role"] == "CONTEXT_ONLY"
+            for signal in candidate["market_signals"]
+        )
+        for candidate in result.candidates
+    )
+
+
+def test_capital_fail_exposes_authoritative_public_blocker_and_shortfall() -> None:
+    base_state = _state(CafeTypePreference.INDEPENDENT_ONLY)
+    state = base_state.model_copy(
+        update={
+            "founder": base_state.founder.model_copy(
+                update={"own_funds_krw": 10_000_000}
+            )
+        }
+    )
+
+    result = SimpleProposalBuilder(IndependentSeedRegistry.load_default()).build(
+        state=state,
+        evidence_records=[],
+    )
+
+    assert result.outcome_status == ResultOutcomeStatus.NO_REVIEWABLE_CANDIDATES
+    candidate = result.candidates[0]
+    gate = candidate["gate_results"][0]
+    assert candidate["review_status"] == "EXCLUDED"
+    assert gate["status"] == "FAIL"
+    assert gate["reason_code"] == "MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS"
+    assert gate["metrics"]["own_funds_krw"] == 10_000_000
+    assert gate["metrics"]["minimum_required_krw"] == candidate["financial_summary"][
+        "initial_cash"
+    ]["low"]
+    assert gate["metrics"]["shortfall_krw"] == (
+        gate["metrics"]["minimum_required_krw"] - 10_000_000
+    )
 
 
 def test_builder_keeps_registered_assumptions_distinct_from_evidence() -> None:
@@ -254,6 +294,13 @@ def test_builder_replaces_selected_model_property_costs_with_user_input() -> Non
         "property-input:property-input-1"
         in recalculated_candidate["financial_summary"]["initial_cash"]["provenance_refs"]
     )
+    resolved = {item["field"]: item for item in recalculated_candidate["decision_inputs"]}
+    assert resolved["DEPOSIT"]["resolution_status"] == "RESOLVED_USER_CONFIRMED"
+    assert resolved["DEPOSIT"]["resolution_action"]["action_type"] == "NONE"
+    assert resolved["MONTHLY_OCCUPANCY"]["resolution_status"] == (
+        "RESOLVED_USER_CONFIRMED"
+    )
+    assert resolved["MONTHLY_OCCUPANCY"]["resolution_action"]["action_type"] == "NONE"
 
 
 def test_builder_replaces_selected_franchise_property_costs_with_user_input() -> None:
@@ -293,3 +340,35 @@ def test_builder_replaces_selected_franchise_property_costs_with_user_input() ->
         "property-input:property-input-2"
         in recalculated_candidate["financial_summary"]["monthly_fixed_cost"]["provenance_refs"]
     )
+
+
+def test_franchise_hq_confirmation_is_external_not_generic_missing_input() -> None:
+    result = SimpleProposalBuilder(IndependentSeedRegistry.load_default()).build(
+        state=_state(CafeTypePreference.FRANCHISE_ONLY),
+        evidence_records=[],
+        franchise_universe=_franchise_universe(),
+    )
+
+    candidate = result.candidates[0]
+    assert all(
+        missing["field"] != "지역 출점 가능 여부"
+        for missing in candidate["missing_fields"]
+    )
+    assert candidate["verification_requirements"] == [
+        {
+            "requirement_id": "FRANCHISE_AREA_APPROVAL",
+            "status": "EXTERNAL_CONFIRMATION_REQUIRED",
+            "decision_role": "VERIFICATION_ONLY",
+            "resolver": "FRANCHISE_HQ",
+            "reason_code": "FRANCHISE_AREA_AVAILABILITY_UNCONFIRMED",
+            "required_evidence": ["DATED_HQ_WRITTEN_CONFIRMATION"],
+            "resolution_action": {
+                "action_type": "EXTERNAL_CONFIRMATION",
+                "target_fields": ["franchise.area_availability"],
+                "accepted_document_types": [],
+            },
+            "why_caffemate_cannot_resolve": (
+                "특정 후보 주소의 출점 승인 여부는 해당 프랜차이즈 본사가 결정합니다."
+            ),
+        }
+    ]

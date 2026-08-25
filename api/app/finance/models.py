@@ -125,10 +125,19 @@ class CapitalGateStatus(StrEnum):
     FAIL = "FAIL"
 
 
+class CapitalGateTrace(StrictModel):
+    gate_type: str = Field(default="CAPITAL", pattern=r"^CAPITAL$")
+    status: CapitalGateStatus
+    reason_code: str = Field(min_length=1)
+    decisive_input_refs: list[str] = Field(min_length=1)
+    metrics: dict[str, int | None]
+
+
 class CapitalGateResult(StrictModel):
     status: CapitalGateStatus
     reason_code: str
     minimum_required_reduction_krw: int | None = Field(default=None, ge=0)
+    trace: CapitalGateTrace | None = None
 
 
 class CapitalGateInput(StrictModel):

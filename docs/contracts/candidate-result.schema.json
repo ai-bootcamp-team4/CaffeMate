@@ -157,6 +157,31 @@
       },
       "uniqueItems": true
     },
+    "gate_results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/gateResult"
+      },
+      "maxItems": 8
+    },
+    "rank_trace": {
+      "oneOf": [
+        { "$ref": "#/$defs/rankTrace" },
+        { "type": "null" }
+      ]
+    },
+    "decision_inputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/decisionInput"
+      }
+    },
+    "verification_requirements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/verificationRequirement"
+      }
+    },
     "agent_advisory": {
       "type": "object",
       "additionalProperties": false,
@@ -400,11 +425,211 @@
     }
   ],
   "$defs": {
+    "resolutionAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action_type", "target_fields", "accepted_document_types"],
+      "properties": {
+        "action_type": {
+          "enum": [
+            "PROPERTY_TERMS",
+            "DOCUMENT_INTAKE",
+            "USER_INPUT",
+            "EXTERNAL_CONFIRMATION",
+            "NONE"
+          ]
+        },
+        "target_fields": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "accepted_document_types": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "decisionMoneyRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["low", "base", "high"],
+      "properties": {
+        "low": { "type": ["integer", "null"], "minimum": 0 },
+        "base": { "type": ["integer", "null"], "minimum": 0 },
+        "high": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "decisionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "value_range_krw",
+        "provenance",
+        "resolution_status",
+        "decision_role",
+        "source_title",
+        "source_ref",
+        "data_date",
+        "geographic_scope",
+        "source_anchor",
+        "applied_to",
+        "replaceable_by",
+        "resolution_action",
+        "limitation_code"
+      ],
+      "properties": {
+        "field": { "type": "string", "minLength": 1 },
+        "value_range_krw": { "$ref": "#/$defs/decisionMoneyRange" },
+        "provenance": {
+          "enum": ["FACT", "USER_INPUT", "BENCHMARK", "ASSUMPTION", "DERIVED", "UNKNOWN"]
+        },
+        "resolution_status": {
+          "enum": [
+            "RESOLVED_FACT",
+            "RESOLVED_USER_CONFIRMED",
+            "RESOLVED_BENCHMARK",
+            "RESOLVED_DERIVED",
+            "ASSUMED",
+            "INPUT_REQUIRED",
+            "DOCUMENT_REQUIRED",
+            "EXTERNAL_CONFIRMATION_REQUIRED",
+            "UNSUPPORTED_BY_DATA"
+          ]
+        },
+        "decision_role": {
+          "enum": ["FINANCE_INPUT", "CONSTRAINT_INPUT", "VERIFICATION_ONLY", "CONTEXT_ONLY"]
+        },
+        "source_title": { "type": ["string", "null"], "minLength": 1 },
+        "source_ref": { "type": ["string", "null"], "minLength": 1 },
+        "data_date": { "type": ["string", "null"], "format": "date" },
+        "geographic_scope": {
+          "oneOf": [
+            { "$ref": "./common-types.schema.json#/$defs/geographicScope" },
+            { "type": "null" }
+          ]
+        },
+        "source_anchor": { "type": ["string", "null"], "minLength": 1 },
+        "applied_to": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "replaceable_by": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "PROPERTY_TERMS",
+              "DOCUMENT_INTAKE",
+              "USER_INPUT",
+              "EXTERNAL_CONFIRMATION",
+              "NONE"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "resolution_action": { "$ref": "#/$defs/resolutionAction" },
+        "limitation_code": { "type": ["string", "null"], "minLength": 1 }
+      }
+    },
+    "gateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate_type", "status", "reason_code", "decisive_input_refs", "metrics"],
+      "properties": {
+        "gate_type": { "const": "CAPITAL" },
+        "status": { "enum": ["PASS", "CONDITIONAL", "FAIL"] },
+        "reason_code": { "type": "string", "minLength": 1 },
+        "decisive_input_refs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "own_funds_krw",
+            "minimum_required_krw",
+            "maximum_required_krw",
+            "shortfall_krw"
+          ],
+          "properties": {
+            "own_funds_krw": { "type": "integer", "minimum": 0 },
+            "minimum_required_krw": { "type": ["integer", "null"], "minimum": 0 },
+            "maximum_required_krw": { "type": ["integer", "null"], "minimum": 0 },
+            "shortfall_krw": { "type": ["integer", "null"], "minimum": 0 }
+          }
+        }
+      }
+    },
+    "rankTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ranking_class",
+        "factors",
+        "decisive_factor_code",
+        "compared_candidate_id",
+        "tie_break_used"
+      ],
+      "properties": {
+        "ranking_class": { "type": "string", "minLength": 1 },
+        "factors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["factor_code", "value", "direction"],
+            "properties": {
+              "factor_code": { "type": "string", "minLength": 1 },
+              "value": { "type": ["integer", "string", "null"] },
+              "direction": { "enum": ["ASC", "DESC"] }
+            }
+          }
+        },
+        "decisive_factor_code": { "type": ["string", "null"], "minLength": 1 },
+        "compared_candidate_id": { "type": ["string", "null"], "minLength": 1 },
+        "tie_break_used": { "type": "boolean" }
+      }
+    },
+    "verificationRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requirement_id",
+        "status",
+        "decision_role",
+        "resolver",
+        "reason_code",
+        "required_evidence",
+        "resolution_action",
+        "why_caffemate_cannot_resolve"
+      ],
+      "properties": {
+        "requirement_id": { "type": "string", "minLength": 1 },
+        "status": { "const": "EXTERNAL_CONFIRMATION_REQUIRED" },
+        "decision_role": { "const": "VERIFICATION_ONLY" },
+        "resolver": { "type": "string", "minLength": 1 },
+        "reason_code": { "type": "string", "minLength": 1 },
+        "required_evidence": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "resolution_action": { "$ref": "#/$defs/resolutionAction" },
+        "why_caffemate_cannot_resolve": { "type": "string", "minLength": 1 }
+      }
+    },
     "marketSignal": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "signal_type",
+        "decision_role",
         "value",
         "unit",
         "data_date",
@@ -426,6 +651,9 @@
             "RESIDENT_POPULATION",
             "WORKER_POPULATION"
           ]
+        },
+        "decision_role": {
+          "const": "CONTEXT_ONLY"
         },
         "value": {
           "type": "number"

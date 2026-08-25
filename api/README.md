@@ -136,9 +136,12 @@ State, Event, Workflow, Result에는 쓰지 않는다. 두 명령 모두 `Idempo
 `Idempotency-Key`를 포함한다. 후보가 current Result에 없거나 full head가 달라지면 `409`다.
 
 성공하면 `CANDIDATE_SELECTED` Event와 새 Venture State를 원자적으로 저장하고 선택한
-Venture Case를 `SELECTED`·`CANDIDATE`로 전환한다. 응답에는 점포·임대 조건·견적·자금 조건과
-개인카페 또는 프랜차이즈별 필수 자료 체크리스트가 포함된다. `property_intake_enabled`와
-`document_intake_enabled`는 실제 자료 입력을 열지만 `is_final_go_decision`은 항상 `false`다.
+Venture Case를 `SELECTED`·`CANDIDATE`로 전환한다. 응답의 `required_evidence`는 고정 수집 목록이
+아니라 현재 Candidate Result의 unresolved `decision_inputs`와 `verification_requirements`에서
+결정론적으로 파생한다. CaffeMate 입력으로 실제 판단을 바꿀 수 있는 항목은 `REFINABLE`, 본사·
+관할기관 등 외부 주체만 결정할 수 있는 항목은 `EXTERNAL_CONFIRMATION_REQUIRED`로 분리하며 이미
+해소된 비용 항목은 다시 요구하지 않는다. `property_intake_enabled`와 `document_intake_enabled`는
+실제 자료 입력을 열지만 `is_final_go_decision`은 항상 `false`다.
 
 ## 문서 업로드 수명주기
 

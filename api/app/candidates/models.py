@@ -48,6 +48,7 @@ class CandidateDecisionInput(StrictModel):
     founder_burden: FounderBurdenLevel
     confirmed_hard_constraint_codes: list[str] = Field(default_factory=list)
     material_missing_fields: list[str] = Field(default_factory=list)
+    conditional_reason_codes: list[str] = Field(default_factory=list)
     risks: list[RiskSignal] = Field(default_factory=list)
     franchise_eligibility: FranchiseEligibility = FranchiseEligibility.NOT_APPLICABLE
     franchise_eligibility_evidence_refs: list[str] = Field(default_factory=list)
@@ -84,6 +85,20 @@ class RankBasis(StrEnum):
     NOT_RANKED = "NOT_RANKED"
 
 
+class RankFactor(StrictModel):
+    factor_code: str = Field(min_length=1)
+    value: int | str | None
+    direction: str = Field(pattern=r"^(ASC|DESC)$")
+
+
+class RankTrace(StrictModel):
+    ranking_class: str = Field(min_length=1)
+    factors: list[RankFactor]
+    decisive_factor_code: str | None = None
+    compared_candidate_id: str | None = None
+    tie_break_used: bool = False
+
+
 class CandidateDecision(StrictModel):
     candidate_id: str
     review_status: ReviewStatus
@@ -91,3 +106,4 @@ class CandidateDecision(StrictModel):
     rank: int | None = Field(default=None, ge=1)
     rank_basis: RankBasis
     is_primary_next_review: bool
+    rank_trace: RankTrace | None = None
