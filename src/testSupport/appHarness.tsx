@@ -15,7 +15,6 @@ export const head: HeadFence = {
   index_generation_id: 'index-1',
   seed_registry_id: 'seed-1',
 }
-
 export const project: Project = {
   project_id: 'project-1',
   user_id: 'user-1',
@@ -48,7 +47,7 @@ export const result: ResultView = {
   stale_head_dimensions: [],
   invalidation_reason_codes: [],
   candidates: [{
-    candidate_id: 'candidate-1', project_id: 'project-1', state_version: 1,
+    schema_version: '2.0.0', candidate_id: 'candidate-1', project_id: 'project-1', state_version: 1,
     case_type: 'FRANCHISE', display_name: '실제 검증 브랜드', review_status: 'REVIEW_RECOMMENDED',
     reason_codes: ['CURRENT_CONSTRAINTS_SATISFIED'], summary: '현재 계산 조건은 통과했고, 특정 주소 출점 승인은 본사 확인이 별도로 남아 있습니다.',
     rank: 1, rank_basis: 'NEXT_REVIEW_PRIORITY', is_primary_next_review: true,
@@ -76,6 +75,9 @@ export const result: ResultView = {
     financial_summary: {
       initial_cash: { currency: 'KRW', low: 70_000_000, base: 80_000_000, high: 90_000_000, provenance_refs: ['evidence-cost'] },
       monthly_fixed_cost: { currency: 'KRW', low: 4_000_000, base: 5_000_000, high: 6_000_000, provenance_refs: ['evidence-cost'] },
+      base_contribution_margin_bps: 6500,
+      variable_cost_rate_bps: 3500,
+      effective_contribution_margin_bps: 6500,
       break_even_monthly_sales_krw: 15_000_000, required_daily_orders: 80, unknown_cost_fields: [],
     },
     missing_fields: [],
@@ -86,13 +88,13 @@ export const result: ResultView = {
     counterfactuals: [{ variable: 'rent', condition: '월세 15% 감소', decision_impact: '검토 우선순위가 상승합니다.' }],
     next_actions: ['본사 출점 가능 여부 확인'],
     decision_inputs: [
-      { field: 'own_funds_krw', label: '현재 자기자금', value: 80_000_000, provenance: 'USER_INPUT', resolution_status: 'USER_CONFIRMED_FACT', decision_role: 'CONSTRAINT_INPUT', source: null, applied_to: ['CAPITAL'], replaceable_by: [], limitation_code: null, resolution_action: { type: 'USER_INPUT', target_fields: ['own_funds_krw'] } },
-      { field: 'initial_cash_krw', label: '초기 필요자금', range: { currency: 'KRW', low: 70_000_000, base: 80_000_000, high: 90_000_000, provenance_refs: ['evidence-cost'] }, provenance: 'BENCHMARK', resolution_status: 'RESOLVED_BENCHMARK', decision_role: 'FINANCE_INPUT', source: { title: '한국부동산원 상업용부동산 임대동향조사', source_ref: 'https://www.reb.or.kr', data_date: '2026-06-30', geographic_scope: '수원시 영통구' }, applied_to: ['INITIAL_CASH'], replaceable_by: ['PROPERTY_TERMS'], limitation_code: 'REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY', resolution_action: { type: 'PROPERTY_TERMS', target_fields: ['deposit_krw', 'monthly_rent_krw', 'management_fee_krw'] } },
-      { field: 'equipment_cost_krw', label: '장비비 참고값', range: { currency: 'KRW', low: 12_000_000, base: 15_000_000, high: 18_000_000, provenance_refs: ['assumption-equipment'] }, provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', decision_role: 'FINANCE_INPUT', source: null, applied_to: ['INITIAL_CASH'], replaceable_by: ['EQUIPMENT_QUOTE'], limitation_code: null, resolution_action: { type: 'DOCUMENT_INTAKE', target_fields: ['equipment_cost_krw'], accepted_document_types: ['EQUIPMENT_QUOTE'] } },
+      { field: 'own_funds_krw', value_range_krw: { low: 80_000_000, base: 80_000_000, high: 80_000_000 }, value_bps: null, provenance: 'USER_INPUT', resolution_status: 'RESOLVED_USER_CONFIRMED', decision_role: 'CONSTRAINT_INPUT', source_title: null, source_ref: null, data_date: null, geographic_scope: null, source_anchor: null, applied_to: ['CAPITAL'], replaceable_by: [], limitation_code: null, derivation: null, resolution_action: { action_type: 'USER_INPUT', target_fields: ['own_funds_krw'], accepted_document_types: [] } },
+      { field: 'initial_cash_krw', value_range_krw: { low: 70_000_000, base: 80_000_000, high: 90_000_000 }, value_bps: null, provenance: 'BENCHMARK', resolution_status: 'RESOLVED_BENCHMARK', decision_role: 'FINANCE_INPUT', source_title: '한국부동산원 상업용부동산 임대동향조사', source_ref: 'https://www.reb.or.kr', data_date: '2026-06-30', geographic_scope: { region: '수원시 영통구' }, source_anchor: null, applied_to: ['INITIAL_CASH'], replaceable_by: ['PROPERTY_TERMS'], limitation_code: 'REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY', derivation: null, resolution_action: { action_type: 'PROPERTY_TERMS', target_fields: ['deposit_krw', 'monthly_rent_krw', 'management_fee_krw'], accepted_document_types: [] } },
+      { field: 'equipment_cost_krw', value_range_krw: { low: 12_000_000, base: 15_000_000, high: 18_000_000 }, value_bps: null, provenance: 'ASSUMPTION', resolution_status: 'ASSUMED', decision_role: 'FINANCE_INPUT', source_title: null, source_ref: null, data_date: null, geographic_scope: null, source_anchor: null, applied_to: ['INITIAL_CASH'], replaceable_by: ['DOCUMENT_INTAKE'], limitation_code: null, derivation: null, resolution_action: { action_type: 'DOCUMENT_INTAKE', target_fields: ['equipment_cost_krw'], accepted_document_types: ['EQUIPMENT_QUOTE'] } },
     ],
-    decision_trace: { gates: [{ gate_type: 'CAPITAL', status: 'PASS', reason_code: 'CURRENT_CONSTRAINTS_SATISFIED', decisive_input_refs: ['own_funds_krw', 'initial_cash_krw'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 70_000_000, remaining_at_minimum_krw: 10_000_000 } }] },
-    rank_trace: { basis: 'NEXT_REVIEW_PRIORITY', factors: [{ code: 'INITIAL_CASH_BASE', value: 80_000_000 }], decisive_factor: 'INITIAL_CASH_BASE' },
-    verification_requirements: [{ requirement_code: 'HQ_AREA_APPROVAL', label: '이 주소의 출점 가능 여부', resolver: 'FRANCHISE_HQ', authority: '브랜드 본사', current_status: 'EXTERNAL_CONFIRMATION_REQUIRED', required_evidence: ['본사 서면 확인'], reason: '특정 주소의 출점 승인 여부는 CaffeMate가 확정할 수 없습니다.', resolution_action: { type: 'EXTERNAL_CONFIRMATION', target_fields: ['franchise_area_approval'] } }],
+    gate_results: [{ gate_type: 'CAPITAL', status: 'PASS', reason_code: 'CURRENT_CONSTRAINTS_SATISFIED', decisive_input_refs: ['own_funds_krw', 'initial_cash_krw'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 70_000_000, maximum_required_krw: 90_000_000, shortfall_krw: null } }],
+    rank_trace: { ranking_class: 'NEXT_REVIEW_PRIORITY', factors: [{ factor_code: 'INITIAL_CASH_BASE_KRW', value: 80_000_000, direction: 'ASC' }], decisive_factor_code: 'INITIAL_CASH_BASE_KRW', compared_candidate_id: null, tie_break_used: false },
+    verification_requirements: [{ requirement_id: 'HQ_AREA_APPROVAL', status: 'EXTERNAL_CONFIRMATION_REQUIRED', decision_role: 'VERIFICATION_ONLY', resolver: 'FRANCHISE_HQ', reason_code: 'FRANCHISE_AREA_AVAILABILITY_UNCONFIRMED', required_evidence: ['본사 서면 확인'], why_caffemate_cannot_resolve: '특정 주소의 출점 가능 여부는 CaffeMate가 확정할 수 없습니다.', resolution_action: { action_type: 'EXTERNAL_CONFIRMATION', target_fields: ['franchise_area_availability'], accepted_document_types: [] } }],
   }],
 }
 

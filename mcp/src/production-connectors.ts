@@ -3,7 +3,9 @@ import { RetrievalCoordinator } from '../../rag/src/retrieval'
 import { createVertexRagBackend } from '../../rag/src/vertex-rag-backend'
 import { createConnectorRegistry } from './connectors'
 import { createBigQueryGroundingConnectors } from './bigquery-grounding'
+import { createCostReferenceConnector } from './cost-reference'
 import { createFranchiseCatalogConnector } from './franchise-catalog'
+import { createFranchiseDisclosureConnector } from './franchise-disclosure'
 import {
   mapOfficialRagContext,
   pinnedRagFileIdsBySourceFamily,
@@ -11,6 +13,7 @@ import {
 } from './official-rag'
 import { createOfficialRagHealthSource } from './official-rag-health'
 import { createOfficialProcedureRagConnector } from './procedure-rag'
+import { createPropertyReferenceConnector } from './property-reference'
 import { createRagMcpConnectors } from './rag-connectors'
 import { MCP_PRODUCTION_TOOL_NAMES } from './manifest'
 import type { McpConnectorRegistry } from './router'
@@ -83,7 +86,24 @@ export function createProductionMcpConnectors(options: ProductionMcpConnectorOpt
   const connectors: McpConnectorRegistry = {
     ...base,
     ...grounding,
+    get_property_reference: createPropertyReferenceConnector({
+      projectId: options.projectId,
+      datasetId: options.groundingDatasetId,
+      location: RAG_REGION,
+      accessToken: options.accessToken,
+      fetch: fetchImpl,
+      now,
+    }),
+    get_cost_reference: createCostReferenceConnector({ now }),
     list_franchise_universe: createFranchiseCatalogConnector({ now }),
+    get_franchise_disclosure: createFranchiseDisclosureConnector({
+      projectId: options.projectId,
+      datasetId: options.groundingDatasetId,
+      location: RAG_REGION,
+      accessToken: options.accessToken,
+      fetch: fetchImpl,
+      now,
+    }),
     retrieve_official_documents: rag.retrieve_official_documents,
     get_official_procedure: createOfficialProcedureRagConnector({
       retrieval,

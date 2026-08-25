@@ -5,6 +5,7 @@ import type {
   ControlApiClient,
   DecisionInput,
   DocumentExtractionForm,
+  DocumentType,
   PropertyTermsApplication,
   PropertyTermsInput,
   ResultCandidate,
@@ -14,6 +15,22 @@ import { internalLabel } from '../presentation'
 import { decisionInputLabel, decisionInputValue, provenanceLabel } from '../result/resultPresentation'
 import { DecisionDelta } from './DecisionDelta'
 import './Refinement.css'
+
+const supportedDocumentTypes = new Set<DocumentType>([
+  'COMMERCIAL_LEASE',
+  'FRANCHISE_DISCLOSURE',
+  'FRANCHISE_AGREEMENT',
+  'INTERIOR_QUOTE',
+  'EQUIPMENT_QUOTE',
+  'PROPERTY_LISTING',
+  'LOAN_TERMS',
+  'BUSINESS_PROCEDURE',
+  'OTHER',
+])
+
+function isDocumentType(value: string): value is DocumentType {
+  return supportedDocumentTypes.has(value as DocumentType)
+}
 
 export type PropertyRecalculation = {
   mode: 'LIVE'
@@ -64,8 +81,8 @@ export function NumericRefinementFlow({
   const [propertyOutcome, setPropertyOutcome] = useState<PropertyRecalculation | null>(null)
   const [documentOutcome, setDocumentOutcome] = useState<DocumentRecalculation | null>(null)
   const action = target.resolution_action
-  const isProperty = action?.type === 'PROPERTY_TERMS'
-  const isDocument = action?.type === 'DOCUMENT_INTAKE'
+  const isProperty = action?.action_type === 'PROPERTY_TERMS'
+  const isDocument = action?.action_type === 'DOCUMENT_INTAKE'
   const setValue = (key: keyof typeof demoPropertyTerms, value: string) => setValues((current) => ({ ...current, [key]: value }))
 
   const submitProperty = async (event: FormEvent) => {
@@ -204,7 +221,7 @@ export function NumericRefinementFlow({
             client={client}
             projectId={projectId}
             enabled={selection.document_intake_enabled}
-            acceptedDocumentTypes={action.accepted_document_types}
+            acceptedDocumentTypes={action.accepted_document_types.filter(isDocumentType)}
             targetLabel={decisionInputLabel(target)}
             onApplied={documentApplied}
           />

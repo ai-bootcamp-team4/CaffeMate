@@ -108,7 +108,7 @@ _FIXTURES: dict[str, tuple[DocumentType, list[dict[str, Any]]]] = {
             _money("FRANCHISE_FEE", 12_000_000, "가맹비 1,200만원"),
             _money("EDUCATION_FEE", 2_000_000, "교육비 200만원"),
             _money("FRANCHISE_DEPOSIT", 5_000_000, "가맹보증금 500만원"),
-            _text("ROYALTY", "월 순매출의 3.0%"),
+            _number("ROYALTY", 3.0, unit="%"),
             _text("MANDATORY_PURCHASE", "원두·컵·시럽 지정 구매, 월 최소 300만원"),
             _money("AVERAGE_ANNUAL_SALES", 360_000_000, "가맹점 연평균 매출 3억 6,000만원"),
             _number("STORE_COUNT", 120, unit="개"),

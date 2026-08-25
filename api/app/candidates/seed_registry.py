@@ -1,5 +1,6 @@
 import hashlib
 import json
+from enum import StrEnum
 from pathlib import Path
 
 import rfc8785
@@ -8,7 +9,7 @@ from pydantic import Field, model_validator
 from app.domain.models import FounderState, OperationMode, StrictModel
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
-    MONTHLY_FIXED_COST_CATEGORIES,
+    REGISTERED_MONTHLY_FIXED_COST_CATEGORIES,
     CostCategory,
     MoneyRange,
 )
@@ -30,6 +31,36 @@ class AllowedParameter(StrictModel):
         return self
 
 
+class CommercialPropertyClass(StrEnum):
+    SMALL_RETAIL = "SMALL_RETAIL"
+    MEDIUM_LARGE_RETAIL = "MEDIUM_LARGE_RETAIL"
+    STRATA_RETAIL = "STRATA_RETAIL"
+
+
+class SpaceProfile(StrictModel):
+    low: int = Field(gt=0)
+    base: int = Field(gt=0)
+    high: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> "SpaceProfile":
+        if not self.low <= self.base <= self.high:
+            raise ValueError("space profile must satisfy low <= base <= high")
+        return self
+
+
+class PaidStaffFteProfile(StrictModel):
+    low: float = Field(ge=0, le=20)
+    base: float = Field(ge=0, le=20)
+    high: float = Field(ge=0, le=20)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> "PaidStaffFteProfile":
+        if not self.low <= self.base <= self.high:
+            raise ValueError("paid staff FTE profile must satisfy low <= base <= high")
+        return self
+
+
 class IndependentFinanceProfile(StrictModel):
     """Versioned, explicitly provisional finance inputs for a seed model.
 
@@ -41,11 +72,15 @@ class IndependentFinanceProfile(StrictModel):
     contribution_margin_bps: int = Field(ge=1, le=10_000)
     operating_days_per_month: int = Field(ge=1, le=31)
     average_ticket_krw: int = Field(ge=1)
+    space_profile_sqm: SpaceProfile
+    commercial_property_class: CommercialPropertyClass
+    management_fee_ratio_bps: int = Field(ge=0, le=5_000)
+    paid_staff_fte: PaidStaffFteProfile
 
     @model_validator(mode="after")
     def validate_complete_profile(self) -> "IndependentFinanceProfile":
         required = (
-            INITIAL_COST_CATEGORIES | MONTHLY_FIXED_COST_CATEGORIES
+            INITIAL_COST_CATEGORIES | REGISTERED_MONTHLY_FIXED_COST_CATEGORIES
         ) - {CostCategory.FRANCHISE_INITIAL_FEES}
         if set(self.cost_ranges) != required:
             raise ValueError("independent finance profile must cover every non-franchise cost")

@@ -19,7 +19,7 @@
 ### 산출물
 
 - 제품·아키텍처·데이터·가드레일 문서
-- Venture State, Evidence, Candidate Result, Agent Task·Result, role payload, 공통 typed value, MCP 10-tool JSON Schema와 manifest
+- Venture State, Evidence, Candidate Result, Agent Task·Result, role payload, 공통 typed value, MCP fixed-tool JSON Schema와 manifest
 - 백엔드·Agent Runtime·MCP 연결 계약
 - 핵심 평가 fixture
 

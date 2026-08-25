@@ -1,4 +1,5 @@
 import type { ResultCandidate } from '../apiClient'
+import { internalLabel } from '../presentation'
 
 export function ExternalChecks({ candidate }: { candidate: ResultCandidate }) {
   const requirements = candidate.verification_requirements ?? []
@@ -12,11 +13,11 @@ export function ExternalChecks({ candidate }: { candidate: ResultCandidate }) {
       {requirements.length ? (
         <ul className="action-list">
           {requirements.map((requirement) => (
-            <li key={requirement.requirement_code}>
+            <li key={requirement.requirement_id}>
               <div>
-                <strong>{requirement.label}</strong>
-                <p>{requirement.reason}</p>
-                <small>{requirement.authority ? `최종 확인: ${requirement.authority}` : `확인 주체: ${requirement.resolver}`}</small>
+                <strong>{internalLabel(requirement.requirement_id)}</strong>
+                <p>{requirement.why_caffemate_cannot_resolve}</p>
+                <small>확인 주체: {internalLabel(requirement.resolver)}</small>
               </div>
               <span>외부 확인</span>
             </li>

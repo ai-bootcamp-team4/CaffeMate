@@ -160,6 +160,167 @@
       }
     },
     {
+      "id": "get_property_reference-ok",
+      "tool_name": "get_property_reference",
+      "status": "OK",
+      "input": {
+        "administrative_code": "11200690",
+        "boundary_version": "2026-01",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_property_reference-ok",
+        "tool_name": "get_property_reference",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_property_reference-partial",
+      "tool_name": "get_property_reference",
+      "status": "PARTIAL",
+      "input": {
+        "administrative_code": "11200690",
+        "boundary_version": "2026-01",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_property_reference-partial",
+        "tool_name": "get_property_reference",
+        "tool_version": "1.0.0",
+        "status": "PARTIAL",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [
+          "fixture_partial"
+        ],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_property_reference-error",
+      "tool_name": "get_property_reference",
+      "status": "ERROR",
+      "input": {
+        "administrative_code": "11200690",
+        "boundary_version": "2026-01",
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_property_reference-error",
+        "tool_name": "get_property_reference",
+        "tool_version": "1.0.0",
+        "status": "ERROR",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [
+          "FIXTURE_ERROR"
+        ],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_cost_reference-ok",
+      "tool_name": "get_cost_reference",
+      "status": "OK",
+      "input": {
+        "reference_types": [
+          "MINIMUM_WAGE"
+        ],
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_cost_reference-ok",
+        "tool_name": "get_cost_reference",
+        "tool_version": "1.0.0",
+        "status": "OK",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_cost_reference-partial",
+      "tool_name": "get_cost_reference",
+      "status": "PARTIAL",
+      "input": {
+        "reference_types": [
+          "MINIMUM_WAGE"
+        ],
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_cost_reference-partial",
+        "tool_name": "get_cost_reference",
+        "tool_version": "1.0.0",
+        "status": "PARTIAL",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [
+          "fixture_partial"
+        ],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
+      "id": "get_cost_reference-error",
+      "tool_name": "get_cost_reference",
+      "status": "ERROR",
+      "input": {
+        "reference_types": [
+          "MINIMUM_WAGE"
+        ],
+        "as_of": "2026-08-21"
+      },
+      "result": {
+        "schema_version": "1.0.0",
+        "request_id": "fixture-get_cost_reference-error",
+        "tool_name": "get_cost_reference",
+        "tool_version": "1.0.0",
+        "status": "ERROR",
+        "project_id": "project-1",
+        "evidence_records": [],
+        "missing_fields": [],
+        "conflicts": [],
+        "source_trace": [],
+        "error_codes": [
+          "FIXTURE_ERROR"
+        ],
+        "observed_at": "2026-08-21T09:00:00Z",
+        "data": []
+      }
+    },
+    {
       "id": "search_cafe_observations-ok",
       "tool_name": "search_cafe_observations",
       "status": "OK",

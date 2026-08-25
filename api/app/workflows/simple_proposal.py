@@ -1,19 +1,47 @@
 """사용자는 검증 게이트를 기다리지 않고 근거와 가정을 구분한 후보를 비교한다."""
 
 from copy import deepcopy
-from dataclasses import dataclass
-from decimal import Decimal
 from typing import Any
 
+from app.candidates.models import (
+    CandidateDecisionInput,
+    FounderBurdenLevel,
+    FounderFitStatus,
+    ReviewStatus,
+    RiskSeverity,
+    RiskSignal,
+)
+from app.candidates.ranking import rank_candidates
 from app.candidates.seed_registry import (
     IndependentSeedDefinition,
     IndependentSeedRegistry,
 )
-from app.domain.models import CafeTypePreference, VentureState
+from app.decisions.projection import (
+    project_finance_decision_inputs,
+)
+from app.domain.models import (
+    CafeTypePreference,
+    CaseType,
+    VentureState,
+)
 from app.finance.calculator import calculate_finance, evaluate_capital_gate
+from app.finance.case_facts import (
+    CaseFactResolution,
+    FinancialInputResolver,
+    PropertyContext,
+)
+from app.finance.franchise_disclosure import FranchiseDisclosureResolution
+from app.finance.labor_benchmark import (
+    MinimumWageReference,
+    resolve_seed_labor_benchmarks,
+)
+from app.finance.labor_oncost import (
+    EmployerSocialInsuranceReference,
+    resolve_seed_employer_oncosts,
+)
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
-    MONTHLY_FIXED_COST_CATEGORIES,
+    REGISTERED_MONTHLY_FIXED_COST_CATEGORIES,
     CapitalGateInput,
     CapitalGateStatus,
     CostCategory,
@@ -22,77 +50,32 @@ from app.finance.models import (
     MoneyRange,
     ValueProvenance,
 )
+from app.finance.property_benchmark import (
+    PropertyRentBenchmark,
+    resolve_seed_property_benchmarks,
+)
 from app.results.models import (
     AuditStatus,
     ResultBundlePayload,
     ResultOutcomeStatus,
 )
 from app.results.projection import project_evidence_for_candidate
-
-_FRANCHISE_BENCHMARK_COSTS = {
-    CostCategory.DEPOSIT: MoneyRange(low=20_000_000, base=35_000_000, high=60_000_000),
-    CostCategory.ACQUISITION_OR_PREMIUM: MoneyRange(
-        low=0,
-        base=10_000_000,
-        high=30_000_000,
-    ),
-    CostCategory.CONSTRUCTION: MoneyRange(
-        low=10_000_000,
-        base=20_000_000,
-        high=35_000_000,
-    ),
-    CostCategory.EQUIPMENT: MoneyRange(low=18_000_000, base=26_000_000, high=38_000_000),
-    CostCategory.PREOPENING: MoneyRange(low=2_000_000, base=4_000_000, high=6_000_000),
-    CostCategory.OPENING_INVENTORY: MoneyRange(
-        low=1_500_000,
-        base=2_500_000,
-        high=4_000_000,
-    ),
-    CostCategory.CONTINGENCY: MoneyRange(low=6_000_000, base=10_000_000, high=16_000_000),
-    CostCategory.OPERATING_RESERVE: MoneyRange(
-        low=12_000_000,
-        base=20_000_000,
-        high=30_000_000,
-    ),
-    CostCategory.MONTHLY_OCCUPANCY: MoneyRange(
-        low=2_500_000,
-        base=4_000_000,
-        high=6_500_000,
-    ),
-    CostCategory.MONTHLY_LABOR: MoneyRange(
-        low=1_000_000,
-        base=2_500_000,
-        high=5_000_000,
-    ),
-    CostCategory.MONTHLY_OTHER_FIXED: MoneyRange(
-        low=700_000,
-        base=1_100_000,
-        high=1_800_000,
-    ),
-}
-
-
-@dataclass(frozen=True)
-class _CandidateDraft:
-    candidate: dict[str, Any]
-    gate_status: CapitalGateStatus
-    initial_cash_base: int
-
-
-@dataclass(frozen=True)
-class PropertyCostOverride:
-    """선택한 후보의 실제 임차 조건만 참고 범위 대신 계산에 사용한다."""
-
-    property_input_id: str
-    source_id: str
-    deposit_krw: int
-    monthly_rent_krw: int
-    management_fee_krw: int
-    key_money_krw: int | None
-
-    @property
-    def evidence_ref(self) -> str:
-        return f"property-input:{self.property_input_id}"
+from app.workflows.proposal_finance import (
+    cost_refs,
+    independent_cost_line,
+    property_adjusted_fields,
+)
+from app.workflows.proposal_franchise import CandidateDraft, build_franchise_drafts
+from app.workflows.proposal_presentation import candidate_id as build_candidate_id
+from app.workflows.proposal_presentation import (
+    candidate_summary,
+    capital_risks,
+    counterfactuals,
+    decimal_number,
+    money_summary,
+    next_actions,
+    review_status,
+)
 
 
 class SimpleProposalBuilder:
@@ -111,11 +94,62 @@ class SimpleProposalBuilder:
         *,
         state: VentureState,
         evidence_records: list[dict[str, Any]],
-        property_cost_override: PropertyCostOverride | None = None,
+        property_context: PropertyContext | None = None,
+        case_fact_resolution: CaseFactResolution | None = None,
+        franchise_disclosure_resolution: FranchiseDisclosureResolution | None = None,
+        property_rent_benchmarks: list[PropertyRentBenchmark] | None = None,
+        minimum_wage_references: list[MinimumWageReference] | None = None,
+        employer_social_insurance_references: (
+            list[EmployerSocialInsuranceReference] | None
+        ) = None,
         agent_proposals: list[dict[str, Any]] | None = None,
         franchise_universe: list[dict[str, Any]] | None = None,
     ) -> ResultBundlePayload:
-        drafts: list[_CandidateDraft] = []
+        drafts: list[CandidateDraft] = []
+        independent_seeds = self._seeds.select(state.founder)
+        benchmark_resolution = resolve_seed_property_benchmarks(
+            seeds=[
+                (
+                    seed.model_id,
+                    profile.space_profile_sqm,
+                    profile.commercial_property_class,
+                    profile.management_fee_ratio_bps,
+                    profile.cost_ranges[CostCategory.DEPOSIT],
+                )
+                for seed in independent_seeds
+                if (profile := seed.finance_profile) is not None
+            ],
+            benchmarks=property_rent_benchmarks or [],
+        )
+        labor_benchmark_resolution = resolve_seed_labor_benchmarks(
+            seeds=[
+                (
+                    seed.model_id,
+                    profile.paid_staff_fte,
+                    profile.cost_ranges[CostCategory.MONTHLY_LABOR],
+                )
+                for seed in independent_seeds
+                if (profile := seed.finance_profile) is not None
+            ],
+            references=minimum_wage_references or [],
+        )
+        employer_oncost_resolution = resolve_seed_employer_oncosts(
+            seeds=[
+                (seed.model_id, profile.paid_staff_fte)
+                for seed in independent_seeds
+                if (profile := seed.finance_profile) is not None
+            ],
+            minimum_wage_references=minimum_wage_references or [],
+            social_insurance_references=employer_social_insurance_references or [],
+        )
+        finance_resolver = FinancialInputResolver(
+            property_context=property_context,
+            case_resolution=case_fact_resolution,
+            benchmark_resolution=benchmark_resolution,
+            labor_benchmark_resolution=labor_benchmark_resolution,
+            employer_oncost_resolution=employer_oncost_resolution,
+            franchise_disclosure_resolution=franchise_disclosure_resolution,
+        )
         preference = state.founder.cafe_type_preference
         proposals_by_source = {
             proposal["seed_or_brand_id"]: proposal
@@ -141,10 +175,11 @@ class SimpleProposalBuilder:
                     state=state,
                     seed=seed,
                     evidence_records=evidence_records,
-                    property_cost_override=property_cost_override,
+                    property_context=property_context,
+                    finance_resolver=finance_resolver,
                     agent_proposal=proposals_by_source.get(seed.model_id),
                 )
-                for seed in self._seeds.select(state.founder)
+                for seed in independent_seeds
                 if proposed_ids is None or seed.model_id in proposed_ids
             )
         if preference in {
@@ -152,38 +187,42 @@ class SimpleProposalBuilder:
             CafeTypePreference.FRANCHISE_ONLY,
         }:
             drafts.extend(
-                self._franchise_drafts(
+                build_franchise_drafts(
                     state=state,
                     evidence_records=evidence_records,
-                    property_cost_override=property_cost_override,
+                    property_context=property_context,
+                    finance_resolver=finance_resolver,
                     proposed_ids=proposed_ids,
                     franchise_universe=franchise_universe,
                 )
             )
         if not drafts:
             raise ValueError("No registered candidate is compatible with the founder state")
+        if preference == CafeTypePreference.OPEN_TO_BOTH:
+            drafts = self._open_to_both_pool(drafts, limit=3)
 
-        reviewable = [draft for draft in drafts if draft.gate_status != CapitalGateStatus.FAIL]
-        selected = reviewable if reviewable else drafts
-        selected.sort(
-            key=lambda draft: (
-                self._gate_order(draft.gate_status),
-                draft.initial_cash_base,
-                str(draft.candidate["candidate_id"]),
-            )
-        )
-        selected = selected[:3]
-        no_reviewable = not reviewable
-        for index, draft in enumerate(selected, start=1):
+        decisions = rank_candidates([draft.decision_input for draft in drafts])
+        reviewable = [
+            decision for decision in decisions if decision.review_status != ReviewStatus.EXCLUDED
+        ]
+        selected_decisions = (reviewable if reviewable else decisions)[:3]
+        drafts_by_id = {str(draft.candidate["candidate_id"]): draft for draft in drafts}
+        selected: list[CandidateDraft] = []
+        for decision in selected_decisions:
+            draft = drafts_by_id[decision.candidate_id]
             candidate = draft.candidate
-            candidate["rank"] = None if no_reviewable else index
-            candidate["is_primary_next_review"] = not no_reviewable and index == 1
-            if no_reviewable:
-                candidate["rank_basis"] = "NOT_RANKED"
-            elif candidate["review_status"] == "REVIEW_RECOMMENDED":
-                candidate["rank_basis"] = "ECONOMIC_AND_FOUNDER_FIT"
-            else:
-                candidate["rank_basis"] = "NEXT_REVIEW_PRIORITY"
+            candidate["review_status"] = decision.review_status.value
+            candidate["reason_codes"] = decision.reason_codes
+            candidate["rank"] = decision.rank
+            candidate["rank_basis"] = decision.rank_basis.value
+            candidate["is_primary_next_review"] = decision.is_primary_next_review
+            candidate["rank_trace"] = (
+                decision.rank_trace.model_dump(mode="json")
+                if decision.rank_trace is not None
+                else None
+            )
+            selected.append(draft)
+        no_reviewable = not reviewable
 
         payload = ResultBundlePayload(
             candidates=[draft.candidate for draft in selected],
@@ -203,25 +242,55 @@ class SimpleProposalBuilder:
         )
         return payload
 
+    @staticmethod
+    def _open_to_both_pool(
+        drafts: list[CandidateDraft],
+        *,
+        limit: int,
+    ) -> list[CandidateDraft]:
+        """Keep both requested candidate families visible before authoritative ranking."""
+
+        if len(drafts) <= limit:
+            return drafts
+        independent = [
+            draft for draft in drafts if draft.decision_input.case_type == CaseType.INDEPENDENT
+        ]
+        franchise = [
+            draft for draft in drafts if draft.decision_input.case_type == CaseType.FRANCHISE
+        ]
+        if not independent or not franchise:
+            return drafts[:limit]
+        selected = [independent[0], franchise[0]]
+        selected_ids = {str(draft.candidate["candidate_id"]) for draft in selected}
+        for draft in drafts:
+            if len(selected) >= limit:
+                break
+            candidate_id = str(draft.candidate["candidate_id"])
+            if candidate_id not in selected_ids:
+                selected.append(draft)
+                selected_ids.add(candidate_id)
+        return selected
+
     def _independent_draft(
         self,
         *,
         state: VentureState,
         seed: IndependentSeedDefinition,
         evidence_records: list[dict[str, Any]],
-        property_cost_override: PropertyCostOverride | None,
+        property_context: PropertyContext | None,
+        finance_resolver: FinancialInputResolver,
         agent_proposal: dict[str, Any] | None,
-    ) -> _CandidateDraft:
+    ) -> CandidateDraft:
         profile = seed.finance_profile
         if profile is None:
             raise ValueError(f"Registered seed has no finance profile: {seed.model_id}")
         assumption_refs = sorted(set(seed.support_refs))
         initial_cost_lines = [
-            self._cost_line(
+            independent_cost_line(
                 seed.model_id,
                 category,
                 profile.cost_ranges[category],
-                property_cost_override,
+                finance_resolver,
             )
             for category in sorted(INITIAL_COST_CATEGORIES, key=lambda item: item.value)
             if category != CostCategory.FRANCHISE_INITIAL_FEES
@@ -235,14 +304,27 @@ class SimpleProposalBuilder:
             )
         )
         monthly_fixed_cost_lines = [
-            self._cost_line(
+            independent_cost_line(
                 seed.model_id,
                 category,
                 profile.cost_ranges[category],
-                property_cost_override,
+                finance_resolver,
             )
-            for category in sorted(MONTHLY_FIXED_COST_CATEGORIES, key=lambda item: item.value)
+            for category in sorted(
+                REGISTERED_MONTHLY_FIXED_COST_CATEGORIES, key=lambda item: item.value
+            )
         ]
+        monthly_fixed_cost_lines.append(
+            finance_resolver.resolve_cost_line(
+                source_id=seed.model_id,
+                fallback=CostLine(
+                    field_id=CostCategory.MONTHLY_EMPLOYER_ONCOST.value,
+                    category=CostCategory.MONTHLY_EMPLOYER_ONCOST,
+                    amount=MoneyRange(low=None, base=None, high=None),
+                    provenance=ValueProvenance.UNKNOWN,
+                ),
+            )
+        )
         finance_input = FinanceInput(
             initial_cost_lines=initial_cost_lines,
             monthly_fixed_cost_lines=monthly_fixed_cost_lines,
@@ -263,18 +345,18 @@ class SimpleProposalBuilder:
             project_id=state.project_id,
             case_type="INDEPENDENT",
         )
-        candidate_id = self._candidate_id(
+        candidate_id = build_candidate_id(
             project_id=state.project_id,
             case_type="INDEPENDENT",
             source_id=seed.model_id,
         )
-        review_status = self._review_status(gate.status)
-        reason_codes = [gate.reason_code]
-        if gate.status == CapitalGateStatus.PASS and not evidence_refs:
-            review_status = "CONDITIONAL_REVIEW"
-            reason_codes.append("EVIDENCE_CONFIRMATION_REQUIRED")
+        conditional_reason_codes = (
+            ["EVIDENCE_CONFIRMATION_REQUIRED"]
+            if gate.status == CapitalGateStatus.PASS and not evidence_refs
+            else []
+        )
         adjusted_fields = set(
-            self._property_adjusted_fields(seed.model_id, property_cost_override)
+            property_adjusted_fields(seed.model_id, property_context)
         )
         adjusted_fields.update(
             value["field_path"]
@@ -283,6 +365,7 @@ class SimpleProposalBuilder:
             and isinstance(value.get("field_path"), str)
             and value["field_path"]
         )
+        risk_values = capital_risks(gate.status, evidence_refs)
         candidate = {
                 "schema_version": "2.0.0",
                 "candidate_id": candidate_id,
@@ -290,9 +373,9 @@ class SimpleProposalBuilder:
                 "state_version": state.state_version,
                 "case_type": "INDEPENDENT",
                 "display_name": seed.display_name,
-                "review_status": review_status,
-                "reason_codes": sorted(reason_codes),
-                "summary": self._summary(gate.status),
+                "review_status": review_status(gate.status),
+                "reason_codes": [gate.reason_code],
+                "summary": candidate_summary(gate.status),
                 "rank": 1,
                 "rank_basis": "NEXT_REVIEW_PRIORITY",
                 "is_primary_next_review": True,
@@ -301,36 +384,70 @@ class SimpleProposalBuilder:
                     "model_id": seed.model_id,
                     "adjusted_fields": sorted(adjusted_fields),
                 },
+                "property_context": (
+                    property_context.public_projection()
+                    if property_context is not None
+                    and property_context.source_id == seed.model_id
+                    else None
+                ),
                 "evidence_refs": evidence_refs,
                 "assumption_refs": assumption_refs,
                 "market_signals": signals,
                 "official_documents": documents,
                 "official_document_gaps": document_gaps,
+                "gate_results": [gate.trace.model_dump(mode="json")] if gate.trace else [],
+                "decision_inputs": project_finance_decision_inputs(
+                    initial_cost_lines=initial_cost_lines,
+                    monthly_fixed_cost_lines=monthly_fixed_cost_lines,
+                    evidence_records=evidence_records,
+                    case_type="INDEPENDENT",
+                    decision_sources=finance_resolver.decision_sources,
+                ),
+                "verification_requirements": [],
                 "financial_summary": {
-                    "initial_cash": self._money(
+                    "initial_cash": money_summary(
                         finance.initial_cash,
-                        self._cost_refs(initial_cost_lines),
+                        cost_refs(initial_cost_lines),
                     ),
-                    "monthly_fixed_cost": self._money(
+                    "monthly_fixed_cost": money_summary(
                         finance.monthly_fixed_cost,
-                        self._cost_refs(monthly_fixed_cost_lines),
+                        cost_refs(monthly_fixed_cost_lines),
+                    ),
+                    "base_contribution_margin_bps": finance.base_contribution_margin_bps,
+                    "variable_cost_rate_bps": finance.variable_cost_rate_bps,
+                    "effective_contribution_margin_bps": (
+                        finance.effective_contribution_margin_bps
                     ),
                     "break_even_monthly_sales_krw": finance.break_even_monthly_sales_krw,
-                    "required_daily_orders": self._decimal(finance.required_daily_orders),
+                    "required_daily_orders": decimal_number(finance.required_daily_orders),
                     "unknown_cost_fields": finance.unknown_cost_fields,
                 },
                 "missing_fields": [],
-                "risks": self._capital_risks(gate.status, evidence_refs),
-                "counterfactuals": self._counterfactuals(gate.minimum_required_reduction_krw),
-                "next_actions": self._next_actions(gate.status),
+                "risks": risk_values,
+                "counterfactuals": counterfactuals(gate.minimum_required_reduction_krw),
+                "next_actions": next_actions(gate.status),
             }
         advisory = self._agent_advisory(agent_proposal)
         if advisory is not None:
             candidate["agent_advisory"] = advisory
-        return _CandidateDraft(
+        return CandidateDraft(
             candidate=candidate,
-            gate_status=gate.status,
-            initial_cash_base=int(finance.initial_cash.base or 0),
+            decision_input=CandidateDecisionInput(
+                candidate_id=candidate_id,
+                case_type=CaseType.INDEPENDENT,
+                finance=finance,
+                capital_gate=gate,
+                founder_fit=FounderFitStatus.PASS,
+                founder_burden=FounderBurdenLevel.MEDIUM,
+                conditional_reason_codes=conditional_reason_codes,
+                risks=[
+                    RiskSignal(
+                        risk_id=str(risk["risk_id"]),
+                        severity=RiskSeverity(str(risk["severity"])),
+                    )
+                    for risk in risk_values
+                ],
+            ),
         )
 
     @staticmethod
@@ -346,458 +463,3 @@ class SimpleProposalBuilder:
             "missing_fields": deepcopy(proposal.get("missing_fields", [])),
             "warnings": deepcopy(proposal.get("warnings", [])),
         }
-
-    def _franchise_drafts(
-        self,
-        *,
-        state: VentureState,
-        evidence_records: list[dict[str, Any]],
-        property_cost_override: PropertyCostOverride | None,
-        proposed_ids: set[str] | None,
-        franchise_universe: list[dict[str, Any]] | None,
-    ) -> list[_CandidateDraft]:
-        universe_by_id = {
-            value["brand_id"]: value
-            for value in (franchise_universe or [])
-            if isinstance(value, dict)
-            and isinstance(value.get("brand_id"), str)
-            and value.get("individual_franchise_eligibility") == "VERIFIED"
-        }
-        brands = [
-            value
-            for brand_id, value in universe_by_id.items()
-            if proposed_ids is None or brand_id in proposed_ids
-        ]
-        drafts: list[_CandidateDraft] = []
-        for brand in brands:
-            brand_id = brand["brand_id"]
-            name = brand["display_name"]
-            (
-                brand_evidence_refs,
-                brand_signals,
-                brand_documents,
-                brand_document_gaps,
-            ) = project_evidence_for_candidate(
-                evidence_records,
-                project_id=state.project_id,
-                case_type="FRANCHISE",
-                source_id=brand_id,
-            )
-            profile = brand.get("finance_profile")
-            if not isinstance(profile, dict):
-                raise ValueError(f"Verified franchise has no finance profile: {brand_id}")
-            eligibility_refs = [
-                value
-                for value in brand.get("evidence_refs", [])
-                if isinstance(value, str)
-            ]
-            candidate_evidence_refs = sorted(
-                set(brand_evidence_refs)
-                | set(eligibility_refs)
-                | {
-                    value
-                    for value in profile.get("evidence_refs", [])
-                    if isinstance(value, str)
-                }
-            )
-            assumption_ref = f"declared-assumption:{brand_id}:2026-08-24"
-            initial_cost_lines = [
-                self._franchise_cost_line(
-                    brand_id=brand_id,
-                    category=category,
-                    finance_profile=profile,
-                    property_cost_override=property_cost_override,
-                )
-                for category in sorted(INITIAL_COST_CATEGORIES, key=lambda item: item.value)
-            ]
-            monthly_fixed_cost_lines = [
-                self._franchise_cost_line(
-                    brand_id=brand_id,
-                    category=category,
-                    finance_profile=profile,
-                    property_cost_override=property_cost_override,
-                )
-                for category in sorted(
-                    MONTHLY_FIXED_COST_CATEGORIES,
-                    key=lambda item: item.value,
-                )
-            ]
-            finance = calculate_finance(
-                FinanceInput(
-                    initial_cost_lines=initial_cost_lines,
-                    monthly_fixed_cost_lines=monthly_fixed_cost_lines,
-                    contribution_margin_bps=6_500,
-                    operating_days_per_month=26,
-                    average_ticket_krw=7_000,
-                )
-            )
-            gate = evaluate_capital_gate(
-                CapitalGateInput(
-                    own_funds_krw=state.founder.own_funds_krw,
-                    borrowing_intent=state.founder.borrowing_intent,
-                    initial_cash=finance.initial_cash,
-                )
-            )
-            drafts.append(
-                _CandidateDraft(
-                    candidate={
-                        "schema_version": "2.0.0",
-                        "candidate_id": self._candidate_id(
-                            project_id=state.project_id,
-                            case_type="FRANCHISE",
-                            source_id=brand_id,
-                        ),
-                        "project_id": state.project_id,
-                        "state_version": state.state_version,
-                        "case_type": "FRANCHISE",
-                        "display_name": name,
-                        "review_status": (
-                            "EXCLUDED"
-                            if gate.status == CapitalGateStatus.FAIL
-                            else "CONDITIONAL_REVIEW"
-                        ),
-                        "reason_codes": sorted(
-                            {
-                                gate.reason_code,
-                                "FRANCHISE_AREA_AVAILABILITY_UNCONFIRMED",
-                                "FRANCHISE_DISCLOSURE_MISSING",
-                            }
-                        ),
-                        "summary": (
-                            "현재 자금과 확인된 공식 가맹 안내를 기준으로 다음 검토 가치가 "
-                            "있는 조건부 후보입니다."
-                        ),
-                        "rank": 1,
-                        "rank_basis": "NEXT_REVIEW_PRIORITY",
-                        "is_primary_next_review": True,
-                        "franchise": {
-                            "brand_id": brand_id,
-                            "eligibility": "VERIFIED",
-                                "availability_status": "HQ_CONFIRMATION_REQUIRED",
-                            "eligibility_evidence_refs": eligibility_refs,
-                            "disclosure_evidence_refs": [],
-                            "finance_profile": deepcopy(profile),
-                        },
-                        "independent_model": None,
-                        "evidence_refs": candidate_evidence_refs,
-                        "assumption_refs": [assumption_ref],
-                        "market_signals": brand_signals,
-                        "official_documents": brand_documents,
-                        "official_document_gaps": sorted(
-                            set(brand_document_gaps) | {"정보공개서 공식 문서"}
-                        ),
-                        "financial_summary": {
-                            "initial_cash": self._money(
-                                finance.initial_cash,
-                                self._cost_refs(initial_cost_lines),
-                            ),
-                            "monthly_fixed_cost": self._money(
-                                finance.monthly_fixed_cost,
-                                self._cost_refs(monthly_fixed_cost_lines),
-                            ),
-                            "break_even_monthly_sales_krw": (finance.break_even_monthly_sales_krw),
-                            "required_daily_orders": self._decimal(finance.required_daily_orders),
-                            "unknown_cost_fields": finance.unknown_cost_fields,
-                        },
-                        "missing_fields": [
-                            {
-                                "field": "지역 출점 가능 여부",
-                                "impact": "선택 동네에서 실제 출점 가능한지 확정할 수 없습니다.",
-                                "next_check": "가맹 본사에 후보 지역 출점 가능 여부를 확인합니다.",
-                            },
-                            {
-                                "field": "정보공개서",
-                                "impact": "가맹 조건과 비용의 완전성을 확정할 수 없습니다.",
-                                "next_check": "최신 정보공개서를 확보해 조건을 다시 계산합니다.",
-                            },
-                        ],
-                        "risks": [
-                            {
-                                "risk_id": "FRANCHISE_CONDITIONS_INCOMPLETE",
-                                "severity": "HIGH",
-                                "summary": "출점 승인과 최신 정보공개서 확인이 필요합니다.",
-                                "evidence_refs": candidate_evidence_refs,
-                            }
-                        ],
-                        "counterfactuals": self._counterfactuals(
-                            gate.minimum_required_reduction_krw
-                        ),
-                        "next_actions": [
-                            "최신 정보공개서를 확보합니다.",
-                            "본사에 후보 지역 출점 가능 여부를 확인합니다.",
-                            "실제 점포 임대 조건으로 비용을 다시 계산합니다.",
-                        ],
-                    },
-                    gate_status=gate.status,
-                    initial_cash_base=(
-                        int(finance.initial_cash.base)
-                        if finance.initial_cash.base is not None
-                        else 10**18
-                    ),
-                )
-            )
-        return drafts
-
-    @staticmethod
-    def _franchise_cost_line(
-        *,
-        brand_id: str,
-        category: CostCategory,
-        finance_profile: dict[str, Any],
-        property_cost_override: PropertyCostOverride | None,
-    ) -> CostLine:
-        if property_cost_override is not None and property_cost_override.source_id == brand_id:
-            actual_value = SimpleProposalBuilder._property_cost_value(
-                category,
-                property_cost_override,
-            )
-            if actual_value is not None:
-                return CostLine(
-                    field_id=category.value,
-                    category=category,
-                    amount=MoneyRange(
-                        low=actual_value,
-                        base=actual_value,
-                        high=actual_value,
-                    ),
-                    provenance=ValueProvenance.USER_INPUT,
-                    evidence_ref=property_cost_override.evidence_ref,
-                )
-        if category == CostCategory.FRANCHISE_INITIAL_FEES:
-            value = finance_profile.get("known_initial_cost_range_krw")
-            refs = [
-                ref
-                for ref in finance_profile.get("evidence_refs", [])
-                if isinstance(ref, str)
-            ]
-            if isinstance(value, dict) and refs:
-                return CostLine(
-                    field_id=category.value,
-                    category=category,
-                    amount=MoneyRange.model_validate(value),
-                    provenance=ValueProvenance.FACT,
-                    evidence_ref=refs[0],
-                )
-            return CostLine(
-                field_id=category.value,
-                category=category,
-                amount=MoneyRange(low=None, base=None, high=None),
-                provenance=ValueProvenance.UNKNOWN,
-            )
-        assumed_categories = SimpleProposalBuilder._franchise_assumed_categories(
-            finance_profile
-        )
-        if category not in assumed_categories:
-            return CostLine(
-                field_id=category.value,
-                category=category,
-                amount=MoneyRange(low=0, base=0, high=0),
-                provenance=ValueProvenance.DERIVED,
-            )
-        assumption = _FRANCHISE_BENCHMARK_COSTS[category]
-        if category == CostCategory.MONTHLY_OTHER_FIXED:
-            royalty = finance_profile.get("monthly_royalty_krw")
-            if isinstance(royalty, int):
-                assumption = MoneyRange(
-                    low=(assumption.low or 0) + royalty,
-                    base=(assumption.base or 0) + royalty,
-                    high=(assumption.high or 0) + royalty,
-                )
-        return CostLine(
-            field_id=category.value,
-            category=category,
-            amount=assumption,
-            provenance=ValueProvenance.ASSUMPTION,
-            evidence_ref=f"declared-assumption:{brand_id}:2026-08-24",
-        )
-
-    @staticmethod
-    def _franchise_assumed_categories(
-        finance_profile: dict[str, Any],
-    ) -> set[CostCategory]:
-        values = {
-            value
-            for value in finance_profile.get("missing_costs", [])
-            if isinstance(value, str)
-        }
-        assumed = {
-            CostCategory.DEPOSIT,
-            CostCategory.ACQUISITION_OR_PREMIUM,
-            CostCategory.PREOPENING,
-            CostCategory.CONTINGENCY,
-            CostCategory.OPERATING_RESERVE,
-            CostCategory.MONTHLY_OCCUPANCY,
-            CostCategory.MONTHLY_LABOR,
-            CostCategory.MONTHLY_OTHER_FIXED,
-        }
-        for category in (
-            CostCategory.CONSTRUCTION,
-            CostCategory.EQUIPMENT,
-            CostCategory.OPENING_INVENTORY,
-        ):
-            if category.value in values:
-                assumed.add(category)
-        return assumed
-
-    @staticmethod
-    def _cost_line(
-        model_id: str,
-        category: CostCategory,
-        amount: MoneyRange,
-        property_cost_override: PropertyCostOverride | None,
-    ) -> CostLine:
-        if property_cost_override is not None and property_cost_override.source_id == model_id:
-            actual_value = SimpleProposalBuilder._property_cost_value(
-                category,
-                property_cost_override,
-            )
-            if actual_value is not None:
-                return CostLine(
-                    field_id=category.value,
-                    category=category,
-                    amount=MoneyRange(
-                        low=actual_value,
-                        base=actual_value,
-                        high=actual_value,
-                    ),
-                    provenance=ValueProvenance.USER_INPUT,
-                    evidence_ref=property_cost_override.evidence_ref,
-                )
-        return CostLine(
-            field_id=category.value,
-            category=category,
-            amount=amount,
-            provenance=ValueProvenance.ASSUMPTION,
-            evidence_ref=f"declared-assumption:{model_id}",
-        )
-
-    @staticmethod
-    def _property_cost_value(
-        category: CostCategory,
-        value: PropertyCostOverride,
-    ) -> int | None:
-        if category == CostCategory.DEPOSIT:
-            return value.deposit_krw
-        if category == CostCategory.ACQUISITION_OR_PREMIUM:
-            return value.key_money_krw
-        if category == CostCategory.MONTHLY_OCCUPANCY:
-            return value.monthly_rent_krw + value.management_fee_krw
-        return None
-
-    @staticmethod
-    def _cost_refs(lines: list[CostLine]) -> list[str]:
-        return sorted(
-            {
-                line.evidence_ref
-                for line in lines
-                if isinstance(line.evidence_ref, str) and line.evidence_ref
-            }
-        )
-
-    @staticmethod
-    def _property_adjusted_fields(
-        model_id: str,
-        value: PropertyCostOverride | None,
-    ) -> list[str]:
-        if value is None or value.source_id != model_id:
-            return []
-        fields = [
-            "property.deposit_krw",
-            "property.management_fee_krw",
-            "property.monthly_rent_krw",
-        ]
-        if value.key_money_krw is not None:
-            fields.append("property.key_money_krw")
-        return fields
-
-    @staticmethod
-    def _money(value: MoneyRange, refs: list[str]) -> dict[str, Any]:
-        return {
-            "currency": "KRW",
-            "low": value.low,
-            "base": value.base,
-            "high": value.high,
-            "provenance_refs": refs if value.base is not None else [],
-        }
-
-    @staticmethod
-    def _decimal(value: Decimal | None) -> float | None:
-        return float(value) if value is not None else None
-
-    @staticmethod
-    def _review_status(status: CapitalGateStatus) -> str:
-        return {
-            CapitalGateStatus.PASS: "REVIEW_RECOMMENDED",
-            CapitalGateStatus.CONDITIONAL: "CONDITIONAL_REVIEW",
-            CapitalGateStatus.FAIL: "EXCLUDED",
-        }[status]
-
-    @staticmethod
-    def _summary(status: CapitalGateStatus) -> str:
-        return {
-            CapitalGateStatus.PASS: "현재 자금 범위에서 다음 검토 가치가 있는 창업안입니다.",
-            CapitalGateStatus.CONDITIONAL: (
-                "자금 조달 또는 실제 점포 비용을 확인하면서 검토할 창업안입니다."
-            ),
-            CapitalGateStatus.FAIL: "현재 확인된 자금 조건으로는 진행하기 어려운 창업안입니다.",
-        }[status]
-
-    @staticmethod
-    def _capital_risks(
-        status: CapitalGateStatus,
-        evidence_refs: list[str],
-    ) -> list[dict[str, Any]]:
-        if status == CapitalGateStatus.PASS:
-            return []
-        return [
-            {
-                "risk_id": "CAPITAL_COVERAGE_REQUIRES_CONFIRMATION",
-                "severity": "HIGH" if status == CapitalGateStatus.FAIL else "MEDIUM",
-                "summary": "실제 점포 비용과 자금 조달 가능 범위를 확인해야 합니다.",
-                "evidence_refs": evidence_refs,
-            }
-        ]
-
-    @staticmethod
-    def _counterfactuals(reduction: int | None) -> list[dict[str, str]]:
-        if reduction is None:
-            return [
-                {
-                    "variable": "실제 점포 비용",
-                    "condition": "실제 견적이 현재 참고 범위보다 낮아지는 경우",
-                    "decision_impact": "자금 적합성 판단이 좋아질 수 있습니다.",
-                }
-            ]
-        return [
-            {
-                "variable": "초기 필요자금",
-                "condition": f"최소 {reduction:,}원 이상 줄어드는 경우",
-                "decision_impact": "현재 자기자금 기준의 제외 판단을 다시 검토합니다.",
-            }
-        ]
-
-    @staticmethod
-    def _next_actions(status: CapitalGateStatus) -> list[str]:
-        if status == CapitalGateStatus.FAIL:
-            return [
-                "예산에 가까운 작은 운영안을 비교합니다.",
-                "추가 자금 조건을 입력합니다.",
-            ]
-        return [
-            "후보를 선택하고 실제 점포 조건을 입력합니다.",
-            "보증금·월세·권리금과 견적을 확인합니다.",
-        ]
-
-    @staticmethod
-    def _gate_order(status: CapitalGateStatus) -> int:
-        return {
-            CapitalGateStatus.PASS: 0,
-            CapitalGateStatus.CONDITIONAL: 1,
-            CapitalGateStatus.FAIL: 2,
-        }[status]
-
-    @staticmethod
-    def _candidate_id(*, project_id: str, case_type: str, source_id: str) -> str:
-        """같은 창업안은 State가 바뀌어도 선택과 실제 점포 입력을 이어받는다."""
-
-        return f"{project_id}:{case_type}:{source_id}"

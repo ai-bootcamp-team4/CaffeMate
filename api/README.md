@@ -142,9 +142,12 @@ State, Event, Workflow, Result에는 쓰지 않는다. 두 명령 모두 `Idempo
 `Idempotency-Key`를 포함한다. 후보가 current Result에 없거나 full head가 달라지면 `409`다.
 
 성공하면 `CANDIDATE_SELECTED` Event와 새 Venture State를 원자적으로 저장하고 선택한
-Venture Case를 `SELECTED`·`CANDIDATE`로 전환한다. 응답에는 점포·임대 조건·견적·자금 조건과
-개인카페 또는 프랜차이즈별 필수 자료 체크리스트가 포함된다. `property_intake_enabled`와
-`document_intake_enabled`는 실제 자료 입력을 열지만 `is_final_go_decision`은 항상 `false`다.
+Venture Case를 `SELECTED`·`CANDIDATE`로 전환한다. 응답의 `required_evidence`는 고정 수집 목록이
+아니라 현재 Candidate Result의 unresolved `decision_inputs`와 `verification_requirements`에서
+결정론적으로 파생한다. CaffeMate 입력으로 실제 판단을 바꿀 수 있는 항목은 `REFINABLE`, 본사·
+관할기관 등 외부 주체만 결정할 수 있는 항목은 `EXTERNAL_CONFIRMATION_REQUIRED`로 분리하며 이미
+해소된 비용 항목은 다시 요구하지 않는다. `property_intake_enabled`와 `document_intake_enabled`는
+실제 자료 입력을 열지만 `is_final_go_decision`은 항상 `false`다.
 
 ## 문서 업로드 수명주기
 
@@ -188,14 +191,21 @@ State version을 함께 잠근다. 비어 있지 않은 값만 `CONFIRMED` Claim
 기존 문서 Claim과 값이 다르면 어느 쪽도 자동 선택하지 않고 `OPEN` conflict를 만든다. Event,
 State revision, Claim, conflict와 `QUEUED` 재계산 Workflow·Outbox는 하나의 PostgreSQL
 transaction으로 저장된다. commit 뒤 Worker가 같은 durable 실행 경로에서 재계산하며, 재계산기는
-선택된 후보의 문서 Claim을 사용자 확인 값으로 우선
-사용하며, 열린 충돌이 있는 비용 항목은 `UNKNOWN`으로 처리한다.
+현재 선택 점포 직접 입력을 가장 먼저 사용하고 그 다음 선택 후보의 문서 Claim을 사용자 확인 값으로
+사용한다. 현재는 임대차·매물의 보증금/권리금/월세+관리비, 인테리어 총액과 장비 총액을 명시적으로
+대응 비용 항목에 연결한다. 프랜차이즈 계약·정보공개서의 명시적 퍼센트 또는 bps 로열티는
+`sales_royalty_bps` 변동비 입력으로 연결해 기준 공헌이익률에서 차감하며, 월 정액 로열티는 계속
+월 고정비로 처리한다. 비율이나 단위를 확정할 수 없는 로열티와 같은 의미의 열린 충돌이 있는 비용
+항목은 0으로 처리하지 않고 `UNKNOWN`으로 남긴다.
 
 선택적 재계산 Workflow는 원본 Workflow와 원본 Result를 명시적으로 참조한다. 새 Result가
 커밋되면 API가 개인카페 모델 id 또는 프랜차이즈 브랜드 id를 안정적인 후보 식별값으로 사용해
 이전 결과와 비교한다. `GET /v1/projects/{project_id}/result`의 `decision_delta`에는 후보 추가·삭제,
-순위와 검토 상태, 초기 필요 현금·월 고정비·손익분기 매출의 변화가 포함된다. 비교할 원본 Result가
-없는 최초 결과에는 `decision_delta`가 `null`이다.
+순위와 검토 상태, 초기 필요 현금·월 고정비·손익분기 매출 변화뿐 아니라 decision input의 이전/현재
+값·provenance·resolution status, 영향받은 계산, reason code 증감과 실제 Gate 상태/reason 전이가
+포함된다. 원화 입력뿐 아니라 매출연동 로열티 같은 bps 입력도 이전/현재 값을 그대로 보존한다.
+단순히 Gate metric만 바뀌고 status/reason이 같으면 Gate 전이로 표시하지 않는다. 비교할
+원본 Result가 없는 최초 결과에는 `decision_delta`가 `null`이다.
 
 선택적 재계산도 `QUEUED` Workflow와 Outbox를 먼저 저장하고 Worker가 실행한다. 이미 저장된
 근거·후보를 재사용하므로 외부 검색·Agent 단계는 공개 progress에서 `SKIPPED`로 남기고

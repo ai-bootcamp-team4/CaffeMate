@@ -16,6 +16,7 @@ export interface FranchiseFinanceProfile {
   } | null
   reference_area_sqm: number | null
   monthly_royalty_krw: number | null
+  sales_royalty_bps: number | null
   evidence_refs: string[]
   source_refs: string[]
   scope_note: string

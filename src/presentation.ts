@@ -18,6 +18,8 @@ const internalLabels: Record<string, string> = {
   FRANCHISE_ELIGIBILITY_UNVERIFIED: "개인 가맹 자격 확인 필요",
   FRANCHISE_UNAVAILABLE_IN_AREA: "희망 지역에 출점할 수 없음",
   FRANCHISE_AREA_AVAILABILITY_UNCONFIRMED: "희망 지역 출점 가능 여부 확인 필요",
+  HQ_AREA_APPROVAL: "이 주소의 출점 가능 여부",
+  FRANCHISE_HQ: "프랜차이즈 본사",
   HQ_CONFIRMATION_REQUIRED: "본사 확인 필요",
   AVAILABLE: "가능",
   UNAVAILABLE: "불가",
@@ -65,6 +67,9 @@ const internalLabels: Record<string, string> = {
   preferences: "선호 조건",
   avoidances: "제외 조건",
   initial_cash_krw: "초기 필요자금",
+  monthly_rent_krw: "실제 월세",
+  equipment_cost_krw: "장비비",
+  construction_cost_krw: "인테리어비",
   INITIAL_CASH: "초기 필요자금",
   MONTHLY_FIXED_COST: "월 고정비",
   BREAK_EVEN: "손익분기 계산",
@@ -182,9 +187,7 @@ export function formatWon(value: number | null | undefined) {
     : `${new Intl.NumberFormat("ko-KR").format(value)}원`;
 }
 
-export function formatRange(
-  range: ResultCandidate["financial_summary"]["initial_cash"],
-) {
+export function formatRange(range: { low: number | null; base: number | null; high: number | null }) {
   if (range.low == null || range.base == null || range.high == null)
     return "확인되지 않음";
   return `${formatWon(range.low)} ~ ${formatWon(range.high)} (기준 ${formatWon(range.base)})`;

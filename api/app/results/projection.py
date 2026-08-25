@@ -4,6 +4,11 @@ from decimal import Decimal
 from typing import Any
 
 from app.contracts.schema_registry import CandidateContractValidator, ContractRegistry
+from app.decisions.projection import (
+    project_calculated_finance_decision_inputs,
+    project_gate_results,
+    project_verification_requirements,
+)
 from app.domain.errors import ContractValidationError
 
 
@@ -133,6 +138,25 @@ def _project_candidate(
             case_type=case_type,
             evidence_by_id=evidence_by_id,
         ),
+        "gate_results": project_gate_results(candidate),
+        "rank_trace": (
+            decision.get("rank_trace")
+            if isinstance(decision.get("rank_trace"), dict)
+            else None
+        ),
+        "decision_inputs": project_calculated_finance_decision_inputs(
+            finance_input=finance_input,
+            evidence_records=list(evidence_by_id.values()),
+            case_type=case_type,
+        ),
+        "verification_requirements": project_verification_requirements(
+            case_type=case_type,
+            franchise_availability=(
+                str(candidate.get("franchise_availability"))
+                if isinstance(candidate.get("franchise_availability"), str)
+                else None
+            ),
+        ),
         "financial_summary": {
             "initial_cash": _money_summary(
                 finance.get("initial_cash"),
@@ -141,6 +165,13 @@ def _project_candidate(
             "monthly_fixed_cost": _money_summary(
                 finance.get("monthly_fixed_cost"),
                 monthly_refs,
+            ),
+            "base_contribution_margin_bps": finance.get(
+                "base_contribution_margin_bps"
+            ),
+            "variable_cost_rate_bps": finance.get("variable_cost_rate_bps"),
+            "effective_contribution_margin_bps": finance.get(
+                "effective_contribution_margin_bps"
             ),
             "break_even_monthly_sales_krw": finance.get(
                 "break_even_monthly_sales_krw"
@@ -411,6 +442,7 @@ def _market_signals(
         candidates.setdefault(metric, []).append(
             {
                 "signal_type": metric,
+                "decision_role": "CONTEXT_ONLY",
                 "value": value,
                 "unit": record.get("unit") if isinstance(record.get("unit"), str) else None,
                 "data_date": source.get("published_or_data_date"),

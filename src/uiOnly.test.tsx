@@ -23,6 +23,31 @@ async function completeUiOnlyOnboarding() {
 }
 
 describe('UI-only development mode', () => {
+  it('uses the canonical public decision contract in its demo result fixture', async () => {
+    const { apiFactory } = createUiOnlyDependencies()
+    const client = apiFactory({
+      uid: 'ui-only-test-user',
+      displayName: 'UI contract test',
+      getIdToken: async () => 'ui-only-token',
+      signOut: async () => undefined,
+    })
+    const result = await client.getResult('ui-only-project')
+
+    for (const candidate of result.candidates) {
+      expect(candidate.schema_version).toBe('2.0.0')
+      expect(candidate).not.toHaveProperty('decision_trace')
+      expect(candidate.gate_results).toBeDefined()
+      expect(candidate.rank_trace === null || candidate.rank_trace?.ranking_class).toBeTruthy()
+      for (const input of candidate.decision_inputs ?? []) {
+        expect(input).toHaveProperty('value_range_krw')
+        expect(input).toHaveProperty('value_bps')
+        expect(input).toHaveProperty('source_title')
+        expect(input.resolution_action).toHaveProperty('action_type')
+        expect(input.resolution_action).not.toHaveProperty('type')
+      }
+    }
+  })
+
   it('opens the onboarding UI without Firebase or a Control API', async () => {
     const { authGateway, apiFactory } = createUiOnlyDependencies()
     render(<App authGateway={authGateway} apiFactory={apiFactory} />)

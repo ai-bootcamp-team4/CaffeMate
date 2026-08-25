@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -11,11 +12,177 @@ from sqlalchemy.engine import Connection, RowMapping
 
 from app.domain.errors import ProjectNotFoundError, WorkflowPreconditionError
 from app.domain.models import VentureState
+from app.finance.case_fact_repository import load_current_case_fact_resolution
+from app.finance.case_facts import CaseFactResolution, PropertyContext
+from app.finance.labor_benchmark import MinimumWageReference
+from app.finance.labor_oncost import EmployerSocialInsuranceReference
+from app.finance.property_benchmark import PropertyRentBenchmark
 from app.results.delta import build_result_decision_delta
-from app.workflows.models import HeadFence, WorkflowCode
-from app.workflows.simple_proposal import PropertyCostOverride
+from app.workflows.first_proposal import FirstProposalStage, stage_input_digest
+from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
+from app.workflows.models import HeadFence, WorkflowCode, WorkflowRun, WorkflowStatus
+from app.workflows.simple_proposal import SimpleProposalBuilder
 
 
+def persist_completed_first_proposal(
+    connection: Connection,
+    *,
+    project_id: str,
+    user_id: str,
+    state: VentureState,
+    policy_snapshot_id: str,
+    seed_registry_id: str,
+    pipeline: LinearMultiAgentProposalPipeline | None = None,
+    builder: SimpleProposalBuilder | None = None,
+    now: datetime,
+    new_id: Callable[[], str],
+    source_workflow_run_id: str | None = None,
+    source_result_bundle_id: str | None = None,
+    property_context: PropertyContext | None = None,
+    case_fact_resolution: CaseFactResolution | None = None,
+    property_rent_benchmarks: list[PropertyRentBenchmark] | None = None,
+    minimum_wage_references: list[MinimumWageReference] | None = None,
+    employer_social_insurance_references: (
+        list[EmployerSocialInsuranceReference] | None
+    ) = None,
+    franchise_universe: list[dict[str, Any]] | None = None,
+) -> WorkflowRun:
+    """Run and persist the complete first proposal in one transaction."""
+
+    project = _lock_project(connection, project_id=project_id, user_id=user_id)
+    if state.project_id != project_id or state.user_id != user_id:
+        raise WorkflowPreconditionError("Workflow State ownership does not match the project")
+    if int(project["current_state_version"]) != state.state_version:
+        raise WorkflowPreconditionError("Workflow State is no longer current")
+
+    effective_property_context = property_context
+    if effective_property_context is None:
+        effective_property_context = _load_current_property_context(
+            connection,
+            project_id=project_id,
+            user_id=user_id,
+            state=state,
+        )
+    effective_case_resolution = case_fact_resolution
+    if effective_case_resolution is None:
+        effective_case_resolution = load_current_case_fact_resolution(
+            connection,
+            project_id=project_id,
+            state=state,
+        )
+
+    head = _next_head(
+        project,
+        project_id=project_id,
+        state=state,
+        policy_snapshot_id=policy_snapshot_id,
+        seed_registry_id=seed_registry_id,
+    )
+    evidence_records = _active_evidence(connection, project_id=project_id)
+    workflow_run_id = new_id()
+    if (pipeline is None) == (builder is None):
+        raise ValueError("Provide exactly one proposal pipeline or deterministic builder")
+    if pipeline is not None:
+        bundle = pipeline.run(
+            state=state,
+            head=head,
+            workflow_run_id=workflow_run_id,
+            evidence_records=evidence_records,
+            property_context=effective_property_context,
+            case_fact_resolution=effective_case_resolution,
+        )
+    else:
+        assert builder is not None
+        bundle = builder.build(
+            state=state,
+            evidence_records=evidence_records,
+            property_context=effective_property_context,
+            case_fact_resolution=effective_case_resolution,
+            property_rent_benchmarks=property_rent_benchmarks,
+            minimum_wage_references=minimum_wage_references,
+            employer_social_insurance_references=(
+                employer_social_insurance_references
+            ),
+            franchise_universe=franchise_universe,
+        )
+    result_bundle_id = new_id()
+    stage_run_id = new_id()
+    input_digest = _workflow_input_digest(
+        state=state,
+        head=head,
+        source_workflow_run_id=source_workflow_run_id,
+    )
+    stage_digest = stage_input_digest(
+        workflow_run_id=workflow_run_id,
+        stage_code=FirstProposalStage.RUN_PROPOSAL,
+        head=head,
+    )
+    bundle_json = bundle.model_dump(mode="json")
+
+    _persist_project_head(connection, project_id=project_id, head=head, now=now)
+    _insert_workflow_run(
+        connection,
+        workflow_run_id=workflow_run_id,
+        project_id=project_id,
+        user_id=user_id,
+        head=head,
+        input_digest=input_digest,
+        source_workflow_run_id=source_workflow_run_id,
+        source_result_bundle_id=source_result_bundle_id,
+        now=now,
+    )
+    _insert_stage_run(
+        connection,
+        stage_run_id=stage_run_id,
+        workflow_run_id=workflow_run_id,
+        input_digest=stage_digest,
+        candidate_count=len(bundle.candidates),
+        result_bundle_id=result_bundle_id,
+        now=now,
+    )
+    _insert_result_bundle(
+        connection,
+        result_bundle_id=result_bundle_id,
+        project_id=project_id,
+        workflow_run_id=workflow_run_id,
+        head=head,
+        bundle_json=bundle_json,
+        now=now,
+    )
+    _insert_result_delta(
+        connection,
+        project_id=project_id,
+        result_bundle_id=result_bundle_id,
+        source_result_bundle_id=source_result_bundle_id,
+        bundle_json=bundle_json,
+        now=now,
+    )
+    _set_current_result(
+        connection,
+        project_id=project_id,
+        result_bundle_id=result_bundle_id,
+    )
+    _insert_event(
+        connection,
+        workflow_run_id=workflow_run_id,
+        event_type="WORKFLOW_SUCCEEDED",
+        data={
+            "stage_code": FirstProposalStage.RUN_PROPOSAL.value,
+            "candidate_count": len(bundle.candidates),
+            "result_bundle_id": result_bundle_id,
+        },
+        occurred_at=now,
+    )
+    return WorkflowRun(
+        workflow_run_id=workflow_run_id,
+        project_id=project_id,
+        workflow_code=WorkflowCode.FIRST_PROPOSAL,
+        status=WorkflowStatus.SUCCEEDED,
+        head=head,
+        input_digest=input_digest,
+        created_at=now,
+        updated_at=now,
+    )
 def _next_head(
     project: RowMapping,
     *,
@@ -94,6 +261,100 @@ def _persist_project_head(
             """
         ),
         {"project_id": project_id, **head.model_dump(mode="python"), "updated_at": now},
+    )
+
+
+def _insert_workflow_run(
+    connection: Connection,
+    *,
+    workflow_run_id: str,
+    project_id: str,
+    user_id: str,
+    head: HeadFence,
+    input_digest: str,
+    source_workflow_run_id: str | None,
+    source_result_bundle_id: str | None,
+    now: datetime,
+) -> None:
+    """Persist the legacy synchronous caller's terminal workflow row.
+
+    The durable queue path uses async_persistence._insert_queued_workflow_run;
+    this helper remains for the explicit one-transaction compatibility entry
+    point above and is not used by the worker path.
+    """
+
+    connection.execute(
+        text(
+            """
+            INSERT INTO workflow_runs(
+                workflow_run_id, project_id, owner_user_id, workflow_code, status,
+                workflow_generation, state_version, founder_snapshot_id,
+                area_snapshot_id, evidence_snapshot_id, policy_snapshot_id,
+                index_generation_id, seed_registry_id, input_digest,
+                created_at, updated_at, source_workflow_run_id, source_result_bundle_id
+            ) VALUES (
+                :workflow_run_id, :project_id, :owner_user_id, 'FIRST_PROPOSAL', 'SUCCEEDED',
+                :workflow_generation, :state_version, :founder_snapshot_id,
+                :area_snapshot_id, :evidence_snapshot_id, :policy_snapshot_id,
+                :index_generation_id, :seed_registry_id, :input_digest,
+                :created_at, :updated_at, :source_workflow_run_id, :source_result_bundle_id
+            )
+            """
+        ),
+        {
+            "workflow_run_id": workflow_run_id,
+            "project_id": project_id,
+            "owner_user_id": user_id,
+            **head.model_dump(mode="python"),
+            "input_digest": input_digest,
+            "created_at": now,
+            "updated_at": now,
+            "source_workflow_run_id": source_workflow_run_id,
+            "source_result_bundle_id": source_result_bundle_id,
+        },
+    )
+
+
+def _insert_stage_run(
+    connection: Connection,
+    *,
+    stage_run_id: str,
+    workflow_run_id: str,
+    input_digest: str,
+    candidate_count: int,
+    result_bundle_id: str,
+    now: datetime,
+) -> None:
+    connection.execute(
+        text(
+            """
+            INSERT INTO stage_runs(
+                stage_run_id, workflow_run_id, stage_code, status,
+                input_digest, attempt, result_json,
+                created_at, updated_at, completed_at
+            ) VALUES (
+                :stage_run_id, :workflow_run_id, 'RUN_PROPOSAL', 'SUCCEEDED',
+                :input_digest, 1, CAST(:result_json AS JSONB),
+                :created_at, :updated_at, :completed_at
+            )
+            """
+        ),
+        {
+            "stage_run_id": stage_run_id,
+            "workflow_run_id": workflow_run_id,
+            "input_digest": input_digest,
+            "result_json": json.dumps(
+                {
+                    "outcome": "SUCCESS",
+                    "candidate_count": candidate_count,
+                    "result_bundle_id": result_bundle_id,
+                },
+                separators=(",", ":"),
+            ),
+            "created_at": now,
+            "updated_at": now,
+            "completed_at": now,
+        },
     )
 
 
@@ -251,14 +512,14 @@ def _active_evidence(
     return [dict(value) for value in rows if isinstance(value, dict)]
 
 
-def _load_current_property_override(
+def _load_current_property_context(
     connection: Connection,
     *,
     project_id: str,
     user_id: str,
     state: VentureState,
-) -> PropertyCostOverride | None:
-    """모든 재실행에서 선택 후보의 최신 실제 점포 비용을 자동으로 이어받는다."""
+) -> PropertyContext | None:
+    """모든 재실행에서 선택 후보의 최신 실제 점포 컨텍스트를 자동으로 이어받는다."""
 
     if state.active_case_id is None:
         return None
@@ -266,8 +527,8 @@ def _load_current_property_override(
         connection.execute(
             text(
                 """
-                SELECT property_input_id, source_id, deposit_krw,
-                       monthly_rent_krw, management_fee_krw, key_money_krw
+                SELECT property_input_id, source_id, address, area_sqm, floor,
+                       deposit_krw, monthly_rent_krw, management_fee_krw, key_money_krw
                 FROM candidate_property_intakes
                 WHERE project_id=:project_id
                   AND owner_user_id=:user_id
@@ -290,13 +551,38 @@ def _load_current_property_override(
     )
     if row is None:
         return None
-    return PropertyCostOverride(
+    return PropertyContext(
         property_input_id=str(row["property_input_id"]),
         source_id=str(row["source_id"]),
+        address=str(row["address"]),
+        area_sqm=float(row["area_sqm"]),
+        floor=(str(row["floor"]) if row["floor"] is not None else None),
         deposit_krw=int(row["deposit_krw"]),
         monthly_rent_krw=int(row["monthly_rent_krw"]),
         management_fee_krw=int(row["management_fee_krw"]),
         key_money_krw=(int(row["key_money_krw"]) if row["key_money_krw"] is not None else None),
+    )
+
+
+def _load_current_property_override(
+    connection: Connection,
+    *,
+    project_id: str,
+    user_id: str,
+    state: VentureState,
+) -> PropertyContext | None:
+    """Compatibility boundary for the durable worker's legacy keyword.
+
+    The worker still calls this lookup an override, but the selected-property
+    contract now carries the complete PropertyContext so address/area/floor
+    cannot be lost during a durable rerun.
+    """
+
+    return _load_current_property_context(
+        connection,
+        project_id=project_id,
+        user_id=user_id,
+        state=state,
     )
 
 

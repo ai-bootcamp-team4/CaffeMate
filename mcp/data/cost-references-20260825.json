@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0.0",
+  "snapshot_id": "cost-references-20260825",
+  "checked_at": "2026-08-25T08:00:00Z",
+  "references": [
+    {
+      "reference_id": "kr-minimum-wage-2026",
+      "reference_type": "MINIMUM_WAGE",
+      "effective_from": "2026-01-01",
+      "effective_to": "2026-12-31",
+      "hourly_rate_krw": 10320,
+      "monthly_equivalent_hours": 209,
+      "monthly_equivalent_krw": 2156880,
+      "source_title": "최저임금위원회 연도별 최저임금",
+      "source_ref": "https://www.minimumwage.go.kr/minWage/policy/decisionMain.do",
+      "source_anchor": "연도별 최저임금 결정현황 > 2026",
+      "published_or_data_date": "2025-08-05"
+    },
+    {
+      "reference_id": "kr-minimum-wage-2027",
+      "reference_type": "MINIMUM_WAGE",
+      "effective_from": "2027-01-01",
+      "effective_to": "2027-12-31",
+      "hourly_rate_krw": 10700,
+      "monthly_equivalent_hours": 209,
+      "monthly_equivalent_krw": 2236300,
+      "source_title": "최저임금위원회 연도별 최저임금",
+      "source_ref": "https://www.minimumwage.go.kr/minWage/policy/decisionMain.do",
+      "source_anchor": "연도별 최저임금 결정현황 > 2027",
+      "published_or_data_date": "2026-08-05"
+    },
+    {
+      "reference_id": "kr-employer-social-insurance-2026-small-workplace",
+      "reference_type": "EMPLOYER_SOCIAL_INSURANCE",
+      "effective_from": "2026-01-01",
+      "effective_to": "2026-12-31",
+      "workplace_employee_upper_bound": 149,
+      "components": [
+        {
+          "component": "NATIONAL_PENSION",
+          "employer_rate_ppm": 47500,
+          "source_title": "국민연금공단 2026년 사업장가입자 보험료율",
+          "source_ref": "https://www.nps.or.kr/pnsinfo/ntpsklg/getOHAF0097M0.do",
+          "source_anchor": "4대 보험 보험료율 > 국민연금 > 사용자 4.75%",
+          "published_or_data_date": "2026-01-01"
+        },
+        {
+          "component": "HEALTH_LONG_TERM_CARE",
+          "employer_rate_ppm": 40674,
+          "source_title": "국민건강보험공단 2026년도 건강·장기요양 보험료율",
+          "source_ref": "https://edi.nhis.or.kr/portal/images/popup/20251204_pop01longdesc.html",
+          "source_anchor": "2026 직장가입자 건강보험 7.19% 및 장기요양 0.9448% > 노사 50% 부담",
+          "published_or_data_date": "2025-12-04"
+        },
+        {
+          "component": "UNEMPLOYMENT_BENEFIT",
+          "employer_rate_ppm": 9000,
+          "source_title": "고용노동부 고용보험 보험료 부담비율",
+          "source_ref": "https://moel.go.kr/info/astmgmt/employ/employList.do",
+          "source_anchor": "실업급여 보험료 1.8% > 노사 각각 0.9%",
+          "published_or_data_date": "2026-01-01"
+        },
+        {
+          "component": "EMPLOYMENT_STABILIZATION_VOCATIONAL",
+          "employer_rate_ppm": 2500,
+          "source_title": "고용노동부 고용안정·직업능력개발사업 보험료율",
+          "source_ref": "https://moel.go.kr/info/astmgmt/employ/employList.do",
+          "source_anchor": "150인 미만 기업 > 사업주 0.25%",
+          "published_or_data_date": "2026-01-01"
+        }
+      ],
+      "unsupported_components": [
+        "WORKERS_COMPENSATION_INDUSTRY_RATE_REQUIRED"
+      ],
+      "excluded_adjustments": [
+        "CONTRIBUTION_BASE_CAPS_AND_FLOORS_NOT_APPLIED",
+        "EXEMPTIONS_NOT_APPLIED",
+        "SUPPORT_PROGRAMS_NOT_APPLIED"
+      ]
+    }
+  ]
+}

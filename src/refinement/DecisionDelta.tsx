@@ -1,6 +1,6 @@
 import type { ResultCandidate, ResultDecisionDelta } from '../apiClient'
 import { formatWon } from '../presentation'
-import { publicStatus, resolutionStatusLabel } from '../result/resultPresentation'
+import { decisionInputLabel, publicStatus, resolutionStatusLabel } from '../result/resultPresentation'
 
 function changeForCandidate(delta: ResultDecisionDelta | null | undefined, candidate: ResultCandidate) {
   if (!delta) return null
@@ -35,7 +35,7 @@ export function DecisionDelta({ delta, candidate, previousFinancialSummary }: {
         <div className="decision-delta__causes">
           {change.input_changes.map((inputChange) => (
             <article key={inputChange.field}>
-              <strong>{inputChange.after?.label ?? inputChange.before?.label ?? '교체된 입력값'}</strong>
+              <strong>{inputChange.after || inputChange.before ? decisionInputLabel(inputChange.after ?? inputChange.before!) : '교체된 입력값'}</strong>
               <p>{inputChange.before ? resolutionStatusLabel(inputChange.before.resolution_status) : '이전 값 없음'} → {inputChange.after ? resolutionStatusLabel(inputChange.after.resolution_status) : '새 값 없음'}</p>
             </article>
           ))}

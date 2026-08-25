@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ControlApiError } from './apiClient'
-import type { HeadFence, ResultView, WorkflowProgress } from './apiClient'
+import type { HeadFence, ResultCandidate, ResultView, WorkflowProgress } from './apiClient'
 import { completeOnboarding, enterOnboarding, feedbackPreview, head, progress, project, result, resultExplanation, setup, workflow } from './testSupport/appHarness'
 
 afterEach(cleanup)
@@ -350,10 +350,12 @@ describe('CaffeMate Control API integration', () => {
   it('recalculates the selected candidate and explains what changed', async () => {
     const previousInput = result.candidates[0].decision_inputs?.find((input) => input.field === 'initial_cash_krw') ?? null
     const actualRentInput = {
-      field: 'monthly_rent_krw', label: '실제 월세', value: 2_000_000,
-      provenance: 'USER_INPUT' as const, resolution_status: 'USER_CONFIRMED_FACT' as const,
-      decision_role: 'FINANCE_INPUT' as const, source: null, applied_to: ['MONTHLY_FIXED_COST'],
-      replaceable_by: [], limitation_code: null, resolution_action: { type: 'PROPERTY_TERMS' as const, target_fields: ['monthly_rent_krw'] },
+      field: 'monthly_rent_krw', value_range_krw: { low: 2_000_000, base: 2_000_000, high: 2_000_000 }, value_bps: null,
+      provenance: 'USER_INPUT' as const, resolution_status: 'RESOLVED_USER_CONFIRMED' as const,
+      decision_role: 'FINANCE_INPUT' as const, source_title: '실제 월세 입력', source_ref: null, data_date: null,
+      geographic_scope: null, source_anchor: null, applied_to: ['MONTHLY_FIXED_COST'],
+      replaceable_by: [], limitation_code: null, derivation: null,
+      resolution_action: { action_type: 'PROPERTY_TERMS' as const, target_fields: ['monthly_rent_krw'], accepted_document_types: [] },
     }
     const recalculated: ResultView = {
       ...result,
@@ -493,11 +495,11 @@ describe('CaffeMate Control API integration', () => {
   })
 
   it('shows an authoritative funding failure without a separate condition-change CTA', async () => {
-    const failedCandidate = {
+    const failedCandidate: ResultCandidate = {
       ...result.candidates[0],
       review_status: 'EXCLUDED' as const,
       reason_codes: ['MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS'], rank: null, rank_basis: 'NOT_RANKED', is_primary_next_review: false,
-      decision_trace: { gates: [{ gate_type: 'CAPITAL', status: 'FAIL' as const, reason_code: 'MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS', decisive_input_refs: ['own_funds_krw', 'initial_cash_krw'], metrics: { own_funds_krw: 50_000_000, minimum_required_krw: 70_000_000, shortfall_krw: 20_000_000 } }] },
+      gate_results: [{ gate_type: 'CAPITAL', status: 'FAIL', reason_code: 'MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS', decisive_input_refs: ['own_funds_krw', 'initial_cash_krw'], metrics: { own_funds_krw: 50_000_000, minimum_required_krw: 70_000_000, maximum_required_krw: 90_000_000, shortfall_krw: 20_000_000 } }],
     }
     setup({ ...result, primary_candidate_id: null, outcome_status: 'NO_REVIEWABLE_CANDIDATES', candidates: [failedCandidate] })
     await completeOnboarding()

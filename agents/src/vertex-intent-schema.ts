@@ -6,7 +6,6 @@ function asObject(value: unknown): JsonObject | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   return value as JsonObject
 }
-
 const INTENT_ENUM_VALUES: Readonly<Record<string, readonly string[]>> = Object.freeze({
   '/founder/borrowing_intent': ['YES', 'NO', 'UNDECIDED'],
   '/founder/cafe_type_preference': ['OPEN_TO_BOTH', 'INDEPENDENT_ONLY', 'FRANCHISE_ONLY'],
@@ -224,4 +223,3 @@ export function applyVertexIntentBounds(projected: JsonObject, task: AgentTask):
   affectedWorkflowCodes.items = { type: 'string', enum: ['FIRST_PROPOSAL'] }
   riskFlags.maxItems = 5
 }
-

@@ -15,12 +15,8 @@ describe('result narrative evidence presentation', () => {
           input.field === 'initial_cash_krw'
             ? {
                 ...input,
-                source: {
-                  ...input.source!,
-                  filename: 'regional-rent-benchmark.pdf',
-                  page_index: 1,
-                  section_path: '영통구 임대료 표',
-                },
+                source_title: '한국부동산원 상업용부동산 임대동향조사',
+                source_anchor: 'regional-rent-benchmark.pdf · 2페이지 · 영통구 임대료 표',
               }
             : input,
         ),

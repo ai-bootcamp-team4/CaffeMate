@@ -146,7 +146,9 @@ Risk는 Evidence 또는 명시된 missing field에 연결한다.
 5. 지배당하지 않는 후보를 우선
 6. `다음으로 조사할 가치` 기준으로 주력 후보 선택
 
-불완전한 후보가 주력일 수 있다. 이 경우 `가장 우수한 확정안`이 아니라 `불확실성을 줄일 가치가 가장 높은 후보`라고 표시한다.
+불완전한 후보가 주력일 수 있다. 이 경우 `가장 우수한 확정안`이 아니라 `불확실성을 줄일 가치가 가장 높은 후보`라고 표시한다. 특정 주소의 본사 출점 승인처럼 외부 주체만 결정할 수 있는 확인은 Ranking 입력의 일반 missing field로 세지 않고 별도 verification requirement로 유지한다.
+
+Ranking 구현은 하나의 Control API authority를 사용한다. 각 후보의 공개 `rank_trace`는 실제 정렬에 사용한 factor와 비교 가능한 경우의 최초 결정 factor를 계산 시점에 함께 생성한다. 안정적 ID는 완전 동률의 결정론적 tie-break에는 사용할 수 있지만 사용자에게 우열 근거로 표시하지 않는다.
 
 ### 순위 의미
 
@@ -194,3 +196,12 @@ Counterfactual은 deterministic calculation으로 생성한다.
 - 위험과 missing field
 - 판단 반전 조건
 - 다음 확인 행동
+
+현재 producer는 여기에 다음 기계 판독 투영을 함께 제공한다.
+
+- `gate_results`: Gate가 실제로 사용한 decisive input과 metric, status, reason code
+- `rank_trace`: 실제 정렬 factor와 사용자에게 설명 가능한 decisive factor
+- `decision_inputs`: provenance, resolution status, decision role, 적용 계산과 resolution action
+- `verification_requirements`: CaffeMate 내부 입력으로 닫을 수 없는 외부 확인, 책임 주체와 필요한 근거
+
+상권 유동인구·카페 수·추정매출처럼 계산에 사용하지 않는 신호는 각 항목에 `decision_role=CONTEXT_ONLY`를 명시한다. 프론트엔드는 signal type 이름으로 판단 역할을 재구성하지 않는다.

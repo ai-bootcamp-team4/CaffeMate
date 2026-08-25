@@ -3,7 +3,7 @@ import { decisionHeading, gateCopy, gateMetricRows, gateTitle } from './resultPr
 
 export function DecisionReasons({ candidate }: { candidate: ResultCandidate }) {
   const title = decisionHeading(candidate.review_status)
-  const gates = candidate.decision_trace?.gates ?? []
+  const gates = candidate.gate_results ?? []
   return (
     <section id="result-decision" className="result-section" role="region" aria-labelledby="decisionReasonsTitle">
       <header className="result-section__head">

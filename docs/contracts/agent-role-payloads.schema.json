@@ -13,6 +13,16 @@
         "high": { "type": "integer", "minimum": 0 }
       }
     },
+    "nullableMoneyRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["low", "base", "high"],
+      "properties": {
+        "low": { "type": ["integer", "null"], "minimum": 0 },
+        "base": { "type": ["integer", "null"], "minimum": 0 },
+        "high": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
     "founderProjection": {
       "type": "object",
       "additionalProperties": false,
@@ -148,6 +158,8 @@
           "enum": [
             "resolve_area",
             "get_area_profile",
+            "get_property_reference",
+            "get_cost_reference",
             "search_cafe_observations",
             "search_business_events",
             "list_franchise_universe",
@@ -163,6 +175,8 @@
           "oneOf": [
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/resolveAreaInput" },
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getAreaProfileInput" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getPropertyReferenceInput" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getCostReferenceInput" },
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchCafeObservationsInput" },
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchBusinessEventsInput" },
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/listFranchiseUniverseInput" },
@@ -195,6 +209,8 @@
       "allOf": [
         { "if": { "properties": { "tool_name": { "const": "resolve_area" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/resolveAreaInput" } } } },
         { "if": { "properties": { "tool_name": { "const": "get_area_profile" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getAreaProfileInput" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_property_reference" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getPropertyReferenceInput" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_cost_reference" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getCostReferenceInput" } } } },
         { "if": { "properties": { "tool_name": { "const": "search_cafe_observations" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchCafeObservationsInput" } } } },
         { "if": { "properties": { "tool_name": { "const": "search_business_events" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchBusinessEventsInput" } } } },
         { "if": { "properties": { "tool_name": { "const": "list_franchise_universe" } } }, "then": { "properties": { "typed_arguments": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/listFranchiseUniverseInput" } } } },
@@ -217,6 +233,8 @@
           "enum": [
             "resolve_area",
             "get_area_profile",
+            "get_property_reference",
+            "get_cost_reference",
             "search_cafe_observations",
             "search_business_events",
             "list_franchise_universe",
@@ -232,6 +250,8 @@
           "oneOf": [
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/resolveAreaResult" },
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getAreaProfileResult" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getPropertyReferenceResult" },
+            { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getCostReferenceResult" },
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchCafeObservationsResult" },
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchBusinessEventsResult" },
             { "$ref": "./mcp-tool-contracts.schema.json#/$defs/listFranchiseUniverseResult" },
@@ -246,6 +266,8 @@
       "allOf": [
         { "if": { "properties": { "tool_name": { "const": "resolve_area" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/resolveAreaResult" } } } },
         { "if": { "properties": { "tool_name": { "const": "get_area_profile" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getAreaProfileResult" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_property_reference" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getPropertyReferenceResult" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_cost_reference" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/getCostReferenceResult" } } } },
         { "if": { "properties": { "tool_name": { "const": "search_cafe_observations" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchCafeObservationsResult" } } } },
         { "if": { "properties": { "tool_name": { "const": "search_business_events" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/searchBusinessEventsResult" } } } },
         { "if": { "properties": { "tool_name": { "const": "list_franchise_universe" } } }, "then": { "properties": { "structured_result": { "$ref": "./mcp-tool-contracts.schema.json#/$defs/listFranchiseUniverseResult" } } } },
@@ -636,6 +658,8 @@
                 "enum": [
                   "resolve_area",
                   "get_area_profile",
+                  "get_property_reference",
+                  "get_cost_reference",
                   "search_cafe_observations",
                   "search_business_events",
                   "list_franchise_universe",
@@ -827,16 +851,22 @@
                   "operating_days_per_month",
                   "average_ticket_krw",
                   "break_even_monthly_sales_krw",
-                  "required_daily_orders"
+                  "required_daily_orders",
+                  "unknown_cost_fields"
                 ],
                 "properties": {
                   "initial_cash_krw": { "$ref": "#/$defs/knownMoneyRange" },
-                  "monthly_fixed_cost_krw": { "$ref": "#/$defs/knownMoneyRange" },
+                  "monthly_fixed_cost_krw": { "$ref": "#/$defs/nullableMoneyRange" },
                   "contribution_margin_bps": { "type": "integer", "minimum": 1, "maximum": 10000 },
                   "operating_days_per_month": { "type": "integer", "minimum": 1, "maximum": 31 },
                   "average_ticket_krw": { "type": "integer", "minimum": 1 },
-                  "break_even_monthly_sales_krw": { "type": "integer", "minimum": 0 },
-                  "required_daily_orders": { "type": "number", "minimum": 0 }
+                  "break_even_monthly_sales_krw": { "type": ["integer", "null"], "minimum": 0 },
+                  "required_daily_orders": { "type": ["number", "null"], "minimum": 0 },
+                  "unknown_cost_fields": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 },
+                    "uniqueItems": true
+                  }
                 }
               },
               "support_refs": {

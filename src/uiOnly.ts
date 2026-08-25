@@ -2,6 +2,7 @@ import type { AuthGateway, AuthSession } from './auth'
 import type {
   AreaSearchResult,
   ControlApiClient,
+  DecisionInput,
   DocumentExtractionForm,
   DocumentRevision,
   DocumentType,
@@ -12,6 +13,7 @@ import type {
   PreparationGuide,
   Project,
   ResultExplanation,
+  ResultCandidate,
   ResultView,
   SignedDocumentUpload,
   WorkflowProgress,
@@ -19,6 +21,9 @@ import type {
 } from './apiClient'
 
 const now = '2026-08-25T02:00:00Z'
+
+type UiOnlyCandidateRef = ResultCandidate
+type UiOnlyDecisionInputRef = DecisionInput
 
 const head: HeadFence = {
   workflow_generation: 1,
@@ -76,6 +81,8 @@ const progress: WorkflowProgress = {
   poll_after_ms: null,
 }
 
+// The UI-only showcase is an in-memory public-contract fixture. Keeping it canonical is
+// intentional: development mode must exercise the same renderer and refinement paths as live API data.
 const initialResult: ResultView = {
   result_bundle_id: 'ui-only-result',
   project_id: project.project_id,
@@ -91,6 +98,7 @@ const initialResult: ResultView = {
   invalidation_reason_codes: [],
   candidates: [
     {
+      schema_version: '2.0.0',
       candidate_id: 'ui-only-independent',
       project_id: project.project_id,
       state_version: 1,
@@ -100,7 +108,7 @@ const initialResult: ResultView = {
       reason_codes: ['CURRENT_CONSTRAINTS_SATISFIED'],
       summary: 'UI 확인용 예시 후보입니다. 실제 계산이나 추천 결과가 아닙니다.',
       rank: 1,
-      rank_basis: 'UI_ONLY_FIXTURE',
+      rank_basis: 'NEXT_REVIEW_PRIORITY',
       is_primary_next_review: true,
       franchise: null,
       independent_model: { model_id: 'compact-takeout', adjusted_fields: ['operations.owner_hours_per_week'] },
@@ -115,6 +123,9 @@ const initialResult: ResultView = {
       financial_summary: {
         initial_cash: { currency: 'KRW', low: 55_000_000, base: 65_000_000, high: 78_000_000, provenance_refs: ['ui-only-assumption'] },
         monthly_fixed_cost: { currency: 'KRW', low: 3_000_000, base: 3_800_000, high: 4_600_000, provenance_refs: ['ui-only-assumption'] },
+        base_contribution_margin_bps: 6500,
+        variable_cost_rate_bps: 3500,
+        effective_contribution_margin_bps: 6500,
         break_even_monthly_sales_krw: 12_500_000,
         required_daily_orders: 72,
         unknown_cost_fields: ['premium'],
@@ -124,16 +135,17 @@ const initialResult: ResultView = {
       counterfactuals: [{ variable: 'rent', condition: '월 임차료가 20% 높아질 경우', decision_impact: '손익분기 매출이 상승합니다.' }],
       next_actions: ['실제 점포 임대 조건 확인', '장비 견적 확인'],
       decision_inputs: [
-        { field: 'own_funds_krw', label: '현재 자기자금', value: 80_000_000, provenance: 'USER_INPUT', resolution_status: 'USER_CONFIRMED_FACT', decision_role: 'CONSTRAINT_INPUT', source: null, applied_to: ['CAPITAL'], replaceable_by: [], limitation_code: null, resolution_action: { type: 'USER_INPUT', target_fields: ['own_funds_krw'] } },
-        { field: 'monthly_occupancy_krw', label: '지역 임차비 참고값', range: { currency: 'KRW', low: 1_700_000, base: 2_100_000, high: 2_500_000, provenance_refs: ['ui-only-rent-benchmark'] }, provenance: 'BENCHMARK', resolution_status: 'RESOLVED_BENCHMARK', decision_role: 'FINANCE_INPUT', source: { title: '한국부동산원 상업용부동산 임대동향조사 · UI 예시', source_ref: 'https://www.reb.or.kr', data_date: '2026-06-30', geographic_scope: '수원시 영통구' }, applied_to: ['INITIAL_CASH', 'MONTHLY_FIXED_COST'], replaceable_by: ['PROPERTY_TERMS'], limitation_code: 'REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY', resolution_action: { type: 'PROPERTY_TERMS', target_fields: ['deposit_krw', 'monthly_rent_krw', 'management_fee_krw', 'key_money_krw'] } },
-        { field: 'equipment_cost_krw', label: '장비비', range: { currency: 'KRW', low: 12_000_000, base: 15_000_000, high: 18_000_000, provenance_refs: ['ui-only-assumption'] }, provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', decision_role: 'FINANCE_INPUT', source: null, applied_to: ['INITIAL_CASH'], replaceable_by: ['EQUIPMENT_QUOTE'], limitation_code: null, resolution_action: { type: 'DOCUMENT_INTAKE', target_fields: ['equipment_cost_krw'], accepted_document_types: ['EQUIPMENT_QUOTE'] } },
-        { field: 'construction_cost_krw', label: '인테리어비', range: { currency: 'KRW', low: 18_000_000, base: 22_000_000, high: 28_000_000, provenance_refs: ['ui-only-assumption'] }, provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', decision_role: 'FINANCE_INPUT', source: null, applied_to: ['INITIAL_CASH'], replaceable_by: ['INTERIOR_QUOTE'], limitation_code: 'DEV_PREVIEW_BACKEND_NOT_WIRED', resolution_action: { type: 'DOCUMENT_INTAKE', target_fields: ['construction_cost_krw'], accepted_document_types: ['INTERIOR_QUOTE'] } },
+        { field: 'own_funds_krw', value_range_krw: { low: 80_000_000, base: 80_000_000, high: 80_000_000 }, value_bps: null, provenance: 'USER_INPUT', resolution_status: 'RESOLVED_USER_CONFIRMED', decision_role: 'CONSTRAINT_INPUT', source_title: null, source_ref: null, data_date: null, geographic_scope: null, source_anchor: null, applied_to: ['CAPITAL'], replaceable_by: [], limitation_code: null, derivation: null, resolution_action: { action_type: 'USER_INPUT', target_fields: ['own_funds_krw'], accepted_document_types: [] } },
+        { field: 'monthly_occupancy_krw', value_range_krw: { low: 1_700_000, base: 2_100_000, high: 2_500_000 }, value_bps: null, provenance: 'BENCHMARK', resolution_status: 'RESOLVED_BENCHMARK', decision_role: 'FINANCE_INPUT', source_title: '한국부동산원 상업용부동산 임대동향조사 · UI 예시', source_ref: 'https://www.reb.or.kr', data_date: '2026-06-30', geographic_scope: { display_name: '수원시 영통구' }, source_anchor: null, applied_to: ['INITIAL_CASH', 'MONTHLY_FIXED_COST'], replaceable_by: ['PROPERTY_TERMS'], limitation_code: 'REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY', derivation: null, resolution_action: { action_type: 'PROPERTY_TERMS', target_fields: ['deposit_krw', 'monthly_rent_krw', 'management_fee_krw', 'key_money_krw'], accepted_document_types: [] } },
+        { field: 'equipment_cost_krw', value_range_krw: { low: 12_000_000, base: 15_000_000, high: 18_000_000 }, value_bps: null, provenance: 'ASSUMPTION', resolution_status: 'ASSUMED', decision_role: 'FINANCE_INPUT', source_title: null, source_ref: null, data_date: null, geographic_scope: null, source_anchor: null, applied_to: ['INITIAL_CASH'], replaceable_by: ['DOCUMENT_INTAKE'], limitation_code: null, derivation: null, resolution_action: { action_type: 'DOCUMENT_INTAKE', target_fields: ['equipment_cost_krw'], accepted_document_types: ['EQUIPMENT_QUOTE'] } },
+        { field: 'construction_cost_krw', value_range_krw: { low: 18_000_000, base: 22_000_000, high: 28_000_000 }, value_bps: null, provenance: 'ASSUMPTION', resolution_status: 'ASSUMED', decision_role: 'FINANCE_INPUT', source_title: null, source_ref: null, data_date: null, geographic_scope: null, source_anchor: null, applied_to: ['INITIAL_CASH'], replaceable_by: ['DOCUMENT_INTAKE'], limitation_code: 'DEV_PREVIEW_BACKEND_NOT_WIRED', derivation: null, resolution_action: { action_type: 'DOCUMENT_INTAKE', target_fields: ['construction_cost_krw'], accepted_document_types: ['INTERIOR_QUOTE'] } },
       ],
-      decision_trace: { gates: [{ gate_type: 'CAPITAL', status: 'PASS', reason_code: 'CURRENT_CONSTRAINTS_SATISFIED', decisive_input_refs: ['own_funds_krw', 'monthly_occupancy_krw'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 55_000_000, remaining_at_minimum_krw: 25_000_000 } }] },
-      rank_trace: { basis: 'NEXT_REVIEW_PRIORITY', factors: [{ code: 'INITIAL_CASH_BASE', value: 65_000_000 }, { code: 'MONTHLY_FIXED_COST_BASE', value: 3_800_000 }], decisive_factor: 'INITIAL_CASH_BASE' },
+      gate_results: [{ gate_type: 'CAPITAL', status: 'PASS', reason_code: 'CURRENT_CONSTRAINTS_SATISFIED', decisive_input_refs: ['own_funds_krw', 'monthly_occupancy_krw'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 55_000_000, maximum_required_krw: 78_000_000, shortfall_krw: null } }],
+      rank_trace: { ranking_class: 'NEXT_REVIEW_PRIORITY', factors: [{ factor_code: 'INITIAL_CASH_BASE_KRW', value: 65_000_000, direction: 'ASC' }, { factor_code: 'MONTHLY_FIXED_COST_BASE_KRW', value: 3_800_000, direction: 'ASC' }], decisive_factor_code: 'INITIAL_CASH_BASE_KRW', compared_candidate_id: 'ui-only-franchise', tie_break_used: false },
       verification_requirements: [],
     },
     {
+      schema_version: '2.0.0',
       candidate_id: 'ui-only-franchise',
       project_id: project.project_id,
       state_version: 1,
@@ -143,7 +155,7 @@ const initialResult: ResultView = {
       reason_codes: ['CURRENT_CONSTRAINTS_SATISFIED'],
       summary: '경제 계산은 완료됐고 특정 주소 출점 승인은 본사 확인으로 분리된 UI fixture입니다.',
       rank: 2,
-      rank_basis: 'UI_ONLY_FIXTURE',
+      rank_basis: 'NEXT_REVIEW_PRIORITY',
       is_primary_next_review: false,
       franchise: { brand_id: 'ui-only-brand', eligibility: 'VERIFIED', availability_status: 'HQ_CONFIRMATION_REQUIRED', eligibility_evidence_refs: ['ui-only-franchise-evidence'], disclosure_evidence_refs: [] },
       independent_model: null,
@@ -155,6 +167,9 @@ const initialResult: ResultView = {
       financial_summary: {
         initial_cash: { currency: 'KRW', low: 70_000_000, base: 82_000_000, high: 95_000_000, provenance_refs: ['ui-only-franchise-evidence'] },
         monthly_fixed_cost: { currency: 'KRW', low: 4_000_000, base: 5_000_000, high: 6_000_000, provenance_refs: ['ui-only-franchise-evidence'] },
+        base_contribution_margin_bps: 6200,
+        variable_cost_rate_bps: 3800,
+        effective_contribution_margin_bps: 6200,
         break_even_monthly_sales_krw: 16_000_000,
         required_daily_orders: 90,
         unknown_cost_fields: [],
@@ -164,25 +179,25 @@ const initialResult: ResultView = {
       counterfactuals: [],
       next_actions: ['본사 출점 가능 여부 확인'],
       decision_inputs: [
-        { field: 'franchise_initial_cost_krw', label: '가맹 초기비용', range: { currency: 'KRW', low: 70_000_000, base: 82_000_000, high: 95_000_000, provenance_refs: ['ui-only-franchise-evidence'] }, provenance: 'FACT', resolution_status: 'RESOLVED_FACT', decision_role: 'FINANCE_INPUT', source: { title: '예시 브랜드 정보공개서 · UI 예시', source_ref: null, data_date: '2026-05-31', geographic_scope: '브랜드 공통' }, applied_to: ['INITIAL_CASH'], replaceable_by: [], limitation_code: null, resolution_action: null },
-        { field: 'franchise_initial_fees_krw', label: '가맹비·교육비·보증금', range: { currency: 'KRW', low: 8_000_000, base: 11_000_000, high: 14_000_000, provenance_refs: ['ui-only-franchise-assumption'] }, provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', decision_role: 'FINANCE_INPUT', source: null, applied_to: ['INITIAL_CASH'], replaceable_by: ['FRANCHISE_DISCLOSURE', 'FRANCHISE_AGREEMENT'], limitation_code: 'DEV_PREVIEW_BACKEND_NOT_WIRED', resolution_action: { type: 'DOCUMENT_INTAKE', target_fields: ['franchise_initial_fees_krw'], accepted_document_types: ['FRANCHISE_DISCLOSURE', 'FRANCHISE_AGREEMENT'] } },
-        { field: 'royalty', label: '로열티 참고 가정', value: '매출의 3%', provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', decision_role: 'FINANCE_INPUT', source: null, applied_to: ['BREAK_EVEN'], replaceable_by: ['FRANCHISE_DISCLOSURE'], limitation_code: 'DEV_PREVIEW_BACKEND_NOT_WIRED', resolution_action: { type: 'DOCUMENT_INTAKE', target_fields: ['royalty'], accepted_document_types: ['FRANCHISE_DISCLOSURE', 'FRANCHISE_AGREEMENT'] } },
+        { field: 'franchise_initial_cost_krw', value_range_krw: { low: 70_000_000, base: 82_000_000, high: 95_000_000 }, value_bps: null, provenance: 'FACT', resolution_status: 'RESOLVED_FACT', decision_role: 'FINANCE_INPUT', source_title: '예시 브랜드 정보공개서 · UI 예시', source_ref: null, data_date: '2026-05-31', geographic_scope: { display_name: '브랜드 공통' }, source_anchor: null, applied_to: ['INITIAL_CASH'], replaceable_by: [], limitation_code: null, derivation: null, resolution_action: { action_type: 'NONE', target_fields: [], accepted_document_types: [] } },
+        { field: 'franchise_initial_fees_krw', value_range_krw: { low: 8_000_000, base: 11_000_000, high: 14_000_000 }, value_bps: null, provenance: 'ASSUMPTION', resolution_status: 'ASSUMED', decision_role: 'FINANCE_INPUT', source_title: null, source_ref: null, data_date: null, geographic_scope: null, source_anchor: null, applied_to: ['INITIAL_CASH'], replaceable_by: ['DOCUMENT_INTAKE'], limitation_code: 'DEV_PREVIEW_BACKEND_NOT_WIRED', derivation: null, resolution_action: { action_type: 'DOCUMENT_INTAKE', target_fields: ['franchise_initial_fees_krw'], accepted_document_types: ['FRANCHISE_DISCLOSURE', 'FRANCHISE_AGREEMENT'] } },
+        { field: 'royalty', value_range_krw: null, value_bps: 300, provenance: 'ASSUMPTION', resolution_status: 'ASSUMED', decision_role: 'FINANCE_INPUT', source_title: null, source_ref: null, data_date: null, geographic_scope: null, source_anchor: null, applied_to: ['BREAK_EVEN'], replaceable_by: ['DOCUMENT_INTAKE'], limitation_code: 'DEV_PREVIEW_BACKEND_NOT_WIRED', derivation: null, resolution_action: { action_type: 'DOCUMENT_INTAKE', target_fields: ['royalty'], accepted_document_types: ['FRANCHISE_DISCLOSURE', 'FRANCHISE_AGREEMENT'] } },
       ],
-      decision_trace: { gates: [{ gate_type: 'CAPITAL', status: 'PASS', reason_code: 'CURRENT_CONSTRAINTS_SATISFIED', decisive_input_refs: ['franchise_initial_cost_krw'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 70_000_000, remaining_at_minimum_krw: 10_000_000 } }] },
-      rank_trace: { basis: 'NEXT_REVIEW_PRIORITY', factors: [{ code: 'INITIAL_CASH_BASE', value: 82_000_000 }], decisive_factor: 'INITIAL_CASH_BASE' },
-      verification_requirements: [{ requirement_code: 'HQ_AREA_APPROVAL', label: '이 주소의 출점 가능 여부', resolver: 'FRANCHISE_HQ', authority: '브랜드 본사', current_status: 'EXTERNAL_CONFIRMATION_REQUIRED', required_evidence: ['본사 서면 확인'], reason: '특정 주소의 출점 승인 여부는 CaffeMate가 확정할 수 없습니다.', resolution_action: { type: 'EXTERNAL_CONFIRMATION', target_fields: ['franchise_area_approval'] } }],
+      gate_results: [{ gate_type: 'CAPITAL', status: 'PASS', reason_code: 'CURRENT_CONSTRAINTS_SATISFIED', decisive_input_refs: ['franchise_initial_cost_krw'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 70_000_000, maximum_required_krw: 95_000_000, shortfall_krw: null } }],
+      rank_trace: { ranking_class: 'NEXT_REVIEW_PRIORITY', factors: [{ factor_code: 'INITIAL_CASH_BASE_KRW', value: 82_000_000, direction: 'ASC' }], decisive_factor_code: 'INITIAL_CASH_BASE_KRW', compared_candidate_id: 'ui-only-independent', tie_break_used: false },
+      verification_requirements: [{ requirement_id: 'HQ_AREA_APPROVAL', status: 'EXTERNAL_CONFIRMATION_REQUIRED', decision_role: 'VERIFICATION_ONLY', resolver: 'FRANCHISE_HQ', reason_code: 'HQ_CONFIRMATION_REQUIRED', required_evidence: ['본사 서면 확인'], resolution_action: { action_type: 'EXTERNAL_CONFIRMATION', target_fields: ['franchise_area_approval'], accepted_document_types: [] }, why_caffemate_cannot_resolve: '특정 주소의 출점 승인 여부는 CaffeMate가 확정할 수 없습니다.' }],
     },
     {
-      candidate_id: 'ui-only-seated', project_id: project.project_id, state_version: 1, case_type: 'INDEPENDENT',
+      schema_version: '2.0.0', candidate_id: 'ui-only-seated', project_id: project.project_id, state_version: 1, case_type: 'INDEPENDENT',
       display_name: '소형 좌석 균형형 개인카페', review_status: 'REVIEW_RECOMMENDED', reason_codes: ['CURRENT_CONSTRAINTS_SATISFIED'],
-      summary: '포장형보다 좌석 운영 비중이 높은 비교용 창업안입니다.', rank: 3, rank_basis: 'UI_ONLY_FIXTURE', is_primary_next_review: false,
+      summary: '포장형보다 좌석 운영 비중이 높은 비교용 창업안입니다.', rank: 3, rank_basis: 'NEXT_REVIEW_PRIORITY', is_primary_next_review: false,
       franchise: null, independent_model: { model_id: 'small-balanced-seating', adjusted_fields: [] }, evidence_refs: ['ui-only-evidence'], assumption_refs: ['ui-only-assumption'],
       market_signals: [], official_documents: [], official_document_gaps: [],
-      financial_summary: { initial_cash: { currency: 'KRW', low: 68_000_000, base: 76_000_000, high: 86_000_000, provenance_refs: ['ui-only-rent-benchmark'] }, monthly_fixed_cost: { currency: 'KRW', low: 3_600_000, base: 4_400_000, high: 5_100_000, provenance_refs: ['ui-only-rent-benchmark'] }, break_even_monthly_sales_krw: 14_500_000, required_daily_orders: 78, unknown_cost_fields: [] },
+      financial_summary: { initial_cash: { currency: 'KRW', low: 68_000_000, base: 76_000_000, high: 86_000_000, provenance_refs: ['ui-only-rent-benchmark'] }, monthly_fixed_cost: { currency: 'KRW', low: 3_600_000, base: 4_400_000, high: 5_100_000, provenance_refs: ['ui-only-rent-benchmark'] }, base_contribution_margin_bps: 6500, variable_cost_rate_bps: 3500, effective_contribution_margin_bps: 6500, break_even_monthly_sales_krw: 14_500_000, required_daily_orders: 78, unknown_cost_fields: [] },
       missing_fields: [], risks: [], counterfactuals: [{ variable: 'monthly_occupancy', condition: '실제 임차비가 참고 범위 상단을 넘을 경우', decision_impact: '초기자금과 손익분기 계산이 불리해질 수 있습니다.' }], next_actions: ['실제 점포 임대 조건 확인'],
-      decision_inputs: [{ field: 'monthly_occupancy_krw', label: '지역 임차비 참고값', range: { currency: 'KRW', low: 2_000_000, base: 2_500_000, high: 3_000_000, provenance_refs: ['ui-only-rent-benchmark'] }, provenance: 'BENCHMARK', resolution_status: 'RESOLVED_BENCHMARK', decision_role: 'FINANCE_INPUT', source: { title: '한국부동산원 상업용부동산 임대동향조사 · UI 예시', source_ref: 'https://www.reb.or.kr', data_date: '2026-06-30', geographic_scope: '수원시 영통구' }, applied_to: ['INITIAL_CASH', 'MONTHLY_FIXED_COST'], replaceable_by: ['PROPERTY_TERMS'], limitation_code: 'REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY', resolution_action: { type: 'PROPERTY_TERMS', target_fields: ['deposit_krw', 'monthly_rent_krw', 'management_fee_krw'] } }],
-      decision_trace: { gates: [{ gate_type: 'CAPITAL', status: 'PASS', reason_code: 'CURRENT_CONSTRAINTS_SATISFIED', decisive_input_refs: ['monthly_occupancy_krw'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 68_000_000, remaining_at_minimum_krw: 12_000_000 } }] },
-      rank_trace: { basis: 'NEXT_REVIEW_PRIORITY', factors: [{ code: 'INITIAL_CASH_BASE', value: 76_000_000 }], decisive_factor: 'INITIAL_CASH_BASE' }, verification_requirements: [],
+      decision_inputs: [{ field: 'monthly_occupancy_krw', value_range_krw: { low: 2_000_000, base: 2_500_000, high: 3_000_000 }, value_bps: null, provenance: 'BENCHMARK', resolution_status: 'RESOLVED_BENCHMARK', decision_role: 'FINANCE_INPUT', source_title: '한국부동산원 상업용부동산 임대동향조사 · UI 예시', source_ref: 'https://www.reb.or.kr', data_date: '2026-06-30', geographic_scope: { display_name: '수원시 영통구' }, source_anchor: null, applied_to: ['INITIAL_CASH', 'MONTHLY_FIXED_COST'], replaceable_by: ['PROPERTY_TERMS'], limitation_code: 'REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY', derivation: null, resolution_action: { action_type: 'PROPERTY_TERMS', target_fields: ['deposit_krw', 'monthly_rent_krw', 'management_fee_krw'], accepted_document_types: [] } }],
+      gate_results: [{ gate_type: 'CAPITAL', status: 'PASS', reason_code: 'CURRENT_CONSTRAINTS_SATISFIED', decisive_input_refs: ['monthly_occupancy_krw'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 68_000_000, maximum_required_krw: 86_000_000, shortfall_krw: null } }],
+      rank_trace: { ranking_class: 'NEXT_REVIEW_PRIORITY', factors: [{ factor_code: 'INITIAL_CASH_BASE_KRW', value: 76_000_000, direction: 'ASC' }], decisive_factor_code: 'INITIAL_CASH_BASE_KRW', compared_candidate_id: 'ui-only-independent', tie_break_used: false }, verification_requirements: [],
     },
   ],
 }
@@ -204,7 +219,7 @@ export function createUiOnlyDependencies(): {
   }
 
   let currentProject = { ...project, state: null } as Project
-  let currentResult = initialResult
+  let currentResult: ResultView = initialResult
   let selectedCandidateId = initialResult.primary_candidate_id ?? initialResult.candidates[0].candidate_id
   let feedbackStatus: FeedbackPreview['status'] = 'REVIEW_REQUIRED'
   let documentSequence = 0
@@ -271,24 +286,33 @@ export function createUiOnlyDependencies(): {
   })
 
   const applyUiOnlyDocumentResult = (form: DocumentExtractionForm) => {
-    const selected = currentResult.candidates.find((candidate) => candidate.candidate_id === selectedCandidateId) ?? currentResult.candidates[0]
+    const selected = currentResult.candidates.find((candidate: UiOnlyCandidateRef) => candidate.candidate_id === selectedCandidateId) ?? currentResult.candidates[0]
     const previousSummary = selected.financial_summary
     const beforeInputs = selected.decision_inputs ?? []
     const updates = new Map(form.fields.map((entry) => [entry.field_id, entry.current_value]))
     const inputChanges: NonNullable<ResultView['decision_delta']>['candidate_changes'][number]['input_changes'] = []
-    const decisionInputs = beforeInputs.map((input) => {
+    const decisionInputs = beforeInputs.map((input: UiOnlyDecisionInputRef) => {
       if (!updates.has(input.field)) return input
       const nextValue = updates.get(input.field) ?? null
+      const numericValue = typeof nextValue === 'number' ? nextValue : null
+      const royaltyBps = input.field === 'royalty' && typeof nextValue === 'string'
+        ? Number(nextValue.match(/[0-9.]+/)?.[0] ?? 0) * 100
+        : null
       const after = {
         ...input,
-        value: nextValue,
-        range: undefined,
+        value_range_krw: numericValue == null ? null : { low: numericValue, base: numericValue, high: numericValue },
+        value_bps: royaltyBps,
         provenance: 'USER_INPUT' as const,
-        resolution_status: 'USER_CONFIRMED_FACT' as const,
-        source: { title: '개발 미리보기 업로드 문서', source_ref: null, data_date: '2026-08-25', geographic_scope: '선택 후보' },
+        resolution_status: 'RESOLVED_USER_CONFIRMED' as const,
+        source_title: '개발 미리보기 업로드 문서',
+        source_ref: null,
+        data_date: '2026-08-25',
+        geographic_scope: { display_name: '선택 후보' },
+        source_anchor: null,
         replaceable_by: [],
         limitation_code: null,
-        resolution_action: null,
+        derivation: null,
+        resolution_action: { action_type: 'NONE' as const, target_fields: [], accepted_document_types: [] },
       }
       inputChanges.push({ field: input.field, before: input, after, applied_to: input.applied_to })
       return after
@@ -321,7 +345,7 @@ export function createUiOnlyDependencies(): {
       result_bundle_id: `ui-only-result-document-${documentSequence}`,
       head: nextHead,
       current_head: nextHead,
-      candidates: currentResult.candidates.map((candidate) => candidate.candidate_id === selected.candidate_id ? nextCandidate : candidate),
+      candidates: currentResult.candidates.map((candidate: UiOnlyCandidateRef) => candidate.candidate_id === selected.candidate_id ? nextCandidate : candidate),
       decision_delta: {
         previous_result_bundle_id: currentResult.result_bundle_id,
         current_result_bundle_id: `ui-only-result-document-${documentSequence}`,
@@ -441,7 +465,7 @@ export function createUiOnlyDependencies(): {
       project_id: project.project_id,
       selection_id: 'ui-only-selection',
       candidate_id: selectedCandidateId,
-      candidate_type: currentResult.candidates.find((candidate) => candidate.candidate_id === selectedCandidateId)?.case_type ?? 'INDEPENDENT',
+      candidate_type: currentResult.candidates.find((candidate: UiOnlyCandidateRef) => candidate.candidate_id === selectedCandidateId)?.case_type ?? 'INDEPENDENT',
       jurisdiction_code: '4111756000',
       jurisdiction_display_name: '경기도 수원시 영통구 원천동',
       as_of: '2026-08-25',
@@ -461,26 +485,27 @@ export function createUiOnlyDependencies(): {
       generated_at: now,
     }),
     applyPropertyTerms: async (_projectId, selectionId, _expectedStateVersion, terms) => {
-      const selected = currentResult.candidates.find((candidate) => candidate.candidate_id === selectedCandidateId) ?? currentResult.candidates[0]
-      const previousInput = selected.decision_inputs?.find((input) => input.resolution_action?.type === 'PROPERTY_TERMS') ?? null
+      const selected = currentResult.candidates.find((candidate: UiOnlyCandidateRef) => candidate.candidate_id === selectedCandidateId) ?? currentResult.candidates[0]
+      const previousInput = selected.decision_inputs?.find((input: UiOnlyDecisionInputRef) => input.resolution_action?.action_type === 'PROPERTY_TERMS') ?? null
       const actualInput = {
-        field: 'actual_property_terms', label: '실제 점포 임대 조건', value: `${terms.monthly_rent_krw.toLocaleString('ko-KR')}원/월`,
-        provenance: 'USER_INPUT' as const, resolution_status: 'USER_CONFIRMED_FACT' as const, decision_role: 'FINANCE_INPUT' as const,
-        source: null, applied_to: ['INITIAL_CASH', 'MONTHLY_FIXED_COST'], replaceable_by: [], limitation_code: null,
-        resolution_action: { type: 'PROPERTY_TERMS' as const, target_fields: ['deposit_krw', 'monthly_rent_krw', 'management_fee_krw', 'key_money_krw'] },
+        field: 'actual_property_terms', value_range_krw: { low: terms.monthly_rent_krw, base: terms.monthly_rent_krw, high: terms.monthly_rent_krw }, value_bps: null,
+        provenance: 'USER_INPUT' as const, resolution_status: 'RESOLVED_USER_CONFIRMED' as const, decision_role: 'FINANCE_INPUT' as const,
+        source_title: null, source_ref: null, data_date: null, geographic_scope: null, source_anchor: null,
+        applied_to: ['INITIAL_CASH', 'MONTHLY_FIXED_COST'], replaceable_by: [], limitation_code: null, derivation: null,
+        resolution_action: { action_type: 'PROPERTY_TERMS' as const, target_fields: ['deposit_krw', 'monthly_rent_krw', 'management_fee_krw', 'key_money_krw'], accepted_document_types: [] },
       }
-      const recalculatedCandidate = {
+      const recalculatedCandidate: ResultCandidate = {
         ...selected,
         candidate_id: `${selected.candidate_id}-property`, state_version: 2, review_status: 'EXCLUDED' as const,
-        reason_codes: ['MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS'], rank: null, rank_basis: 'NOT_RANKED', is_primary_next_review: false,
+        reason_codes: ['MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS'], rank: null, rank_basis: 'NOT_RANKED' as const, is_primary_next_review: false,
         summary: '실제 점포 임대 조건을 반영하니 현재 자기자금 범위를 넘었습니다.',
         financial_summary: {
           ...selected.financial_summary,
           initial_cash: { currency: 'KRW' as const, low: 85_000_000, base: 92_000_000, high: 101_000_000, provenance_refs: ['ui-only-property'] },
           monthly_fixed_cost: { currency: 'KRW' as const, low: 4_800_000, base: 5_200_000, high: 5_700_000, provenance_refs: ['ui-only-property'] },
         },
-        decision_inputs: [...(selected.decision_inputs ?? []).filter((input) => input !== previousInput), actualInput],
-        decision_trace: { gates: [{ gate_type: 'CAPITAL', status: 'FAIL' as const, reason_code: 'MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS', decisive_input_refs: ['actual_property_terms'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 85_000_000, shortfall_krw: 5_000_000 } }] },
+        decision_inputs: [...(selected.decision_inputs ?? []).filter((input: UiOnlyDecisionInputRef) => input !== previousInput), actualInput],
+        gate_results: [{ gate_type: 'CAPITAL', status: 'FAIL' as const, reason_code: 'MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS', decisive_input_refs: ['actual_property_terms'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 85_000_000, maximum_required_krw: 101_000_000, shortfall_krw: 5_000_000 } }],
         rank_trace: null,
       }
       currentResult = {

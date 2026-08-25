@@ -24,6 +24,7 @@ from app.domain.models import (
 )
 from app.mcp.client import McpCallOutcome, McpClientError
 from app.results.models import AuditStatus
+from app.workflows.franchise_grounding import franchise_universe
 from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import HeadFence
 from app.workflows.simple_proposal import SimpleProposalBuilder
@@ -77,8 +78,10 @@ def _head() -> HeadFence:
 class FakeMcp:
     def __init__(self) -> None:
         self.tool_names: list[str] = []
+        self.calls: list[dict[str, Any]] = []
 
     async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+        self.calls.append(deepcopy(kwargs))
         tool_name = kwargs["tool_name"]
         self.tool_names.append(tool_name)
         request_id = f"request-{tool_name}"
@@ -312,14 +315,349 @@ def test_pipeline_calls_research_proposals_and_auditor_in_one_linear_flow() -> N
 
     assert set(mcp.tool_names) == {
         "get_area_profile",
+        "get_property_reference",
+        "get_cost_reference",
         "search_cafe_observations",
         "retrieve_official_documents",
     }
+    cost_reference_call = next(
+        call for call in mcp.calls if call["tool_name"] == "get_cost_reference"
+    )
+    assert cost_reference_call["arguments"]["reference_types"] == [
+        "MINIMUM_WAGE",
+        "EMPLOYER_SOCIAL_INSURANCE",
+    ]
     assert runtime.task_types[0] == "EVIDENCE_ASSESS"
     assert runtime.task_types[-1] == "CANDIDATE_AUDIT"
     assert runtime.task_types[1:-1] == ["PROPOSE_INDEPENDENT"] * 3
     assert 1 <= len(bundle.candidates) <= 3
     assert {candidate["case_type"] for candidate in bundle.candidates} == {"INDEPENDENT"}
+
+
+def test_pipeline_applies_regional_property_reference_to_finance() -> None:
+    class PropertyReferenceMcp(FakeMcp):
+        async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+            if kwargs["tool_name"] != "get_property_reference":
+                return await super().call_tool(**kwargs)
+            self.tool_names.append("get_property_reference")
+            evidence_id = "reb-property:test-small-seoul"
+            content = {
+                "schema_version": "1.0.0",
+                "request_id": "request-get_property_reference",
+                "tool_name": "get_property_reference",
+                "tool_version": "1.0.0",
+                "status": "OK",
+                "project_id": "project-1",
+                "evidence_records": [
+                    {
+                        "schema_version": "2.0.0",
+                        "evidence_id": evidence_id,
+                        "project_id": "project-1",
+                        "claim_type": "PROPERTY_RENT_REFERENCE",
+                        "metric": "EFFECTIVE_RENT_AND_CONVERSION_RATE",
+                        "value": {"kind": "STRING", "value": "regional benchmark"},
+                        "value_kind": "EVIDENCED_FACT",
+                        "unit": "REB_EFFECTIVE_RENT_AND_CONVERSION",
+                        "geographic_scope": {
+                            "scope_type": "REGION",
+                            "scope_id": "11",
+                            "boundary_version": None,
+                        },
+                        "source": {
+                            "title": "한국부동산원 상업용부동산 임대동향조사",
+                            "source_ref": "https://www.reb.or.kr/r-one/",
+                            "authority": "PRIMARY_DATA",
+                            "source_type": "DATASET",
+                            "published_or_data_date": "2026-06-30",
+                            "source_observed_at": "2026-08-25T04:00:00Z",
+                            "document_version": "rent-ingestion-1",
+                            "checksum": f"sha256:{'a' * 64}",
+                        },
+                        "original_anchor": {
+                            "anchor_type": "CALCULATION",
+                            "locator": "2026Q2:11:SMALL_RETAIL",
+                            "excerpt_hash": f"sha256:{'a' * 64}",
+                        },
+                        "freshness_status": "FRESH",
+                        "conflict_status": "NONE",
+                        "retrieved_at": "2026-08-25T04:00:00Z",
+                        "missing_context": ["PARENT_REGION_BENCHMARK_NOT_ACTUAL_LISTING"],
+                        "durable_evidence_refs": ["https://www.reb.or.kr/r-one/"],
+                    }
+                ],
+                "missing_fields": [],
+                "conflicts": [],
+                "source_trace": [],
+                "error_codes": [],
+                "observed_at": "2026-08-25T04:00:00Z",
+                "data": [
+                    {
+                        "property_class": "SMALL_RETAIL",
+                        "effective_rent_krw_per_sqm_month": 42_500,
+                        "conversion_rate_bps": 710,
+                        "period": "2026Q2",
+                        "region_code": "11",
+                        "region_name": "서울",
+                        "coverage_status": "PARENT_REGION",
+                        "floor_basis": "FIRST_FLOOR",
+                        "evidence_id": evidence_id,
+                    }
+                ],
+            }
+            return McpCallOutcome(
+                request_id="request-get_property_reference",
+                tool_name="get_property_reference",
+                tool_version="1.0.0",
+                status="OK",
+                is_complete=True,
+                structured_content=content,
+            )
+
+    bundle = _pipeline(FakeRuntime(), PropertyReferenceMcp()).run(
+        state=_state(CafeTypePreference.INDEPENDENT_ONLY),
+        head=_head(),
+        workflow_run_id="workflow-property-reference",
+        evidence_records=[],
+    )
+
+    candidate = next(
+        value
+        for value in bundle.candidates
+        if value["independent_model"]["model_id"] == "independent-small-takeout-v1"
+    )
+    occupancy = next(
+        value for value in candidate["decision_inputs"] if value["field"] == "MONTHLY_OCCUPANCY"
+    )
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] is None
+    assert "MONTHLY_EMPLOYER_ONCOST" in candidate["financial_summary"][
+        "unknown_cost_fields"
+    ]
+    assert occupancy["value_range_krw"]["base"] == 1_174_708
+    assert occupancy["provenance"] == "BENCHMARK"
+    assert occupancy["resolution_status"] == "RESOLVED_BENCHMARK"
+
+
+def test_pipeline_applies_minimum_wage_floor_to_paid_staff_labor() -> None:
+    class CostReferenceMcp(FakeMcp):
+        async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+            if kwargs["tool_name"] != "get_cost_reference":
+                return await super().call_tool(**kwargs)
+            self.tool_names.append("get_cost_reference")
+            evidence_id = "cost-reference:kr-minimum-wage-2026"
+            content = {
+                "schema_version": "1.0.0",
+                "request_id": "request-get_cost_reference",
+                "tool_name": "get_cost_reference",
+                "tool_version": "1.0.0",
+                "status": "OK",
+                "project_id": "project-1",
+                "evidence_records": [
+                    {
+                        "schema_version": "2.0.0",
+                        "evidence_id": evidence_id,
+                        "project_id": "project-1",
+                        "claim_type": "LABOR_COST_REFERENCE",
+                        "metric": "MINIMUM_WAGE_MONTHLY_209H",
+                        "value": {"kind": "INTEGER", "value": 2_156_880},
+                        "value_kind": "EVIDENCED_FACT",
+                        "unit": "KRW/month",
+                        "geographic_scope": {
+                            "scope_type": "NATIONAL",
+                            "scope_id": "KR",
+                            "boundary_version": None,
+                        },
+                        "source": {
+                            "title": "최저임금위원회 연도별 최저임금",
+                            "source_ref": "https://www.minimumwage.go.kr/minWage/policy/decisionMain.do",
+                            "authority": "PRIMARY_OFFICIAL",
+                            "source_type": "WEB",
+                            "source_family": "LABOR_COST_REFERENCE",
+                            "published_or_data_date": "2025-08-05",
+                            "source_observed_at": "2026-08-25T08:00:00Z",
+                            "document_version": "2026-01-01",
+                            "checksum": f"sha256:{'b' * 64}",
+                        },
+                        "original_anchor": {
+                            "anchor_type": "SECTION",
+                            "locator": "연도별 최저임금 결정현황 > 2026",
+                            "excerpt_hash": f"sha256:{'c' * 64}",
+                        },
+                        "freshness_status": "FRESH",
+                        "conflict_status": "NONE",
+                        "retrieved_at": "2026-08-25T08:00:00Z",
+                        "missing_context": [
+                            "PAID_STAFF_FTE_IS_REGISTERED_ASSUMPTION",
+                            "EXCLUDES_OVERTIME_ALLOWANCES_AND_EMPLOYER_INSURANCE",
+                        ],
+                        "durable_evidence_refs": [
+                            "https://www.minimumwage.go.kr/minWage/policy/decisionMain.do"
+                        ],
+                    },
+                    *[
+                        {
+                            "schema_version": "2.0.0",
+                            "evidence_id": f"cost-reference:social:{name.lower()}",
+                            "project_id": "project-1",
+                            "claim_type": "LABOR_COST_REFERENCE",
+                            "metric": f"EMPLOYER_SOCIAL_INSURANCE_{name}",
+                            "value": {"kind": "INTEGER", "value": rate},
+                            "value_kind": "EVIDENCED_FACT",
+                            "unit": "ppm_of_payroll",
+                            "geographic_scope": {
+                                "scope_type": "NATIONAL",
+                                "scope_id": "KR",
+                                "boundary_version": None,
+                            },
+                            "source": {
+                                "title": f"official {name}",
+                                "source_ref": source_ref,
+                                "authority": "PRIMARY_OFFICIAL",
+                                "source_type": "WEB",
+                                "source_family": "LABOR_COST_REFERENCE",
+                                "published_or_data_date": "2026-01-01",
+                                "source_observed_at": "2026-08-25T08:00:00Z",
+                                "document_version": "2026-01-01",
+                                "checksum": f"sha256:{'d' * 64}",
+                            },
+                            "original_anchor": {
+                                "anchor_type": "SECTION",
+                                "locator": f"2026 employer rate {name}",
+                                "excerpt_hash": f"sha256:{'e' * 64}",
+                            },
+                            "freshness_status": "FRESH",
+                            "conflict_status": "NONE",
+                            "retrieved_at": "2026-08-25T08:00:00Z",
+                            "missing_context": [],
+                            "durable_evidence_refs": [source_ref],
+                        }
+                        for name, rate, source_ref in (
+                            ("NATIONAL_PENSION", 47_500, "https://www.nps.or.kr/"),
+                            ("HEALTH_LONG_TERM_CARE", 40_674, "https://www.nhis.or.kr/"),
+                            ("UNEMPLOYMENT_BENEFIT", 9_000, "https://www.moel.go.kr/"),
+                            (
+                                "EMPLOYMENT_STABILIZATION_VOCATIONAL",
+                                2_500,
+                                "https://www.moel.go.kr/",
+                            ),
+                        )
+                    ],
+                ],
+                "missing_fields": [],
+                "conflicts": [],
+                "source_trace": [],
+                "error_codes": [],
+                "observed_at": "2026-08-25T08:00:00Z",
+                "data": [
+                    {
+                        "reference_type": "MINIMUM_WAGE",
+                        "effective_from": "2026-01-01",
+                        "effective_to": "2026-12-31",
+                        "hourly_rate_krw": 10_320,
+                        "monthly_equivalent_hours": 209,
+                        "monthly_equivalent_krw": 2_156_880,
+                        "evidence_id": evidence_id,
+                    },
+                    {
+                        "reference_type": "EMPLOYER_SOCIAL_INSURANCE",
+                        "effective_from": "2026-01-01",
+                        "effective_to": "2026-12-31",
+                        "workplace_employee_upper_bound": 149,
+                        "components": [
+                            {
+                                "component": name,
+                                "employer_rate_ppm": rate,
+                                "evidence_id": f"cost-reference:social:{name.lower()}",
+                            }
+                            for name, rate in (
+                                ("NATIONAL_PENSION", 47_500),
+                                ("HEALTH_LONG_TERM_CARE", 40_674),
+                                ("UNEMPLOYMENT_BENEFIT", 9_000),
+                                ("EMPLOYMENT_STABILIZATION_VOCATIONAL", 2_500),
+                            )
+                        ],
+                        "unsupported_components": [
+                            "WORKERS_COMPENSATION_INDUSTRY_RATE_REQUIRED"
+                        ],
+                        "excluded_adjustments": [
+                            "CONTRIBUTION_BASE_CAPS_AND_FLOORS_NOT_APPLIED",
+                            "EXEMPTIONS_NOT_APPLIED",
+                            "SUPPORT_PROGRAMS_NOT_APPLIED",
+                        ],
+                    },
+                ],
+            }
+            return McpCallOutcome(
+                request_id="request-get_cost_reference",
+                tool_name="get_cost_reference",
+                tool_version="1.0.0",
+                status="OK",
+                is_complete=True,
+                structured_content=content,
+            )
+
+    runtime = FakeRuntime()
+    bundle = _pipeline(
+        runtime,
+        CostReferenceMcp(),
+        now=datetime(2026, 8, 25, 1, tzinfo=UTC),
+    ).run(
+        state=_state(CafeTypePreference.INDEPENDENT_ONLY),
+        head=_head(),
+        workflow_run_id="workflow-minimum-wage",
+        evidence_records=[],
+    )
+
+    candidate = next(
+        value
+        for value in bundle.candidates
+        if value["independent_model"]["model_id"] == "independent-seating-focused-v1"
+    )
+    labor = next(
+        value for value in candidate["decision_inputs"] if value["field"] == "MONTHLY_LABOR"
+    )
+    assert labor["value_range_krw"] == {
+        "low": 5_000_000,
+        "base": 9_000_000,
+        "high": 15_098_160,
+    }
+    assert labor["provenance"] == "BENCHMARK"
+    assert labor["resolution_status"] == "RESOLVED_BENCHMARK"
+    assert labor["limitation_code"] == "OFFICIAL_MINIMUM_WAGE_FLOOR_NOT_ACTUAL_PAYROLL"
+    assert labor["derivation"]["formula_code"] == "MINIMUM_WAGE_FTE_FLOOR_V1"
+    assert labor["derivation"]["inputs"]["paid_staff_fte"] == {
+        "low": 2.0,
+        "base": 4.0,
+        "high": 7.0,
+    }
+    snapshot_seed = next(
+        value
+        for value in next(
+            task
+            for task in runtime.tasks
+            if task["task_type"] == "PROPOSE_INDEPENDENT"
+            and task["payload"]["model_seeds"][0]["model_id"]
+            == candidate["independent_model"]["model_id"]
+        )["payload"]["model_seeds"]
+        if value["model_id"] == candidate["independent_model"]["model_id"]
+    )
+    assert snapshot_seed["finance_snapshot"]["monthly_fixed_cost_krw"] == {
+        key: candidate["financial_summary"]["monthly_fixed_cost"][key]
+        for key in ("low", "base", "high")
+    }
+    assert snapshot_seed["finance_snapshot"]["break_even_monthly_sales_krw"] == candidate[
+        "financial_summary"
+    ]["break_even_monthly_sales_krw"]
+    assert snapshot_seed["finance_snapshot"]["required_daily_orders"] == candidate[
+        "financial_summary"
+    ]["required_daily_orders"]
+    assert snapshot_seed["finance_snapshot"]["unknown_cost_fields"] == []
+    oncost = next(
+        value
+        for value in candidate["decision_inputs"]
+        if value["field"] == "MONTHLY_EMPLOYER_ONCOST"
+    )
+    assert oncost["value_range_krw"]["base"] == 859_940
+    assert oncost["derivation"]["inputs"]["employer_rate_bps_decimal"] == "996.74"
 
 
 def test_pipeline_keeps_running_when_one_mcp_read_fails() -> None:
@@ -360,13 +698,7 @@ def test_pipeline_keeps_running_when_one_mcp_read_fails() -> None:
 
 def test_pipeline_builds_government_and_claim_specific_franchise_rag_queries() -> None:
     class InspectingMcp(FakeMcp):
-        def __init__(self) -> None:
-            super().__init__()
-            self.calls: list[dict[str, Any]] = []
-
-        async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
-            self.calls.append(deepcopy(kwargs))
-            return await super().call_tool(**kwargs)
+        pass
 
     mcp = InspectingMcp()
 
@@ -590,12 +922,13 @@ def test_independent_proposal_receives_finance_snapshot_and_keeps_agent_advice()
     seed = proposal_task["payload"]["model_seeds"][0]
     assert seed["finance_snapshot"] == {
         "initial_cash_krw": {"low": 79_500_000, "base": 139_500_000, "high": 232_000_000},
-        "monthly_fixed_cost_krw": {"low": 4_200_000, "base": 7_600_000, "high": 13_300_000},
+        "monthly_fixed_cost_krw": {"low": None, "base": None, "high": None},
         "contribution_margin_bps": 6_800,
         "operating_days_per_month": 26,
         "average_ticket_krw": 6_500,
-        "break_even_monthly_sales_krw": 11_176_471,
-        "required_daily_orders": 66.14,
+        "break_even_monthly_sales_krw": None,
+        "required_daily_orders": None,
+        "unknown_cost_fields": ["MONTHLY_EMPLOYER_ONCOST"],
     }
 
     candidate = next(
@@ -861,6 +1194,7 @@ def test_area_observation_reaches_proposal_agent_and_result_card() -> None:
     assert bundle.candidates[0]["market_signals"] == [
         {
             "signal_type": "CAFE_COUNT",
+            "decision_role": "CONTEXT_ONLY",
             "value": 139,
             "unit": "STORES",
             "data_date": "2026-03-31",
@@ -900,6 +1234,7 @@ class FranchiseMcp(FakeMcp):
                     },
                     "reference_area_sqm": 33,
                     "monthly_royalty_krw": None,
+                    "sales_royalty_bps": None,
                     "evidence_refs": ["franchise-cost:mega"],
                     "source_refs": ["https://example.com/mega-official"],
                     "scope_note": "10평 기준 공식 창업비용",
@@ -925,6 +1260,7 @@ class FranchiseMcp(FakeMcp):
                     "known_initial_cost_range_krw": None,
                     "reference_area_sqm": None,
                     "monthly_royalty_krw": None,
+                    "sales_royalty_bps": None,
                     "evidence_refs": [],
                     "source_refs": [],
                     "scope_note": "개인 가맹 대상 아님",
@@ -1040,6 +1376,143 @@ class FranchiseRuntime(FakeRuntime):
         )
 
 
+class FtcFranchiseMcp(FranchiseMcp):
+    async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+        if kwargs["tool_name"] != "get_franchise_disclosure":
+            return await super().call_tool(**kwargs)
+        self.tool_names.append("get_franchise_disclosure")
+        evidence_id = "ftc:mega:2024:startup-cost-schedule"
+        amounts = [
+            ("FRANCHISE_FEE", 9_900_000),
+            ("EDUCATION_FEE", 3_300_000),
+            ("FRANCHISEE_DEPOSIT", 5_000_000),
+            ("OTHER_INITIAL_FEE", 109_690_000),
+            ("FRANCHISE_INITIAL_FEE_TOTAL", 127_890_000),
+        ]
+        data = [
+            {
+                "brand_id": "kr-mega-mgc-coffee",
+                "brand_name": "메가MGC커피",
+                "ftc_brand_management_no": "B-MEGA",
+                "ftc_headquarters_management_no": "H-MEGA",
+                "source_version": "FTC_COST_REPORTING_YEAR:2024:B-MEGA",
+                "disclosure_version": None,
+                "disclosure_registration_date": None,
+                "reporting_year": 2024,
+                "field": field,
+                "value": {"kind": "INTEGER", "value": amount},
+                "unit": "KRW",
+                "effective_date": "2024-12-31",
+                "evidence_id": evidence_id,
+            }
+            for field, amount in amounts
+        ]
+        record = {
+            "schema_version": "2.0.0",
+            "evidence_id": evidence_id,
+            "project_id": "project-1",
+            "claim_type": "FRANCHISE_DISCLOSURE_FACT",
+            "metric": "kr-mega-mgc-coffee",
+            "value": {
+                "kind": "STRING",
+                "value": '{"FRANCHISE_INITIAL_FEE_TOTAL":127890000}',
+            },
+            "value_kind": "EVIDENCED_FACT",
+            "unit": "KRW",
+            "geographic_scope": {
+                "scope_type": "NATIONAL",
+                "scope_id": "KR",
+                "boundary_version": None,
+            },
+            "source": {
+                "title": "공정거래위원회 브랜드별 창업 금액 현황",
+                "source_ref": "https://www.data.go.kr/data/15110265/openapi.do",
+                "authority": "PRIMARY_DATA",
+                "source_type": "DATASET",
+                "published_or_data_date": "2024-12-31",
+                "source_observed_at": NOW.isoformat().replace("+00:00", "Z"),
+                "document_version": "FTC_COST_REPORTING_YEAR:2024:B-MEGA",
+                "checksum": "sha256:" + "2" * 64,
+            },
+            "original_anchor": {
+                "anchor_type": "CALCULATION",
+                "locator": "2024:B-MEGA:startup-cost-schedule",
+                "excerpt_hash": "sha256:" + "3" * 64,
+            },
+            "freshness_status": "FRESH",
+            "conflict_status": "NONE",
+            "retrieved_at": NOW.isoformat().replace("+00:00", "Z"),
+            "missing_context": [
+                "FTC_REGISTRATION_DOES_NOT_PROVE_CURRENT_RECRUITMENT",
+                "HQ_AREA_APPROVAL_NOT_PROVIDED",
+            ],
+            "durable_evidence_refs": [
+                "https://www.data.go.kr/data/15110265/openapi.do"
+            ],
+        }
+        content = {
+            "schema_version": "1.0.0",
+            "request_id": "request-get_franchise_disclosure",
+            "tool_name": "get_franchise_disclosure",
+            "tool_version": "1.0.0",
+            "status": "PARTIAL",
+            "project_id": "project-1",
+            "evidence_records": [record],
+            "missing_fields": ["franchise_disclosure_document_identity"],
+            "conflicts": [],
+            "source_trace": [],
+            "error_codes": [],
+            "observed_at": NOW.isoformat().replace("+00:00", "Z"),
+            "data": data,
+        }
+        return McpCallOutcome(
+            request_id=content["request_id"],
+            tool_name="get_franchise_disclosure",
+            tool_version="1.0.0",
+            status="PARTIAL",
+            is_complete=False,
+            structured_content=content,
+        )
+
+
+class AcceptAllFranchiseEvidenceRuntime(FakeRuntime):
+    def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+        if task["task_type"] != "EVIDENCE_ASSESS":
+            return super().invoke(task)
+        self.task_types.append("EVIDENCE_ASSESS")
+        self.tasks.append(deepcopy(task))
+        assessments: list[dict[str, Any]] = []
+        missing_claims: list[str] = []
+        for action in task["payload"]["executed_actions"]:
+            records = action["structured_result"]["evidence_records"]
+            if not records:
+                missing_claims.append(action["claim_id"])
+                continue
+            assessments.extend(
+                {
+                    "candidate_ref": record["evidence_id"],
+                    "claim_id": action["claim_id"],
+                    "relation": "SUPPORTS",
+                    "scope_status": "MATCH",
+                    "date_status": "MATCH",
+                    "freshness_status": record["freshness_status"],
+                    "anchor_status": "VALID",
+                    "authority_status": "ACCEPTABLE",
+                    "missing_context": [],
+                }
+                for record in records
+            )
+        return self._result(
+            task,
+            payload={
+                "assessments": assessments,
+                "missing_claims": missing_claims,
+                "conflict_proposals": [],
+            },
+            missing_claim_ids=missing_claims,
+        )
+
+
 class ProductionSizedFranchiseMcp(FranchiseMcp):
     """운영 카탈로그와 비슷한 후보·근거 수로 LLM 없는 경로를 검증한다."""
 
@@ -1092,6 +1565,7 @@ class ProductionSizedFranchiseMcp(FranchiseMcp):
                         },
                         "reference_area_sqm": 33,
                         "monthly_royalty_krw": None,
+                        "sales_royalty_bps": None,
                         "evidence_refs": [cost_id] if has_cost_evidence else [],
                         "source_refs": [
                             f"https://example.com/{brand_id}/cost"
@@ -1205,7 +1679,7 @@ def test_franchise_universe_keeps_unknown_cost_without_crashing() -> None:
         FranchiseMcp().call_tool(tool_name="list_franchise_universe")
     )
 
-    universe = LinearMultiAgentProposalPipeline._franchise_universe(
+    universe = franchise_universe(
         [outcome],
         evidence_records=[{"evidence_id": "eligibility:mega"}],
     )
@@ -1268,3 +1742,60 @@ def test_franchise_profile_reaches_agent_and_grounded_calculation_without_static
     assert "kr-starbucks-korea" not in {
         candidate["franchise"]["brand_id"] for candidate in bundle.candidates
     }
+
+
+def test_accepted_ftc_schedule_replaces_company_cost_and_can_change_capital_gate() -> None:
+    founder_state = _state(CafeTypePreference.FRANCHISE_ONLY).model_copy(
+        update={
+            "founder": _state(CafeTypePreference.FRANCHISE_ONLY).founder.model_copy(
+                update={"own_funds_krw": 140_000_000}
+            )
+        }
+    )
+
+    baseline = _pipeline(FranchiseRuntime(), FranchiseMcp()).run(
+        state=founder_state,
+        head=_head(),
+        workflow_run_id="workflow-franchise-company-cost",
+        evidence_records=[],
+    )
+    grounded = _pipeline(
+        AcceptAllFranchiseEvidenceRuntime(),
+        FtcFranchiseMcp(),
+    ).run(
+        state=founder_state,
+        head=_head(),
+        workflow_run_id="workflow-franchise-ftc-cost",
+        evidence_records=[],
+    )
+
+    baseline_candidate = baseline.candidates[0]
+    grounded_candidate = grounded.candidates[0]
+    assert baseline_candidate["gate_results"][0]["status"] == "CONDITIONAL"
+    assert grounded_candidate["gate_results"][0]["status"] == "FAIL"
+
+    fee_input = next(
+        value
+        for value in grounded_candidate["decision_inputs"]
+        if value["field"] == "FRANCHISE_INITIAL_FEES"
+    )
+    assert fee_input["value_range_krw"] == {
+        "low": 127_890_000,
+        "base": 127_890_000,
+        "high": 127_890_000,
+    }
+    assert fee_input["provenance"] == "FACT"
+    assert fee_input["resolution_status"] == "RESOLVED_FACT"
+    assert fee_input["source_title"] == "공정거래위원회 브랜드별 창업 금액 현황"
+    assert fee_input["derivation"]["formula_code"] == "FTC_INITIAL_FEE_COMPONENT_SUM_V1"
+    assert fee_input["derivation"]["source_version"] == (
+        "FTC_COST_REPORTING_YEAR:2024:B-MEGA"
+    )
+    assert fee_input["derivation"]["reporting_year"] == 2024
+    assert grounded_candidate["franchise"]["finance_profile"][
+        "known_initial_cost_range_krw"
+    ]["base"] == 127_890_000
+    assert grounded_candidate["franchise"]["disclosure_evidence_refs"] == []
+    assert grounded_candidate["verification_requirements"][0]["status"] == (
+        "EXTERNAL_CONFIRMATION_REQUIRED"
+    )

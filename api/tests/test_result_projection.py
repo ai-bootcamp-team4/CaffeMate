@@ -97,6 +97,7 @@ def test_projects_grounded_market_signal_with_source_and_caveat() -> None:
     assert signals == [
         {
             "signal_type": "CAFE_COUNT",
+            "decision_role": "CONTEXT_ONLY",
             "value": 208,
             "unit": "STORES",
             "data_date": "2026-03-31",

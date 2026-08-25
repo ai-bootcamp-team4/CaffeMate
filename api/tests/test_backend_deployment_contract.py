@@ -32,9 +32,32 @@ def test_backend_cloudbuild_preserves_order_and_security_boundaries() -> None:
     assert "worker.main:app,--host,0.0.0.0,--port,8080" in config
     assert "--allow-unauthenticated" not in config
     assert "set-iam-policy" not in config
-    assert "COPY agents/release-manifest.json ./agents/release-manifest.json" in dockerfile
-    assert "COPY agents/fixtures ./agents/fixtures" in dockerfile
+    assert (
+        "COPY --chown=caffemate:caffemate agents/release-manifest.json "
+        "./agents/release-manifest.json"
+    ) in dockerfile
+    assert (
+        "COPY --chown=caffemate:caffemate agents/fixtures ./agents/fixtures"
+        in dockerfile
+    )
     assert "chown -R caffemate:caffemate /srv /home/caffemate" in dockerfile
+
+
+def test_backend_runtime_files_are_readable_by_non_root_runtime_user() -> None:
+    dockerfile = (ROOT / "deploy" / "backend.Dockerfile").read_text(encoding="utf-8")
+
+    for copy_instruction in (
+        "COPY --chown=caffemate:caffemate api/app ./api/app",
+        "COPY --chown=caffemate:caffemate api/migrations ./api/migrations",
+        (
+            "COPY --chown=caffemate:caffemate agents/release-manifest.json "
+            "./agents/release-manifest.json"
+        ),
+        "COPY --chown=caffemate:caffemate agents/fixtures ./agents/fixtures",
+        "COPY --chown=caffemate:caffemate docs/contracts ./docs/contracts",
+        "COPY --chown=caffemate:caffemate worker ./worker",
+    ):
+        assert copy_instruction in dockerfile
 
 
 def test_main_deploy_scope_selects_only_changed_runtime(tmp_path: Path) -> None:

@@ -6,7 +6,6 @@ export function publicStatus(status: ResultCandidate['review_status']) {
   if (status === 'CONDITIONAL_REVIEW') return '조건부 검토'
   return '현재 조건에서 어려움'
 }
-
 export function decisionHeading(status: ResultCandidate['review_status']) {
   return status === 'EXCLUDED'
     ? '왜 이 안은 지금 진행하기 어려운가요?'
@@ -14,24 +13,17 @@ export function decisionHeading(status: ResultCandidate['review_status']) {
 }
 
 export function conclusionCopy(candidate: ResultCandidate) {
-  const gates = candidate.decision_trace?.gates ?? []
+  const gates = candidate.gate_results ?? []
   const hasFail = gates.some((gate) => gate.status === 'FAIL')
   const hasExternal = (candidate.verification_requirements?.length ?? 0) > 0
-  if (candidate.review_status === 'EXCLUDED' || hasFail) {
-    return '현재 확인된 조건 중 이 안을 막는 항목이 있어요. 아래 판정 이유와 숫자를 먼저 확인하세요.'
-  }
-  if (candidate.review_status === 'CONDITIONAL_REVIEW' && hasExternal) {
-    return 'CaffeMate가 계산한 조건과 외부에서만 확정할 수 있는 조건을 분리해서 확인하세요.'
-  }
-  if (candidate.review_status === 'CONDITIONAL_REVIEW') {
-    return '현재 계산은 이어갈 수 있지만, 실제 자료를 넣어야 확정할 값이 남아 있어요.'
-  }
+  if (candidate.review_status === 'EXCLUDED' || hasFail) return '현재 확인된 조건 중 이 안을 막는 항목이 있어요. 아래 판정 이유와 숫자를 먼저 확인하세요.'
+  if (candidate.review_status === 'CONDITIONAL_REVIEW' && hasExternal) return 'CaffeMate가 계산한 조건과 외부에서만 확정할 수 있는 조건을 분리해서 확인하세요.'
+  if (candidate.review_status === 'CONDITIONAL_REVIEW') return '현재 계산은 이어갈 수 있지만, 실제 자료를 넣어야 확정할 값이 남아 있어요.'
   return '현재 조건에서는 실제 점포와 견적을 넣어 더 구체적으로 검증할 단계예요.'
 }
 
 export function gateTitle(gate: DecisionGateTrace) {
-  if (gate.gate_type === 'CAPITAL') return '자금 조건'
-  return internalLabel(gate.gate_type, '필수 조건')
+  return gate.gate_type === 'CAPITAL' ? '자금 조건' : internalLabel(gate.gate_type, '필수 조건')
 }
 
 export function gateCopy(gate: DecisionGateTrace) {
@@ -45,9 +37,8 @@ export function gateMetricRows(gate: DecisionGateTrace) {
   const labels: Record<string, string> = {
     own_funds_krw: '현재 자기자금',
     minimum_required_krw: '최소 필요자금',
+    maximum_required_krw: '최대 필요자금',
     shortfall_krw: '최소 부족액',
-    minimum_required_reduction_krw: '줄여야 할 최소 금액',
-    remaining_at_minimum_krw: '최소 비용 기준 남는 금액',
   }
   return Object.entries(gate.metrics)
     .filter(([, value]) => value !== null && value !== undefined)
@@ -58,33 +49,30 @@ export function gateMetricRows(gate: DecisionGateTrace) {
 }
 
 export function decisionInputLabel(input: DecisionInput) {
-  return input.label?.trim() || internalLabel(input.field, '판단 입력값')
+  return internalLabel(input.field, '판단 입력값')
 }
 
 export function decisionInputValue(input: DecisionInput) {
-  if (input.range) return formatRange(input.range)
-  if (typeof input.value === 'number') {
-    return input.field.endsWith('_krw') || input.field.includes('cost') || input.field.includes('cash')
-      ? formatWon(input.value)
-      : input.value.toLocaleString('ko-KR')
+  if (input.value_range_krw) {
+    const range = input.value_range_krw
+    return formatRange(range)
   }
-  if (typeof input.value === 'boolean') return input.value ? '예' : '아니요'
-  if (typeof input.value === 'string' && input.value.trim()) return input.value
+  if (input.value_bps != null) return `${(input.value_bps / 100).toLocaleString('ko-KR')}%`
   return '아직 값이 없습니다'
 }
 
 export function provenanceLabel(input: DecisionInput) {
   const byResolution: Partial<Record<DecisionInput['resolution_status'], string>> = {
-    USER_CONFIRMED_FACT: '실제 입력',
+    RESOLVED_USER_CONFIRMED: '실제 입력',
     RESOLVED_BENCHMARK: '지역 참고값',
-    DECLARED_ASSUMPTION: '참고 가정',
+    ASSUMED: '참고 가정',
+    RESOLVED_DERIVED: '계산값',
     DOCUMENT_REQUIRED: '문서 확인 필요',
     INPUT_REQUIRED: '실제 입력 필요',
     EXTERNAL_CONFIRMATION_REQUIRED: '외부 확인',
     UNSUPPORTED_BY_DATA: '데이터로 판정 불가',
   }
-  if (byResolution[input.resolution_status]) return byResolution[input.resolution_status]!
-  return {
+  return byResolution[input.resolution_status] ?? {
     FACT: '확인된 자료',
     USER_INPUT: '실제 입력',
     BENCHMARK: '공식 참고값',
@@ -96,19 +84,15 @@ export function provenanceLabel(input: DecisionInput) {
 
 export function limitationCopy(code: string | null) {
   if (!code) return null
-  if (code === 'REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY') {
-    return '지역 참고값이며 실제 점포의 임대 조건은 아닙니다.'
-  }
-  if (code === 'DEV_PREVIEW_BACKEND_NOT_WIRED') {
-    return '개발 미리보기용 정밀화 항목입니다. 실제 반영 계약은 백엔드 연결 후 확정됩니다.'
-  }
+  if (code === 'REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY') return '지역 참고값이며 실제 점포의 임대 조건은 아닙니다.'
   return '적용 범위에 제한이 있는 자료입니다. 실제 조건으로 교체할 수 있어요.'
 }
 
 export function refinableInputs(candidate: ResultCandidate) {
   return (candidate.decision_inputs ?? []).filter((input) =>
-    ['PROPERTY_TERMS', 'DOCUMENT_INTAKE', 'USER_INPUT'].includes(input.resolution_action?.type ?? ''),
-  ).filter((input) => !['USER_CONFIRMED_FACT', 'RESOLVED_FACT'].includes(input.resolution_status))
+    input.resolution_action.action_type !== 'NONE' &&
+    ['RESOLVED_USER_CONFIRMED', 'RESOLVED_FACT'].includes(input.resolution_status) === false,
+  )
 }
 
 export function financeInputs(candidate: ResultCandidate) {
@@ -118,9 +102,10 @@ export function financeInputs(candidate: ResultCandidate) {
 export function resolutionStatusLabel(status: DecisionInput['resolution_status']) {
   return {
     RESOLVED_FACT: '확인된 사실',
-    USER_CONFIRMED_FACT: '실제 입력으로 확인',
+    RESOLVED_USER_CONFIRMED: '실제 입력으로 확인',
     RESOLVED_BENCHMARK: '지역 참고값',
-    DECLARED_ASSUMPTION: '참고 가정',
+    RESOLVED_DERIVED: '계산값',
+    ASSUMED: '참고 가정',
     INPUT_REQUIRED: '실제 입력 필요',
     DOCUMENT_REQUIRED: '문서 확인 필요',
     EXTERNAL_CONFIRMATION_REQUIRED: '외부 확인 필요',
@@ -129,19 +114,20 @@ export function resolutionStatusLabel(status: DecisionInput['resolution_status']
 }
 
 export function rankFactorLabel(candidate: ResultCandidate) {
-  const decisive = candidate.rank_trace?.decisive_factor
+  const trace = candidate.rank_trace
+  const decisive = trace?.decisive_factor_code
   if (!decisive) return null
-  const factor = candidate.rank_trace?.factors.find((value) => value.code === decisive)
+  const factor = trace.factors.find((value) => value.factor_code === decisive)
   const labels: Record<string, string> = {
-    INITIAL_CASH_BASE: '초기 필요자금',
-    MONTHLY_FIXED_COST_BASE: '월 고정비',
+    INITIAL_CASH_BASE_KRW: '초기 필요자금',
+    MONTHLY_FIXED_COST_BASE_KRW: '월 고정비',
+    CRITICAL_RISK_COUNT: '중대한 위험 수',
+    MATERIAL_GAP_COUNT: '핵심 미확인 항목 수',
     HIGH_RISK_COUNT: '높은 위험 수',
     FOUNDER_BURDEN: '운영 부담',
   }
   return {
     label: labels[decisive] ?? internalLabel(decisive, '비교 기준'),
-    value: typeof factor?.value === 'number' && decisive.includes('CASH')
-      ? formatWon(factor.value)
-      : factor?.value == null ? null : String(factor.value),
+    value: typeof factor?.value === 'number' && decisive.endsWith('_KRW') ? formatWon(factor.value) : factor?.value == null ? null : String(factor.value),
   }
 }

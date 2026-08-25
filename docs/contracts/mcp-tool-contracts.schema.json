@@ -23,6 +23,30 @@
         "as_of": { "type": "string", "format": "date" }
       }
     },
+    "getPropertyReferenceInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["administrative_code", "boundary_version", "as_of"],
+      "properties": {
+        "administrative_code": { "type": "string", "pattern": "^[0-9]{8,10}$" },
+        "boundary_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "as_of": { "type": "string", "format": "date" }
+      }
+    },
+    "getCostReferenceInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference_types", "as_of"],
+      "properties": {
+        "reference_types": {
+          "type": "array",
+          "items": { "enum": ["MINIMUM_WAGE", "EMPLOYER_SOCIAL_INSURANCE"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "as_of": { "type": "string", "format": "date" }
+      }
+    },
     "searchCafeObservationsInput": {
       "type": "object",
       "additionalProperties": false,
@@ -185,6 +209,8 @@
           "enum": [
             "resolve_area",
             "get_area_profile",
+            "get_property_reference",
+            "get_cost_reference",
             "search_cafe_observations",
             "search_business_events",
             "list_franchise_universe",
@@ -263,6 +289,128 @@
         "evidence_id": { "type": "string", "minLength": 1, "maxLength": 128 }
       }
     },
+    "propertyReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "property_class",
+        "effective_rent_krw_per_sqm_month",
+        "conversion_rate_bps",
+        "period",
+        "region_code",
+        "region_name",
+        "coverage_status",
+        "floor_basis",
+        "evidence_id"
+      ],
+      "properties": {
+        "property_class": { "enum": ["SMALL_RETAIL", "MEDIUM_LARGE_RETAIL", "STRATA_RETAIL"] },
+        "effective_rent_krw_per_sqm_month": { "type": "integer", "minimum": 0 },
+        "conversion_rate_bps": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "period": { "type": "string", "pattern": "^[0-9]{4}Q[1-4]$" },
+        "region_code": { "type": "string", "pattern": "^[0-9]{2}$" },
+        "region_name": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "coverage_status": { "enum": ["EXACT_MARKET", "PARENT_REGION"] },
+        "floor_basis": { "enum": ["FIRST_FLOOR"] },
+        "evidence_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "costReference": {
+      "oneOf": [
+        { "$ref": "#/$defs/minimumWageCostReference" },
+        { "$ref": "#/$defs/employerSocialInsuranceCostReference" }
+      ]
+    },
+    "minimumWageCostReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference_type",
+        "effective_from",
+        "effective_to",
+        "hourly_rate_krw",
+        "monthly_equivalent_hours",
+        "monthly_equivalent_krw",
+        "evidence_id"
+      ],
+      "properties": {
+        "reference_type": { "const": "MINIMUM_WAGE" },
+        "effective_from": { "type": "string", "format": "date" },
+        "effective_to": { "type": "string", "format": "date" },
+        "hourly_rate_krw": { "type": "integer", "minimum": 1 },
+        "monthly_equivalent_hours": { "type": "integer", "minimum": 1, "maximum": 744 },
+        "monthly_equivalent_krw": { "type": "integer", "minimum": 1 },
+        "evidence_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "employerInsuranceComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "employer_rate_ppm", "evidence_id"],
+      "properties": {
+        "component": {
+          "enum": [
+            "NATIONAL_PENSION",
+            "HEALTH_LONG_TERM_CARE",
+            "UNEMPLOYMENT_BENEFIT",
+            "EMPLOYMENT_STABILIZATION_VOCATIONAL"
+          ]
+        },
+        "employer_rate_ppm": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "evidence_id": { "type": "string", "minLength": 1, "maxLength": 160 }
+      }
+    },
+    "employerSocialInsuranceCostReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference_type",
+        "effective_from",
+        "effective_to",
+        "workplace_employee_upper_bound",
+        "components",
+        "unsupported_components",
+        "excluded_adjustments"
+      ],
+      "properties": {
+        "reference_type": { "const": "EMPLOYER_SOCIAL_INSURANCE" },
+        "effective_from": { "type": "string", "format": "date" },
+        "effective_to": { "type": "string", "format": "date" },
+        "workplace_employee_upper_bound": { "type": "integer", "minimum": 1 },
+        "components": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/employerInsuranceComponent" },
+          "minItems": 4,
+          "maxItems": 4,
+          "allOf": [
+            { "contains": { "type": "object", "properties": { "component": { "const": "NATIONAL_PENSION" } }, "required": ["component"] } },
+            { "contains": { "type": "object", "properties": { "component": { "const": "HEALTH_LONG_TERM_CARE" } }, "required": ["component"] } },
+            { "contains": { "type": "object", "properties": { "component": { "const": "UNEMPLOYMENT_BENEFIT" } }, "required": ["component"] } },
+            { "contains": { "type": "object", "properties": { "component": { "const": "EMPLOYMENT_STABILIZATION_VOCATIONAL" } }, "required": ["component"] } }
+          ]
+        },
+        "unsupported_components": {
+          "type": "array",
+          "items": { "const": "WORKERS_COMPENSATION_INDUSTRY_RATE_REQUIRED" },
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true
+        },
+        "excluded_adjustments": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "CONTRIBUTION_BASE_CAPS_AND_FLOORS_NOT_APPLIED",
+              "EXEMPTIONS_NOT_APPLIED",
+              "SUPPORT_PROGRAMS_NOT_APPLIED"
+            ]
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true
+        }
+      }
+    },
     "businessEvent": {
       "type": "object",
       "additionalProperties": false,
@@ -285,6 +433,7 @@
         "known_initial_cost_range_krw",
         "reference_area_sqm",
         "monthly_royalty_krw",
+        "sales_royalty_bps",
         "evidence_refs",
         "source_refs",
         "scope_note",
@@ -311,6 +460,7 @@
         },
         "reference_area_sqm": { "type": ["number", "null"], "exclusiveMinimum": 0 },
         "monthly_royalty_krw": { "type": ["integer", "null"], "minimum": 0 },
+        "sales_royalty_bps": { "type": ["integer", "null"], "minimum": 0, "maximum": 10000 },
         "evidence_refs": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
@@ -351,8 +501,30 @@
     "disclosureField": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["field", "value", "unit", "effective_date", "evidence_id"],
+      "required": [
+        "brand_id",
+        "brand_name",
+        "ftc_brand_management_no",
+        "ftc_headquarters_management_no",
+        "source_version",
+        "disclosure_version",
+        "disclosure_registration_date",
+        "reporting_year",
+        "field",
+        "value",
+        "unit",
+        "effective_date",
+        "evidence_id"
+      ],
       "properties": {
+        "brand_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "brand_name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "ftc_brand_management_no": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "ftc_headquarters_management_no": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "source_version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "disclosure_version": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+        "disclosure_registration_date": { "type": ["string", "null"], "format": "date" },
+        "reporting_year": { "type": "integer", "minimum": 2000, "maximum": 2100 },
         "field": { "type": "string", "minLength": 1, "maxLength": 128 },
         "value": { "$ref": "./common-types.schema.json#/$defs/typedValue" },
         "unit": { "type": ["string", "null"], "maxLength": 64 },
@@ -424,6 +596,34 @@
           "properties": {
             "tool_name": { "const": "get_area_profile" },
             "data": { "type": "array", "items": { "$ref": "#/$defs/metricRecord" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "getPropertyReferenceResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "get_property_reference" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/propertyReference" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "getCostReferenceResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "get_cost_reference" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/costReference" } }
           }
         }
       ],

@@ -4,21 +4,19 @@ import { decisionInputLabel, decisionInputValue, financeInputs, limitationCopy, 
 
 function refinementLabel(input: DecisionInput) {
   const action = input.resolution_action
-  if (!action) return null
-  if (action.type !== 'PROPERTY_TERMS' && ['USER_CONFIRMED_FACT', 'RESOLVED_FACT'].includes(input.resolution_status)) return null
-  if (action.type === 'PROPERTY_TERMS') return '실제 매물로 바꾸기'
-  if (action.type === 'DOCUMENT_INTAKE') {
-    const types = action.accepted_document_types ?? []
+  if (action.action_type !== 'PROPERTY_TERMS' && ['RESOLVED_USER_CONFIRMED', 'RESOLVED_FACT'].includes(input.resolution_status)) return null
+  if (action.action_type === 'PROPERTY_TERMS') return '실제 매물로 바꾸기'
+  if (action.action_type === 'DOCUMENT_INTAKE') {
+    const types = action.accepted_document_types
     if (types.includes('EQUIPMENT_QUOTE')) return '장비 견적 반영하기'
     if (types.includes('INTERIOR_QUOTE')) return '인테리어 견적 반영하기'
     if (input.field.toLowerCase().includes('royalty')) return '로열티 문서 반영하기'
     if (types.includes('FRANCHISE_DISCLOSURE') || types.includes('FRANCHISE_AGREEMENT')) return '가맹비 문서 반영하기'
     return '문서 값 반영하기'
   }
-  if (action.type === 'USER_INPUT') return '직접 값 입력하기'
+  if (action.action_type === 'USER_INPUT') return '직접 값 입력하기'
   return null
 }
-
 export function FinanceBreakdown({ candidate, onRefine, busy = false }: {
   candidate: ResultCandidate
   onRefine?: (input: DecisionInput) => void
@@ -50,18 +48,12 @@ export function FinanceBreakdown({ candidate, onRefine, busy = false }: {
                   <p>{decisionInputValue(input)}</p>
                 </div>
                 <div className="provenance-source">
-                  {input.source ? (
+                  {input.source_title ? (
                     <>
-                      <span>{input.source.title}</span>
-                      <small>{[input.source.data_date, input.source.geographic_scope].filter(Boolean).join(' · ')}</small>
-                      {(input.source.filename || input.source.page_index != null || input.source.section_path) && (
-                        <small>{[
-                          input.source.filename,
-                          input.source.page_index != null ? `${input.source.page_index + 1}페이지` : null,
-                          input.source.section_path,
-                        ].filter(Boolean).join(' · ')}</small>
-                      )}
-                      {input.source.source_ref && isHttpSource(input.source.source_ref) && <a href={input.source.source_ref} target="_blank" rel="noreferrer">원문 보기</a>}
+                      <span>{input.source_title}</span>
+                      <small>{[input.data_date, input.geographic_scope ? JSON.stringify(input.geographic_scope) : null].filter(Boolean).join(' · ')}</small>
+                      {input.source_anchor && <small>{input.source_anchor}</small>}
+                      {input.source_ref && isHttpSource(input.source_ref) && <a href={input.source_ref} target="_blank" rel="noreferrer">원문 보기</a>}
                     </>
                   ) : <span>사용자 입력 또는 등록된 모델 값</span>}
                   {input.applied_to.length > 0 && <small>적용: {input.applied_to.map((target) => internalLabel(target, '계산 항목')).join(' · ')}</small>}

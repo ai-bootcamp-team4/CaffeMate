@@ -9,6 +9,7 @@ from sqlalchemy.engine import Connection
 from app.candidates.seed_registry import IndependentSeedRegistry
 from app.domain.errors import FeedbackPreconditionError
 from app.domain.models import VentureState
+from app.finance.case_facts import PropertyContext
 from app.workflows.async_persistence import enqueue_first_proposal
 from app.workflows.models import HeadFence, WorkflowRun
 
@@ -23,6 +24,7 @@ def start_selective_first_proposal(
     previous_head: HeadFence,
     now: datetime,
     new_id: Callable[[], str],
+    property_context: PropertyContext | None = None,
 ) -> WorkflowRun:
     """현재 State를 queue하고 Worker 실행 시 저장된 점포 조건을 다시 읽는다."""
 
@@ -38,7 +40,6 @@ def start_selective_first_proposal(
     ).mappings().one_or_none()
     if source_result is None:
         raise FeedbackPreconditionError("Recompute requires a committed source result")
-
     registry = IndependentSeedRegistry.load_default()
     return enqueue_first_proposal(
         connection,

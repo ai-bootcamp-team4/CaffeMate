@@ -6,6 +6,7 @@ from pydantic import Field, model_validator
 
 from app.contracts.schema_registry import CandidateContractValidator, ContractRegistry
 from app.domain.models import StrictModel
+from app.finance.models import MoneyRange
 from app.workflows.models import HeadFence
 
 
@@ -105,6 +106,33 @@ class ResultBundle(StrictModel):
     created_at: datetime
 
 
+class DecisionInputDeltaSnapshot(StrictModel):
+    value_range_krw: MoneyRange | None = None
+    value_bps: int | None = Field(default=None, ge=0, le=10_000)
+    provenance: str
+    resolution_status: str
+    source_title: str | None = None
+    source_ref: str | None = None
+    source_anchor: str | None = None
+
+
+class DecisionInputChange(StrictModel):
+    field: str
+    previous: DecisionInputDeltaSnapshot | None = None
+    current: DecisionInputDeltaSnapshot | None = None
+    affected_calculations: list[str] = Field(default_factory=list)
+
+
+class GateTransition(StrictModel):
+    gate_type: str
+    previous_status: str | None = None
+    current_status: str | None = None
+    previous_reason_code: str | None = None
+    current_reason_code: str | None = None
+    previous_metrics: dict[str, int | None] = Field(default_factory=dict)
+    current_metrics: dict[str, int | None] = Field(default_factory=dict)
+
+
 class CandidateDecisionDelta(StrictModel):
     candidate_key: str
     display_name: str | None
@@ -116,6 +144,10 @@ class CandidateDecisionDelta(StrictModel):
     initial_cash_base_delta_krw: int | None
     monthly_fixed_cost_base_delta_krw: int | None
     break_even_monthly_sales_delta_krw: int | None
+    reason_codes_added: list[str] = Field(default_factory=list)
+    reason_codes_removed: list[str] = Field(default_factory=list)
+    input_changes: list[DecisionInputChange] = Field(default_factory=list)
+    gate_transitions: list[GateTransition] = Field(default_factory=list)
 
 
 class ResultDecisionDelta(StrictModel):

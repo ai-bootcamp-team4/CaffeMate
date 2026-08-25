@@ -127,10 +127,10 @@ def test_recommended_candidates_rank_before_conditional_candidates() -> None:
     assert results[1].review_status == ReviewStatus.CONDITIONAL_REVIEW
     assert results[1].rank_basis == RankBasis.NEXT_REVIEW_PRIORITY
     assert set(results[1].reason_codes) >= {
-        "FRANCHISE_AREA_AVAILABILITY_UNCONFIRMED",
         "MATERIAL_COST_UNKNOWN",
         "MATERIAL_FIELD_MISSING",
     }
+    assert "FRANCHISE_AREA_AVAILABILITY_UNCONFIRMED" not in results[1].reason_codes
 
 
 @pytest.mark.parametrize(
@@ -228,6 +228,25 @@ def test_recommended_ranking_is_stable_and_risk_adjusted() -> None:
         "lower-cost",
     ]
     assert forward == reverse
+    assert forward[0].rank_trace is not None
+    assert [factor.factor_code for factor in forward[0].rank_trace.factors] == [
+        "HIGH_RISK_COUNT",
+        "FOUNDER_BURDEN",
+        "MONTHLY_FIXED_COST_BASE_KRW",
+        "INITIAL_CASH_BASE_KRW",
+    ]
+    assert forward[0].rank_trace.decisive_factor_code == "HIGH_RISK_COUNT"
+    assert forward[0].rank_trace.compared_candidate_id == "lower-cost"
+    assert forward[0].rank_trace.tie_break_used is False
+
+
+def test_rank_trace_does_not_present_stable_id_as_user_decisive_factor() -> None:
+    results = rank_candidates([independent("candidate-b"), independent("candidate-a")])
+
+    assert [result.candidate_id for result in results] == ["candidate-a", "candidate-b"]
+    assert results[0].rank_trace is not None
+    assert results[0].rank_trace.decisive_factor_code is None
+    assert results[0].rank_trace.tie_break_used is True
 
 
 def test_critical_risk_requires_conditional_review() -> None:

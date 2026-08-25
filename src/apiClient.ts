@@ -1,7 +1,7 @@
 import type { AuthSession } from './auth'
 import type { OnboardingValues } from './onboardingState'
 import type { DocumentType, HeadFence, ResultCandidate, ResultView } from './resultContracts'
-export type { DecisionGateTrace, DecisionInput, DecisionResolutionStatus, DecisionRole, DecisionSource, DocumentType, HeadFence, MoneyRange, RankTrace, ResolutionAction, ResultCandidate, ResultDecisionDelta, ResultView, VerificationRequirement } from './resultContracts'
+export type { DecisionDerivation, DecisionGateTrace, DecisionInput, DecisionMoneyRange, DecisionResolutionStatus, DecisionRole, DocumentType, HeadFence, MoneyRange, RankTrace, ResolutionAction, ResolutionActionType, ResultCandidate, ResultDecisionDelta, ResultView, VerificationRequirement } from './resultContracts'
 
 export type WorkflowStatus = 'QUEUED' | 'RUNNING' | 'WAITING_FOR_HUMAN' | 'SUCCEEDED' | 'PARTIAL' | 'FAILED' | 'CANCELLED' | 'STALE'
 
