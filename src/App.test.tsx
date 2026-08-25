@@ -6,6 +6,11 @@ import { completeOnboarding, enterOnboarding, feedbackPreview, head, progress, p
 
 afterEach(cleanup)
 
+function openResultAssistant() {
+  fireEvent.click(screen.getByRole('button', { name: 'CaffeMate에게 물어보기' }))
+  return screen.getByLabelText('CaffeMate에게 물어보기') as HTMLTextAreaElement
+}
+
 describe('CaffeMate Control API integration', () => {
   it('lists saved projects after sign-in and resumes a saved result without creating a project', async () => {
     const { client } = setup()
@@ -133,9 +138,9 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.queryByRole('heading', { name: '무엇이 바뀌면 판단도 바뀌나요?' })).toBeNull()
     const externalHeading = screen.getByRole('heading', { name: 'CaffeMate 밖에서 확인해야 해요' })
     const preparationHeading = screen.getByRole('heading', { name: '실제로 진행한다면' })
-    const assistantInput = screen.getByLabelText('CaffeMate에게 물어보기')
+    const assistantLauncher = screen.getByRole('button', { name: 'CaffeMate에게 물어보기' })
     expect(externalHeading.compareDocumentPosition(preparationHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(preparationHeading.compareDocumentPosition(assistantInput) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(preparationHeading.compareDocumentPosition(assistantLauncher) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.queryByRole('tab', { name: '필요자금' })).toBeNull()
     expect(screen.queryByRole('tab', { name: '상권 신호' })).toBeNull()
   })
@@ -412,7 +417,7 @@ describe('CaffeMate Control API integration', () => {
     fireEvent.click(screen.getByRole('button', { name: '창업 준비 절차 보기' }))
     expect(await screen.findByRole('button', { name: '다시 확인' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '실제 매물로 바꾸기' })).toBeTruthy()
-    expect(screen.getByLabelText('CaffeMate에게 물어보기')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'CaffeMate에게 물어보기' })).toBeTruthy()
   })
 
   it('shows an authoritative funding failure without a separate condition-change CTA', async () => {
@@ -429,20 +434,38 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.getByText('최소 부족액')).toBeTruthy()
     expect(screen.getByText('20,000,000원')).toBeTruthy()
     expect(screen.queryByRole('button', { name: '내 조건을 바꾸고 다시 비교하기' })).toBeNull()
-    expect(screen.getByLabelText('CaffeMate에게 물어보기')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'CaffeMate에게 물어보기' })).toBeTruthy()
   })
 
-  it('shows one persistent bottom assistant for explanations and condition changes', async () => {
+  it('keeps the persistent result assistant compact until the user opens it', async () => {
     setup()
 
-    expect(screen.queryByLabelText('CaffeMate에게 물어보기')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'CaffeMate에게 물어보기' })).toBeNull()
     await completeOnboarding()
 
     const assistant = screen.getByTestId('result-assistant-dock')
     expect(assistant.classList.contains('result-assistant-dock')).toBe(true)
-    expect(screen.getByLabelText('CaffeMate에게 물어보기')).toBeTruthy()
+    const launcher = screen.getByRole('button', { name: 'CaffeMate에게 물어보기' })
+    expect(launcher.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('textbox', { name: 'CaffeMate에게 물어보기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '왜 이 안을 먼저 보나요?' })).toBeNull()
+
+    fireEvent.click(launcher)
+
+    const input = screen.getByRole('textbox', { name: 'CaffeMate에게 물어보기' }) as HTMLTextAreaElement
+    expect(input).toBeTruthy()
     expect(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '예산을 1억으로 바꿔줘' })).toBeTruthy()
+    fireEvent.change(input, { target: { value: '접어도 남아야 하는 초안' } })
+    const collapse = screen.getByRole('button', { name: 'CaffeMate 채팅 접기' })
+    expect(collapse.getAttribute('aria-expanded')).toBe('true')
+
+    fireEvent.click(collapse)
+
+    expect(screen.getByRole('button', { name: 'CaffeMate에게 물어보기' })).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'CaffeMate에게 물어보기' })).toBeNull()
+    openResultAssistant()
+    expect((screen.getByRole('textbox', { name: 'CaffeMate에게 물어보기' }) as HTMLTextAreaElement).value).toBe('접어도 남아야 하는 초안')
     expect(screen.queryByRole('button', { name: '조건 바꾸기' })).toBeNull()
     expect(screen.queryByRole('heading', { name: '조건 변경 제안' })).toBeNull()
   })
@@ -450,6 +473,7 @@ describe('CaffeMate Control API integration', () => {
   it('answers a result question with evidence without changing state', async () => {
     const { client } = setup()
     await completeOnboarding()
+    openResultAssistant()
 
     fireEvent.click(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' }))
 
@@ -470,6 +494,7 @@ describe('CaffeMate Control API integration', () => {
     try {
       setup()
       await completeOnboarding()
+      openResultAssistant()
 
       fireEvent.click(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' }))
 
@@ -495,6 +520,7 @@ describe('CaffeMate Control API integration', () => {
       decision_change_conditions: ['assumption.hidden_value가 바뀌는 경우'],
     })
     await completeOnboarding()
+    openResultAssistant()
 
     fireEvent.click(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' }))
 
@@ -526,6 +552,7 @@ describe('CaffeMate Control API integration', () => {
     const { client } = setup()
     vi.mocked(client.explainResult).mockRejectedValueOnce(new ControlApiError(status, code, code))
     await completeOnboarding()
+    openResultAssistant()
 
     fireEvent.click(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' }))
 
@@ -543,6 +570,7 @@ describe('CaffeMate Control API integration', () => {
       workflow: null,
     })
     await completeOnboarding()
+    openResultAssistant()
 
     fireEvent.change(screen.getByLabelText('CaffeMate에게 물어보기'), {
       target: { value: feedbackPreview.latest_user_input },
@@ -551,6 +579,7 @@ describe('CaffeMate Control API integration', () => {
 
     expect(await screen.findByRole('heading', { name: '적용 전 변경 확인' })).toBeTruthy()
     expect(screen.getByText('조건 변경안을 만들었습니다. 적용 전 내용을 확인해 주세요.')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'CaffeMate 채팅 접기' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByLabelText('CaffeMate에게 물어보기') as HTMLTextAreaElement).disabled).toBe(true)
     expect(client.explainResult).toHaveBeenCalledWith('project-1', result, feedbackPreview.latest_user_input, 'candidate-1')
     expect(client.createFeedbackPreview).toHaveBeenCalledWith('project-1', feedbackPreview.latest_user_input)
@@ -564,6 +593,7 @@ describe('CaffeMate Control API integration', () => {
   it('exposes empty-input and unified-chat loading states accessibly', async () => {
     const { client } = setup()
     await completeOnboarding()
+    openResultAssistant()
 
     fireEvent.click(screen.getByRole('button', { name: '보내기' }))
     const input = screen.getByLabelText('CaffeMate에게 물어보기') as HTMLTextAreaElement
@@ -579,6 +609,7 @@ describe('CaffeMate Control API integration', () => {
     const loadingButton = screen.getByRole('button', { name: '확인 중' })
     expect(loadingButton.getAttribute('aria-busy')).toBe('true')
     expect((loadingButton as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'CaffeMate 채팅 접기' }) as HTMLButtonElement).disabled).toBe(true)
     resolveExplanation?.(resultExplanation)
     expect(await screen.findByText(resultExplanation.conclusion)).toBeTruthy()
   })
@@ -600,6 +631,7 @@ describe('CaffeMate Control API integration', () => {
       workflow: null,
     })
     await completeOnboarding()
+    openResultAssistant()
 
     fireEvent.change(screen.getByLabelText('CaffeMate에게 물어보기'), {
       target: { value: '브랜드를 빼고 싶어요.' },

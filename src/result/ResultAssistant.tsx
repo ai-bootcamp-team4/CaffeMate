@@ -33,6 +33,7 @@ export function FeedbackPanel({
   candidate: ResultCandidate
   onResult: (result: ResultView) => void
 }) {
+  const [expanded, setExpanded] = useState(false)
   const [draft, setDraft] = useState('')
   const [answers, setAnswers] = useState<ExplanationTurn[]>([])
   const [preview, setPreview] = useState<FeedbackPreview | null>(null)
@@ -40,14 +41,28 @@ export function FeedbackPanel({
   const [status, setStatus] = useState('결과를 물어보거나 바꾸고 싶은 조건을 자연어로 입력해 주세요.')
   const [statusTone, setStatusTone] = useState<'idle' | 'loading' | 'error' | 'success'>('idle')
   const [invalid, setInvalid] = useState(false)
+  const launcherRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const latestTurnRef = useRef<HTMLDivElement>(null)
   const busy = busyAction !== null
+  const collapseLocked = busy || preview !== null
 
   useEffect(() => {
-    if (answers.length === 0 && !preview) return
+    if (!expanded || (answers.length === 0 && !preview)) return
     latestTurnRef.current?.scrollIntoView?.({ block: 'nearest' })
-  }, [answers.length, preview])
+  }, [answers.length, preview, expanded])
+
+  useEffect(() => {
+    if (!expanded || preview) return
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 0)
+    return () => window.clearTimeout(focusTimer)
+  }, [expanded, preview])
+
+  const collapseAssistant = () => {
+    if (collapseLocked) return
+    setExpanded(false)
+    window.setTimeout(() => launcherRef.current?.focus(), 0)
+  }
 
   const requestTurn = async (rawInput: string) => {
     if (busy) return
@@ -153,8 +168,39 @@ export function FeedbackPanel({
       )
     : []
 
+  if (!expanded) {
+    return (
+      <button
+        ref={launcherRef}
+        className="result-assistant-launcher"
+        type="button"
+        aria-label="CaffeMate에게 물어보기"
+        aria-expanded={false}
+        aria-controls="resultAssistantPanel"
+        onClick={() => setExpanded(true)}
+      >
+        <span className="result-assistant-launcher__mark" aria-hidden="true">C</span>
+        <span className="result-assistant-launcher__copy"><strong>CaffeMate</strong><small>결과 물어보기</small></span>
+      </button>
+    )
+  }
+
   return (
-    <section className="feedback-panel" aria-label="CaffeMate 채팅">
+    <section id="resultAssistantPanel" className="feedback-panel feedback-panel--expanded" aria-label="CaffeMate 채팅">
+      <div className="feedback-panel__dock-head">
+        <div><strong>CaffeMate</strong><span>결과 질문 · 조건 수정</span></div>
+        <button
+          className="result-assistant-collapse"
+          type="button"
+          aria-label="CaffeMate 채팅 접기"
+          aria-expanded={true}
+          aria-controls="resultAssistantPanel"
+          disabled={collapseLocked}
+          onClick={collapseAssistant}
+        >
+          접기
+        </button>
+      </div>
       {(answers.length > 0 || preview) && (
         <div className="feedback-thread" aria-label="CaffeMate 대화">
           {answers.map((entry, index) => (

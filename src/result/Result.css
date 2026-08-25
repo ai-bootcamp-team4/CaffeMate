@@ -1,6 +1,6 @@
 .result-page {
   max-width: var(--content-max);
-  padding-bottom: var(--space-4xl);
+  padding-bottom: calc(var(--space-2xl) + var(--space-md));
 }
 
 .result-hero {
@@ -201,26 +201,91 @@
   color: var(--color-error);
 }
 
-/* Same restrained glass treatment as the sticky main topbar, but anchored to the result workspace. */
+/* Compact by default so the assistant stays available without covering the result. */
 .result-assistant-wrap {
   position: fixed;
-  inset-inline: var(--space-md);
+  inset-inline-end: var(--space-md);
   inset-block-end: var(--space-md);
   z-index: calc(var(--z-sticky) + 1);
-  width: min(56rem, calc(100% - (var(--space-md) * 2)));
-  margin-inline: auto;
+  display: grid;
+  justify-items: end;
+  width: auto;
+  max-width: calc(100vw - (var(--space-md) * 2));
 }
-.result-assistant-wrap .feedback-panel {
-  max-height: min(68dvh, 38rem);
+.result-assistant-launcher {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 3.25rem;
+  padding: var(--space-xs) var(--space-md) var(--space-xs) var(--space-xs);
+  border: var(--rule-thin) solid var(--color-rule-strong);
+  border-radius: var(--radius-round);
+  outline: var(--rule-strong) solid var(--color-transparent);
+  outline-offset: var(--space-3xs);
+  background: color-mix(in oklch, var(--color-paper) 88%, transparent);
+  color: var(--color-ink);
+  backdrop-filter: blur(1.25rem);
+  box-shadow: 0 .5rem 2rem var(--color-shadow);
+  cursor: pointer;
+  transition: transform var(--dur-micro) var(--ease-out), background-color var(--dur-short) var(--ease-out);
+}
+.result-assistant-launcher:focus-visible { outline-color: var(--color-focus); }
+.result-assistant-launcher__mark {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-round);
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-weight: 800;
+}
+.result-assistant-launcher__copy { display: grid; gap: var(--space-3xs); text-align: start; }
+.result-assistant-launcher__copy strong { font-size: var(--text-sm); }
+.result-assistant-launcher__copy small { color: var(--color-neutral); font-size: var(--text-xs); }
+.result-assistant-wrap .feedback-panel--expanded {
+  width: min(30rem, calc(100vw - (var(--space-md) * 2)));
+  max-height: min(72dvh, 34rem);
   padding: var(--space-sm);
   border-color: var(--color-rule-strong);
   border-radius: var(--radius-lg);
-  background: color-mix(in oklch, var(--color-paper) 86%, transparent);
+  background: color-mix(in oklch, var(--color-paper) 90%, transparent);
   backdrop-filter: blur(1.25rem);
-  box-shadow: var(--shadow-whisper);
+  box-shadow: 0 .75rem 2rem var(--color-overlay);
   overflow: hidden;
+  transform-origin: bottom right;
+  animation: result-assistant-open var(--dur-short) var(--ease-out) both;
 }
-.result-assistant-wrap .feedback-thread { max-height: min(42dvh, 23rem); overflow-y: auto; }
+@keyframes result-assistant-open {
+  from { opacity: 0; transform: translateY(var(--space-xs)) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+.feedback-panel__dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding-block-end: var(--space-xs);
+  border-block-end: var(--rule-thin) solid var(--color-rule);
+}
+.feedback-panel__dock-head > div { display: grid; gap: var(--space-3xs); min-width: 0; }
+.feedback-panel__dock-head strong { font-family: var(--font-display); }
+.feedback-panel__dock-head span { color: var(--color-neutral); font-size: var(--text-xs); }
+.result-assistant-collapse {
+  min-height: 2.5rem;
+  padding-inline: var(--space-sm);
+  border: var(--rule-thin) solid var(--color-rule);
+  border-radius: var(--radius-round);
+  background: var(--color-transparent);
+  color: var(--color-neutral);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+.result-assistant-collapse:focus-visible { outline: var(--rule-strong) solid var(--color-focus); outline-offset: var(--space-3xs); }
+.result-assistant-collapse:disabled { opacity: .45; cursor: not-allowed; }
+.result-assistant-wrap .feedback-thread { max-height: min(40dvh, 19rem); overflow-y: auto; }
 .feedback-compose--dock { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-xs); align-items: end; }
 .feedback-compose--dock textarea {
   width: 100%;
@@ -242,6 +307,8 @@
 .result-assistant-wrap .feedback-status { padding-inline: var(--space-2xs); font-size: var(--text-xs); }
 
 @media (hover: hover) and (pointer: fine) {
+  .result-assistant-launcher:hover { background: var(--color-paper-2); transform: translateY(-1px); }
+  .result-assistant-collapse:hover:not(:disabled) { background: var(--color-paper-2); color: var(--color-ink); }
   .candidate-comparison__item:hover { background: var(--color-paper-3); transform: translateY(-1px); }
   .candidate-comparison__item[data-active="true"]:hover { background: var(--color-ink); color: var(--color-paper); }
   .provenance-source a:hover,
@@ -254,7 +321,6 @@
 }
 
 @media (max-width: 59.999rem) {
-  .result-page { padding-bottom: var(--space-4xl); }
   .result-hero { padding: var(--space-lg); }
   .result-section--muted { padding: var(--space-lg); }
   .provenance-row { grid-template-columns: minmax(0, 1fr); }
@@ -263,8 +329,13 @@
 }
 
 @media (max-width: 39.999rem) {
-  .result-assistant-wrap { inset-inline: var(--space-xs); inset-block-end: var(--space-xs); width: calc(100% - (var(--space-xs) * 2)); }
+  .result-assistant-wrap { inset-inline-end: var(--space-xs); inset-block-end: var(--space-xs); max-width: calc(100vw - (var(--space-xs) * 2)); }
   .feedback-compose--dock { grid-template-columns: minmax(0, 1fr) auto; }
   .result-assistant-wrap .sample-row { flex-wrap: nowrap; overflow-x: auto; padding-block-end: var(--space-2xs); }
-  .result-assistant-wrap .feedback-panel { border-radius: var(--radius-md); }
+  .result-assistant-wrap .feedback-panel--expanded { width: calc(100vw - (var(--space-xs) * 2)); border-radius: var(--radius-md); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .result-assistant-wrap .feedback-panel--expanded { animation: none; }
+  .result-assistant-launcher { transition: none; }
 }
