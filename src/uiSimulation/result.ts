@@ -394,14 +394,19 @@ export function buildSimulationResult(base: ResultView, area: SupportedAreaScena
     evidence_snapshot_id: `evidence-snapshot:${area.analysis_key}`,
     seed_registry_id: 'independent-seeds:20260825',
   }
+  const resultVersion = currentHead.state_version
   return {
     ...base,
     project_id: 'project:seongsu-review',
-    result_bundle_id: `result-bundle:${area.analysis_key}:v1`,
+    result_bundle_id: `result-bundle:${area.analysis_key}:v${resultVersion}`,
     workflow_run_id: 'workflow:first-proposal:seongsu',
     head: currentHead,
     current_head: currentHead,
-    candidates: ranked.map((candidate) => ({ ...candidate, project_id: 'project:seongsu-review' })),
+    candidates: ranked.map((candidate) => ({
+      ...candidate,
+      project_id: 'project:seongsu-review',
+      state_version: resultVersion,
+    })),
     primary_candidate_id: primary?.candidate_id ?? null,
     outcome_status: primary ? 'REVIEWABLE_CANDIDATES' : 'NO_REVIEWABLE_CANDIDATES',
     decision_delta: null,

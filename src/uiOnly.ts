@@ -20,6 +20,11 @@ import { searchSimulationAreas, simulationAreaByToken, type SupportedAreaScenari
 import { createSimulationWorkflowRegistry } from './uiSimulation/workflow'
 import { applyDocumentScenario, applyPropertyScenario } from './uiSimulation/refinement'
 import { buildSeongsuPreparationGuide } from './uiSimulation/preparation'
+import {
+  applyConditionScenario,
+  buildConditionPreview,
+  explainSimulationResult,
+} from './uiSimulation/assistantScenarios'
 
 const now = '2026-08-25T06:40:00Z'
 const projectId = 'project:seongsu-review'
@@ -100,7 +105,6 @@ export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}):
   let selectedAreaScenario: SupportedAreaScenario | null = null
   let confirmedValues: OnboardingValues | null = null
   let selectedCandidateId = ''
-  let feedbackStatus: FeedbackPreview['status'] = 'REVIEW_REQUIRED'
   let documentSequence = 0
   let currentDocumentType: DocumentType = 'PROPERTY_LISTING'
   let currentDocumentRevision: DocumentRevision | null = null
@@ -239,63 +243,38 @@ export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}):
     },
     getWorkflow: async (_projectId, workflowRunId) => workflows.progress(workflowRunId),
     getResult: async () => currentResult,
-    explainResult: async (_projectId, _result, question, candidateId): Promise<ResultExplanation> => {
-      const selected = currentResult.candidates.find((candidate) => candidate.candidate_id === candidateId)
-        ?? currentResult.candidates.find((candidate) => candidate.candidate_id === currentResult.primary_candidate_id)
-        ?? currentResult.candidates[0]
-      if (!selected) throw new Error('설명할 현재 결과가 없습니다.')
-      const gate = selected.decision_trace?.gates.find((item) => item.gate_type === 'CAPITAL')
-      const sourceInput = selected.decision_inputs?.find((input) => input.source?.source_ref)
-      return {
-        explanation_id: `explanation:${Date.now()}`,
-        result_bundle_id: currentResult.result_bundle_id,
-        candidate_id: selected.candidate_id,
-        intent: 'WHY_RECOMMENDED',
-        conclusion: selected.summary,
-        reasons: gate ? [
-          gate.status === 'FAIL'
-            ? '현재 자기자금이 최소 초기비용보다 적어 자금 조건을 통과하지 못했습니다.'
-            : gate.status === 'CONDITIONAL'
-              ? '초기비용 범위가 현재 자기자금과 겹쳐 실제 점포·견적 확인 뒤 자금 조건을 다시 판단해야 합니다.'
-              : '현재 자기자금이 초기비용 상단 시나리오까지 감당할 수 있습니다.',
-        ] : selected.reason_codes,
-        evidence: sourceInput?.source ? [{
-          evidence_id: sourceInput.range?.provenance_refs[0] ?? sourceInput.field,
-          label: sourceInput.label ?? sourceInput.field,
-          value: sourceInput.range?.base == null ? null : `${sourceInput.range.base.toLocaleString('ko-KR')}원`,
-          source_title: sourceInput.source.title,
-          source_ref: sourceInput.source.source_ref,
-          data_date: sourceInput.source.data_date,
-          caveat: sourceInput.limitation_code === 'REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY' ? '지역 참고값이며 실제 점포의 임대 조건은 아닙니다.' : null,
-        }] : [],
-        unknowns: selected.next_actions,
-        decision_change_conditions: selected.counterfactuals.map((item) => item.condition),
-        suggested_action: /바꿔|제외|변경/.test(question) ? 'OPEN_CONDITION_CHANGE' : 'NONE',
-        state_changed: false,
-      }
+    explainResult: async (_projectId, _result, question, candidateId): Promise<ResultExplanation> => (
+      explainSimulationResult(question, currentResult, candidateId)
+    ),
+    createFeedbackPreview: async (_projectId, input): Promise<FeedbackPreview> => {
+      if (!confirmedValues) throw new Error('변경할 현재 창업 조건을 찾을 수 없습니다.')
+      return buildConditionPreview(input, currentResult, confirmedValues)
     },
-    createFeedbackPreview: async (_projectId, input): Promise<FeedbackPreview> => ({
-      preview_id: `feedback-preview:${Date.now()}`,
-      project_id: currentProject.project_id,
-      result_bundle_id: currentResult.result_bundle_id,
-      head: currentResult.current_head,
-      status: feedbackStatus,
-      latest_user_input: input,
-      before_founder: { own_funds_krw: currentProject.state?.founder.own_funds_krw ?? 0 },
-      after_founder: { own_funds_krw: Math.max(0, Number(currentProject.state?.founder.own_funds_krw ?? 0) - 10_000_000) },
-      operations: [],
-      clarifying_questions: [],
-      affected_stage_codes: ['FINANCE_AND_RANK'],
-      risk_flags: [],
-      proposal_digest: `sha256:${'a'.repeat(64)}`,
-    }),
     confirmFeedback: async (_projectId, preview): Promise<FeedbackResolution> => {
-      feedbackStatus = 'CONFIRMED'
+      if (!confirmedValues || !selectedAreaScenario || !currentProject.state) {
+        throw new Error('변경안을 적용할 현재 분석 조건을 찾을 수 없습니다.')
+      }
+      confirmedValues = applyConditionScenario(preview.latest_user_input, confirmedValues)
+      const nextStateVersion = currentResult.current_head.state_version + 1
+      const nextHead: HeadFence = {
+        ...currentResult.current_head,
+        state_version: nextStateVersion,
+        founder_snapshot_id: `founder-snapshot:seongsu:v${nextStateVersion}`,
+      }
+      currentProject = buildSimulationProject({
+        ...currentProject,
+        state: { ...currentProject.state, state_version: nextStateVersion },
+      }, selectedAreaScenario, confirmedValues)
+      currentResult = buildSimulationResult({
+        ...currentResult,
+        head: nextHead,
+        current_head: nextHead,
+      }, selectedAreaScenario, confirmedValues)
+      selectedCandidateId = currentResult.primary_candidate_id ?? currentResult.candidates[0]?.candidate_id ?? ''
       const recompute = workflows.start(`workflow:feedback:${Date.now()}`, currentResult.current_head)
-      return { preview: { ...preview, status: 'CONFIRMED' }, state_version: currentResult.current_head.state_version, workflow: recompute }
+      return { preview: { ...preview, status: 'CONFIRMED' }, state_version: nextStateVersion, workflow: recompute }
     },
     cancelFeedback: async (_projectId, previewId): Promise<FeedbackResolution> => {
-      feedbackStatus = 'CANCELLED'
       return {
         preview: {
           preview_id: previewId,

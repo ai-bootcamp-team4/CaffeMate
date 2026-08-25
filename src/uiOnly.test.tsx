@@ -109,4 +109,29 @@ describe('UI-only development mode', () => {
     expect(screen.getByText('최소 부족액')).toBeTruthy()
     expect(screen.getAllByText('39,500,000원').length).toBeGreaterThan(0)
   }, 15_000)
+
+  it('runs explanation and confirmed condition-change scenarios through the result assistant', async () => {
+    const { authGateway, apiFactory } = createUiOnlyDependencies({ workflowTimeScale: 0.001 })
+    render(<App authGateway={authGateway} apiFactory={apiFactory} />)
+    await completeUiOnlyOnboarding()
+
+    fireEvent.click(screen.getByRole('button', { name: 'CaffeMate에게 물어보기' }))
+    fireEvent.click(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' }))
+    expect(await screen.findByText(/현재 1순위로 보는 핵심은 자금 조건과 후보 간 비용·운영 부담 비교입니다/)).toBeTruthy()
+    expect(screen.getByText('답변을 확인했어요. 현재 결과는 바뀌지 않았습니다.')).toBeTruthy()
+
+    const input = screen.getByRole('textbox', { name: 'CaffeMate에게 물어보기' })
+    fireEvent.change(input, { target: { value: '예산을 1억으로 바꿔줘' } })
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+
+    expect(await screen.findByRole('heading', { name: '적용 전 변경 확인' })).toBeTruthy()
+    expect(screen.getByText('자기자금')).toBeTruthy()
+    expect(screen.getByText('150,000,000')).toBeTruthy()
+    expect(screen.getByText('100,000,000')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '변경 적용' }))
+
+    expect(await screen.findByRole('button', { name: 'CaffeMate에게 물어보기' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /생활권 단골 균형형 개인카페/ }))
+    expect(await screen.findByRole('heading', { name: '왜 이 안은 지금 진행하기 어려운가요?' })).toBeTruthy()
+  }, 10_000)
 })
