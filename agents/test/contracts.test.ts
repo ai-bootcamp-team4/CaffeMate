@@ -34,6 +34,17 @@ describe('agent contract fixtures', () => {
     }
   })
 
+  it('pins every fixture to the current task registry contract', () => {
+    for (const fixture of fixtureMatrix.cases) {
+      const taskType = fixture.task.task_type as TaskType
+      const registration = TASK_REGISTRY[taskType]
+      expect(fixture.task.agent_name, fixture.id).toBe(registration.agentName)
+      expect(fixture.task.prompt_version, fixture.id).toBe(registration.promptVersion)
+      expect(fixture.task.input_schema_id, fixture.id).toBe(registration.inputSchemaId)
+      expect(fixture.task.output_schema_id, fixture.id).toBe(registration.outputSchemaId)
+    }
+  })
+
   it('pins every fixture input digest to its canonical logical input', () => {
     for (const fixture of fixtureMatrix.cases) {
       expect(computeAgentTaskInputDigest(fixture.task as AgentTask), fixture.id).toBe(fixture.task.input_digest)

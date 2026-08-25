@@ -23,6 +23,15 @@ describe('Agent Runtime HTTP failure classification', () => {
     })
   })
 
+  it('preserves logical deadline exhaustion as an explicit Runtime timeout', () => {
+    expect(runtimeHttpFailure(Object.assign(new Error('deadline'), {
+      code: 'RUNTIME_TIMED_OUT',
+    }))).toEqual({
+      status: 500,
+      body: { error: 'RUNTIME_TIMED_OUT' },
+    })
+  })
+
   it('keeps unknown execution failures retryable without exposing raw messages', () => {
     expect(runtimeHttpFailure(new Error('sensitive provider details'))).toEqual({
       status: 500,

@@ -262,6 +262,39 @@ def test_assumption_or_unknown_cannot_be_used_as_evidence_coverage(
     assert "ASSUMPTION_USED_AS_EVIDENCE" in {error.code for error in validation.errors}
 
 
+def test_independent_seed_assumption_cannot_be_returned_as_evidence_ref() -> None:
+    task, result = fixture_task_result("PROPOSE_INDEPENDENT")
+    result_payload = result["payload"]
+    assert isinstance(result_payload, dict)
+    proposals = result_payload["candidate_proposals"]
+    assert isinstance(proposals, list)
+    proposal = proposals[0]
+    assert isinstance(proposal, dict)
+    proposal["evidence_refs"] = ["seed-registry-1"]
+    result["evidence_refs"] = ["seed-registry-1"]
+
+    validation = validate_agent_boundary(
+        task=task,
+        result=result,
+        current_head=fixture_head(task),
+    )
+
+    assert "UNSUPPORTED_REFERENCE" in {error.code for error in validation.errors}
+
+
+def test_independent_seed_assumption_remains_valid_as_assumption_ref() -> None:
+    task, result = fixture_task_result("PROPOSE_INDEPENDENT")
+
+    validation = validate_agent_boundary(
+        task=task,
+        result=result,
+        current_head=fixture_head(task),
+    )
+
+    assert validation.accepted is True
+    assert validation.errors == []
+
+
 def test_non_monotonic_money_range_is_rejected() -> None:
     task, result = fixture_task_result("PROPOSE_INDEPENDENT")
     payload = task["payload"]

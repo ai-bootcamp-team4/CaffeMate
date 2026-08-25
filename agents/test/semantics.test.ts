@@ -386,6 +386,47 @@ describe('agent semantic validator', () => {
     expect(validation.issues.some((issue) => issue.code === 'MONEY_RANGE_NON_MONOTONIC')).toBe(true)
   })
 
+  it('matches the backend EVIDENCE_PLAN completeness and action uniqueness checks', () => {
+    const { task, result } = fixture('EVIDENCE_PLAN')
+    const taskPayload = task.payload as { claims: Array<Record<string, unknown>> }
+    taskPayload.claims.push({ ...taskPayload.claims[0], claim_id: 'claim-2' })
+    const resultPayload = result.payload as {
+      claim_plans: Array<{ support_actions: Array<Record<string, unknown>>; counter_actions: Array<Record<string, unknown>> }>
+    }
+    resultPayload.claim_plans[0].counter_actions[0].action_id = 'action-1'
+
+    const validation = validateAgentSemantics(task, result)
+
+    expect(validation.ok).toBe(false)
+    expect(validation.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'EVIDENCE_PLAN_CLAIM_COVERAGE_INVALID' }),
+      expect.objectContaining({ code: 'EVIDENCE_PLAN_ACTION_DUPLICATED' }),
+    ]))
+  })
+
+  it('matches the backend EVIDENCE_PLAN tool-version, polarity and scope checks', () => {
+    const { task, result } = fixture('EVIDENCE_PLAN')
+    const resultPayload = result.payload as {
+      claim_plans: Array<{ support_actions: Array<Record<string, unknown>> }>
+    }
+    const action = resultPayload.claim_plans[0].support_actions[0]
+    action.tool_version = '9.9.9'
+    action.polarity = 'COUNTER'
+    action.scope_constraints = {
+      scope_type: 'ADMINISTRATIVE_AREA',
+      scope_id: 'wrong-scope',
+      boundary_version: '2026-01',
+    }
+
+    const validation = validateAgentSemantics(task, result)
+
+    expect(validation.ok).toBe(false)
+    expect(validation.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'EVIDENCE_PLAN_TOOL_NOT_ALLOWED' }),
+      expect.objectContaining({ code: 'EVIDENCE_PLAN_ACTION_CONTEXT_MISMATCH' }),
+    ]))
+  })
+
   it('rejects evidence assessment claims that contradict structured scope and freshness metadata', () => {
     const { task, result } = fixture('EVIDENCE_ASSESS')
     const evidence = evidenceRecord({
@@ -525,4 +566,31 @@ describe('agent semantic validator', () => {
     expect(validation.issues.some((issue) => issue.code === 'CANDIDATE_AUDIT_CALCULATION_REFERENCE_INVALID')).toBe(true)
     expect(validation.issues.some((issue) => issue.code === 'CANDIDATE_AUDIT_STATUS_INCOHERENT')).toBe(true)
   })
+
+  it('does not allow an independent seed assumption id to masquerade as Evidence', () => {
+    const { task, result } = fixture('PROPOSE_INDEPENDENT')
+    const payload = result.payload as { candidate_proposals: Array<{ evidence_refs: string[] }> }
+    payload.candidate_proposals[0].evidence_refs = ['seed-registry-1']
+    result.evidence_refs = ['seed-registry-1']
+
+    const validation = validateAgentSemantics(task, result)
+
+    expect(validation.ok).toBe(false)
+    expect(validation.issues.some((issue) => issue.code === 'UNSUPPORTED_REFERENCE')).toBe(true)
+  })
+
+  it('requires Result Explain payload evidence refs to exactly match its top-level refs', () => {
+    const { task, result } = fixture('RESULT_EXPLAIN')
+    const payload = result.payload as { evidence_refs: string[] }
+    payload.evidence_refs = ['evidence-1']
+    result.evidence_refs = []
+
+    const validation = validateAgentSemantics(task, result)
+
+    expect(validation.ok).toBe(false)
+    expect(validation.issues.some(
+      (issue) => issue.code === 'RESULT_EXPLAIN_EVIDENCE_REFERENCE_MISMATCH',
+    )).toBe(true)
+  })
+
 })

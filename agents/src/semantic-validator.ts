@@ -1,3 +1,5 @@
+import { validateEvidencePlanSemantics } from './semantic-evidence-plan'
+import { validateReferenceSemantics } from './semantic-references'
 import type { AgentTask, AgentTaskResult } from './types'
 
 export interface SemanticIssue {
@@ -28,6 +30,36 @@ function add(issues: SemanticIssue[], code: string, path: string, message: strin
   issues.push({ code, path, message })
 }
 
+function collectNamedStrings(value: unknown, keys: Set<string>, collected = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) {
+    for (const child of value) collectNamedStrings(child, keys, collected)
+    return collected
+  }
+  if (!value || typeof value !== 'object') return collected
+  for (const [key, child] of Object.entries(value as JsonObject)) {
+    if (keys.has(key)) {
+      if (typeof child === 'string') collected.add(child)
+      else for (const item of strings(child)) collected.add(item)
+    }
+    collectNamedStrings(child, keys, collected)
+  }
+  return collected
+}
+
+function collectEvidenceRecords(value: unknown, records = new Map<string, JsonObject>()): Map<string, JsonObject> {
+  if (Array.isArray(value)) {
+    for (const child of value) collectEvidenceRecords(child, records)
+    return records
+  }
+  if (!value || typeof value !== 'object') return records
+  const candidate = value as JsonObject
+  if (typeof candidate.evidence_id === 'string' && typeof candidate.value_kind === 'string') {
+    records.set(candidate.evidence_id, candidate)
+  }
+  for (const child of Object.values(candidate)) collectEvidenceRecords(child, records)
+  return records
+}
+
 function canonicalJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalJson)
   if (!value || typeof value !== 'object') return value
@@ -45,95 +77,6 @@ function jsonKey(value: unknown): string {
 function requirePoolMember(issues: SemanticIssue[], pool: Set<string>, value: unknown, path: string): void {
   if (typeof value !== 'string' || !pool.has(value)) {
     add(issues, 'OUTPUT_ID_NOT_IN_POOL', path, `output id ${String(value)} was not supplied by the controller`)
-  }
-}
-
-function collectNamedStrings(value: unknown, keys: Set<string>, collected = new Set<string>()): Set<string> {
-  if (Array.isArray(value)) {
-    for (const child of value) collectNamedStrings(child, keys, collected)
-    return collected
-  }
-  if (!value || typeof value !== 'object') return collected
-
-  for (const [key, child] of Object.entries(value as JsonObject)) {
-    if (keys.has(key)) {
-      if (typeof child === 'string') collected.add(child)
-      else for (const item of strings(child)) collected.add(item)
-    }
-    collectNamedStrings(child, keys, collected)
-  }
-  return collected
-}
-
-function collectEvidenceRecords(value: unknown, records = new Map<string, JsonObject>()): Map<string, JsonObject> {
-  if (Array.isArray(value)) {
-    for (const child of value) collectEvidenceRecords(child, records)
-    return records
-  }
-  if (!value || typeof value !== 'object') return records
-
-  const candidate = value as JsonObject
-  if (typeof candidate.evidence_id === 'string' && typeof candidate.value_kind === 'string') {
-    records.set(candidate.evidence_id, candidate)
-  }
-  for (const child of Object.values(candidate)) collectEvidenceRecords(child, records)
-  return records
-}
-
-function addUnsupportedReferences(
-  issues: SemanticIssue[],
-  supported: Set<string>,
-  referenced: Set<string>,
-  path: string,
-  kind: string,
-): void {
-  const unsupported = [...referenced].filter((reference) => !supported.has(reference)).sort()
-  if (unsupported.length > 0) {
-    add(issues, 'UNSUPPORTED_REFERENCE', path, `output used unsupported ${kind} refs: ${unsupported.join(', ')}`)
-  }
-}
-
-function validateSupportedReferences(task: AgentTask, result: AgentTaskResult, issues: SemanticIssue[]): void {
-  const taskPayload = object(task.payload)
-  const supportedEvidence = collectNamedStrings(taskPayload, new Set(['evidence_id', 'evidence_ids', 'evidence_refs', 'support_refs']))
-  const referencedEvidence = collectNamedStrings(result, new Set(['evidence_refs', 'support_refs']))
-  addUnsupportedReferences(issues, supportedEvidence, referencedEvidence, '/evidence_refs', 'evidence')
-
-  const supportedClaims = collectNamedStrings(taskPayload, new Set(['claim_id', 'claim_ids', 'claim_id_pool', 'claim_refs']))
-  const referencedClaims = collectNamedStrings(result, new Set(['claim_id', 'claim_ids', 'missing_claim_ids', 'claim_refs']))
-  addUnsupportedReferences(issues, supportedClaims, referencedClaims, '/payload', 'claim')
-
-  const referencedCandidates = collectNamedStrings(result.payload, new Set(['candidate_id', 'candidate_ids', 'candidate_ref', 'candidate_refs']))
-  const supportedCandidates = task.task_type === 'EVIDENCE_ASSESS'
-    ? new Set(collectEvidenceRecords(taskPayload).keys())
-    : collectNamedStrings(taskPayload, new Set(['candidate_id', 'candidate_ids', 'candidate_ref', 'candidate_refs', 'current_candidate_refs']))
-  addUnsupportedReferences(issues, supportedCandidates, referencedCandidates, '/payload', 'candidate')
-
-  const supportedAssumptions = collectNamedStrings(taskPayload, new Set(['assumption_refs', 'support_refs']))
-  for (const [evidenceId, evidence] of collectEvidenceRecords(taskPayload)) {
-    if (evidence.value_kind === 'DECLARED_ASSUMPTION' || evidence.value_kind === 'UNKNOWN') supportedAssumptions.add(evidenceId)
-  }
-  const referencedAssumptions = collectNamedStrings(result.payload, new Set(['assumption_refs']))
-  addUnsupportedReferences(issues, supportedAssumptions, referencedAssumptions, '/payload', 'assumption')
-}
-
-function validateEvidenceCoverageKinds(taskPayload: JsonObject, result: AgentTaskResult, issues: SemanticIssue[]): void {
-  const evidenceById = collectEvidenceRecords(taskPayload)
-  const coverageRefs = collectNamedStrings(result, new Set(['evidence_refs', 'support_refs']))
-  if (result.task_type === 'EVIDENCE_ASSESS') {
-    for (const rawAssessment of array(object(result.payload).assessments)) {
-      const assessment = object(rawAssessment)
-      if ((assessment.relation === 'SUPPORTS' || assessment.relation === 'CONTRADICTS') && typeof assessment.candidate_ref === 'string') {
-        coverageRefs.add(assessment.candidate_ref)
-      }
-    }
-  }
-
-  for (const reference of [...coverageRefs].sort()) {
-    const evidence = evidenceById.get(reference)
-    if (evidence?.value_kind === 'DECLARED_ASSUMPTION' || evidence?.value_kind === 'UNKNOWN') {
-      add(issues, 'ASSUMPTION_USED_AS_EVIDENCE', '/payload', `${reference} cannot be used as evidence coverage`)
-    }
   }
 }
 
@@ -380,52 +323,6 @@ function validateIntent(taskPayload: JsonObject, resultPayload: JsonObject, issu
   }
 }
 
-function validateEvidencePlan(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
-  const claimIds = new Set(array(taskPayload.claims).map((raw) => object(raw).claim_id).filter((id): id is string => typeof id === 'string'))
-  const actionPool = new Set(strings(taskPayload.action_id_pool))
-  const constraints = object(taskPayload.planning_constraints)
-  const allowedTools = new Set(strings(constraints.allowed_tools))
-  const maxPerClaim = typeof constraints.max_actions_per_claim === 'number' ? constraints.max_actions_per_claim : 0
-  const maxTotal = typeof constraints.max_total_actions === 'number' ? constraints.max_total_actions : 0
-  let totalActions = 0
-
-  for (const [planIndex, rawPlan] of array(resultPayload.claim_plans).entries()) {
-    const plan = object(rawPlan)
-    requirePoolMember(issues, claimIds, plan.claim_id, `/payload/claim_plans/${planIndex}/claim_id`)
-    const support = array(plan.support_actions)
-    const counter = array(plan.counter_actions)
-    const route = plan.route
-
-    if (route !== 'SQL' && support.length === 0) {
-      add(issues, 'SUPPORT_ACTION_REQUIRED', `/payload/claim_plans/${planIndex}/support_actions`, 'non-SQL material claims require an explicit support action')
-    }
-    if (route !== 'SQL' && counter.length === 0) {
-      add(issues, 'COUNTEREVIDENCE_ACTION_REQUIRED', `/payload/claim_plans/${planIndex}/counter_actions`, 'non-SQL material claims require an explicit counterevidence action')
-    }
-
-    const actions = [...support, ...counter]
-    totalActions += actions.length
-    if (maxPerClaim > 0 && actions.length > maxPerClaim) {
-      add(issues, 'ACTION_LIMIT_EXCEEDED', `/payload/claim_plans/${planIndex}`, 'claim action count exceeds planning constraints')
-    }
-
-    for (const [actionIndex, rawAction] of actions.entries()) {
-      const action = object(rawAction)
-      requirePoolMember(issues, actionPool, action.action_id, `/payload/claim_plans/${planIndex}/actions/${actionIndex}/action_id`)
-      if (action.claim_id !== plan.claim_id) {
-        add(issues, 'CLAIM_REFERENCE_MISMATCH', `/payload/claim_plans/${planIndex}/actions/${actionIndex}/claim_id`, 'action claim_id must match its claim plan')
-      }
-      if (typeof action.tool_name !== 'string' || !allowedTools.has(action.tool_name)) {
-        add(issues, 'TOOL_NOT_ALLOWED', `/payload/claim_plans/${planIndex}/actions/${actionIndex}/tool_name`, 'tool is outside planning constraints')
-      }
-    }
-  }
-
-  if (maxTotal > 0 && totalActions > maxTotal) {
-    add(issues, 'ACTION_LIMIT_EXCEEDED', '/payload/claim_plans', 'total action count exceeds planning constraints')
-  }
-}
-
 function validateEvidenceAssess(taskPayload: JsonObject, resultPayload: JsonObject, issues: SemanticIssue[]): void {
   // 사용자 의도: 모델이 실제로 평가한 근거만 확인하고, 생략된 근거는 조건부로 남긴다.
   const claims = new Map<string, JsonObject>()
@@ -615,13 +512,24 @@ function validateCandidateAudit(taskPayload: JsonObject, resultPayload: JsonObje
   }
 }
 
+function validateResultExplain(result: AgentTaskResult, resultPayload: JsonObject, issues: SemanticIssue[]): void {
+  const payloadEvidenceRefs = strings(resultPayload.evidence_refs)
+  if (jsonKey(payloadEvidenceRefs) !== jsonKey(result.evidence_refs)) {
+    add(
+      issues,
+      'RESULT_EXPLAIN_EVIDENCE_REFERENCE_MISMATCH',
+      '/payload/evidence_refs',
+      'Result Explain payload evidence refs must exactly match top-level evidence_refs',
+    )
+  }
+}
+
 export function validateAgentSemantics(task: AgentTask, result: AgentTaskResult): SemanticValidation {
   const issues: SemanticIssue[] = []
   const taskPayload = object(task.payload)
   const resultPayload = object(result.payload)
 
-  validateSupportedReferences(task, result, issues)
-  validateEvidenceCoverageKinds(taskPayload, result, issues)
+  issues.push(...validateReferenceSemantics(task, result))
   validateMoneyRanges(result.payload, issues)
   validateProposalCandidateCount(task.task_type, taskPayload, resultPayload, issues)
   if (result.payload === null) return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues }
@@ -629,12 +537,13 @@ export function validateAgentSemantics(task: AgentTask, result: AgentTaskResult)
 
   switch (task.task_type) {
     case 'INTENT_DELTA': validateIntent(taskPayload, resultPayload, issues); break
-    case 'EVIDENCE_PLAN': validateEvidencePlan(taskPayload, resultPayload, issues); break
+    case 'EVIDENCE_PLAN': issues.push(...validateEvidencePlanSemantics(task, result)); break
     case 'EVIDENCE_ASSESS': validateEvidenceAssess(taskPayload, resultPayload, issues); break
     case 'PROPOSE_INDEPENDENT': validateIndependentProposal(taskPayload, resultPayload, issues); break
     case 'PROPOSE_FRANCHISE': validateFranchiseProposal(taskPayload, resultPayload, issues); break
     case 'DOCUMENT_EXTRACT': validateDocumentExtract(taskPayload, resultPayload, issues); break
     case 'CANDIDATE_AUDIT': validateCandidateAudit(taskPayload, resultPayload, issues); break
+    case 'RESULT_EXPLAIN': validateResultExplain(result, resultPayload, issues); break
   }
 
   return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues }

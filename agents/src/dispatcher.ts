@@ -1,7 +1,11 @@
-import { computeAgentTaskInputDigest } from './input-digest'
+import { createHash } from 'node:crypto'
+import { ensureAgentTaskDeadline, MIN_REPAIR_REMAINING_MS } from './agent-deadline'
+import { canonicalizeJson, computeAgentTaskInputDigest } from './input-digest'
+import { AgentModelError, type AgentModelRepairContext } from './model-executor'
 import { TASK_REGISTRY } from './registry'
 import { validateAgentTask, validateAgentTaskResult } from './schema-validator'
-import type { AgentExecutorMap, AgentTask, AgentTaskResult, HeadFence } from './types'
+import { validateAgentSemantics } from './semantic-validator'
+import type { AgentExecutor, AgentExecutorMap, AgentSemanticResult, AgentTask, AgentTaskResult, HeadFence } from './types'
 
 export class AgentDispatchError extends Error {
   constructor(
@@ -18,7 +22,12 @@ export class AgentDispatchError extends Error {
   }
 }
 
-type AgentResultValidationOutcome = 'VALID' | 'REJECTED'
+const REPAIRABLE_RESULT_CODES = new Set([
+  'RESULT_SCHEMA_INVALID',
+  'RESULT_SEMANTIC_INVALID',
+])
+
+type AgentResultValidationOutcome = 'VALID' | 'REPAIR_REQUIRED' | 'REJECTED'
 
 function resultDecision(result: AgentTaskResult): string | undefined {
   if (!result.payload || typeof result.payload !== 'object' || Array.isArray(result.payload)) return undefined
@@ -141,6 +150,100 @@ function validateResult(task: AgentTask, result: AgentTaskResult): void {
     )
   }
   assertResultEcho(task, result)
+  const semanticValidation = validateAgentSemantics(task, result)
+  if (!semanticValidation.ok) {
+    throw new AgentDispatchError(
+      'RESULT_SEMANTIC_INVALID',
+      JSON.stringify(semanticValidation.issues),
+      semanticValidation.issues.slice(0, 50).map((issue) => ({
+        code: issue.code,
+        json_pointer: issue.path,
+        message: issue.message.slice(0, 500),
+      })),
+    )
+  }
+}
+
+function buildRepairTask(
+  task: AgentTask,
+  previousResponseText: string,
+  validatorErrors: AgentDispatchError['validatorErrors'],
+): AgentTask {
+  const boundedResponseText = previousResponseText.slice(0, 65536) || 'null'
+  return {
+    ...task,
+    repair_attempt: 1,
+    repair_of_invocation_id: task.invocation_id,
+    repair_context: {
+      previous_response_text: boundedResponseText,
+      previous_response_digest: `sha256:${createHash('sha256').update(boundedResponseText).digest('hex')}`,
+      validator_errors: validatorErrors.slice(0, 50),
+    },
+  }
+}
+
+function semanticResultProjection(result: AgentTaskResult): AgentSemanticResult {
+  return {
+    status: result.status,
+    payload: result.payload,
+    evidence_refs: result.evidence_refs,
+    missing_claim_ids: result.missing_claim_ids,
+    reason_codes: result.reason_codes,
+    warnings: result.warnings,
+  }
+}
+
+function repairTaskFromResult(
+  task: AgentTask,
+  result: AgentTaskResult,
+  error: AgentDispatchError,
+): AgentTask {
+  const validatorErrors = error.validatorErrors.length > 0
+    ? error.validatorErrors
+    : [{ code: error.code, json_pointer: '', message: error.message.slice(0, 500) }]
+  return buildRepairTask(task, canonicalizeJson(semanticResultProjection(result)), validatorErrors)
+}
+
+function repairTaskFromModelError(
+  task: AgentTask,
+  context: AgentModelRepairContext,
+): AgentTask {
+  return buildRepairTask(task, context.previousResponseText, context.validatorErrors)
+}
+
+function recordModelOutputFailure(
+  task: AgentTask,
+  outcome: 'REPAIR_REQUIRED' | 'REJECTED',
+  error: AgentModelError,
+): void {
+  const codes = [error.code, ...(error.repairContext?.validatorErrors.map((item) => item.code) ?? [])]
+  console.info(JSON.stringify({
+    event: 'AGENT_RESULT_VALIDATION',
+    task_type: task.task_type,
+    preflight: task.task_id.startsWith('runtime-preflight-'),
+    repair_attempt: task.repair_attempt,
+    outcome,
+    result_status: 'UNPARSEABLE',
+    validator_codes: [...new Set(codes)].slice(0, 20),
+  }))
+}
+
+async function executeRepair(executor: AgentExecutor, repairTask: AgentTask): Promise<AgentTaskResult> {
+  let repaired: AgentTaskResult
+  try {
+    repaired = await executor(repairTask)
+  } catch (error) {
+    if (error instanceof AgentModelError) recordModelOutputFailure(repairTask, 'REJECTED', error)
+    throw error
+  }
+  try {
+    validateResult(repairTask, repaired)
+    recordResultValidation(repairTask, repaired, 'VALID')
+    return repaired
+  } catch (error) {
+    if (error instanceof AgentDispatchError) recordResultValidation(repairTask, repaired, 'REJECTED', error)
+    throw error
+  }
 }
 
 export async function dispatchAgentTask(task: AgentTask, executors: AgentExecutorMap): Promise<AgentTaskResult> {
@@ -152,17 +255,41 @@ export async function dispatchAgentTask(task: AgentTask, executors: AgentExecuto
     throw new AgentDispatchError('AGENT_EXECUTOR_UNAVAILABLE', `no executor is registered for ${registration.agentName}`)
   }
 
-  // 사용자 의도: LLM 출력 오류 때문에 같은 요청을 반복 생성하지 않는다.
-  // Runtime은 구조만 한 번 검증하고, 제품 의미는 Control API의 단일 경계가 판정한다.
-  const result = await executor(task)
+  let result: AgentTaskResult
+  try {
+    result = await executor(task)
+  } catch (error) {
+    if (!(error instanceof AgentModelError) || !error.repairContext || task.repair_attempt !== 0) throw error
+    recordModelOutputFailure(task, 'REPAIR_REQUIRED', error)
+    ensureAgentTaskDeadline(task, MIN_REPAIR_REMAINING_MS)
+    const repairTask = repairTaskFromModelError(task, error.repairContext)
+    validateAgentTaskForDispatch(repairTask)
+    return executeRepair(executor, repairTask)
+  }
+
   try {
     validateResult(task, result)
     recordResultValidation(task, result, 'VALID')
     return result
   } catch (error) {
     if (error instanceof AgentDispatchError) {
-      recordResultValidation(task, result, 'REJECTED', error)
+      recordResultValidation(
+        task,
+        result,
+        REPAIRABLE_RESULT_CODES.has(error.code) && task.repair_attempt === 0
+          ? 'REPAIR_REQUIRED'
+          : 'REJECTED',
+        error,
+      )
     }
-    throw error
+    if (!(error instanceof AgentDispatchError)
+      || !REPAIRABLE_RESULT_CODES.has(error.code)
+      || task.repair_attempt !== 0) {
+      throw error
+    }
+    ensureAgentTaskDeadline(task, MIN_REPAIR_REMAINING_MS)
+    const repairTask = repairTaskFromResult(task, result, error)
+    validateAgentTaskForDispatch(repairTask)
+    return executeRepair(executor, repairTask)
   }
 }

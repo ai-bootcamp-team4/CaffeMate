@@ -178,7 +178,7 @@ Control API가 수용하는 final event는 다음 조건을 모두 만족해야 
 - 사용자 token, MCP credential, database credential과 raw secret을 Agent 입력에 넣지 않는다.
 - runtime의 Agent identity에는 모델 호출과 자체 session 외에 MCP, Cloud SQL, BigQuery, Cloud Storage, Secret Manager 권한을 주지 않는다.
 
-전송 adapter는 `AgentTask` 검증·digest 재계산, session 수명주기, IAM 호출, final event 선택, JSON parsing과 `AgentTaskResult` 구조 검증을 담당한다. 모델에는 역할 수행에 필요한 `task_type`, payload, input artifact와 허용 tool catalog만 투영한다. task·invocation·project·full head·digest·output Schema 같은 불변 envelope는 모델이 생성하지 않으며 Runtime이 검증된 `AgentTask`에서 결합한다. 제품 의미·권한·참조 검증은 Control API의 단일 boundary가 담당한다. session event 전문은 일반 log에 남기지 않고 trace id·latency·status·digest만 남긴다.
+전송 adapter는 `AgentTask` 검증·digest 재계산, session 수명주기, IAM 호출, final event 선택, JSON parsing과 `AgentTaskResult` 구조 검증을 담당한다. 모델에는 역할 수행에 필요한 `task_type`, payload, input artifact, 허용 tool catalog와 현재 task에서 결정론적으로 계산한 `generation_constraints`만 투영한다. `generation_constraints`의 ID pool·reference closed set·field/operation 규칙은 최종 Control API boundary가 사용하는 입력과 같은 `AgentTask`에서 도출한다. provider Schema에는 Vertex가 안정적으로 수용하는 singleton/저복잡도 enum과 cardinality 상한만 반영한다. production 크기의 가변 reference pool을 nested enum으로 반복하면 Vertex가 `INVALID_ARGUMENT`을 반환하는 것이 live 검증됐으므로, 해당 exact ID 집합은 `generation_constraints`와 Runtime/Control strict validation·1회 repair로 강제한다. task·invocation·project·full head·digest·output Schema 같은 불변 envelope는 모델이 생성하지 않으며 Runtime이 검증된 `AgentTask`에서 결합한다. Runtime은 모델이 소유한 JSON/Schema/의미·참조 오류를 최종 boundary와 같은 방향으로 사전 검증하여 1회 repair할 수 있지만, 권위 있는 최종 수용·State write 판정은 Control API boundary만 담당한다. session event 전문은 일반 log에 남기지 않고 trace id·latency·status·digest만 남긴다.
 
 ## 5. 논리 요청 계약
 
@@ -193,7 +193,7 @@ task_type: registered task
 workflow_run_id: required
 stage_run_id: required
 transport_attempt: 1..3
-repair_attempt: 0
+repair_attempt: 0..1
 venture_project_id: required
 head_fence: full immutable input fence
 prompt_version: required
@@ -258,7 +258,7 @@ available_tool_catalog
 payload
 ```
 
-`invocation_id`, `repair_of_invocation_id`, `repair_context`, `transport_attempt`, `repair_attempt`, `deadline_at`, `trace_context`와 `input_digest` 자체는 digest 대상에서 제외한다. 따라서 동일 논리 입력의 network retry와 repair는 같은 digest를 유지하고, full head·prompt·Schema·tool manifest·payload 중 하나라도 바뀌면 digest가 달라진다.
+`invocation_id`, `repair_of_invocation_id`, `repair_context`, `transport_attempt`, `repair_attempt`, `deadline_at`, `trace_context`와 `input_digest` 자체는 digest 대상에서 제외한다. 따라서 동일 논리 입력의 network retry와 Runtime 내부 1회 repair는 같은 digest를 유지한다. `generation_constraints`는 별도 권위 입력이 아니라 digest 대상인 `AgentTask` payload·fence에서 결정론적으로 다시 계산되며, full head·prompt·Schema·tool manifest·payload 중 하나라도 바뀌면 digest가 달라진다.
 
 ## 6. 논리 결과 계약
 
@@ -266,8 +266,8 @@ payload
 
 모델의 provider response Schema는 아래 항목 중 `status`, `payload`, `evidence_refs`,
 `missing_claim_ids`, `reason_codes`, `warnings`만 허용한다. Runtime-owned envelope field를 모델이
-반환하면 `MODEL_SEMANTIC_ENVELOPE_INVALID`로 거절한다. Runtime은 검증된 요청에서 나머지 필드를
-결정론적으로 결합한 뒤에만 아래 외부 `AgentTaskResult`를 만들고 전체 Schema·의미 검증을 수행한다.
+반환하면 `MODEL_SEMANTIC_ENVELOPE_INVALID`로 판정하고, 모델 출력만 고치면 되는 경우에 한해 1회 repair한다. Runtime은 검증된 요청에서 나머지 필드를
+결정론적으로 결합한 뒤 아래 외부 `AgentTaskResult`를 만들고 전체 Schema와 task-derived semantic constraint를 검증한다. repair 뒤에도 실패하면 결과를 반환하지 않는다.
 따라서 아래의 `echoed`는 “LLM이 복사했다”는 뜻이 아니라 “Runtime이 수용한 요청과 byte-equivalent한
 값만 외부 결과에 존재한다”는 뜻이다.
 
@@ -312,7 +312,8 @@ GCP transport success
 → final event exactly one
 → JSON parse
 → semantic-only model output, Runtime envelope hydration
-→ AgentTaskResult Schema
+→ AgentTaskResult Schema + task-derived semantic/reference precheck
+→ repairable model-output failure이면 validator context로 model repair 최대 1회
 → task·invocation·agent·type·venture project·full head·digest echo
 → registered role payload Schema
 → Evidence and artifact reference subset
@@ -322,8 +323,9 @@ GCP transport success
 ```
 
 - 외부 결과의 echo 또는 full head mismatch는 repair하지 않고 `FENCE_MISMATCH`로 폐기한다. 정상 Runtime 경로에서는 모델이 이 필드를 생성하지 않으므로 mismatch 자체가 Runtime·transport 계약 위반이다.
-- Agent가 입력에 없던 Evidence id·brand id·document anchor를 반환하면 `UNSUPPORTED_REFERENCE`로 폐기한다.
-- `COMPLETE`인데 required payload가 비었으면 Schema 실패다.
+- JSON parse, role payload Schema, model-owned ID/reference/value 조합처럼 **모델 출력만 수정하면 해결 가능한 오류**는 Runtime이 이전 응답 digest와 구조화 validator error를 넣어 최대 1회 repair한다. repair도 같은 strict validator를 다시 통과해야 하며, 임의 ID·사실을 보충하는 fallback은 금지한다.
+- Agent가 입력에 없던 Evidence id·brand id·document anchor를 반환하면 Runtime 사전 검증에서 `UNSUPPORTED_REFERENCE` repair 대상이 될 수 있다. repair 뒤에도 남아 있거나 Control API 최종 boundary에서 발견되면 즉시 폐기한다.
+- `COMPLETE`인데 required payload가 비었으면 Schema 실패이며 1회 repair 대상이다.
 - 자유 문장, Markdown code fence, JSON 앞뒤 prose와 추가 top-level field는 허용하지 않는다.
 - Agent 결과는 이 검사를 통과해도 persistent State가 아니다. reducer transaction 전까지 proposal이다.
 
@@ -335,8 +337,8 @@ JSON Schema가 두 필드 사이의 동일성, 배열 참조의 포함관계와 
 | --- | --- | --- |
 | `FENCE_ECHO_MISMATCH` | `result.head_fence_seen`이 `task.head_fence`와 byte-equivalent인가 | 결과 폐기, repair 0 |
 | `CURRENT_HEAD_MISMATCH` | 수용 직전 State·Founder·Area·Evidence·Policy·index·seed·Workflow generation이 요청 full head와 모두 같은가 | `STALE_DISCARDED`, write 0 |
-| `UNALLOCATED_OUTPUT_ID` | `op_id`, `action_id`, `proposal_id`, `claim_id`가 각 입력의 backend 발급 pool·seed·universe에 있는가 | 결과 폐기 |
-| `UNSUPPORTED_REFERENCE` | claim·Evidence·candidate·anchor ref가 frozen input artifact의 부분집합인가 | 결과 폐기 |
+| `UNALLOCATED_OUTPUT_ID` | `op_id`, `action_id`, `proposal_id`, `claim_id`가 각 입력의 backend 발급 pool·seed·universe에 있는가 | Runtime 1회 repair 가능, 최종 boundary 잔존 시 결과 폐기 |
+| `UNSUPPORTED_REFERENCE` | claim·Evidence·candidate·anchor ref가 frozen input artifact의 부분집합인가 | Runtime 1회 repair 가능, 최종 boundary 잔존 시 결과 폐기 |
 | `ASSUMPTION_USED_AS_EVIDENCE` | `DECLARED_ASSUMPTION` 또는 `UNKNOWN` id가 Evidence coverage로 쓰이지 않았는가 | 결과 폐기 |
 | `EVIDENCE_SCOPE_OR_DATE_INVALID` | Evidence scope·source date·freshness가 Claim 요구와 맞는가 | 해당 Claim 미확인 처리 |
 | `MCP_TOOL_CONTRACT_MISMATCH` | action의 name·version·args와 result Schema가 manifest의 같은 tool row와 맞는가 | tool 실행 또는 결과 수용 거절 |
@@ -353,9 +355,9 @@ JSON Schema가 두 필드 사이의 동일성, 배열 참조의 포함관계와 
 ### 7.1 식별자
 
 - `task_id`: 같은 Workflow generation 안의 논리 stage에 고정
-- `invocation_id`: 실제 GCP 호출마다 새 값
+- `invocation_id`: Control API가 시작한 물리 managed-Runtime invocation마다 새 값; transport retry는 새 id를 사용
 - `transport_attempt`: 같은 logical input의 initial call과 408·429·5xx·network retry를 `1..3`으로 구분
-- `repair_attempt`: 현재 실행 경로는 항상 `0`; `1`은 과거 계약 호환을 위해 Schema에만 남아 있으며 Runtime은 수용하지 않음
+- `repair_attempt`: managed Runtime 안에서 같은 logical task를 모델에 생성시키는 횟수. 최초 `0`, repair는 최대 한 번 `1`; 같은 outer `invocation_id`·`input_digest`를 유지하고 `repair_of_invocation_id`로 원 invocation을 가리킴
 - `input_digest`: payload, fence, schema와 prompt version을 포함한 canonical digest
 
 Agent 호출은 side effect가 없으므로 동일 `task_id`가 둘 이상 실행돼도 State를 바꾸지 않는다.
@@ -367,13 +369,13 @@ Control API는 `(task_id, input_digest)`와 current full head를 검증하여 �
 | 실패 | 재시도 | 처리 |
 | --- | ---: | --- |
 | network, HTTP 408·429·5xx | 최대 2회 | 새 `invocation_id`, 같은 `task_id`·digest, `transport_attempt` 증가 |
-| JSON parse·Schema 실패 | 0회 | `RUNTIME_RESULT_SCHEMA_INVALID`; 해당 역할 분기만 실패 처리 |
+| JSON parse·Schema·repairable semantic/reference 실패 | 최대 1회 | 같은 logical input·digest의 Runtime 내부 model repair; validator error와 이전 응답 digest를 전달하고 두 번째 실패는 해당 역할 분기 실패 |
 | safety block | 0회 | `SAFETY_BLOCKED` |
 | HTTP 400·401·403 | 0회 | 설정·권한 오류로 실패 |
-| fence·ACL·unsupported ref | 0회 | 즉시 폐기 |
+| fence·ACL·최종 Control API boundary의 unsupported ref | 0회 | 즉시 폐기; model-owned unsupported ref는 그 전에 Runtime 내부 repair 최대 1회 |
 | deadline 초과 | 0회 | `TIMED_OUT`, session stream 종료, 늦은 결과 폐기 |
 
-transport backoff는 250ms, 750ms이고 invocation id에서 파생한 0~100ms jitter를 더한다. 429의 `Retry-After`는 2초 이하이면서 남은 deadline 안에 있을 때만 우선한다. Runtime 내부 session 생성, run, 삭제, response validation과 cleanup enqueue까지 모두 `deadline_at` 예산에 포함하며 각 호출 직전에 남은 시간이 2초 미만이면 재시도하지 않는다. ephemeral stream은 현재 남은 logical deadline에서 durable cleanup enqueue용 2초를 제외한 값만 timeout으로 사용한다. 따라서 60초 task가 transport의 30초 상한으로 조용히 잘리지 않는다. stream이 중단되거나 Runtime이 삭제 실패를 명시하면 Control API는 해당 invocation의 deterministic session id를 cleanup outbox에 넣고 원래 실패를 보존한다.
+transport backoff는 250ms, 750ms이고 invocation id에서 파생한 0~100ms jitter를 더한다. 429의 `Retry-After`는 2초 이하이면서 남은 deadline 안에 있을 때만 우선한다. Runtime 내부 session 생성, run, 모델 generation·repair, 삭제, response validation과 cleanup enqueue까지 모두 `deadline_at` 예산에 포함한다. Runtime은 repair 시작 시 남은 시간이 2초 미만이면 두 번째 generation을 시작하지 않고, Vertex generation 요청 자체도 같은 logical deadline에 AbortSignal로 묶는다. transport 재시도 역시 각 호출 직전에 남은 시간이 2초 미만이면 시작하지 않는다. ephemeral stream은 현재 남은 logical deadline에서 durable cleanup enqueue용 2초를 제외한 값만 timeout으로 사용한다. 따라서 60초 task가 transport의 30초 상한으로 조용히 잘리지 않는다. stream이 중단되거나 Runtime이 삭제 실패를 명시하면 Control API는 해당 invocation의 deterministic session id를 cleanup outbox에 넣고 원래 실패를 보존한다.
 
 Agent invocation이 호출자 연결 종료나 내부 운영 취소로 폐기된 뒤 도착한 결과는 full head가 같아도
 적용하지 않는다. 그 외 결과도 current full head의 여덟 차원이 모두 요청과 같을 때만 수용한다.
@@ -623,11 +625,8 @@ provider Schema가 입력 길이로 start·end 상한을 제한하고 semantic v
 모델의 합리적인 `CLARIFY`를 가짜 회귀로 판정하지 않는다.
 
 Vertex가 `MAX_TOKENS` 또는 다른 불완전 finish reason을 반환하면 부분 JSON을 수용하거나 repair하지
-않는다. 이는 같은 입력을 반복해도 회복되지 않는 terminal model-output failure이므로 Runtime은
-HTTP 422로 분류하고 Control API는 transport retry를 실행하지 않는다. 408·429·5xx와 네트워크
-장애만 새 invocation·session을 사용하는 bounded transport retry 대상이다. schema-valid text의
-Schema·echo·의미 오류는 같은 Agent에 재생성을 요청하지 않는다. 구조 오류는 해당 역할 실패로,
-권한·참조·full-head 위반은 즉시 치명적 경계 오류로 처리한다.
+않는다. 이는 완결된 모델 응답이 아니므로 Runtime은 terminal model-output failure로 분류하고 Control API는 transport retry를 실행하지 않는다. 408·429·5xx와 네트워크
+장애만 새 invocation·session을 사용하는 bounded transport retry 대상이다. 반면 완결된 model text의 JSON parse·Schema·task-derived semantic/reference 오류는 이전 응답과 validator error를 그대로 제공해 같은 managed invocation 안에서 최대 한 번 repair한다. echo·full-head·transport·safety·IAM/ACL 위반은 모델이 고칠 수 없는 경계 오류이므로 repair하지 않는다.
 
 ### 9.3 DOCUMENT_UPDATE
 
@@ -651,7 +650,7 @@ validated parser blocks
 | `CP-001` | 정상 Proposal | `status=COMPLETE`, 정확한 role payload·지원 ref만 반환하고 expected result와 일치 |
 | `CP-002` | full head 여덟 차원을 각각 하나씩 변경 | 모든 case에서 current State write 0 |
 | `CP-003` | Agent가 pool 밖 id·Evidence id 생성 | `UNALLOCATED_OUTPUT_ID` 또는 `UNSUPPORTED_REFERENCE`로 폐기 |
-| `CP-004` | schema-invalid output | 추가 모델 호출 없이 해당 역할이 실패하고, 다른 사용 가능한 분기는 계속 실행 |
+| `CP-004` | schema/semantic-invalid model output과 같은 오류를 두 번 연속 반환 | 첫 오류에서 validator-guided repair 정확히 1회, 두 번째 실패 뒤 추가 생성 0·해당 역할 분기 실패 |
 | `CP-005` | 같은 task 중복 완료 | 첫 valid result만 수용 |
 | `CP-006` | 폐기된 Agent invocation의 결과가 뒤늦게 도착 | `LATE_DISCARDED`, current write 0 |
 | `CP-007` | MCP scope token project 불일치 | 403, retrieval result 0 |
@@ -669,7 +668,7 @@ validated parser blocks
 | `CP-019` | UNKNOWN·FRESH date·assumption coverage·money range·franchise eligibility 위반 | 명시된 semantic error code로 모두 거절 |
 | `CP-020` | model·prompt content·Schema content·tool manifest·ACTIVE IndexGeneration 중 하나가 release와 다름 | release 승격 실패 |
 | `CP-021` | 같은 Claim Plan을 반복 실행하고 Claim·allowlist·action budget을 변조 | 정상 입력은 byte-equivalent plan·digest, 변조 입력은 MCP 호출 전 계약 오류, Agent 호출 0 |
-| `CP-022` | `INTENT_DELTA` 단순 변경·NOOP·CLARIFY와 provider `MAX_TOKENS` | 동적 Schema가 task pool과 배열 상한을 반영하고 정상 입력은 STOP, 불완전 출력은 생성 재시도 0 |
+| `CP-022` | `INTENT_DELTA` 단순 변경·NOOP·CLARIFY와 provider `MAX_TOKENS` | 동적 Schema·generation constraints가 task pool/field-operation 규칙을 반영하고 정상 입력은 STOP, `MAX_TOKENS`는 repair·생성 재시도 0 |
 
 완료 기준:
 

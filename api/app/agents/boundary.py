@@ -327,17 +327,15 @@ def _validate_supported_references(
         for evidence_id, evidence in evidence_records.items()
         if evidence.get("value_kind") in {"DECLARED_ASSUMPTION", "UNKNOWN"}
     )
+    supported_evidence_refs = _collect_named_strings(
+        task_payload,
+        {"evidence_id", "evidence_ids", "evidence_refs"},
+    )
     checks = (
         (
             "evidence",
-            _collect_named_strings(
-                task_payload,
-                {"evidence_id", "evidence_ids", "evidence_refs", "support_refs"},
-            ),
-            _collect_named_strings(
-                result,
-                {"evidence_refs", "support_refs"},
-            ),
+            supported_evidence_refs,
+            _collect_named_strings(result, {"evidence_refs"}),
         ),
         (
             "claim",
@@ -362,6 +360,11 @@ def _validate_supported_references(
             "assumption",
             supported_assumption_refs,
             _collect_named_strings(result_payload, {"assumption_refs"}),
+        ),
+        (
+            "support",
+            supported_evidence_refs | supported_assumption_refs,
+            _collect_named_strings(result_payload, {"support_refs"}),
         ),
     )
     errors: list[BoundaryError] = []

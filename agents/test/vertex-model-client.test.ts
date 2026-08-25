@@ -14,13 +14,17 @@ const REGION = 'global'
 const MODEL_ID = 'gemini-3.7-flash'
 
 function task(): AgentTask {
-  return structuredClone(fixtureMatrix.cases[0]?.task) as unknown as AgentTask
+  const value = structuredClone(fixtureMatrix.cases[0]?.task) as unknown as AgentTask
+  value.deadline_at = new Date(Date.now() + 60_000).toISOString()
+  return value
 }
 
 function evidencePlanTask(): AgentTask {
   const item = fixtureMatrix.cases.find((entry) => entry.task.task_type === 'EVIDENCE_PLAN' && entry.result.status === 'COMPLETE')
   if (!item) throw new Error('missing EVIDENCE_PLAN fixture')
-  return structuredClone(item.task) as unknown as AgentTask
+  const value = structuredClone(item.task) as unknown as AgentTask
+  value.deadline_at = new Date(Date.now() + 60_000).toISOString()
+  return value
 }
 
 describe('Vertex Agent model client', () => {
@@ -107,6 +111,25 @@ describe('Vertex Agent model client', () => {
 
     expect(response).toEqual({ kind: 'TEXT', text: '{"status":"ABSTAIN"}' })
     expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('binds the provider fetch to the logical task deadline', async () => {
+    const value = task()
+    value.deadline_at = new Date(Date.now() - 1_000).toISOString()
+    const fetchImpl = vi.fn(async () => Response.json({}))
+    const client = new VertexAgentModelClient({
+      projectId: PROJECT_ID,
+      region: REGION,
+      accessToken: async () => 'adc-token',
+      fetchImpl,
+    })
+
+    await expect(client.generate(buildModelInvocation(value, {
+      id: MODEL_ID,
+      region: REGION,
+      thinkingLevel: 'high',
+    }))).rejects.toMatchObject({ code: 'RUNTIME_TIMED_OUT' })
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 
   it('accepts Gemini 3 final text carrying an opaque thought signature', async () => {

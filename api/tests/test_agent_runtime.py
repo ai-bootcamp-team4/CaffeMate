@@ -514,6 +514,20 @@ def test_runtime_cleanup_failure_invalidates_result_and_enqueues_durable_cleanup
     ]
 
 
+def test_runtime_timeout_response_is_not_retried_as_generic_transport_failure() -> None:
+    task, _result = evidence_fixture()
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(500, json={"error": "RUNTIME_TIMED_OUT"})
+
+    with pytest.raises(AgentRuntimeError, match="RUNTIME_TIMED_OUT"):
+        runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
+    assert calls == 1
+
+
 def test_task_digest_mismatch_makes_zero_runtime_calls() -> None:
     task, _result = evidence_fixture()
     task["payload"]["claims"][0]["required_freshness"] = "P1D"

@@ -147,7 +147,7 @@ UNSAFE_ACTION_REQUEST
 ## Fail Closed
 
 - 인증·tenant·권한 실패는 즉시 차단한다.
-- Agent schema 실패는 한 번 repair 후 기권한다.
+- Agent의 완결된 model output에서 발생한 JSON/Schema·model-owned 의미/참조 실패는 같은 권위 입력에서 계산한 제약으로 한 번 repair한 뒤 기권한다. transport·safety·full-head 실패는 repair하지 않는다.
 - material Claim conflict는 임의로 해결하지 않는다.
 - 계산 input이 불완전하면 정확한 단일값 대신 range·UNKNOWN·검토 필요를 반환한다.
 - 새 State 뒤 재계산이 실패하면 이전 Decision을 현재 결과로 되돌리지 않는다.

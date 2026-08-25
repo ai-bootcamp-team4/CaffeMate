@@ -162,8 +162,9 @@ source_trace: []
 - 동네 검색은 2026년 3월 1일 기준 행정안전부 법정동 디렉터리를 MCP 이미지에서 먼저 조회한다.
   상세 주소 보조 조회만 외부 도로명주소 API에 의존한다.
 - read tool retry는 connector별 최대 횟수와 timeout을 가진다.
-- schema invalid Agent output은 한 번만 repair한다.
-- 두 번째 실패는 `INVALID` 또는 `ABSTAIN`으로 종료한다.
+- 완결된 model output의 JSON/Schema와 model-owned 의미·참조 오류는 validator error와 task-derived `generation_constraints`를 사용해 한 번만 repair한다. 남은 logical deadline이 2초 미만이면 repair를 시작하지 않고 provider generation도 그 deadline에 맞춰 취소한다.
+- 가변 ID pool은 `generation_constraints`에 exact closed set으로 전달한다. production 크기의 nested ID enum은 Vertex가 HTTP 400 `INVALID_ARGUMENT`으로 거절하므로 provider response Schema에는 검증된 저복잡도 enum과 배열 상한만 둔다.
+- transport·safety·full-head/echo 오류는 repair하지 않고, 두 번째 model-output 실패 뒤에는 추가 생성 없이 해당 역할을 실패·기권 처리한다.
 - timeout·cancel 뒤 늦은 응답은 full head가 같아도 폐기한다. 그 외 응답도 full head 여덟 차원이 모두 current와 같을 때만 고려한다.
 - tool 일부 실패를 전체 성공으로 숨기지 않는다.
 - Evidence가 부족하면 Proposal은 후보 수를 억지로 채우지 않는다.

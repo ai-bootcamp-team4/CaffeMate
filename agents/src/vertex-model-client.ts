@@ -1,9 +1,10 @@
+import { AgentDeadlineError, agentTaskDeadlineSignal, ensureAgentTaskDeadline } from './agent-deadline'
+import { agentReferencePools, buildAgentGenerationConstraints } from './generation-constraints'
 import { canonicalizeJson } from './input-digest'
 import { createApplicationDefaultGoogleCloudContext, type GoogleCloudContext } from './gcp-auth'
 import { AGENT_MODEL } from './registry'
 import {
   buildVertexRolePayloadSchema,
-  evidenceAssessOutputBounds,
   normalizeVertexEvidencePlanResult,
 } from './vertex-response-schema'
 import type { AgentModelClient, AgentModelInvocation, AgentModelResponse } from './model-executor'
@@ -46,21 +47,6 @@ function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null
-}
-
-function collectProposalEvidenceIds(payload: unknown): string[] {
-  const candidate = record(payload)
-  const records = Array.isArray(candidate?.evidence_records) ? candidate.evidence_records : []
-  return [...new Set(records.flatMap((value) => {
-    const evidence = record(value)
-    return typeof evidence?.evidence_id === 'string' ? [evidence.evidence_id] : []
-  }))]
-}
-
-function collectProposalClaimIds(payload: unknown): string[] {
-  const candidate = record(payload)
-  const values = Array.isArray(candidate?.claim_id_pool) ? candidate.claim_id_pool : []
-  return [...new Set(values.filter((value): value is string => typeof value === 'string'))]
 }
 
 function numericMetric(value: unknown): number | null {
@@ -123,6 +109,7 @@ export function buildAgentModelInput(task: AgentTask): Record<string, unknown> {
     repair_attempt: task.repair_attempt,
     input_artifacts: task.input_artifacts,
     available_tool_catalog: task.available_tool_catalog,
+    generation_constraints: buildAgentGenerationConstraints(task),
     payload: task.payload,
     ...(task.repair_context === undefined
       ? {}
@@ -136,33 +123,13 @@ export function buildAgentModelInput(task: AgentTask): Record<string, unknown> {
  * contract; Ajv validation after generation remains the final contract gate.
  */
 export function buildAgentTaskResultResponseJsonSchema(task: AgentTask): Record<string, unknown> {
-  const evidenceBounds = evidenceAssessOutputBounds(task)
   const intentOutput = task.task_type === 'INTENT_DELTA'
-  const proposalOutput = task.task_type === 'PROPOSE_INDEPENDENT' || task.task_type === 'PROPOSE_FRANCHISE'
-  const proposalEvidenceIds = proposalOutput
-    ? collectProposalEvidenceIds(task.payload)
-    : []
-  const proposalClaimIds = proposalOutput
-    ? collectProposalClaimIds(task.payload)
-    : []
-  const evidenceRefs = task.task_type === 'EVIDENCE_ASSESS'
-    ? { type: 'array', items: { type: 'string' }, maxItems: evidenceBounds.candidateCount }
-    : proposalOutput
-      ? {
-          type: 'array',
-          items: { type: 'string' },
-          maxItems: proposalEvidenceIds.length,
-        }
-    : { type: 'array', items: { type: 'string' }, ...(intentOutput ? { maxItems: 0 } : {}) }
-  const missingClaimIds = task.task_type === 'EVIDENCE_ASSESS'
-    ? { type: 'array', items: { type: 'string' }, maxItems: evidenceBounds.claimCount }
-    : proposalOutput
-      ? {
-          type: 'array',
-          items: { type: 'string' },
-          maxItems: proposalClaimIds.length,
-        }
-    : { type: 'array', items: { type: 'string' }, ...(intentOutput ? { maxItems: 0 } : {}) }
+  const pools = agentReferencePools(task)
+  // Variable reference enums are intentionally not duplicated into the provider schema;
+  // production-sized nested enums are rejected by Vertex. generation_constraints carries
+  // the exact closed sets and Runtime/Control validation remains strict.
+  const evidenceRefs = { type: 'array', items: { type: 'string' }, maxItems: pools.evidenceRefs.length }
+  const missingClaimIds = { type: 'array', items: { type: 'string' }, maxItems: pools.claimRefs.length }
   return {
     type: 'object',
     additionalProperties: false,
@@ -233,8 +200,10 @@ export class VertexAgentModelClient implements AgentModelClient {
     }
     if (!invocation.model) throw new VertexAgentModelError('VERTEX_MODEL_REQUIRED', 'approved model id is required')
 
+    ensureAgentTaskDeadline(invocation.task)
     const token = await this.options.accessToken()
     if (!token) throw new VertexAgentModelError('VERTEX_AUTH_TOKEN_MISSING', 'ADC did not return an access token')
+    const deadlineSignal = agentTaskDeadlineSignal(invocation.task)
 
     const endpoint = vertexGenerationEndpoint(this.options.projectId, this.options.region, invocation.model)
     const requestBody = JSON.stringify(buildVertexGenerationRequest({
@@ -245,14 +214,21 @@ export class VertexAgentModelClient implements AgentModelClient {
       maxOutputTokens: invocation.maxOutputTokens,
     }))
     const startedAt = Date.now()
-    const response = await this.fetchImpl(endpoint, {
-      method: 'POST',
-      headers: injectCurrentTrace({
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      }),
-      body: requestBody,
-    })
+    let response: Response
+    try {
+      response = await this.fetchImpl(endpoint, {
+        method: 'POST',
+        headers: injectCurrentTrace({
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        }),
+        body: requestBody,
+        signal: deadlineSignal,
+      })
+    } catch (error) {
+      if (deadlineSignal.aborted) throw new AgentDeadlineError('Vertex generation exceeded the logical task deadline')
+      throw error
+    }
 
     if (!response.ok) {
       console.info(JSON.stringify(safeGenerationTelemetry({
