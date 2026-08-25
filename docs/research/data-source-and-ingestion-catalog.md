@@ -1,16 +1,16 @@
 status:: draft
 main:: [[docs/product-spec|CaffeMate 제품 정본]]
-updated:: 2026-08-23
+updated:: 2026-08-25
 
 # CaffeMate 실제 데이터 출처 및 수집 설계
 
 ## 1. 결론
 
-현재 결과 카드가 비어 있는 주된 원인은 파싱 실패가 아니라 **운영 데이터 연결 부재**이다. 현재 프로덕션 MCP 능력 목록에는 `resolve_area`, `retrieve_official_documents`, `get_source_health`만 들어 있다. 따라서 지역은 식별할 수 있고 공식 문서는 검색할 수 있지만, 상권 수치, 사업체 사건, 프랜차이즈 비교값을 공급할 구조화 커넥터는 운영에 등록되어 있지 않다. 런타임은 계약대로 근거가 없는 Claim을 `missing_claim_ids`와 `UNKNOWN`으로 남기므로, 빈 결과는 현재 계약상 정상 동작이다.
+초기 조사 당시 결과 카드가 비어 있던 주된 원인은 파싱 실패보다 **운영 데이터 연결 부재**였다. 이후 코드 기준 production capability에는 지역 해석, 상권 profile·관측, 지역 임대 benchmark, 프랜차이즈 후보군, 공정위 신고연도 창업금액, 공식 문서·절차와 source health connector가 단계적으로 추가됐다. 이 문서의 각 행은 현재 코드 구현 상태와 아직 배포·자료 승인이 필요한 경계를 별도로 표시한다.
 
 세 선택지에 대한 판정은 다음과 같다.
 
-1. **프랜차이즈 경로는 PoC 브랜드 목록까지만 연결됨.** `list_franchise_universe`는 2026-08-23 기준 브랜드 공식 가맹 안내 페이지가 확인된 이디야커피·메가MGC커피를 반환한다. 특정 지역 출점 승인과 공정위 정보공개서 구조화 값은 아직 연결되지 않았으므로 조건부 후보로만 사용한다. `search_business_events`, `get_franchise_disclosure`, `retrieve_project_documents`, `get_official_procedure`는 목표 도구 목록에는 있지만 현재 프로덕션 능력 목록에 없다.
+1. **프랜차이즈는 모집 근거와 공정위 비용 근거를 분리한다.** `list_franchise_universe`의 회사 공식 가맹 안내가 개인 가맹 후보 자격을 결정하며, `get_franchise_disclosure`는 그 후보에 대해서만 공정위 브랜드 identity와 신고연도별 창업금액을 구조화 재무 근거로 보강한다. 공정위의 법적 정보공개서 등록번호·등록일·원문 버전과 특정 지역 출점 승인은 아직 같은 경로에서 닫히지 않으므로 각각 문서 확인과 본사 외부 확인으로 남긴다.
 2. **코드 로직 결함도 있음: 공식 RAG가 빈 근거로 끝나는 직접 원인이다.** [RAG MCP envelope](../../mcp/src/rag-connectors.ts)는 검색 hit를 `data`에 넣으면서 `evidence_records=[]`로 반환한다. 이후 [EVIDENCE_ASSESS projection](../../api/app/agents/task_factory.py)은 모델 입력에서 `data=[]`로 줄이고 `evidence_records`만 유지한다. 따라서 RAG 검색이 성공해도 hit가 EvidenceRecord 후보로 변환되지 않아 Agent가 평가할 근거가 0건이 된다. 커넥터 부재가 전체 빈 결과의 주원인이고, 이 변환 누락은 현재 존재하는 공식 문서 경로까지 무력화하는 별도 결함이다.
 3. **조사는 했지만 파싱을 못함: 현재 관측된 형태는 아님.** 현재는 검색 hit를 구조화 EvidenceRecord로 만드는 변환 자체가 없으므로 파서 품질을 평가할 단계까지 도달하지 않았다. 상권 수치 데이터는 RAG 파싱 대상이 아니며 API, 파일, SQL, 공간 질의로 들어와야 한다.
 
@@ -47,8 +47,8 @@ updated:: 2026-08-23
 | DS-010 | 임대료 참고 범위, 상권별 임대시장 기준선 | 한국부동산원 | [상업용부동산 임대동향조사](https://www.reb.or.kr/reb/cm/cntnts/cntntsView.do?cntntsId=1049&mi=10335&statId=S237220284), [층별 임대료 파일](https://www.data.go.kr/data/15069848/fileData.do) | 표본 상권의 분기 임대료·공실률 등 집계와 층별 파일 | 전국 17개 시도, 93개 표본 상권 수준 |
 | DS-011 | 건축물 용도, 층, 면적, 주용도 확인 | 국토교통부 | [건축물대장정보 API](https://www.data.go.kr/data/15134735/openapi.do) | 총괄·표제부 등 건축물대장 필드. JSON 또는 XML | 전국 |
 | DS-012 | 상업용 부동산 실거래 참고값 | 국토교통부 | [상업업무용 부동산 매매 실거래 API](https://www.data.go.kr/data/15126463/openapi.do) | 계약월과 법정동 기준 매매 실거래. XML. 일부 지번은 가림 처리 | 전국 |
-| DS-013 | 프랜차이즈 후보군, 정보공개서 등록·버전·본문 | 공정거래위원회 | [정보공개서 목록 API](https://www.data.go.kr/data/15125569/openapi.do), [정보공개서 본문 API](https://www.data.go.kr/data/15125571/openapi.do) | 가맹본부·영업표지·등록 정보와 공개서 항목. JSON 또는 XML | 전국 등록 브랜드 |
-| DS-014 | 가맹비, 교육비, 보증금, 인테리어비, 평균매출, 점포 수, 개·폐점 | 공정거래위원회 | [평균매출 API](https://www.data.go.kr/data/15125494/openapi.do), [가맹 부담금·인테리어 API](https://www.data.go.kr/data/15143711/openapi.do), [가맹본부 등록 현황](https://www.data.go.kr/data/15125441/openapi.do), [업종별 개·폐점 API](https://www.data.go.kr/data/15157660/openapi.do), [공식 비교 화면](https://franchise.ftc.go.kr/firHope/comparePopup.do) | 신고 연도별 구조화 수치와 업종 통계. JSON 또는 XML | 전국, 등록·신고 대상 |
+| DS-013 | 프랜차이즈 브랜드·가맹본부 identity, 정보공개서 등록 상태·문서 identity | 공정거래위원회 | [브랜드 목록 API](https://www.data.go.kr/data/15125467/openapi.do), [정보공개서 처리상태 FairData API](https://www.data.go.kr/data/15143696/openapi.do) | 브랜드·가맹본부 관리번호와 기준연도는 일반 공공 API로 확인 가능. 최신 정보공개서 등록번호·등록일·원문 identity 경로는 FairData 별도 활용 승인이 필요 | 전국 등록 브랜드 |
+| DS-014 | 가맹금, 교육비, 가맹사업자 보증금, 기타 초기금액, 공식 합계와 추가 가맹 통계 | 공정거래위원회 | [브랜드별 창업 금액 API](https://www.data.go.kr/data/15110265/openapi.do), [평균매출 API](https://www.data.go.kr/data/15125494/openapi.do), [공식 비교 화면](https://franchise.ftc.go.kr/firHope/comparePopup.do) | 신고 연도별 구조화 수치. 현재 계산 연결은 창업금액 4개 구성항목과 공표 합계에 한정 | 전국, 등록·신고 대상 |
 | DS-015 | 인건비 하한, 직원 수 가정의 법정 최저선 | 최저임금위원회 | [최저임금위원회](https://www.minimumwage.go.kr/main.do), [2026년 적용 고시 안내](https://www.minimumwage.go.kr/customer/notice/view.do?bultnId=4657) | 연도별 시간급과 월 환산액. 웹·고시 문서 | 전국 |
 | DS-016 | 국민연금·건강보험·장기요양·고용보험 사용자 부담률 | 국민연금공단·국민건강보험공단·국가법령정보센터 | [국민연금 보험료](https://ma.nps.or.kr/pnsinfo/ntpsklg/getOHAF0016M0.do?menuId=MN24001108), [2026 건강보험 안내](https://edi.nhis.or.kr/portal/images/popup/20251204_pop01longdesc.html), [고용보험 요율 법령](https://www.nhis.or.kr/lm/lmxsrv/law/joHistoryContent.do?DATE_END=20251223&DATE_START=20251223&SEQ=208&SEQ_CONTENTS=4050628) | 적용연도·가입 조건별 보험료율. 웹·법령 | 전국 |
 | DS-017 | 전기요금 산식과 계약전력·계절별 비용 범위 | 한국전력공사 | [전기요금표](https://home.kepco.co.kr/kepco/front/html/CY/D/C/CYDCHP00212.html) | 계약종별 기본요금·전력량요금·계절 구간. 웹 | 전국 |
@@ -72,8 +72,8 @@ updated:: 2026-08-23
 | DS-010 | 파일 다운로드·공식 통계표 | 공개, 무료 | 분기. 조사 분기와 공표일 모두 저장 | 통계 출처 표시, 원자료 재배포 조건 확인 | `property_reference` | 코드 구현, 배포 전 | 제품 P0 참고값 | 사용자 매물·임대차 문서 | 원문 표본 상권·층·단위와 정규화 값 대조 |
 | DS-011 | REST API | 공공데이터 키, 개발 1만 호출 안내, 무료 | 원천 갱신 주기와 응답 기준일 저장 | 데이터 페이지 이용허락 준수 | `property_verification` | 미구현 | 완제품 P1 | 사용자가 발급한 건축물대장 | 주소·건물관리번호·표제부 키 교차검증 |
 | DS-012 | REST API | 공공데이터 키, 개발 1만 호출 안내, 무료 | 거래 신고 반영. 계약일과 수집일 분리 | 원문 이용허락 준수, 가림 정보 복원 금지 | `property_reference` | 미구현 | 완제품 P1 참고 | DS-010 임대 통계 | 매매값을 임대료로 변환하지 않는 단위 시험 |
-| DS-013 | REST API | 공공데이터 키, 일반적으로 개발 자동 승인·운영 심사 가능, 무료 | 조회일이 아니라 공개서 등록연도·버전 사용 | 공공데이터 페이지의 이용허락 준수 | `franchise_universe`, 공식 RAG 원문 | 미구현 | 제품 P0 | 공정위 비교 화면 수동 확인 | 브랜드·본부 식별자, 등록번호, 버전별 본문 일치 검사 |
-| DS-014 | REST API·공식 비교 화면 | 공공데이터 키, 무료. 세부 API별 승인 조건 확인 | 신고 연도별. API 응답시각을 최신 실적으로 오인 금지 | 이용허락과 출처 표시 준수 | `franchise_disclosure` | 미구현 | 제품 P0 | 최신 정보공개서 원문 | 항목 합계, 단위, 신고연도, 동일 브랜드 버전 대조 |
+| DS-013 | REST API + FairData LINK API | 브랜드 목록은 공공데이터 키, 정보공개서 처리상태는 별도 FairData 활용 승인 | 브랜드 기준연도와 정보공개서 등록일·버전을 구분 | 공공데이터 페이지의 이용허락 준수 | `franchise_universe`, `franchise_disclosure` identity | 브랜드 identity 코드 구현, 법적 공개서 identity 미연결 | 제품 P0 | 최신 정보공개서 원문 | 브랜드·본부 관리번호 exact match, 등록번호·버전은 연결 전 생성 금지 |
+| DS-014 | REST API·공식 비교 화면 | 공공데이터 키, 무료. 세부 API별 승인 조건 확인 | 신고 연도별. API 응답시각을 최신 실적으로 오인 금지 | 이용허락과 출처 표시 준수 | `franchise_disclosure` finance facts | 창업금액 코드 구현, 배포 전 | 제품 P0 | 최신 정보공개서 원문 | 4개 구성항목 합계와 공표 합계 일치, 천원→원 단위, 신고연도·brand identity 검사 |
 | DS-015 | 공식 고시 RAG와 정형 요율표 | 공개, 무료 | 매년. 실제 영업 예정연도의 유효값 선택 | 원문 인용과 시행일 표시 | 공식 RAG + `cost_reference` | RAG 기반만 존재, corpus 적재 상태는 `BLOCKED_BY_DATA` | 제품 P0 | 사용자 급여 계획을 가정으로 표시 | 시행일·시간급·월 환산 기준 교차검증 |
 | DS-016 | 공식 안내·법령 RAG와 정형 요율표 | 공개, 무료 | 연도·가입 조건별. 2026 국민연금 총 9.5%, 건강보험 7.19% 안내를 버전화 | 원문 인용, 법령 재배포 조건 준수 | 공식 RAG + `cost_reference` | RAG 기반만 존재, 내용 적재는 미확인 | 제품 P0 | 사용자 노무사 확인값 | 적용연도·사용자 부담분·상하한액 시험 |
 | DS-017 | 공식 요금표 RAG와 계산표 | 공개, 무료 | 요금표 개정 시. 계약종별 시행일 저장 | 출처 표시, 계산 결과와 원문 분리 | 공식 RAG + `cost_reference` | 미구현 | 제품 P0 | 사용자 최근 고지서 | 계약전력·사용량 경계값으로 계산 회귀시험 |
@@ -308,7 +308,7 @@ CaffeMate의 기본 경로는 요청 때마다 웹을 검색하는 방식이 아
 1. `area-registry`: DS-001 법정동 현행·폐지 코드, DS-003 최신 제공 경계, 각 원천의 기준연도와 코드 매핑.
 2. `population-monthly`: DS-004 최신 공표 월의 총인구·성별·연령대, 외국인 제외 플래그.
 3. `cafe-observations`: DS-005 최신 전체 스냅숏의 카페 업종 매핑과 DS-006 휴게음식점 전체 스냅숏·최근 변경분. 업종 분류 버전과 인허가 상태 포함.
-4. `franchise-disclosures`: DS-013 최신 등록 목록·본문, DS-014 최신 신고연도별 부담금·인테리어·평균매출·점포 수·개폐점. 원문 공개서 PDF 또는 공식 화면 anchor 포함.
+4. `franchise-finance`: DS-013 브랜드·가맹본부 identity와 DS-014 최신 신고연도별 창업금액. 현재 자동 계산에는 가맹금·교육비·가맹사업자 보증금·기타 초기금액과 공표 합계만 포함하며, 법적 정보공개서 등록번호·등록일·본문과 평균매출·점포 수·개폐점은 별도 후속 데이터 경로로 남긴다.
 5. `rent-benchmark`: DS-010 최신 공표 분기의 상업용부동산 임대동향 표본 상권 값. “개별 매물 아님” 플래그 포함.
 6. `cost-and-procedure`: DS-015~021의 평가일 현재 유효 요율·법령·표준서식. 시행일, 관할, 원문 조문 위치 포함.
 7. `manifest.json`: 각 파일의 source id, 실제 URL, 요청 매개변수, HTTP 상태, 수집시각, 데이터 기준일, 라이선스 표기, SHA-256, 파서 버전, 행 수, 품질검사 결과.
@@ -320,7 +320,7 @@ CaffeMate의 기본 경로는 요청 때마다 웹을 검색하는 방식이 아
 
 1. **RAG hit를 EvidenceRecord 후보로 변환:** `retrieve_official_documents`의 hit마다 원문 id, anchor, excerpt, 원문 기준일과 `source_trace`를 반환하고, Control API의 `EVIDENCE_RETRIEVAL` adapter가 현재 Claim type·지리 범위·기준일을 결합해 후보 record를 만든다. Agent에는 이 후보를 전달하고, Evidence Freeze는 Agent가 수용한 id만 확정한다. 검색 hit 자체를 사실로 자동 승격하지 않는다. `source_trace`와 연결되지 않는 hit는 후보에서 제외하고 결과를 `PARTIAL`로 남긴다.
 2. **전국 지역·카페 관측 연결:** DS-001~006을 `get_area_profile`, `search_cafe_observations`, `search_business_events`에 연결한다. 첫 화면에는 지역, 카페 수, 최근 개·폐업, 데이터 기준일을 제공한다.
-3. **프랜차이즈 구조화 연결:** DS-013~014로 `list_franchise_universe`, `get_franchise_disclosure`를 구현한다. 공개서 등록 여부와 과거 평균값만 보여주며 개별 가맹 가능성은 UNKNOWN으로 둔다.
+3. **프랜차이즈 구조화 연결:** `list_franchise_universe`는 회사 공식 모집 근거로 개인 가맹 후보를 제한하고, `get_franchise_disclosure`는 그 후보의 DS-013 브랜드 identity와 DS-014 신고연도 창업금액만 보강한다. 법적 정보공개서 등록 여부·본문과 특정 주소 출점 승인은 이 데이터로 추론하지 않는다. 현재 창업금액 경로는 코드 구현·계약 등록까지 완료됐고 실제 snapshot 적재·배포 전이다.
 4. **독립카페 손익분기 모델:** DS-010과 DS-015~018을 비용 기준선으로 연결하고, 매출 예측 대신 객단가·영업일·고정비 가정에 따른 손익분기 주문 수를 계산한다.
 5. **공식 절차 RAG 채우기:** DS-019~021을 관할·시행일 메타데이터와 함께 공식 corpus에 적재하고 `get_official_procedure`를 프로덕션에 등록한다.
 6. **프로젝트 문서 경로 열기:** DS-028~032 업로드, 가림, OCR, 사용자 확인, 공식 교차검증을 구현한다. 이후 계약된 DS-023·024·027만 선택적으로 추가한다.
@@ -336,8 +336,8 @@ CaffeMate의 기본 경로는 요청 때마다 웹을 검색하는 방식이 아
 | `get_area_profile` | `administrative_code`, `boundary_version`, `as_of` | 지역 identity, 경계 ref, 인구 facts, source dates | DS-001~004 | 시점 경계가 없으면 boundary·집계 모두 UNKNOWN |
 | `search_cafe_observations` | 지역코드, 경계 버전, 기준일, metrics | 카페 수, 인구, 서울 한정 수요 facts, coverage | DS-004·005·008·009 | 지원하지 않는 지역 지표는 누락 Claim으로 반환 |
 | `search_business_events` | 지역코드, `CAFE`, 날짜 범위, `OPEN`·`CLOSE` | 인허가 사건, 상태, 관측일, source refs | DS-006·007 | 0건과 수집 실패를 별도 상태로 반환 |
-| `list_franchise_universe` | `industry=CAFE`, `as_of` | 브랜드 id, 본부 id, 최신 공개서 버전 | DS-013 | 등록 없음과 API 실패를 분리 |
-| `get_franchise_disclosure` | 브랜드 id, 공개서 버전, 기준일 | 비용·로열티·필수품목·평균매출·점포·개폐점 facts | DS-013·014 | 빠진 항목은 null + missing context |
+| `list_franchise_universe` | `industry=CAFE`, `as_of` | 내부 브랜드 id, 표시명, 회사 공식 개인 가맹 확인 근거와 기존 비용 profile | 회사 공식 자료 + DS-013 identity 보조 | 모집 근거 없음과 조회 실패를 분리 |
+| `get_franchise_disclosure` | 브랜드 id, 선택적 source version, 기준일 | DS-013 exact 브랜드·본부 identity, DS-014 신고연도 창업금액 구성항목과 공식 합계 | DS-013·014 | 불완전 구성항목은 finance override 금지; 법적 정보공개서 미확인은 별도 missing context |
 | `get_official_procedure` | 관할, 절차 유형, 기준일 | 유효 조문, 단계, 제출물, 원문 위치 | DS-019~021 | 관할 규정 미확인은 전국 절차로 대체하지 않음 |
 | `retrieve_project_documents` | 프로젝트 id, 질의, 문서 개정 id, limit | 가림된 구절, 표 셀, 원문 anchor, 사용자 확인 상태 | DS-028~032 | OCR 신뢰도 미달은 확인 요청 |
 | `get_property_reference` | 지역, 점포 주소, 면적, 층, 기준일 | 집계 임대 참고, 건축물 용도, 실거래 참고, coverage | DS-010~012 | 실제 임대조건처럼 표시하지 않음 |

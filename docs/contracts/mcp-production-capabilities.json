@@ -1,12 +1,13 @@
 {
   "schema_version": "1.0.0",
-  "manifest_digest": "sha256:d92686c8157d0d547dbcecf34fc85c0643223866de6c81cd676377171f07ec56",
+  "manifest_digest": "sha256:63f2ab1dc09b82181e7df2a10e00071ea1fa7b0e268bc4679461543a97d96a87",
   "tools": [
     "resolve_area",
     "get_area_profile",
     "get_property_reference",
     "search_cafe_observations",
     "list_franchise_universe",
+    "get_franchise_disclosure",
     "retrieve_official_documents",
     "get_official_procedure",
     "get_source_health"

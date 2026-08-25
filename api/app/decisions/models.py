@@ -43,8 +43,11 @@ class ResolutionAction(StrictModel):
 class DecisionDerivation(StrictModel):
     formula_code: str = Field(min_length=1)
     inputs: dict[str, Any]
-    coverage_status: str = Field(min_length=1)
-    floor_basis: str = Field(min_length=1)
+    coverage_status: str | None = Field(default=None, min_length=1)
+    floor_basis: str | None = Field(default=None, min_length=1)
+    source_version: str | None = Field(default=None, min_length=1)
+    reporting_year: int | None = Field(default=None, ge=2000, le=2100)
+    constituent_evidence_refs: list[str] = Field(default_factory=list)
 
 
 class DecisionInput(StrictModel):

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from app.finance.franchise_disclosure import FranchiseDisclosureResolution
 from app.finance.models import CostCategory, CostLine, MoneyRange, ValueProvenance
 from app.finance.property_benchmark import PropertyBenchmarkResolution
 
@@ -321,13 +322,18 @@ class FinancialInputResolver:
         property_context: PropertyContext | None = None,
         case_resolution: CaseFactResolution | None = None,
         benchmark_resolution: PropertyBenchmarkResolution | None = None,
+        franchise_disclosure_resolution: FranchiseDisclosureResolution | None = None,
     ) -> None:
         self._property = property_context
         self._case = case_resolution or CaseFactResolution()
         self._benchmark = benchmark_resolution or PropertyBenchmarkResolution()
+        self._franchise_disclosure = (
+            franchise_disclosure_resolution or FranchiseDisclosureResolution()
+        )
         self.decision_sources = {
             **self._benchmark.sources,
             **self._case.sources,
+            **self._franchise_disclosure.sources,
         }
         if property_context is not None:
             self.decision_sources[property_context.evidence_ref] = {
@@ -344,6 +350,10 @@ class FinancialInputResolver:
             (value.source_id, CostCategory.MONTHLY_OCCUPANCY): value
             for value in self._benchmark.overrides
         }
+        self._franchise_disclosure_by_key = {
+            (value.source_id, CostCategory.FRANCHISE_INITIAL_FEES): value
+            for value in self._franchise_disclosure.overrides
+        }
 
     def resolve_cost_line(self, *, source_id: str, fallback: CostLine) -> CostLine:
         property_line = self._property_line(source_id=source_id, category=fallback.category)
@@ -352,6 +362,9 @@ class FinancialInputResolver:
         case_value = self._case_by_key.get((source_id, fallback.category))
         if case_value is not None:
             return case_value.as_cost_line()
+        franchise_value = self._franchise_disclosure_by_key.get((source_id, fallback.category))
+        if franchise_value is not None:
+            return franchise_value.as_cost_line()
         benchmark_value = self._benchmark_by_key.get((source_id, fallback.category))
         if benchmark_value is not None:
             return benchmark_value.as_cost_line()

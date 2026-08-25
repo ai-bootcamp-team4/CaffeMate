@@ -35,6 +35,11 @@ from app.finance.property_benchmark import property_rent_benchmarks_from_mcp_res
 from app.mcp.client import McpCallOutcome, McpClientError
 from app.observability import tracer
 from app.results.models import AuditStatus, ResultBundlePayload
+from app.workflows.franchise_grounding import (
+    franchise_disclosure_resolution,
+    franchise_universe,
+    verified_franchise_brand_ids,
+)
 from app.workflows.models import HeadFence, StageLease
 from app.workflows.simple_proposal import SimpleProposalBuilder
 from app.workflows.stage_context import StageContext
@@ -173,6 +178,11 @@ class LinearMultiAgentProposalPipeline:
         else:
             retrieved_records = self._deduplicate_evidence(evidence_records)
 
+        disclosure_resolution = franchise_disclosure_resolution(
+            outcomes=outcomes,
+            evidence_records=retrieved_records,
+        )
+
         proposal_tasks = self._proposal_tasks(
             state=state,
             head=head,
@@ -202,13 +212,15 @@ class LinearMultiAgentProposalPipeline:
             evidence_records=retrieved_records,
             property_context=property_context,
             case_fact_resolution=case_fact_resolution,
+            franchise_disclosure_resolution=disclosure_resolution,
             property_rent_benchmarks=property_rent_benchmarks_from_mcp_results(
                 [outcome.structured_content for outcome in outcomes]
             ),
             agent_proposals=proposals,
-            franchise_universe=self._franchise_universe(
+            franchise_universe=franchise_universe(
                 outcomes,
                 evidence_records=retrieved_records,
+                disclosure_resolution=disclosure_resolution,
             ),
         )
         audit_task = self._tasks.build_result_bundle_audit(
@@ -316,7 +328,7 @@ class LinearMultiAgentProposalPipeline:
             )
         # 사용자 의도: 한 자료원의 MCP 오류가 성공한 조회와 세 Agent 역할까지
         # 함께 취소해서는 안 된다. 오류는 근거 없는 ERROR action으로 보존한다.
-        return await asyncio.gather(
+        outcomes = await asyncio.gather(
             *[
                 self._retrieve_one_evidence_call(
                     call_index=index,
@@ -329,6 +341,23 @@ class LinearMultiAgentProposalPipeline:
                 for index, (tool_name, arguments) in enumerate(calls)
             ]
         )
+        verified_brand_ids = verified_franchise_brand_ids(outcomes)
+        if not verified_brand_ids:
+            return outcomes
+        disclosure_outcomes = await asyncio.gather(
+            *[
+                self._retrieve_one_evidence_call(
+                    call_index=len(calls) + index,
+                    state=state,
+                    head=head,
+                    workflow_run_id=workflow_run_id,
+                    tool_name="get_franchise_disclosure",
+                    arguments={"brand_id": brand_id, "as_of": as_of},
+                )
+                for index, brand_id in enumerate(verified_brand_ids)
+            ]
+        )
+        return [*outcomes, *disclosure_outcomes]
 
     async def _retrieve_one_evidence_call(
         self,
@@ -562,9 +591,13 @@ class LinearMultiAgentProposalPipeline:
                 },
             )
             independent_tasks = self._tasks.build_independent_proposal_tasks(context)
-        universe = self._franchise_universe(
+        universe = franchise_universe(
             outcomes,
             evidence_records=evidence_records,
+            disclosure_resolution=franchise_disclosure_resolution(
+                outcomes=outcomes,
+                evidence_records=evidence_records,
+            ),
         )
         if preference != CafeTypePreference.INDEPENDENT_ONLY and universe:
             context = self._context(
@@ -742,79 +775,6 @@ class LinearMultiAgentProposalPipeline:
             proposals.extend(deepcopy(value) for value in values if isinstance(value, dict))
         return proposals
 
-    @staticmethod
-    def _franchise_universe(
-        outcomes: list[McpCallOutcome],
-        *,
-        evidence_records: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        universe: list[dict[str, Any]] = []
-        accepted_evidence_ids = {
-            record.get("evidence_id")
-            for record in evidence_records
-            if isinstance(record.get("evidence_id"), str)
-        }
-        for outcome in outcomes:
-            if outcome.tool_name != "list_franchise_universe":
-                continue
-            missing = [
-                value
-                for value in outcome.structured_content.get("missing_fields", [])
-                if isinstance(value, str)
-            ]
-            for item in outcome.structured_content.get("data", []):
-                if not isinstance(item, dict) or item.get(
-                    "individual_franchise_eligibility"
-                ) != "VERIFIED":
-                    continue
-                evidence_id = item.get("eligibility_evidence_id")
-                if (
-                    not isinstance(evidence_id, str)
-                    or evidence_id not in accepted_evidence_ids
-                ):
-                    continue
-                finance_profile = deepcopy(item.get("finance_profile"))
-                if not isinstance(finance_profile, dict):
-                    continue
-                finance_refs = {
-                    ref
-                    for ref in finance_profile.get("evidence_refs", [])
-                    if isinstance(ref, str)
-                }
-                if not finance_refs.issubset(accepted_evidence_ids):
-                    finance_profile.update(
-                        {
-                            "coverage": "UNKNOWN",
-                            "value_kind": "UNKNOWN",
-                            "known_initial_cost_range_krw": None,
-                            "evidence_refs": [],
-                            "missing_costs": sorted(
-                                set(finance_profile.get("missing_costs", []))
-                                | {"TOTAL_INITIAL_COST"}
-                            ),
-                        }
-                    )
-                universe.append(
-                    {
-                        "proposal_id": f"proposal:{item['brand_id']}",
-                        "brand_id": item["brand_id"],
-                        "display_name": item["display_name"],
-                        "individual_franchise_eligibility": "VERIFIED",
-                        "evidence_refs": [evidence_id],
-                        "finance_profile": finance_profile,
-                        "missing_fields": sorted(set(missing)),
-                    }
-                )
-        def sort_key(item: dict[str, Any]) -> tuple[bool, int, str]:
-            # 비용 근거가 부족한 조건부 브랜드도 유지하되, 확인된 비용 후보 뒤에 둔다.
-            finance_profile = item["finance_profile"]
-            cost_range = finance_profile.get("known_initial_cost_range_krw")
-            base_cost = cost_range.get("base", 0) if isinstance(cost_range, dict) else 0
-            return cost_range is None, base_cost, item["brand_id"]
-
-        return sorted(universe, key=sort_key)
-
-
     def _claims(
         self,
         state: VentureState,
@@ -829,6 +789,7 @@ class LinearMultiAgentProposalPipeline:
                     "get_property_reference": "PROPERTY_RENT_REFERENCE",
                     "search_cafe_observations": "AREA_DEMAND_SIGNALS",
                     "list_franchise_universe": "FRANCHISE_UNIVERSE_ELIGIBILITY",
+                    "get_franchise_disclosure": "FRANCHISE_DISCLOSURE_FACT",
                     "retrieve_official_documents": "OFFICIAL_STARTUP_GUIDANCE",
                 }[outcome.tool_name],
                 "materiality": "HIGH",

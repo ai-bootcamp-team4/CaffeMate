@@ -4,6 +4,7 @@ import { createVertexRagBackend } from '../../rag/src/vertex-rag-backend'
 import { createConnectorRegistry } from './connectors'
 import { createBigQueryGroundingConnectors } from './bigquery-grounding'
 import { createFranchiseCatalogConnector } from './franchise-catalog'
+import { createFranchiseDisclosureConnector } from './franchise-disclosure'
 import {
   mapOfficialRagContext,
   pinnedRagFileIdsBySourceFamily,
@@ -93,6 +94,14 @@ export function createProductionMcpConnectors(options: ProductionMcpConnectorOpt
       now,
     }),
     list_franchise_universe: createFranchiseCatalogConnector({ now }),
+    get_franchise_disclosure: createFranchiseDisclosureConnector({
+      projectId: options.projectId,
+      datasetId: options.groundingDatasetId,
+      location: RAG_REGION,
+      accessToken: options.accessToken,
+      fetch: fetchImpl,
+      now,
+    }),
     retrieve_official_documents: rag.retrieve_official_documents,
     get_official_procedure: createOfficialProcedureRagConnector({
       retrieval,

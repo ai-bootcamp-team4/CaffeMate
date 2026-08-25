@@ -24,6 +24,7 @@ from app.domain.models import (
 )
 from app.mcp.client import McpCallOutcome, McpClientError
 from app.results.models import AuditStatus
+from app.workflows.franchise_grounding import franchise_universe
 from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import HeadFence
 from app.workflows.simple_proposal import SimpleProposalBuilder
@@ -1142,6 +1143,143 @@ class FranchiseRuntime(FakeRuntime):
         )
 
 
+class FtcFranchiseMcp(FranchiseMcp):
+    async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+        if kwargs["tool_name"] != "get_franchise_disclosure":
+            return await super().call_tool(**kwargs)
+        self.tool_names.append("get_franchise_disclosure")
+        evidence_id = "ftc:mega:2024:startup-cost-schedule"
+        amounts = [
+            ("FRANCHISE_FEE", 9_900_000),
+            ("EDUCATION_FEE", 3_300_000),
+            ("FRANCHISEE_DEPOSIT", 5_000_000),
+            ("OTHER_INITIAL_FEE", 109_690_000),
+            ("FRANCHISE_INITIAL_FEE_TOTAL", 127_890_000),
+        ]
+        data = [
+            {
+                "brand_id": "kr-mega-mgc-coffee",
+                "brand_name": "메가MGC커피",
+                "ftc_brand_management_no": "B-MEGA",
+                "ftc_headquarters_management_no": "H-MEGA",
+                "source_version": "FTC_COST_REPORTING_YEAR:2024:B-MEGA",
+                "disclosure_version": None,
+                "disclosure_registration_date": None,
+                "reporting_year": 2024,
+                "field": field,
+                "value": {"kind": "INTEGER", "value": amount},
+                "unit": "KRW",
+                "effective_date": "2024-12-31",
+                "evidence_id": evidence_id,
+            }
+            for field, amount in amounts
+        ]
+        record = {
+            "schema_version": "2.0.0",
+            "evidence_id": evidence_id,
+            "project_id": "project-1",
+            "claim_type": "FRANCHISE_DISCLOSURE_FACT",
+            "metric": "kr-mega-mgc-coffee",
+            "value": {
+                "kind": "STRING",
+                "value": '{"FRANCHISE_INITIAL_FEE_TOTAL":127890000}',
+            },
+            "value_kind": "EVIDENCED_FACT",
+            "unit": "KRW",
+            "geographic_scope": {
+                "scope_type": "NATIONAL",
+                "scope_id": "KR",
+                "boundary_version": None,
+            },
+            "source": {
+                "title": "공정거래위원회 브랜드별 창업 금액 현황",
+                "source_ref": "https://www.data.go.kr/data/15110265/openapi.do",
+                "authority": "PRIMARY_DATA",
+                "source_type": "DATASET",
+                "published_or_data_date": "2024-12-31",
+                "source_observed_at": NOW.isoformat().replace("+00:00", "Z"),
+                "document_version": "FTC_COST_REPORTING_YEAR:2024:B-MEGA",
+                "checksum": "sha256:" + "2" * 64,
+            },
+            "original_anchor": {
+                "anchor_type": "CALCULATION",
+                "locator": "2024:B-MEGA:startup-cost-schedule",
+                "excerpt_hash": "sha256:" + "3" * 64,
+            },
+            "freshness_status": "FRESH",
+            "conflict_status": "NONE",
+            "retrieved_at": NOW.isoformat().replace("+00:00", "Z"),
+            "missing_context": [
+                "FTC_REGISTRATION_DOES_NOT_PROVE_CURRENT_RECRUITMENT",
+                "HQ_AREA_APPROVAL_NOT_PROVIDED",
+            ],
+            "durable_evidence_refs": [
+                "https://www.data.go.kr/data/15110265/openapi.do"
+            ],
+        }
+        content = {
+            "schema_version": "1.0.0",
+            "request_id": "request-get_franchise_disclosure",
+            "tool_name": "get_franchise_disclosure",
+            "tool_version": "1.0.0",
+            "status": "PARTIAL",
+            "project_id": "project-1",
+            "evidence_records": [record],
+            "missing_fields": ["franchise_disclosure_document_identity"],
+            "conflicts": [],
+            "source_trace": [],
+            "error_codes": [],
+            "observed_at": NOW.isoformat().replace("+00:00", "Z"),
+            "data": data,
+        }
+        return McpCallOutcome(
+            request_id=content["request_id"],
+            tool_name="get_franchise_disclosure",
+            tool_version="1.0.0",
+            status="PARTIAL",
+            is_complete=False,
+            structured_content=content,
+        )
+
+
+class AcceptAllFranchiseEvidenceRuntime(FakeRuntime):
+    def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+        if task["task_type"] != "EVIDENCE_ASSESS":
+            return super().invoke(task)
+        self.task_types.append("EVIDENCE_ASSESS")
+        self.tasks.append(deepcopy(task))
+        assessments: list[dict[str, Any]] = []
+        missing_claims: list[str] = []
+        for action in task["payload"]["executed_actions"]:
+            records = action["structured_result"]["evidence_records"]
+            if not records:
+                missing_claims.append(action["claim_id"])
+                continue
+            assessments.extend(
+                {
+                    "candidate_ref": record["evidence_id"],
+                    "claim_id": action["claim_id"],
+                    "relation": "SUPPORTS",
+                    "scope_status": "MATCH",
+                    "date_status": "MATCH",
+                    "freshness_status": record["freshness_status"],
+                    "anchor_status": "VALID",
+                    "authority_status": "ACCEPTABLE",
+                    "missing_context": [],
+                }
+                for record in records
+            )
+        return self._result(
+            task,
+            payload={
+                "assessments": assessments,
+                "missing_claims": missing_claims,
+                "conflict_proposals": [],
+            },
+            missing_claim_ids=missing_claims,
+        )
+
+
 class ProductionSizedFranchiseMcp(FranchiseMcp):
     """운영 카탈로그와 비슷한 후보·근거 수로 LLM 없는 경로를 검증한다."""
 
@@ -1307,7 +1445,7 @@ def test_franchise_universe_keeps_unknown_cost_without_crashing() -> None:
         FranchiseMcp().call_tool(tool_name="list_franchise_universe")
     )
 
-    universe = LinearMultiAgentProposalPipeline._franchise_universe(
+    universe = franchise_universe(
         [outcome],
         evidence_records=[{"evidence_id": "eligibility:mega"}],
     )
@@ -1370,3 +1508,60 @@ def test_franchise_profile_reaches_agent_and_grounded_calculation_without_static
     assert "kr-starbucks-korea" not in {
         candidate["franchise"]["brand_id"] for candidate in bundle.candidates
     }
+
+
+def test_accepted_ftc_schedule_replaces_company_cost_and_can_change_capital_gate() -> None:
+    founder_state = _state(CafeTypePreference.FRANCHISE_ONLY).model_copy(
+        update={
+            "founder": _state(CafeTypePreference.FRANCHISE_ONLY).founder.model_copy(
+                update={"own_funds_krw": 140_000_000}
+            )
+        }
+    )
+
+    baseline = _pipeline(FranchiseRuntime(), FranchiseMcp()).run(
+        state=founder_state,
+        head=_head(),
+        workflow_run_id="workflow-franchise-company-cost",
+        evidence_records=[],
+    )
+    grounded = _pipeline(
+        AcceptAllFranchiseEvidenceRuntime(),
+        FtcFranchiseMcp(),
+    ).run(
+        state=founder_state,
+        head=_head(),
+        workflow_run_id="workflow-franchise-ftc-cost",
+        evidence_records=[],
+    )
+
+    baseline_candidate = baseline.candidates[0]
+    grounded_candidate = grounded.candidates[0]
+    assert baseline_candidate["gate_results"][0]["status"] == "CONDITIONAL"
+    assert grounded_candidate["gate_results"][0]["status"] == "FAIL"
+
+    fee_input = next(
+        value
+        for value in grounded_candidate["decision_inputs"]
+        if value["field"] == "FRANCHISE_INITIAL_FEES"
+    )
+    assert fee_input["value_range_krw"] == {
+        "low": 127_890_000,
+        "base": 127_890_000,
+        "high": 127_890_000,
+    }
+    assert fee_input["provenance"] == "FACT"
+    assert fee_input["resolution_status"] == "RESOLVED_FACT"
+    assert fee_input["source_title"] == "공정거래위원회 브랜드별 창업 금액 현황"
+    assert fee_input["derivation"]["formula_code"] == "FTC_INITIAL_FEE_COMPONENT_SUM_V1"
+    assert fee_input["derivation"]["source_version"] == (
+        "FTC_COST_REPORTING_YEAR:2024:B-MEGA"
+    )
+    assert fee_input["derivation"]["reporting_year"] == 2024
+    assert grounded_candidate["franchise"]["finance_profile"][
+        "known_initial_cost_range_krw"
+    ]["base"] == 127_890_000
+    assert grounded_candidate["franchise"]["disclosure_evidence_refs"] == []
+    assert grounded_candidate["verification_requirements"][0]["status"] == (
+        "EXTERNAL_CONFIRMATION_REQUIRED"
+    )

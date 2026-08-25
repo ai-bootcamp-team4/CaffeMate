@@ -490,12 +490,19 @@
     "decisionDerivation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["formula_code", "inputs", "coverage_status", "floor_basis"],
+      "required": ["formula_code", "inputs"],
       "properties": {
         "formula_code": { "type": "string", "minLength": 1 },
         "inputs": { "type": "object" },
-        "coverage_status": { "type": "string", "minLength": 1 },
-        "floor_basis": { "type": "string", "minLength": 1 }
+        "coverage_status": { "type": ["string", "null"], "minLength": 1 },
+        "floor_basis": { "type": ["string", "null"], "minLength": 1 },
+        "source_version": { "type": ["string", "null"], "minLength": 1 },
+        "reporting_year": { "type": ["integer", "null"], "minimum": 2000, "maximum": 2100 },
+        "constituent_evidence_refs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
       }
     },
     "decisionInput": {

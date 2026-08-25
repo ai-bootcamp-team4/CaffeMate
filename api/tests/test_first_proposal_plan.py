@@ -8,7 +8,10 @@ from app.workflows.first_proposal import (
     stage_input_digest,
 )
 from app.workflows.models import HeadFence
-from app.workflows.selective_start import start_selective_first_proposal
+from app.workflows.selective_start import (
+    _franchise_universe,
+    start_selective_first_proposal,
+)
 
 
 def test_first_proposal_has_one_execution_unit() -> None:
@@ -94,3 +97,51 @@ def test_selective_recompute_replays_regional_occupancy_benchmark() -> None:
     assert benchmark.effective_rent_krw_per_sqm_month == 95_000
     assert benchmark.conversion_rate_bps == 680
     assert benchmark.coverage_status == "PARENT_REGION"
+
+
+def test_selective_recompute_replays_grounded_franchise_finance_profile() -> None:
+    source_bundle = {
+        "candidates": [
+            {
+                "case_type": "FRANCHISE",
+                "display_name": "메가MGC커피",
+                "franchise": {
+                    "brand_id": "kr-mega-mgc-coffee",
+                    "eligibility": "VERIFIED",
+                    "eligibility_evidence_refs": ["eligibility:mega"],
+                    "finance_profile": {
+                        "currency": "KRW",
+                        "coverage": "PARTIAL",
+                        "value_kind": "EVIDENCED_FACT",
+                        "known_initial_cost_range_krw": {
+                            "low": 127_890_000,
+                            "base": 127_890_000,
+                            "high": 127_890_000,
+                        },
+                        "reference_area_sqm": 33,
+                        "monthly_royalty_krw": None,
+                        "evidence_refs": ["ftc:mega:2024:startup-cost-schedule"],
+                        "source_refs": [
+                            "https://www.data.go.kr/data/15110265/openapi.do"
+                        ],
+                        "scope_note": "공정거래위원회 신고연도 기준 공식 초기비용 합계",
+                        "missing_costs": ["DEPOSIT", "OPERATING_RESERVE"],
+                    },
+                },
+            }
+        ]
+    }
+
+    universe = _franchise_universe(source_bundle)
+
+    assert universe == [
+        {
+            "brand_id": "kr-mega-mgc-coffee",
+            "display_name": "메가MGC커피",
+            "individual_franchise_eligibility": "VERIFIED",
+            "evidence_refs": ["eligibility:mega"],
+            "finance_profile": source_bundle["candidates"][0]["franchise"][
+                "finance_profile"
+            ],
+        }
+    ]

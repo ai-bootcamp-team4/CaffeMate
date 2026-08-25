@@ -34,6 +34,7 @@ from app.finance.case_facts import (
     FinancialInputResolver,
     PropertyContext,
 )
+from app.finance.franchise_disclosure import FranchiseDisclosureResolution
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
     MONTHLY_FIXED_COST_CATEGORIES,
@@ -97,6 +98,7 @@ class SimpleProposalBuilder:
         evidence_records: list[dict[str, Any]],
         property_context: PropertyContext | None = None,
         case_fact_resolution: CaseFactResolution | None = None,
+        franchise_disclosure_resolution: FranchiseDisclosureResolution | None = None,
         property_rent_benchmarks: list[PropertyRentBenchmark] | None = None,
         agent_proposals: list[dict[str, Any]] | None = None,
         franchise_universe: list[dict[str, Any]] | None = None,
@@ -121,6 +123,7 @@ class SimpleProposalBuilder:
             property_context=property_context,
             case_resolution=case_fact_resolution,
             benchmark_resolution=benchmark_resolution,
+            franchise_disclosure_resolution=franchise_disclosure_resolution,
         )
         preference = state.founder.cafe_type_preference
         proposals_by_source = {
@@ -539,7 +542,7 @@ class SimpleProposalBuilder:
                         "franchise": {
                             "brand_id": brand_id,
                             "eligibility": "VERIFIED",
-                                "availability_status": "HQ_CONFIRMATION_REQUIRED",
+                            "availability_status": "HQ_CONFIRMATION_REQUIRED",
                             "eligibility_evidence_refs": eligibility_refs,
                             "disclosure_evidence_refs": [],
                             "finance_profile": deepcopy(profile),

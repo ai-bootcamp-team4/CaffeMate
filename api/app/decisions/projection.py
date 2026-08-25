@@ -141,7 +141,23 @@ def project_finance_decision_inputs(
                 ),
             )
         )
-    return [value.model_dump(mode="json") for value in values]
+    projected: list[dict[str, Any]] = []
+    for value in values:
+        payload = value.model_dump(mode="json")
+        derivation = payload.get("derivation")
+        if isinstance(derivation, dict):
+            for key in (
+                "coverage_status",
+                "floor_basis",
+                "source_version",
+                "reporting_year",
+            ):
+                if derivation.get(key) is None:
+                    derivation.pop(key, None)
+            if not derivation.get("constituent_evidence_refs"):
+                derivation.pop("constituent_evidence_refs", None)
+        projected.append(payload)
+    return projected
 
 
 def project_verification_requirements(
