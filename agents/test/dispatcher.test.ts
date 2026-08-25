@@ -20,7 +20,7 @@ function makeIntentTask(): AgentTask {
     task_type: 'INTENT_DELTA', workflow_run_id: 'wf-1', stage_run_id: 'stage-1', transport_attempt: 1,
     repair_attempt: 0, venture_project_id: 'project-1', head_fence: head, prompt_version: 'intent-interpreter.v2',
     input_schema_id: 'caffemate.agent.intent-input.v1', output_schema_id: 'caffemate.agent.intent-result.v1',
-    input_artifacts: [], input_digest: `sha256:${'0'.repeat(64)}`, deadline_at: '2026-08-21T08:30:00Z',
+    input_artifacts: [], input_digest: `sha256:${'0'.repeat(64)}`, deadline_at: new Date(Date.now() + 60_000).toISOString(),
     runtime_tool_policy: 'NO_DIRECT_TOOL_CALLS', tool_manifest_digest: null, available_tool_catalog: [],
     payload: {
       current_state_projection: {
@@ -93,22 +93,41 @@ describe('deterministic dispatcher', () => {
     expect(child).not.toHaveBeenCalled()
   })
 
-  it('rejects a schema-invalid result from the child', async () => {
+  it('repairs one schema-invalid result and stops after the second invalid result', async () => {
     const task = makeIntentTask()
     const invalidResult = { ...makeIntentResult(task), payload: { decision: 'NOOP' } } as AgentTaskResult
-    const child = vi.fn(async () => invalidResult)
+    const child = vi.fn(async (receivedTask: AgentTask) => {
+      void receivedTask
+      return invalidResult
+    })
 
     await expect(dispatchAgentTask(task, { INTENT_INTERPRETER: child })).rejects.toThrow('RESULT_SCHEMA_INVALID')
-    expect(child).toHaveBeenCalledTimes(1)
+    expect(child).toHaveBeenCalledTimes(2)
+    expect((child.mock.calls[1]?.[0] as AgentTask).repair_attempt).toBe(1)
   })
 
-  it('does not regenerate a schema-invalid model result', async () => {
+  it('repairs one invalid result with validator context and preserves the logical input digest', async () => {
     const task = makeIntentTask()
     const invalidResult = { ...makeIntentResult(task), payload: { decision: 'NOOP' } } as AgentTaskResult
-    const child = vi.fn(async () => invalidResult)
+    const child = vi.fn()
+      .mockResolvedValueOnce(invalidResult)
+      .mockImplementationOnce(async (repairTask: AgentTask) => makeIntentResult(repairTask))
 
-    await expect(dispatchAgentTask(task, { INTENT_INTERPRETER: child })).rejects.toThrow('RESULT_SCHEMA_INVALID')
-    expect(child).toHaveBeenCalledTimes(1)
+    const result = await dispatchAgentTask(task, { INTENT_INTERPRETER: child })
+
+    expect(result.status).toBe('COMPLETE')
+    expect(child).toHaveBeenCalledTimes(2)
+    const repairTask = child.mock.calls[1]?.[0] as AgentTask
+    expect(repairTask.invocation_id).toBe(task.invocation_id)
+    expect(repairTask.input_digest).toBe(task.input_digest)
+    expect(repairTask.repair_attempt).toBe(1)
+    expect(repairTask.repair_of_invocation_id).toBe(task.invocation_id)
+    expect(repairTask.repair_context).toMatchObject({
+      previous_response_digest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+      validator_errors: expect.arrayContaining([
+        expect.objectContaining({ code: 'RESULT_SCHEMA_REQUIRED' }),
+      ]),
+    })
   })
 
   it('logs only safe validation metadata for an invalid Agent result', async () => {
@@ -129,6 +148,14 @@ describe('deterministic dispatcher', () => {
           task_type: 'INTENT_DELTA',
           preflight: true,
           repair_attempt: 0,
+          outcome: 'REPAIR_REQUIRED',
+          validator_codes: expect.arrayContaining(['RESULT_SCHEMA_REQUIRED']),
+        }),
+        expect.objectContaining({
+          event: 'AGENT_RESULT_VALIDATION',
+          task_type: 'INTENT_DELTA',
+          preflight: true,
+          repair_attempt: 1,
           outcome: 'REJECTED',
           validator_codes: expect.arrayContaining(['RESULT_SCHEMA_REQUIRED']),
         }),
@@ -142,15 +169,58 @@ describe('deterministic dispatcher', () => {
     }
   })
 
-  it('leaves product semantics to the Control API boundary', async () => {
+  it('repairs a model-owned unsupported reference before it reaches the Control API boundary', async () => {
     const task = makeIntentTask()
     const semanticInvalid = { ...makeIntentResult(task), evidence_refs: ['invented-evidence'] }
-    const child = vi.fn(async () => semanticInvalid)
+    const child = vi.fn()
+      .mockResolvedValueOnce(semanticInvalid)
+      .mockImplementationOnce(async (repairTask: AgentTask) => makeIntentResult(repairTask))
 
     const result = await dispatchAgentTask(task, { INTENT_INTERPRETER: child })
 
-    expect(result).toEqual(semanticInvalid)
+    expect(result).toEqual(makeIntentResult(child.mock.calls[1]?.[0] as AgentTask))
+    expect(child).toHaveBeenCalledTimes(2)
+    expect((child.mock.calls[1]?.[0] as AgentTask).repair_context).toMatchObject({
+      validator_errors: expect.arrayContaining([
+        expect.objectContaining({ code: 'UNSUPPORTED_REFERENCE' }),
+      ]),
+    })
+  })
+
+  it('does not start repair when less than two seconds remain in the logical deadline', async () => {
+    const task = makeIntentTask()
+    task.deadline_at = new Date(Date.now() + 1_000).toISOString()
+    const invalidResult = { ...makeIntentResult(task), payload: { decision: 'NOOP' } } as AgentTaskResult
+    const child = vi.fn(async () => invalidResult)
+
+    await expect(dispatchAgentTask(task, { INTENT_INTERPRETER: child })).rejects.toMatchObject({
+      code: 'RUNTIME_TIMED_OUT',
+    })
     expect(child).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes only model-owned semantic fields back as repair context', async () => {
+    const task = makeIntentTask()
+    task.deadline_at = new Date(Date.now() + 60_000).toISOString()
+    const invalidResult = { ...makeIntentResult(task), payload: { decision: 'NOOP' } } as AgentTaskResult
+    const child = vi.fn()
+      .mockResolvedValueOnce(invalidResult)
+      .mockImplementationOnce(async (repairTask: AgentTask) => makeIntentResult(repairTask))
+
+    await dispatchAgentTask(task, { INTENT_INTERPRETER: child })
+
+    const repairTask = child.mock.calls[1]?.[0] as AgentTask
+    const previous = JSON.parse(String((repairTask.repair_context as Record<string, unknown>).previous_response_text))
+    expect(Object.keys(previous).sort()).toEqual([
+      'evidence_refs',
+      'missing_claim_ids',
+      'payload',
+      'reason_codes',
+      'status',
+      'warnings',
+    ])
+    expect(previous).not.toHaveProperty('task_id')
+    expect(previous).not.toHaveProperty('head_fence_seen')
   })
 
   it('rejects a result whose immutable echo differs from the task', async () => {

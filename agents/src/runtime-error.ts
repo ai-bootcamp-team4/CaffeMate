@@ -45,6 +45,9 @@ export function runtimeHttpFailure(error: unknown): RuntimeHttpFailure {
     ? error.status
     : null
   const errorName = error instanceof Error ? error.name : null
+  if (code === 'RUNTIME_TIMED_OUT') {
+    return { status: 500, body: { error: 'RUNTIME_TIMED_OUT' } }
+  }
   const terminalProviderStatus = providerStatus !== null
     && providerStatus >= 400
     && providerStatus < 500
