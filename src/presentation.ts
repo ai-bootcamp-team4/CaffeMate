@@ -1,5 +1,4 @@
-import type { ReactNode } from "react";
-import { ControlApiError, type Project, type ResultCandidate } from "./apiClient";
+import { ControlApiError, type ResultCandidate } from "./apiClient";
 
 const internalLabels: Record<string, string> = {
   REVIEW_RECOMMENDED: "검토 추천",
@@ -66,6 +65,10 @@ const internalLabels: Record<string, string> = {
   preferences: "선호 조건",
   avoidances: "제외 조건",
   initial_cash_krw: "초기 필요자금",
+  INITIAL_CASH: "초기 필요자금",
+  MONTHLY_FIXED_COST: "월 고정비",
+  BREAK_EVEN: "손익분기 계산",
+  CAPITAL: "자금 조건",
   PASSED: "통과",
   REQUIRES_HUMAN: "사람 확인 필요",
   CURRENT: "현재 기준",
@@ -173,27 +176,6 @@ export function uniqueLabels(values: string[], fallback?: string) {
   return [...new Set(values.map((value) => internalLabel(value, fallback)))];
 }
 
-export function severityLabel(severity: ResultCandidate["risks"][number]["severity"]) {
-  return {
-    LOW: "낮은 위험",
-    MEDIUM: "보통 위험",
-    HIGH: "높은 위험",
-    CRITICAL: "중대한 위험",
-  }[severity];
-}
-
-export function Badge({
-  children,
-  tone = "",
-}: {
-  children: ReactNode;
-  tone?: string;
-}) {
-  return (
-    <span className={`badge ${tone ? `badge--${tone}` : ""}`}>{children}</span>
-  );
-}
-
 export function formatWon(value: number | null | undefined) {
   return value == null
     ? "확인되지 않음"
@@ -212,50 +194,6 @@ export function candidateSource(candidate: ResultCandidate) {
   return candidate.case_type === "INDEPENDENT"
     ? `INDEPENDENT:${candidate.independent_model?.model_id ?? ""}`
     : `FRANCHISE:${candidate.franchise?.brand_id ?? ""}`;
-}
-
-export interface CapitalDecision {
-  ownFunds: number | null;
-  minimumRequired: number | null;
-  minimumGap: number | null;
-  baseGap: number | null;
-  needsPlanChange: boolean;
-}
-
-export function capitalDecision(
-  project: Project,
-  candidate: ResultCandidate,
-): CapitalDecision {
-  const rawOwnFunds = project.state?.founder.own_funds_krw;
-  const ownFunds =
-    typeof rawOwnFunds === "number" && Number.isFinite(rawOwnFunds)
-      ? rawOwnFunds
-      : null;
-  const minimumRequired = candidate.financial_summary.initial_cash.low;
-  const baseRequired = candidate.financial_summary.initial_cash.base;
-  const minimumGap =
-    ownFunds != null && minimumRequired != null
-      ? Math.max(0, minimumRequired - ownFunds)
-      : null;
-  const baseGap =
-    ownFunds != null && baseRequired != null
-      ? Math.max(0, baseRequired - ownFunds)
-      : null;
-  return {
-    ownFunds,
-    minimumRequired,
-    minimumGap,
-    baseGap,
-    needsPlanChange: minimumGap != null && minimumGap > 0,
-  };
-}
-
-export function resultStatus(project: Project, candidate: ResultCandidate) {
-  if (candidate.review_status === "EXCLUDED")
-    return "이 조건으로는 진행하기 어려워요";
-  if (capitalDecision(project, candidate).needsPlanChange)
-    return "지금 예산에는 조금 큰 안이에요";
-  return statusLabel(candidate.review_status);
 }
 
 export function marketSignalLabel(
@@ -299,18 +237,4 @@ export function formatDataDate(value: string | null) {
 
 export function isHttpSource(value: string) {
   return /^https?:\/\//i.test(value);
-}
-
-export function statusLabel(status: ResultCandidate["review_status"]) {
-  if (status === "REVIEW_RECOMMENDED") return "검토 추천";
-  if (status === "CONDITIONAL_REVIEW") return "조건부 검토";
-  return "제외";
-}
-
-export function statusTone(status: ResultCandidate["review_status"]) {
-  return status === "REVIEW_RECOMMENDED"
-    ? "success"
-    : status === "CONDITIONAL_REVIEW"
-      ? "warning"
-      : "";
 }

@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { waitForWorkflow, type ControlApiClient, type FeedbackPreview, type ResultCandidate, type ResultExplanation, type ResultView } from "../apiClient";
-import { Badge, displayText, displayValue, explanationError, internalLabel, uniqueLabels, userError } from "../presentation";
+import { displayText, displayValue, explanationError, internalLabel, uniqueLabels, userError } from "../presentation";
+import { Badge } from "../ui/Badge";
 
 function ConditionChangePanel({
   client,

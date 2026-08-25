@@ -1,18 +1,9 @@
 import type { AuthSession } from './auth'
 import type { OnboardingValues } from './onboardingState'
+import type { DocumentType, HeadFence, ResultCandidate, ResultView } from './resultContracts'
+export type { DecisionGateTrace, DecisionInput, DecisionResolutionStatus, DecisionRole, DecisionSource, DocumentType, HeadFence, MoneyRange, RankTrace, ResolutionAction, ResultCandidate, ResultDecisionDelta, ResultView, VerificationRequirement } from './resultContracts'
 
 export type WorkflowStatus = 'QUEUED' | 'RUNNING' | 'WAITING_FOR_HUMAN' | 'SUCCEEDED' | 'PARTIAL' | 'FAILED' | 'CANCELLED' | 'STALE'
-
-export interface HeadFence {
-  workflow_generation: number
-  state_version: number
-  founder_snapshot_id: string | null
-  area_snapshot_id: string | null
-  evidence_snapshot_id: string | null
-  policy_snapshot_id: string
-  index_generation_id: string | null
-  seed_registry_id: string | null
-}
 
 export interface Project {
   project_id: string
@@ -76,88 +67,6 @@ export interface WorkflowProgress extends WorkflowRun {
   terminal_reason_codes: string[]
   human_review_requests: Array<{ stage_code: string; reason_codes: string[] }>
   poll_after_ms: number | null
-}
-
-export interface MoneyRange {
-  currency: 'KRW'
-  low: number | null
-  base: number | null
-  high: number | null
-  provenance_refs: string[]
-}
-
-export interface ResultCandidate {
-  candidate_id: string
-  project_id: string
-  state_version: number
-  case_type: 'INDEPENDENT' | 'FRANCHISE'
-  display_name: string
-  review_status: 'REVIEW_RECOMMENDED' | 'CONDITIONAL_REVIEW' | 'EXCLUDED'
-  reason_codes: string[]
-  summary: string
-  rank: number | null
-  rank_basis: string
-  is_primary_next_review: boolean
-  franchise: {
-    brand_id: string | null
-    eligibility: 'VERIFIED' | 'UNVERIFIED' | 'INELIGIBLE'
-    availability_status: 'AVAILABLE' | 'HQ_CONFIRMATION_REQUIRED' | 'UNAVAILABLE' | 'UNKNOWN'
-    eligibility_evidence_refs: string[]
-    disclosure_evidence_refs: string[]
-  } | null
-  independent_model: { model_id: string; adjusted_fields: string[] } | null
-  evidence_refs: string[]
-  assumption_refs?: string[]
-  market_signals?: Array<{
-    signal_type: 'CAFE_COUNT' | 'OPEN_COUNT' | 'CLOSE_COUNT' | 'CLOSURE_RATE' | 'ESTIMATED_SALES' | 'FOOT_TRAFFIC' | 'RESIDENT_POPULATION' | 'WORKER_POPULATION'
-    value: number
-    unit: string | null
-    data_date: string | null
-    freshness_status: 'FRESH' | 'STALE' | 'UNKNOWN' | 'NOT_APPLICABLE'
-    source_title: string
-    source_ref: string
-    evidence_id: string
-    caveat: string
-  }>
-  official_documents?: Array<{
-    title: string
-    source_ref: string
-    data_date: string | null
-    freshness_status: 'FRESH' | 'STALE' | 'UNKNOWN' | 'NOT_APPLICABLE'
-    document_version: string
-    excerpt: string
-    purposes: string[]
-    evidence_refs: string[]
-    used_in_candidate: boolean
-  }>
-  official_document_gaps?: string[]
-  financial_summary: {
-    initial_cash: MoneyRange
-    monthly_fixed_cost: MoneyRange
-    break_even_monthly_sales_krw?: number | null
-    required_daily_orders?: number | null
-    unknown_cost_fields: string[]
-  }
-  missing_fields: Array<{ field: string; impact: string; next_check: string }>
-  risks: Array<{ risk_id: string; severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'; summary: string; evidence_refs: string[] }>
-  counterfactuals: Array<{ variable: string; condition: string; decision_impact: string }>
-  next_actions: string[]
-}
-
-export interface ResultView {
-  result_bundle_id: string
-  project_id: string
-  workflow_run_id: string
-  head: HeadFence
-  candidates: ResultCandidate[]
-  primary_candidate_id: string | null
-  audit_status: 'PASSED' | 'REQUIRES_HUMAN' | 'UNAVAILABLE'
-  outcome_status?: 'REVIEWABLE_CANDIDATES' | 'NO_REVIEWABLE_CANDIDATES'
-  created_at: string
-  freshness: 'CURRENT' | 'STALE'
-  stale_head_dimensions: string[]
-  current_head: HeadFence
-  invalidation_reason_codes: string[]
 }
 
 export interface FeedbackPreview {
@@ -273,7 +182,6 @@ export interface PreparationGuide {
   generated_at: string
 }
 
-export type DocumentType = 'COMMERCIAL_LEASE' | 'FRANCHISE_DISCLOSURE' | 'FRANCHISE_AGREEMENT' | 'INTERIOR_QUOTE' | 'EQUIPMENT_QUOTE' | 'PROPERTY_LISTING' | 'LOAN_TERMS' | 'BUSINESS_PROCEDURE' | 'OTHER'
 export type DocumentRevisionStatus = 'UPLOAD_PENDING' | 'VALIDATING' | 'SCAN_PENDING' | 'READY_FOR_PARSING' | 'PARSING' | 'EXTRACTION_READY' | 'APPLIED' | 'EXTRACTION_FAILED' | 'QUARANTINED' | 'DELETED'
 
 export interface SignedDocumentUpload {
