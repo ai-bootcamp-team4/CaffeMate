@@ -181,17 +181,21 @@ Claim id, 계약에 없는 Claim type, Parser가 제공하지 않은 anchor를 �
 거절한다. 실제 State 반영은 별도의 `반영하고 다시 계산` 명령에서만 수행한다.
 
 `POST /v1/projects/{project_id}/documents/{revision}/extraction-form:apply`는 form digest와
-State version을 함께 잠근다. 비어 있지 않은 값만 `CONFIRMED` Claim으로 승격하며, 같은 종류의
-기존 문서 Claim과 값이 다르면 어느 쪽도 자동 선택하지 않고 `OPEN` conflict를 만든다. Event,
-State revision, Claim, conflict와 단일 `RUN_PROPOSAL` 재계산은 하나의 PostgreSQL transaction으로
-저장된다. 재계산기는 선택된 후보의 문서 Claim을 사용자 확인 값으로 우선
-사용하며, 열린 충돌이 있는 비용 항목은 `UNKNOWN`으로 처리한다.
+State version을 함께 잠근다. 비어 있지 않은 값만 `CONFIRMED` Claim으로 승격하며, 같은 문서 종류·
+같은 Claim의 기존 확인값과 값이 다르면 어느 쪽도 자동 선택하지 않고 `OPEN` conflict를 만든다.
+인테리어와 장비 견적처럼 서로 다른 문서 종류의 `QUOTE_TOTAL`은 충돌하지 않는다. Event, State
+revision, Claim, conflict와 단일 `RUN_PROPOSAL` 재계산은 하나의 PostgreSQL transaction으로
+저장된다. 재계산기는 현재 선택 점포 직접 입력을 가장 먼저 사용하고, 그 다음 선택 후보의 확인 문서
+Claim을 사용한다. 현재는 임대차·매물의 보증금/권리금/월세+관리비, 인테리어 총액과 장비 총액을
+명시적으로 대응 비용 항목에 연결한다. 같은 의미의 열린 충돌이 있는 비용 항목은 `UNKNOWN`으로 처리한다.
 
 선택적 재계산 Workflow는 원본 Workflow와 원본 Result를 명시적으로 참조한다. 새 Result가
 커밋되면 API가 개인카페 모델 id 또는 프랜차이즈 브랜드 id를 안정적인 후보 식별값으로 사용해
 이전 결과와 비교한다. `GET /v1/projects/{project_id}/result`의 `decision_delta`에는 후보 추가·삭제,
-순위와 검토 상태, 초기 필요 현금·월 고정비·손익분기 매출의 변화가 포함된다. 비교할 원본 Result가
-없는 최초 결과에는 `decision_delta`가 `null`이다.
+순위와 검토 상태, 초기 필요 현금·월 고정비·손익분기 매출 변화뿐 아니라 decision input의 이전/현재
+값·provenance·resolution status, 영향받은 계산, reason code 증감과 실제 Gate 상태/reason 전이가
+포함된다. 단순히 Gate metric만 바뀌고 status/reason이 같으면 Gate 전이로 표시하지 않는다. 비교할
+원본 Result가 없는 최초 결과에는 `decision_delta`가 `null`이다.
 
 ## Agent Runtime session 정리
 
