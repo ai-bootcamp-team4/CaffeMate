@@ -13,7 +13,7 @@ interface ToolFixtureCase {
 
 const cases = fixtureMatrix.cases as ToolFixtureCase[]
 
-describe('MCP 10-tool status fixture matrix', () => {
+describe('MCP fixed-tool status fixture matrix', () => {
   it('contains exactly OK, PARTIAL and ERROR for every fixed tool', () => {
     expect(cases).toHaveLength(MCP_TOOL_NAMES.length * 3)
     for (const toolName of MCP_TOOL_NAMES) {

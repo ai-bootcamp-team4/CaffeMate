@@ -11,6 +11,7 @@ import {
 } from './official-rag'
 import { createOfficialRagHealthSource } from './official-rag-health'
 import { createOfficialProcedureRagConnector } from './procedure-rag'
+import { createPropertyReferenceConnector } from './property-reference'
 import { createRagMcpConnectors } from './rag-connectors'
 import { MCP_PRODUCTION_TOOL_NAMES } from './manifest'
 import type { McpConnectorRegistry } from './router'
@@ -83,6 +84,14 @@ export function createProductionMcpConnectors(options: ProductionMcpConnectorOpt
   const connectors: McpConnectorRegistry = {
     ...base,
     ...grounding,
+    get_property_reference: createPropertyReferenceConnector({
+      projectId: options.projectId,
+      datasetId: options.groundingDatasetId,
+      location: RAG_REGION,
+      accessToken: options.accessToken,
+      fetch: fetchImpl,
+      now,
+    }),
     list_franchise_universe: createFranchiseCatalogConnector({ now }),
     retrieve_official_documents: rag.retrieve_official_documents,
     get_official_procedure: createOfficialProcedureRagConnector({

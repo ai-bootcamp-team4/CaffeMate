@@ -461,6 +461,17 @@
         "high": { "type": ["integer", "null"], "minimum": 0 }
       }
     },
+    "decisionDerivation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["formula_code", "inputs", "coverage_status", "floor_basis"],
+      "properties": {
+        "formula_code": { "type": "string", "minLength": 1 },
+        "inputs": { "type": "object" },
+        "coverage_status": { "type": "string", "minLength": 1 },
+        "floor_basis": { "type": "string", "minLength": 1 }
+      }
+    },
     "decisionInput": {
       "type": "object",
       "additionalProperties": false,
@@ -478,7 +489,8 @@
         "applied_to",
         "replaceable_by",
         "resolution_action",
-        "limitation_code"
+        "limitation_code",
+        "derivation"
       ],
       "properties": {
         "field": { "type": "string", "minLength": 1 },
@@ -531,7 +543,13 @@
           "uniqueItems": true
         },
         "resolution_action": { "$ref": "#/$defs/resolutionAction" },
-        "limitation_code": { "type": ["string", "null"], "minLength": 1 }
+        "limitation_code": { "type": ["string", "null"], "minLength": 1 },
+        "derivation": {
+          "oneOf": [
+            { "$ref": "#/$defs/decisionDerivation" },
+            { "type": "null" }
+          ]
+        }
       }
     },
     "gateResult": {
@@ -586,7 +604,13 @@
             "required": ["factor_code", "value", "direction"],
             "properties": {
               "factor_code": { "type": "string", "minLength": 1 },
-              "value": { "type": ["integer", "string", "null"] },
+              "value": {
+                "oneOf": [
+                  { "type": "integer" },
+                  { "type": "string" },
+                  { "type": "null" }
+                ]
+              },
               "direction": { "enum": ["ASC", "DESC"] }
             }
           }

@@ -584,7 +584,7 @@ Proposal Agent와 별도의 Typed Candidate Auditor를 유지한다. `candidate-
 3. 서울 RAG Engine corpus preflight, GCS ingestion, Layout Parser, import result와 shadow publish를 구현한다.
 4. exact typed lookup baseline과 project corpus ACL 검증을 완성한다.
 5. RAG retrieval, metadata filter, reranker, anchor와 counterevidence를 추가한다.
-6. MCP 2026-07-28 stateless transport, 10개 read-only Schema registry와 실제 connector만 광고하는 production capability를 구현한다.
+6. MCP 2026-07-28 stateless transport, fixed read-only Schema registry와 실제 connector만 광고하는 production capability를 구현한다.
 7. `global` 승인 생성 모델 preflight가 통과한 뒤 서울 Agent Runtime에 deterministic root dispatcher, 공통 prompt registry, 다섯 Agent DTO, 관리형 session 수명주기와 repair 경로를 구현한다.
 8. FIRST_PROPOSAL → feedback → document → refresh → packet 순으로 durable DAG를 연결한다.
 9. Agent Control CLI에 `--json` 기반 run/watch/retrieve/agent-trace/document-review/recompute/packet/index-generation 기능을 추가한다.

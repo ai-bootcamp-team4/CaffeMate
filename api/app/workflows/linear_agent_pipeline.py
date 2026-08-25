@@ -21,7 +21,7 @@ from app.contracts.schema_registry import ContractRegistry
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 from app.domain.models import CafeTypePreference, VentureState
 from app.finance.calculator import calculate_finance
-from app.finance.case_facts import CaseFactResolution
+from app.finance.case_facts import CaseFactResolution, PropertyCostOverride
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
     MONTHLY_FIXED_COST_CATEGORIES,
@@ -31,14 +31,12 @@ from app.finance.models import (
     MoneyRange,
     ValueProvenance,
 )
+from app.finance.property_benchmark import property_rent_benchmarks_from_mcp_results
 from app.mcp.client import McpCallOutcome, McpClientError
 from app.observability import tracer
 from app.results.models import AuditStatus, ResultBundlePayload
 from app.workflows.models import HeadFence, StageLease
-from app.workflows.simple_proposal import (
-    PropertyCostOverride,
-    SimpleProposalBuilder,
-)
+from app.workflows.simple_proposal import SimpleProposalBuilder
 from app.workflows.stage_context import StageContext
 
 FRANCHISE_RAG_QUERIES: tuple[str, ...] = (
@@ -204,6 +202,9 @@ class LinearMultiAgentProposalPipeline:
             evidence_records=retrieved_records,
             property_cost_override=property_cost_override,
             case_fact_resolution=case_fact_resolution,
+            property_rent_benchmarks=property_rent_benchmarks_from_mcp_results(
+                [outcome.structured_content for outcome in outcomes]
+            ),
             agent_proposals=proposals,
             franchise_universe=self._franchise_universe(
                 outcomes,
@@ -239,6 +240,16 @@ class LinearMultiAgentProposalPipeline:
             calls.append(
                 (
                     "get_area_profile",
+                    {
+                        "administrative_code": state.area.administrative_code,
+                        "boundary_version": state.area.boundary_version,
+                        "as_of": as_of,
+                    },
+                )
+            )
+            calls.append(
+                (
+                    "get_property_reference",
                     {
                         "administrative_code": state.area.administrative_code,
                         "boundary_version": state.area.boundary_version,
@@ -803,6 +814,7 @@ class LinearMultiAgentProposalPipeline:
 
         return sorted(universe, key=sort_key)
 
+
     def _claims(
         self,
         state: VentureState,
@@ -814,29 +826,40 @@ class LinearMultiAgentProposalPipeline:
                 "claim_id": claim_id,
                 "claim_type": {
                     "get_area_profile": "AREA_DEMAND_SIGNALS",
+                    "get_property_reference": "PROPERTY_RENT_REFERENCE",
                     "search_cafe_observations": "AREA_DEMAND_SIGNALS",
                     "list_franchise_universe": "FRANCHISE_UNIVERSE_ELIGIBILITY",
                     "retrieve_official_documents": "OFFICIAL_STARTUP_GUIDANCE",
                 }[outcome.tool_name],
                 "materiality": "HIGH",
-                "geographic_scope": (
-                    {
-                        "scope_type": "ADMINISTRATIVE_AREA",
-                        "scope_id": state.area.administrative_code,
-                        "boundary_version": state.area.boundary_version,
-                    }
-                    if outcome.tool_name
-                    in {"get_area_profile", "search_cafe_observations"}
-                    else {
-                        "scope_type": "NATIONAL",
-                        "scope_id": "KR",
-                        "boundary_version": None,
-                    }
+                "geographic_scope": self._claim_geographic_scope(
+                    state,
+                    outcome.tool_name,
                 ),
                 "required_freshness": "P365D",
             }
             for outcome, claim_id in zip(outcomes, claim_ids, strict=True)
         ]
+
+    @staticmethod
+    def _claim_geographic_scope(state: VentureState, tool_name: str) -> dict[str, Any]:
+        if tool_name in {"get_area_profile", "search_cafe_observations"}:
+            return {
+                "scope_type": "ADMINISTRATIVE_AREA",
+                "scope_id": state.area.administrative_code,
+                "boundary_version": state.area.boundary_version,
+            }
+        if tool_name == "get_property_reference" and state.area.administrative_code:
+            return {
+                "scope_type": "REGION",
+                "scope_id": state.area.administrative_code[:2],
+                "boundary_version": None,
+            }
+        return {
+            "scope_type": "NATIONAL",
+            "scope_id": "KR",
+            "boundary_version": None,
+        }
 
     @staticmethod
     def _executed_actions(

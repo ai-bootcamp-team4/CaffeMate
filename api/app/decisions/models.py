@@ -40,6 +40,13 @@ class ResolutionAction(StrictModel):
     accepted_document_types: list[str] = Field(default_factory=list)
 
 
+class DecisionDerivation(StrictModel):
+    formula_code: str = Field(min_length=1)
+    inputs: dict[str, Any]
+    coverage_status: str = Field(min_length=1)
+    floor_basis: str = Field(min_length=1)
+
+
 class DecisionInput(StrictModel):
     field: str = Field(min_length=1)
     value_range_krw: MoneyRange
@@ -55,6 +62,7 @@ class DecisionInput(StrictModel):
     replaceable_by: list[ResolutionActionType] = Field(default_factory=list)
     resolution_action: ResolutionAction
     limitation_code: str | None = None
+    derivation: DecisionDerivation | None = None
 
 
 class VerificationRequirement(StrictModel):

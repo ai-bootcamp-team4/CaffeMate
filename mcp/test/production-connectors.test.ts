@@ -77,6 +77,7 @@ describe('production MCP connector composition', () => {
     expect(Object.keys(connectors).sort()).toEqual([
       'get_area_profile',
       'get_official_procedure',
+      'get_property_reference',
       'get_source_health',
       'list_franchise_universe',
       'resolve_area',

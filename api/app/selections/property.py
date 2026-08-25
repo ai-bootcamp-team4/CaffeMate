@@ -20,10 +20,10 @@ from app.domain.errors import (
 from app.domain.events import PropertyTermsApplied
 from app.domain.models import VentureState
 from app.domain.reducer import reduce_venture_state
+from app.finance.case_facts import PropertyCostOverride
 from app.selections.models import PropertyTermsApplication, PropertyTermsInput
 from app.workflows.models import HeadFence
 from app.workflows.selective_start import start_selective_first_proposal
-from app.workflows.simple_proposal import PropertyCostOverride
 
 
 class PropertyTermsService:

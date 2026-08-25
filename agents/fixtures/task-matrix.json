@@ -263,10 +263,10 @@
         "input_schema_id": "caffemate.agent.evidence-plan-input.v1",
         "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:ffb0c371daf8745273010744cac324c8d45b7961d16c94b471764d23c7208015",
+        "input_digest": "sha256:e7eba7c054dddbb11d5409be09d8df6066f8a94120f0271698181d3a0eea20fc",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
-        "tool_manifest_digest": "sha256:18b74ede67b446f39fcedab4922c2fb8b4caad4065ba58ce8453c322fa58354b",
+        "tool_manifest_digest": "sha256:d92686c8157d0d547dbcecf34fc85c0643223866de6c81cd676377171f07ec56",
         "available_tool_catalog": [
           {
             "tool_name": "resolve_area",
@@ -279,6 +279,12 @@
             "tool_version": "1.0.0",
             "input_schema_id": "caffemate.mcp.get-area-profile.input.v1",
             "output_schema_id": "caffemate.mcp.get-area-profile.result.v1"
+          },
+          {
+            "tool_name": "get_property_reference",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.get-property-reference.input.v1",
+            "output_schema_id": "caffemate.mcp.get-property-reference.result.v1"
           },
           {
             "tool_name": "search_cafe_observations",
@@ -377,7 +383,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:ffb0c371daf8745273010744cac324c8d45b7961d16c94b471764d23c7208015",
+        "input_digest": "sha256:e7eba7c054dddbb11d5409be09d8df6066f8a94120f0271698181d3a0eea20fc",
         "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
         "status": "COMPLETE",
         "payload": {
@@ -477,10 +483,10 @@
         "input_schema_id": "caffemate.agent.evidence-plan-input.v1",
         "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:4676f093174ed5d8850f523e7925669b4053dbf514fd5263bff074c1b67a0358",
+        "input_digest": "sha256:6278b3abb43ab24a00ef48f424b39ab04eda841602a6bade4f1cef0bc22803c3",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
-        "tool_manifest_digest": "sha256:18b74ede67b446f39fcedab4922c2fb8b4caad4065ba58ce8453c322fa58354b",
+        "tool_manifest_digest": "sha256:d92686c8157d0d547dbcecf34fc85c0643223866de6c81cd676377171f07ec56",
         "available_tool_catalog": [
           {
             "tool_name": "resolve_area",
@@ -493,6 +499,12 @@
             "tool_version": "1.0.0",
             "input_schema_id": "caffemate.mcp.get-area-profile.input.v1",
             "output_schema_id": "caffemate.mcp.get-area-profile.result.v1"
+          },
+          {
+            "tool_name": "get_property_reference",
+            "tool_version": "1.0.0",
+            "input_schema_id": "caffemate.mcp.get-property-reference.input.v1",
+            "output_schema_id": "caffemate.mcp.get-property-reference.result.v1"
           },
           {
             "tool_name": "search_cafe_observations",
@@ -591,7 +603,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:4676f093174ed5d8850f523e7925669b4053dbf514fd5263bff074c1b67a0358",
+        "input_digest": "sha256:6278b3abb43ab24a00ef48f424b39ab04eda841602a6bade4f1cef0bc22803c3",
         "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
         "status": "ABSTAIN",
         "payload": null,

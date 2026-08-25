@@ -417,7 +417,7 @@ rollback한다.
 - 사용하지 않는 기능: write tool, prompts, sampling, elicitation, persistent MCP session, Tasks extension
 - implementation: MCP server는 공식 TypeScript SDK v2의 `createMcpHandler(..., { legacy: 'reject' })`, FastAPI Control API는 공식 Python SDK v2 client를 사용한다. 양쪽 package version을 lockfile·release manifest에 pin하며 hand-written transport와 2025 fallback은 허용하지 않는다.
 
-현재 production connector 범위는 [Production Capability](./mcp-production-capabilities.json)에 고정한다. `resolve_area`는 행정안전부 도로명주소 검색 API와 버전 고정 법정동 목록을 사용한다. `get_area_profile`과 `search_cafe_observations`는 승인된 BigQuery grounding snapshot만 조회한다. `retrieve_official_documents`는 서울 Vertex AI RAG Engine의 승인 official corpus만 조회한다. `list_franchise_universe`는 2026-08-23에 브랜드 공식 가맹 안내·창업상담 페이지를 확인한 snapshot만 반환한다. 이 값은 개인의 일반적인 가맹 문의 가능성을 뜻하며 특정 후보 지역의 출점 승인이나 정보공개서 완전성을 뜻하지 않는다. 따라서 각 브랜드에는 `area_availability_hq_confirmation`과 `franchise_disclosure`를 missing context로 남기고 `조건부 검토`로만 사용할 수 있다. `retrieve_project_documents`, `get_franchise_disclosure` 등 connector가 없는 tool은 MCP client에게 호출 가능하다고 표시하지 않는다.
+현재 production connector 범위는 [Production Capability](./mcp-production-capabilities.json)에 고정한다. `resolve_area`는 행정안전부 도로명주소 검색 API와 버전 고정 법정동 목록을 사용한다. `get_area_profile`과 `search_cafe_observations`는 승인된 BigQuery grounding snapshot만 조회한다. `get_property_reference`는 한국부동산원 상업용부동산 임대동향의 승인된 BigQuery snapshot에서 요청 행정코드의 상위 시도와 기준일에 맞는 최신 임대료·전환율 benchmark만 반환한다. 현재 connector는 상권명 유사 매칭이나 실제 매물 조회를 하지 않으며 `PARENT_REGION` 범위를 명시한다. Control API만 이 benchmark를 등록 독립카페 모델의 면적·보증금·관리비 가정과 결합해 `BENCHMARK` 월 점유비로 변환할 수 있고, 사용자 확인 점포·임대차 값이 있으면 이를 대체한다. `retrieve_official_documents`는 서울 Vertex AI RAG Engine의 승인 official corpus만 조회한다. `list_franchise_universe`는 2026-08-23에 브랜드 공식 가맹 안내·창업상담 페이지를 확인한 snapshot만 반환한다. 이 값은 개인의 일반적인 가맹 문의 가능성을 뜻하며 특정 후보 지역의 출점 승인이나 정보공개서 완전성을 뜻하지 않는다. 따라서 각 브랜드에는 `area_availability_hq_confirmation`과 `franchise_disclosure`를 missing context로 남기고 `조건부 검토`로만 사용할 수 있다. `retrieve_project_documents`, `get_franchise_disclosure` 등 connector가 없는 tool은 MCP client에게 호출 가능하다고 표시하지 않는다.
 
 RAG connector의 `data`는 검색 hit이고 그 자체가 확정 Evidence가 아니다. Control API는 hit의 Claim,
 지리 범위, 기준일, document revision, anchor, excerpt와 `source_trace`를 결합해 `EvidenceRecord` 후보를
@@ -518,6 +518,7 @@ observed_at: required
 ```text
 resolve_area
 get_area_profile
+get_property_reference
 search_cafe_observations
 search_business_events
 list_franchise_universe
@@ -534,7 +535,7 @@ tool 이름, input·output Schema와 version은 [MCP Tool Manifest](./mcp-tool-m
 
 인구·업소·개폐업·프랜차이즈 구조화 필드는 나머지 typed connector tool로 조회하며 문서 RAG context를 정형 수치의 최종값으로 사용하지 않는다. RAG retrieval hit도 바로 Evidence가 아니며 tool output Schema, 원문 anchor·source revision·scope·freshness 검사를 통과한 뒤에만 `evidence_records`에 들어간다.
 
-배포 preflight는 pagination을 끝까지 소비한 `tools/list`의 name·version·inputSchema·outputSchema를 RFC 8785로 정규화한다. 관측 목록은 Production Capability의 세 tool과 정확히 비교하고, 각 Schema는 전체 manifest의 해당 definition과 비교한다. Production Capability가 pin한 전체 manifest digest도 [manifest digest](./mcp-tool-manifest.sha256)와 일치해야 한다. 운영 connector의 누락·추가, 미래 tool의 잘못된 광고, schema 차이 또는 digest 차이가 하나라도 있으면 `MCP_MANIFEST_MISMATCH`로 release 승격을 막는다. `server/discover`는 capability preflight에만 쓰며 business request의 선행 handshake가 아니다.
+배포 preflight는 pagination을 끝까지 소비한 `tools/list`의 name·version·inputSchema·outputSchema를 RFC 8785로 정규화한다. 관측 목록은 Production Capability가 선언한 tool 집합과 정확히 비교하고, 각 Schema는 전체 manifest의 해당 definition과 비교한다. Production Capability가 pin한 전체 manifest digest도 [manifest digest](./mcp-tool-manifest.sha256)와 일치해야 한다. 운영 connector의 누락·추가, 미래 tool의 잘못된 광고, schema 차이 또는 digest 차이가 하나라도 있으면 `MCP_MANIFEST_MISMATCH`로 release 승격을 막는다. `server/discover`는 capability preflight에만 쓰며 business request의 선행 handshake가 아니다.
 
 `McpManifestPreflight`는 배포 검증에서 Control API image의 runtime service account로 실행한다.
 사용자 `FIRST_PROPOSAL` 시작 요청은 배포용 원격 preflight를 실행하지 않는다. 대신 현재 State에
@@ -663,7 +664,7 @@ validated parser blocks
 | `CP-013` | 일곱 task type dispatcher matrix | 각 task가 정확한 child 하나만 실행하고 잘못된 author·복수 final·function part는 거절 |
 | `CP-014` | 첫 제안 transaction 중 API instance 종료 | Workflow·결과가 함께 rollback되고 중간 결과는 현재 결과가 되지 않음 |
 | `CP-015` | same idempotency key의 same body·different body·concurrent duplicate | same은 같은 run, different는 409, concurrent는 run 하나 |
-| `CP-016` | MCP discover·paginated list·10 tool call | revision·header·manifest·각 input/output Schema 통과 |
+| `CP-016` | MCP discover·paginated list·fixed registry tool call | revision·header·manifest·각 input/output Schema 통과 |
 | `CP-017` | MCP JSON·SSE·cancel | 둘 다 같은 result, cancel 뒤 적용 0 |
 | `CP-018` | MCP audience·identity·scope·project 공격 matrix | 전부 거절하고 project data 0 |
 | `CP-019` | UNKNOWN·FRESH date·assumption coverage·money range·franchise eligibility 위반 | 명시된 semantic error code로 모두 거절 |

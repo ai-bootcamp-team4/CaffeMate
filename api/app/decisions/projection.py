@@ -133,6 +133,12 @@ def project_finance_decision_inputs(
                 ),
                 resolution_action=action,
                 limitation_code=_limitation_code(line),
+                derivation=(
+                    decision_source.get("derivation")
+                    if isinstance(decision_source, dict)
+                    and isinstance(decision_source.get("derivation"), dict)
+                    else None
+                ),
             )
         )
     return [value.model_dump(mode="json") for value in values]
@@ -248,6 +254,8 @@ def _synthetic_source_title(line: CostLine) -> str | None:
 
 
 def _limitation_code(line: CostLine) -> str | None:
+    if line.provenance == ValueProvenance.BENCHMARK:
+        return "REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY"
     if line.provenance == ValueProvenance.ASSUMPTION:
         return "REPLACE_WITH_CASE_DATA"
     if line.provenance == ValueProvenance.UNKNOWN:

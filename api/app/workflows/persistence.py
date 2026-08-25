@@ -13,12 +13,13 @@ from sqlalchemy.engine import Connection, RowMapping
 from app.domain.errors import ProjectNotFoundError, WorkflowPreconditionError
 from app.domain.models import VentureState
 from app.finance.case_fact_repository import load_current_case_fact_resolution
-from app.finance.case_facts import CaseFactResolution
+from app.finance.case_facts import CaseFactResolution, PropertyCostOverride
+from app.finance.property_benchmark import PropertyRentBenchmark
 from app.results.delta import build_result_decision_delta
 from app.workflows.first_proposal import FirstProposalStage, stage_input_digest
 from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import HeadFence, WorkflowCode, WorkflowRun, WorkflowStatus
-from app.workflows.simple_proposal import PropertyCostOverride, SimpleProposalBuilder
+from app.workflows.simple_proposal import SimpleProposalBuilder
 
 
 def persist_completed_first_proposal(
@@ -37,6 +38,7 @@ def persist_completed_first_proposal(
     source_result_bundle_id: str | None = None,
     property_cost_override: PropertyCostOverride | None = None,
     case_fact_resolution: CaseFactResolution | None = None,
+    property_rent_benchmarks: list[PropertyRentBenchmark] | None = None,
     franchise_universe: list[dict[str, Any]] | None = None,
 ) -> WorkflowRun:
     """Run and persist the complete first proposal in one transaction."""
@@ -90,6 +92,7 @@ def persist_completed_first_proposal(
             evidence_records=evidence_records,
             property_cost_override=effective_property_override,
             case_fact_resolution=effective_case_resolution,
+            property_rent_benchmarks=property_rent_benchmarks,
             franchise_universe=franchise_universe,
         )
     result_bundle_id = new_id()

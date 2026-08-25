@@ -218,7 +218,7 @@
           "input_schema_id": { "const": "caffemate.agent.evidence-plan-input.v1" },
           "output_schema_id": { "const": "caffemate.agent.evidence-plan-result.v1" },
           "tool_manifest_digest": { "type": "string" },
-          "available_tool_catalog": { "type": "array", "minItems": 10, "maxItems": 10 },
+          "available_tool_catalog": { "type": "array", "minItems": 11, "maxItems": 11 },
           "payload": { "$ref": "./agent-role-payloads.schema.json#/$defs/evidencePlanInput" }
         }
       }
@@ -425,6 +425,7 @@
           "enum": [
             "resolve_area",
             "get_area_profile",
+            "get_property_reference",
             "search_cafe_observations",
             "search_business_events",
             "list_franchise_universe",
@@ -450,6 +451,7 @@
       "allOf": [
         { "if": { "properties": { "tool_name": { "const": "resolve_area" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.resolve-area.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.resolve-area.result.v1" } } } },
         { "if": { "properties": { "tool_name": { "const": "get_area_profile" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.get-area-profile.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.get-area-profile.result.v1" } } } },
+        { "if": { "properties": { "tool_name": { "const": "get_property_reference" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.get-property-reference.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.get-property-reference.result.v1" } } } },
         { "if": { "properties": { "tool_name": { "const": "search_cafe_observations" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.search-cafe-observations.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.search-cafe-observations.result.v1" } } } },
         { "if": { "properties": { "tool_name": { "const": "search_business_events" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.search-business-events.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.search-business-events.result.v1" } } } },
         { "if": { "properties": { "tool_name": { "const": "list_franchise_universe" } } }, "then": { "properties": { "input_schema_id": { "const": "caffemate.mcp.list-franchise-universe.input.v1" }, "output_schema_id": { "const": "caffemate.mcp.list-franchise-universe.result.v1" } } } },

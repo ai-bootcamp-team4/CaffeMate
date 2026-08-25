@@ -29,7 +29,11 @@ from app.domain.models import (
     VentureState,
 )
 from app.finance.calculator import calculate_finance, evaluate_capital_gate
-from app.finance.case_facts import CaseFactResolution, FinancialInputResolver
+from app.finance.case_facts import (
+    CaseFactResolution,
+    FinancialInputResolver,
+    PropertyCostOverride,
+)
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
     MONTHLY_FIXED_COST_CATEGORIES,
@@ -41,6 +45,10 @@ from app.finance.models import (
     MoneyRange,
     ValueProvenance,
 )
+from app.finance.property_benchmark import (
+    PropertyRentBenchmark,
+    resolve_seed_property_benchmarks,
+)
 from app.results.models import (
     AuditStatus,
     ResultBundlePayload,
@@ -48,7 +56,6 @@ from app.results.models import (
 )
 from app.results.projection import project_evidence_for_candidate
 from app.workflows.proposal_finance import (
-    PropertyCostOverride,
     cost_refs,
     franchise_cost_line,
     independent_cost_line,
@@ -90,13 +97,30 @@ class SimpleProposalBuilder:
         evidence_records: list[dict[str, Any]],
         property_cost_override: PropertyCostOverride | None = None,
         case_fact_resolution: CaseFactResolution | None = None,
+        property_rent_benchmarks: list[PropertyRentBenchmark] | None = None,
         agent_proposals: list[dict[str, Any]] | None = None,
         franchise_universe: list[dict[str, Any]] | None = None,
     ) -> ResultBundlePayload:
         drafts: list[_CandidateDraft] = []
+        independent_seeds = self._seeds.select(state.founder)
+        benchmark_resolution = resolve_seed_property_benchmarks(
+            seeds=[
+                (
+                    seed.model_id,
+                    profile.space_profile_sqm,
+                    profile.commercial_property_class,
+                    profile.management_fee_ratio_bps,
+                    profile.cost_ranges[CostCategory.DEPOSIT],
+                )
+                for seed in independent_seeds
+                if (profile := seed.finance_profile) is not None
+            ],
+            benchmarks=property_rent_benchmarks or [],
+        )
         finance_resolver = FinancialInputResolver(
             property_cost_override=property_cost_override,
             case_resolution=case_fact_resolution,
+            benchmark_resolution=benchmark_resolution,
         )
         preference = state.founder.cafe_type_preference
         proposals_by_source = {
@@ -127,7 +151,7 @@ class SimpleProposalBuilder:
                     finance_resolver=finance_resolver,
                     agent_proposal=proposals_by_source.get(seed.model_id),
                 )
-                for seed in self._seeds.select(state.founder)
+                for seed in independent_seeds
                 if proposed_ids is None or seed.model_id in proposed_ids
             )
         if preference in {

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.candidates.seed_registry import IndependentSeedRegistry
+from app.candidates.seed_registry import CommercialPropertyClass, IndependentSeedRegistry
 from app.domain.models import (
     AreaResolutionStatus,
     AreaState,
@@ -16,6 +16,7 @@ from app.domain.models import (
     VentureState,
     VentureStatus,
 )
+from app.finance.property_benchmark import PropertyRentBenchmark
 from app.results.models import ResultOutcomeStatus
 from app.workflows.simple_proposal import PropertyCostOverride, SimpleProposalBuilder
 
@@ -74,6 +75,23 @@ def _state(preference: CafeTypePreference) -> VentureState:
             coverage_profile=CoverageProfile.R2_REGIONAL_CONNECTOR,
         ),
         updated_at=datetime(2026, 8, 24, tzinfo=UTC),
+    )
+
+
+def _seoul_small_retail_benchmark() -> PropertyRentBenchmark:
+    return PropertyRentBenchmark(
+        evidence_ref="reb-rent:seoul:small-retail:2026Q2",
+        region_code="11",
+        region_name="서울",
+        property_class=CommercialPropertyClass.SMALL_RETAIL,
+        period="2026Q2",
+        effective_rent_krw_per_sqm_month=95_000,
+        conversion_rate_bps=680,
+        coverage_status="PARENT_REGION",
+        floor_basis="FIRST_FLOOR",
+        source_title="한국부동산원 상업용부동산 임대동향조사",
+        source_ref="https://www.reb.or.kr/r-one/",
+        data_date="2026-06-30",
     )
 
 
@@ -301,6 +319,75 @@ def test_builder_replaces_selected_model_property_costs_with_user_input() -> Non
         "RESOLVED_USER_CONFIRMED"
     )
     assert resolved["MONTHLY_OCCUPANCY"]["resolution_action"]["action_type"] == "NONE"
+
+
+def test_builder_uses_regional_rent_benchmark_before_seed_occupancy_assumption() -> None:
+    builder = SimpleProposalBuilder(IndependentSeedRegistry.load_default())
+    state = _state(CafeTypePreference.INDEPENDENT_ONLY)
+
+    result = builder.build(
+        state=state,
+        evidence_records=[],
+        property_rent_benchmarks=[_seoul_small_retail_benchmark()],
+    )
+
+    candidate = next(
+        value
+        for value in result.candidates
+        if value["independent_model"]["model_id"] == "independent-small-takeout-v1"
+    )
+    occupancy = next(
+        value for value in candidate["decision_inputs"] if value["field"] == "MONTHLY_OCCUPANCY"
+    )
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 6_516_833
+    assert occupancy["value_range_krw"]["base"] == 2_916_833
+    assert occupancy["provenance"] == "BENCHMARK"
+    assert occupancy["resolution_status"] == "RESOLVED_BENCHMARK"
+    assert occupancy["source_title"] == "한국부동산원 상업용부동산 임대동향조사"
+    assert occupancy["geographic_scope"]["scope_id"] == "11"
+    assert occupancy["derivation"] == {
+        "formula_code": "REB_EFFECTIVE_RENT_TO_MONTHLY_OCCUPANCY_V1",
+        "inputs": {
+            "effective_rent_krw_per_sqm_month": 95_000,
+            "conversion_rate_bps": 680,
+            "area_sqm": {"low": 20, "base": 30, "high": 40},
+            "deposit_base_krw": 35_000_000,
+            "management_fee_ratio_bps": 1_000,
+        },
+        "coverage_status": "PARENT_REGION",
+        "floor_basis": "FIRST_FLOOR",
+    }
+
+
+def test_actual_property_terms_replace_regional_rent_benchmark() -> None:
+    builder = SimpleProposalBuilder(IndependentSeedRegistry.load_default())
+    state = _state(CafeTypePreference.INDEPENDENT_ONLY)
+
+    result = builder.build(
+        state=state,
+        evidence_records=[],
+        property_rent_benchmarks=[_seoul_small_retail_benchmark()],
+        property_cost_override=PropertyCostOverride(
+            property_input_id="actual-store",
+            source_id="independent-small-takeout-v1",
+            deposit_krw=30_000_000,
+            monthly_rent_krw=2_200_000,
+            management_fee_krw=200_000,
+            key_money_krw=10_000_000,
+        ),
+    )
+
+    candidate = next(
+        value
+        for value in result.candidates
+        if value["independent_model"]["model_id"] == "independent-small-takeout-v1"
+    )
+    occupancy = next(
+        value for value in candidate["decision_inputs"] if value["field"] == "MONTHLY_OCCUPANCY"
+    )
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 6_000_000
+    assert occupancy["value_range_krw"]["base"] == 2_400_000
+    assert occupancy["provenance"] == "USER_INPUT"
 
 
 def test_builder_replaces_selected_franchise_property_costs_with_user_input() -> None:

@@ -20,7 +20,7 @@
 | Typed Candidate Auditor | 누락 비용·Hard violation recall | labeled fixture |
 | Runtime protocol | dispatcher, session 수명주기, full-head echo, duplicate, repair, late result | contract fixture |
 | Durable Workflow | outbox, lease, redelivery, idempotency, cancel | fault-injection integration |
-| MCP boundary | revision header, 10-tool Schema registry, production capability, project scope, partial status | conformance fixture |
+| MCP boundary | revision header, fixed-tool Schema registry, production capability, project scope, partial status | conformance fixture |
 | Guardrail | leakage·unsafe action·hallucination | forbidden behavior assertion |
 | End to end | 결과 완료·근거 coverage·다음 행동 | task rubric |
 
@@ -172,7 +172,7 @@ LLM Judge는 다음에 보조적으로 사용할 수 있다.
 - full head 여덟 차원을 각각 바꾼 stale matrix와 취소·timeout 뒤 결과의 State write 0
 - `202` 직후 API instance 종료와 Pub/Sub redelivery 뒤에도 run 유실 0, stage 중복 side effect 0
 - Agent Runtime의 direct MCP call 0
-- MCP `2026-07-28` JSON·SSE, method별 header, pagination 완료 production tools/list 3개와 전체 registry 10개 input/output Schema 검증
+- MCP `2026-07-28` JSON·SSE, method별 header, pagination 완료 production capability tool 집합과 전체 fixed registry input/output Schema 검증
 - project scope token 불일치 retrieval result 0
 - 서울 Runtime·승인 생성 model·embedding·reranker의 독립 read-back; 하나라도 실패하면 Agent와 global 호출 0
 

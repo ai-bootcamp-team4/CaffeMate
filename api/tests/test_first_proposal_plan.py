@@ -2,6 +2,7 @@
 
 from inspect import signature
 
+from app.finance.property_benchmark import replay_property_rent_benchmarks
 from app.workflows.first_proposal import (
     FirstProposalStage,
     stage_input_digest,
@@ -46,3 +47,50 @@ def test_single_stage_digest_is_stable() -> None:
     )
 
     assert first == second
+
+
+def test_selective_recompute_replays_regional_occupancy_benchmark() -> None:
+    source_bundle = {
+        "candidates": [
+            {
+                "decision_inputs": [
+                    {
+                        "field": "MONTHLY_OCCUPANCY",
+                        "provenance": "BENCHMARK",
+                        "source_title": "한국부동산원 상업용부동산 임대동향조사",
+                        "source_ref": "https://www.reb.or.kr/r-one/",
+                        "data_date": "2026-06-30",
+                        "geographic_scope": {
+                            "scope_type": "REGION",
+                            "scope_id": "11",
+                            "boundary_version": None,
+                        },
+                        "source_anchor": "2026Q2:11:SMALL_RETAIL:effective-rent",
+                        "derivation": {
+                            "formula_code": "REB_EFFECTIVE_RENT_TO_MONTHLY_OCCUPANCY_V1",
+                            "inputs": {
+                                "effective_rent_krw_per_sqm_month": 95_000,
+                                "conversion_rate_bps": 680,
+                                "area_sqm": {"low": 20, "base": 30, "high": 40},
+                                "deposit_base_krw": 35_000_000,
+                                "management_fee_ratio_bps": 1_000,
+                            },
+                            "coverage_status": "PARENT_REGION",
+                            "floor_basis": "FIRST_FLOOR",
+                        },
+                    }
+                ]
+            }
+        ]
+    }
+
+    benchmarks = replay_property_rent_benchmarks(source_bundle)
+
+    assert len(benchmarks) == 1
+    benchmark = benchmarks[0]
+    assert benchmark.region_code == "11"
+    assert benchmark.property_class.value == "SMALL_RETAIL"
+    assert benchmark.period == "2026Q2"
+    assert benchmark.effective_rent_krw_per_sqm_month == 95_000
+    assert benchmark.conversion_rate_bps == 680
+    assert benchmark.coverage_status == "PARENT_REGION"

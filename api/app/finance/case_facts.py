@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from app.finance.models import CostCategory, CostLine, MoneyRange, ValueProvenance
+from app.finance.property_benchmark import PropertyBenchmarkResolution
 
 
 @dataclass(frozen=True)
@@ -298,12 +299,21 @@ class FinancialInputResolver:
         *,
         property_cost_override: PropertyCostOverride | None = None,
         case_resolution: CaseFactResolution | None = None,
+        benchmark_resolution: PropertyBenchmarkResolution | None = None,
     ) -> None:
         self._property = property_cost_override
         self._case = case_resolution or CaseFactResolution()
-        self.decision_sources = dict(self._case.sources)
+        self._benchmark = benchmark_resolution or PropertyBenchmarkResolution()
+        self.decision_sources = {
+            **self._benchmark.sources,
+            **self._case.sources,
+        }
         self._case_by_key = {
             (value.source_id, value.category): value for value in self._case.overrides
+        }
+        self._benchmark_by_key = {
+            (value.source_id, CostCategory.MONTHLY_OCCUPANCY): value
+            for value in self._benchmark.overrides
         }
 
     def resolve_cost_line(self, *, source_id: str, fallback: CostLine) -> CostLine:
@@ -313,6 +323,9 @@ class FinancialInputResolver:
         case_value = self._case_by_key.get((source_id, fallback.category))
         if case_value is not None:
             return case_value.as_cost_line()
+        benchmark_value = self._benchmark_by_key.get((source_id, fallback.category))
+        if benchmark_value is not None:
+            return benchmark_value.as_cost_line()
         return fallback
 
     def _property_line(

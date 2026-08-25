@@ -11,9 +11,11 @@ from sqlalchemy.engine import Connection
 from app.candidates.seed_registry import IndependentSeedRegistry
 from app.domain.errors import FeedbackPreconditionError
 from app.domain.models import VentureState
+from app.finance.case_facts import PropertyCostOverride
+from app.finance.property_benchmark import replay_property_rent_benchmarks
 from app.workflows.models import HeadFence, WorkflowRun
 from app.workflows.persistence import persist_completed_first_proposal
-from app.workflows.simple_proposal import PropertyCostOverride, SimpleProposalBuilder
+from app.workflows.simple_proposal import SimpleProposalBuilder
 
 
 def start_selective_first_proposal(
@@ -48,6 +50,7 @@ def start_selective_first_proposal(
     if not isinstance(source_bundle, dict):
         raise FeedbackPreconditionError("Recompute source result is invalid")
     franchise_universe = _franchise_universe(source_bundle)
+    property_rent_benchmarks = replay_property_rent_benchmarks(source_bundle)
 
     registry = IndependentSeedRegistry.load_default()
     return persist_completed_first_proposal(
@@ -63,6 +66,7 @@ def start_selective_first_proposal(
         source_workflow_run_id=source_workflow_run_id,
         source_result_bundle_id=str(source_result["result_bundle_id"]),
         property_cost_override=property_cost_override,
+        property_rent_benchmarks=property_rent_benchmarks,
         franchise_universe=franchise_universe,
     )
 

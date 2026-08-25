@@ -312,6 +312,7 @@ def test_pipeline_calls_research_proposals_and_auditor_in_one_linear_flow() -> N
 
     assert set(mcp.tool_names) == {
         "get_area_profile",
+        "get_property_reference",
         "search_cafe_observations",
         "retrieve_official_documents",
     }
@@ -320,6 +321,106 @@ def test_pipeline_calls_research_proposals_and_auditor_in_one_linear_flow() -> N
     assert runtime.task_types[1:-1] == ["PROPOSE_INDEPENDENT"] * 3
     assert 1 <= len(bundle.candidates) <= 3
     assert {candidate["case_type"] for candidate in bundle.candidates} == {"INDEPENDENT"}
+
+
+def test_pipeline_applies_regional_property_reference_to_finance() -> None:
+    class PropertyReferenceMcp(FakeMcp):
+        async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+            if kwargs["tool_name"] != "get_property_reference":
+                return await super().call_tool(**kwargs)
+            self.tool_names.append("get_property_reference")
+            evidence_id = "reb-property:test-small-seoul"
+            content = {
+                "schema_version": "1.0.0",
+                "request_id": "request-get_property_reference",
+                "tool_name": "get_property_reference",
+                "tool_version": "1.0.0",
+                "status": "OK",
+                "project_id": "project-1",
+                "evidence_records": [
+                    {
+                        "schema_version": "2.0.0",
+                        "evidence_id": evidence_id,
+                        "project_id": "project-1",
+                        "claim_type": "PROPERTY_RENT_REFERENCE",
+                        "metric": "EFFECTIVE_RENT_AND_CONVERSION_RATE",
+                        "value": {"kind": "STRING", "value": "regional benchmark"},
+                        "value_kind": "EVIDENCED_FACT",
+                        "unit": "REB_EFFECTIVE_RENT_AND_CONVERSION",
+                        "geographic_scope": {
+                            "scope_type": "REGION",
+                            "scope_id": "11",
+                            "boundary_version": None,
+                        },
+                        "source": {
+                            "title": "한국부동산원 상업용부동산 임대동향조사",
+                            "source_ref": "https://www.reb.or.kr/r-one/",
+                            "authority": "PRIMARY_DATA",
+                            "source_type": "DATASET",
+                            "published_or_data_date": "2026-06-30",
+                            "source_observed_at": "2026-08-25T04:00:00Z",
+                            "document_version": "rent-ingestion-1",
+                            "checksum": f"sha256:{'a' * 64}",
+                        },
+                        "original_anchor": {
+                            "anchor_type": "CALCULATION",
+                            "locator": "2026Q2:11:SMALL_RETAIL",
+                            "excerpt_hash": f"sha256:{'a' * 64}",
+                        },
+                        "freshness_status": "FRESH",
+                        "conflict_status": "NONE",
+                        "retrieved_at": "2026-08-25T04:00:00Z",
+                        "missing_context": ["PARENT_REGION_BENCHMARK_NOT_ACTUAL_LISTING"],
+                        "durable_evidence_refs": ["https://www.reb.or.kr/r-one/"],
+                    }
+                ],
+                "missing_fields": [],
+                "conflicts": [],
+                "source_trace": [],
+                "error_codes": [],
+                "observed_at": "2026-08-25T04:00:00Z",
+                "data": [
+                    {
+                        "property_class": "SMALL_RETAIL",
+                        "effective_rent_krw_per_sqm_month": 42_500,
+                        "conversion_rate_bps": 710,
+                        "period": "2026Q2",
+                        "region_code": "11",
+                        "region_name": "서울",
+                        "coverage_status": "PARENT_REGION",
+                        "floor_basis": "FIRST_FLOOR",
+                        "evidence_id": evidence_id,
+                    }
+                ],
+            }
+            return McpCallOutcome(
+                request_id="request-get_property_reference",
+                tool_name="get_property_reference",
+                tool_version="1.0.0",
+                status="OK",
+                is_complete=True,
+                structured_content=content,
+            )
+
+    bundle = _pipeline(FakeRuntime(), PropertyReferenceMcp()).run(
+        state=_state(CafeTypePreference.INDEPENDENT_ONLY),
+        head=_head(),
+        workflow_run_id="workflow-property-reference",
+        evidence_records=[],
+    )
+
+    candidate = next(
+        value
+        for value in bundle.candidates
+        if value["independent_model"]["model_id"] == "independent-small-takeout-v1"
+    )
+    occupancy = next(
+        value for value in candidate["decision_inputs"] if value["field"] == "MONTHLY_OCCUPANCY"
+    )
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 4_774_708
+    assert occupancy["value_range_krw"]["base"] == 1_174_708
+    assert occupancy["provenance"] == "BENCHMARK"
+    assert occupancy["resolution_status"] == "RESOLVED_BENCHMARK"
 
 
 def test_pipeline_keeps_running_when_one_mcp_read_fails() -> None:

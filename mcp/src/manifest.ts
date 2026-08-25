@@ -4,6 +4,7 @@ import productionCapabilities from '../../docs/contracts/mcp-production-capabili
 export const MCP_TOOL_NAMES = [
   'resolve_area',
   'get_area_profile',
+  'get_property_reference',
   'search_cafe_observations',
   'search_business_events',
   'list_franchise_universe',
@@ -44,7 +45,7 @@ for (const row of manifest.tools) {
 }
 
 if (definitions.size !== MCP_TOOL_NAMES.length) {
-  throw new Error('MCP_MANIFEST_MISMATCH: checked-in manifest must contain exactly the fixed 10-tool registry')
+  throw new Error('MCP_MANIFEST_MISMATCH: checked-in manifest must match the fixed tool registry')
 }
 
 export function getMcpToolDefinition(toolName: string): McpToolDefinition | undefined {
