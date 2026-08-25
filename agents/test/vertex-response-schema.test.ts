@@ -293,7 +293,7 @@ describe('Vertex role response schema projection', () => {
     const roleSchema = buildVertexRolePayloadSchema(task) as ProjectedSchema
     const responseSchema = buildAgentTaskResultResponseJsonSchema(task) as ProjectedSchema
 
-    expect(roleSchema.properties?.assessments.minItems).toBe(14)
+    expect(roleSchema.properties?.assessments.minItems).toBeUndefined()
     expect(roleSchema.properties?.assessments.maxItems).toBe(14)
     expect(roleSchema.properties?.assessments.items?.properties?.candidate_ref.enum).toBeUndefined()
     expect(roleSchema.properties?.assessments.items?.properties?.claim_id.enum).toBeUndefined()
@@ -310,7 +310,7 @@ describe('Vertex role response schema projection', () => {
     const proposals = roleSchema.properties?.candidate_proposals
     const proposal = proposals?.items
 
-    expect(proposals?.minItems).toBe(1)
+    expect(proposals?.minItems).toBeUndefined()
     expect(proposals?.maxItems).toBe(1)
     expect(proposal?.properties?.proposal_id.enum).toEqual(['proposal-independent-1'])
     expect(proposal?.properties?.seed_or_brand_id.enum).toEqual(['independent-small-v1'])
@@ -318,7 +318,7 @@ describe('Vertex role response schema projection', () => {
     expect(proposal?.properties?.evidence_refs.maxItems).toBe(0)
     expect(proposal?.properties?.assumption_refs.maxItems).toBe(1)
     expect(proposal?.properties?.assumption_refs.items?.type).toBe('string')
-    expect(proposal?.properties?.fit_assessments.minItems).toBe(5)
+    expect(proposal?.properties?.fit_assessments.minItems).toBeUndefined()
     expect(proposal?.properties?.fit_assessments.maxItems).toBe(5)
     expect(proposal?.properties?.fit_assessments.items?.properties?.axis.enum).toEqual([
       'CAPITAL_FIT',

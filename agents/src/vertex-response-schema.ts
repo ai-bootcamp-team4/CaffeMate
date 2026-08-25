@@ -343,7 +343,6 @@ function applyEvidenceAssessBounds(projected: JsonObject, task: AgentTask): void
   if (!assessments) {
     throw new Error('VERTEX_EVIDENCE_ASSESS_BOUNDS_UNRESOLVED')
   }
-  assessments.minItems = candidateCount
   assessments.maxItems = candidateCount
 }
 
@@ -609,7 +608,6 @@ function applyProposalBounds(projected: JsonObject, task: AgentTask): void {
     throw new Error('VERTEX_PROPOSAL_SOURCE_ID_INVALID')
   }
 
-  proposals.minItems = 1
   proposals.maxItems = 1
   proposalProperties.proposal_id = { type: 'string', enum: [proposalId] }
   proposalProperties.seed_or_brand_id = { type: 'string', enum: [sourceId] }
@@ -642,7 +640,7 @@ function applyProposalBounds(projected: JsonObject, task: AgentTask): void {
     : []
   boundedStringArray(claimRefs, claimIds)
 
-  fitAssessments.minItems = 5
+  delete fitAssessments.minItems
   fitAssessments.maxItems = 5
   fitProperties.axis = {
     type: 'string',

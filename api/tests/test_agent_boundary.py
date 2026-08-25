@@ -309,7 +309,7 @@ def test_non_monotonic_money_range_is_rejected() -> None:
     assert "MONEY_RANGE_NON_MONOTONIC" in {error.code for error in validation.errors}
 
 
-def test_independent_proposal_must_preserve_seed_and_parameter_contract() -> None:
+def test_independent_proposal_must_preserve_allocated_seed_identity() -> None:
     task, result = fixture_task_result("PROPOSE_INDEPENDENT")
     proposal = result["payload"]["candidate_proposals"][0]
     proposal["seed_or_brand_id"] = "invented-seed"
@@ -330,15 +330,27 @@ def test_independent_proposal_must_preserve_seed_and_parameter_contract() -> Non
         current_head=fixture_head(task),
     )
 
-    assert {
-        "SEED_REFERENCE_MISMATCH",
-        "PROPOSAL_DISPLAY_NAME_MISMATCH",
-        "SEED_ASSUMPTION_REFERENCE_DROPPED",
-        "PARAMETER_RANGE_INVALID",
-    } <= {error.code for error in validation.errors}
+    assert {error.code for error in validation.errors} == {
+        "SEED_REFERENCE_MISMATCH"
+    }
 
 
-def test_franchise_proposal_cannot_drop_identity_eligibility_or_missing_context() -> None:
+def test_franchise_proposal_accepts_evidence_declared_by_its_allocated_source() -> None:
+    """서버가 브랜드 입력에 제공한 공식 근거를 모델이 반환할 수 있어야 한다."""
+
+    task, result = fixture_task_result("PROPOSE_FRANCHISE")
+
+    validation = validate_agent_boundary(
+        task=task,
+        result=result,
+        current_head=fixture_head(task),
+    )
+
+    assert validation.accepted is True
+    assert validation.errors == []
+
+
+def test_franchise_proposal_must_preserve_allocated_brand_identity() -> None:
     task, result = fixture_task_result("PROPOSE_FRANCHISE")
     proposal = result["payload"]["candidate_proposals"][0]
     proposal["seed_or_brand_id"] = "invented-brand"
@@ -353,12 +365,9 @@ def test_franchise_proposal_cannot_drop_identity_eligibility_or_missing_context(
         current_head=fixture_head(task),
     )
 
-    assert {
-        "BRAND_REFERENCE_MISMATCH",
-        "PROPOSAL_DISPLAY_NAME_MISMATCH",
-        "FRANCHISE_ELIGIBILITY_EVIDENCE_DROPPED",
-        "FRANCHISE_MISSING_CONTEXT_DROPPED",
-    } <= {error.code for error in validation.errors}
+    assert {error.code for error in validation.errors} == {
+        "BRAND_REFERENCE_MISMATCH"
+    }
 
 
 def test_valid_evidence_assessment_candidate_ref_is_supported_by_executed_evidence() -> None:
@@ -467,7 +476,7 @@ def test_evidence_assessment_cannot_overstate_scope_or_freshness() -> None:
     assert "EVIDENCE_SCOPE_OR_DATE_INVALID" in {error.code for error in validation.errors}
 
 
-def test_evidence_assessment_must_cover_every_supplied_candidate_once() -> None:
+def test_evidence_assessment_may_leave_a_supplied_candidate_unresolved() -> None:
     task, result = fixture_task_result("EVIDENCE_ASSESS")
     first = evidence_record("ev-first-candidate")
     second = evidence_record("ev-second-candidate")
@@ -500,9 +509,7 @@ def test_evidence_assessment_must_cover_every_supplied_candidate_once() -> None:
         current_head=fixture_head(task),
     )
 
-    assert "EVIDENCE_ASSESS_COVERAGE_INCOMPLETE" in {
-        error.code for error in validation.errors
-    }
+    assert validation.accepted
 
 
 def test_document_extract_rejects_anchor_not_supplied_by_parser() -> None:

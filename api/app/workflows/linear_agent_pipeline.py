@@ -12,11 +12,13 @@ from zoneinfo import ZoneInfo
 
 import rfc8785
 
+from app.agents.boundary import validate_agent_boundary
 from app.agents.protocols import AgentRuntime
+from app.agents.runtime import AgentRuntimeError
 from app.agents.task_factory import AgentTaskFactory
 from app.candidates.seed_registry import IndependentSeedDefinition, IndependentSeedRegistry
 from app.contracts.schema_registry import ContractRegistry
-from app.domain.errors import ContractValidationError
+from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 from app.domain.models import CafeTypePreference, VentureState
 from app.finance.calculator import calculate_finance
 from app.finance.models import (
@@ -47,6 +49,15 @@ FRANCHISE_RAG_QUERIES: tuple[str, ...] = (
     "이디야커피 공식 창업 비용 가맹비 월 로열티 포함 제외 항목",
 )
 SEOUL_TIMEZONE = ZoneInfo("Asia/Seoul")
+FATAL_AGENT_BOUNDARY_CODES = {
+    "TASK_ECHO_MISMATCH",
+    "FENCE_ECHO_MISMATCH",
+    "CURRENT_HEAD_MISMATCH",
+    "UNALLOCATED_OUTPUT_ID",
+    "UNSUPPORTED_REFERENCE",
+    "SEED_REFERENCE_MISMATCH",
+    "BRAND_REFERENCE_MISMATCH",
+}
 
 
 class ProposalMcp(Protocol):
@@ -144,12 +155,21 @@ class LinearMultiAgentProposalPipeline:
                 },
             )
         )
-        evidence_result = self._invoke_complete(evidence_task)
-        retrieved_records = self._freeze_assessed_evidence(
-            existing=evidence_records,
-            retrieved=newly_retrieved_records,
-            assessment_payload=evidence_result["payload"],
-        )
+        # 사용자 의도: 한 Agent의 불완전한 응답 때문에 이미 확보한 근거와
+        # 다른 Agent의 실행을 모두 폐기하지 않는다. 변조만 즉시 중단한다.
+        try:
+            evidence_result = self._invoke_accepted(evidence_task, head)
+        except ExternalExecutionUnavailableError:
+            evidence_result = None
+        evidence_payload = self._usable_payload(evidence_result)
+        if evidence_payload is not None:
+            retrieved_records = self._freeze_assessed_evidence(
+                existing=evidence_records,
+                retrieved=newly_retrieved_records,
+                assessment_payload=evidence_payload,
+            )
+        else:
+            retrieved_records = self._deduplicate_evidence(evidence_records)
 
         proposal_tasks = self._proposal_tasks(
             state=state,
@@ -162,11 +182,18 @@ class LinearMultiAgentProposalPipeline:
             raise ContractValidationError("No eligible proposal input is available")
         with ThreadPoolExecutor(max_workers=len(proposal_tasks)) as executor:
             futures = [
-                executor.submit(copy_context().run, self._invoke_complete, task)
+                executor.submit(copy_context().run, self._invoke_accepted, task, head)
                 for task in proposal_tasks
             ]
-            proposal_results = [future.result() for future in futures]
+            proposal_results: list[dict[str, Any] | None] = []
+            for future in futures:
+                try:
+                    proposal_results.append(future.result())
+                except ExternalExecutionUnavailableError:
+                    proposal_results.append(None)
         proposals = self._validated_proposals(proposal_tasks, proposal_results)
+        if not proposals:
+            raise ContractValidationError("No usable Agent proposal is available")
 
         bundle = self._builder.build(
             state=state,
@@ -186,7 +213,10 @@ class LinearMultiAgentProposalPipeline:
             candidates=bundle.candidates,
             evidence_records=retrieved_records,
         )
-        audit_result = self._invoke_complete(audit_task)
+        try:
+            audit_result = self._invoke_accepted(audit_task, head)
+        except ExternalExecutionUnavailableError:
+            audit_result = None
         return self._apply_audit(bundle, audit_result)
 
     async def _retrieve_evidence(
@@ -647,54 +677,53 @@ class LinearMultiAgentProposalPipeline:
             dependency_results=dependencies,
         )
 
-    def _invoke_complete(self, task: dict[str, Any]) -> dict[str, Any]:
+    def _invoke_accepted(
+        self,
+        task: dict[str, Any],
+        current_head: HeadFence,
+    ) -> dict[str, Any]:
         result = self._runtime.invoke(task)
-        self._contracts.validate_agent_task_result(result)
-        for field in (
-            "task_id",
-            "agent_name",
-            "task_type",
-            "workflow_run_id",
-            "stage_run_id",
-            "venture_project_id",
-            "input_digest",
-            "output_schema_id",
+        validation = validate_agent_boundary(
+            task=task,
+            result=result,
+            current_head=current_head,
+            contracts=self._contracts,
+        )
+        if validation.accepted:
+            return result
+        codes = {error.code for error in validation.errors}
+        if codes & FATAL_AGENT_BOUNDARY_CODES:
+            raise ContractValidationError(
+                f"Agent crossed the authority boundary: {', '.join(sorted(codes))}"
+            )
+        raise AgentRuntimeError("AGENT_RESULT_REJECTED")
+
+    @staticmethod
+    def _usable_payload(
+        result: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if (
+            result is not None
+            and result.get("status") in {"COMPLETE", "NEEDS_EVIDENCE"}
+            and isinstance(result.get("payload"), dict)
         ):
-            if result.get(field) != task.get(field):
-                raise ContractValidationError(f"Agent result changed {field}")
-        if result.get("head_fence_seen") != task.get("head_fence"):
-            raise ContractValidationError("Agent result changed the State head")
-        if result.get("status") != "COMPLETE" or not isinstance(
-            result.get("payload"), dict
-        ):
-            raise ContractValidationError("Agent did not complete the requested role")
-        return result
+            return cast(dict[str, Any], result["payload"])
+        return None
 
     @staticmethod
     def _validated_proposals(
         tasks: list[dict[str, Any]],
-        results: list[dict[str, Any]],
+        results: list[dict[str, Any] | None],
     ) -> list[dict[str, Any]]:
         proposals: list[dict[str, Any]] = []
-        for task, result in zip(tasks, results, strict=True):
-            values = result["payload"].get("candidate_proposals")
-            if not isinstance(values, list) or len(values) != 1:
-                raise ContractValidationError("Proposal Agent must return one candidate")
-            proposal = values[0]
-            if not isinstance(proposal, dict):
-                raise ContractValidationError("Proposal Agent candidate is invalid")
-            collection = (
-                task["payload"].get("model_seeds")
-                or task["payload"].get("franchise_universe")
-            )
-            allowed = {
-                value.get("model_id") or value.get("brand_id")
-                for value in collection
-                if isinstance(value, dict)
-            }
-            if proposal.get("seed_or_brand_id") not in allowed:
-                raise ContractValidationError("Proposal Agent invented a candidate")
-            proposals.append(deepcopy(proposal))
+        for _task, result in zip(tasks, results, strict=True):
+            payload = LinearMultiAgentProposalPipeline._usable_payload(result)
+            if payload is None:
+                continue
+            values = payload.get("candidate_proposals")
+            if not isinstance(values, list):
+                continue
+            proposals.extend(deepcopy(value) for value in values if isinstance(value, dict))
         return proposals
 
     @staticmethod
@@ -874,8 +903,16 @@ class LinearMultiAgentProposalPipeline:
     @staticmethod
     def _apply_audit(
         bundle: ResultBundlePayload,
-        result: dict[str, Any],
+        result: dict[str, Any] | None,
     ) -> ResultBundlePayload:
+        if result is None or result.get("status") in {"ABSTAIN", "INVALID"}:
+            return bundle.model_copy(update={"audit_status": AuditStatus.UNAVAILABLE})
+        if result.get("status") in {"NEEDS_EVIDENCE", "NEEDS_HUMAN"}:
+            return bundle.model_copy(update={"audit_status": AuditStatus.REQUIRES_HUMAN})
+        if result.get("status") != "COMPLETE" or not isinstance(
+            result.get("payload"), dict
+        ):
+            return bundle.model_copy(update={"audit_status": AuditStatus.UNAVAILABLE})
         payload = result["payload"]
         audits = payload.get("candidate_audits")
         expected_ids = {candidate["candidate_id"] for candidate in bundle.candidates}
@@ -884,10 +921,10 @@ class LinearMultiAgentProposalPipeline:
             for audit in audits
             if isinstance(audit, dict)
         } if isinstance(audits, list) else set()
-        if actual_ids != expected_ids:
-            raise ContractValidationError("Candidate Auditor coverage is incomplete")
-        needs_human = bool(payload.get("global_findings")) or any(
-            audit.get("status") != "PASS" for audit in audits
+        needs_human = (
+            actual_ids != expected_ids
+            or bool(payload.get("global_findings"))
+            or any(audit.get("status") != "PASS" for audit in audits)
         )
         return bundle.model_copy(
             update={

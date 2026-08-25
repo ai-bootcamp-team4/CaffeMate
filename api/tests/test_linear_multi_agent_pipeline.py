@@ -7,8 +7,10 @@ from typing import Any
 
 import pytest
 
+from app.agents.runtime import AgentRuntimeError
 from app.agents.task_factory import AgentTaskFactory
 from app.candidates.seed_registry import IndependentSeedRegistry
+from app.domain.errors import ContractValidationError
 from app.domain.models import (
     AreaResolutionStatus,
     AreaState,
@@ -21,6 +23,7 @@ from app.domain.models import (
     VentureStatus,
 )
 from app.mcp.client import McpCallOutcome, McpClientError
+from app.results.models import AuditStatus
 from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import HeadFence
 from app.workflows.simple_proposal import SimpleProposalBuilder
@@ -115,7 +118,7 @@ class FakeRuntime:
         self.task_types.append(task_type)
         self.tasks.append(deepcopy(task))
         if task_type == self.fail_on:
-            raise RuntimeError(f"{task_type} failed")
+            raise AgentRuntimeError(f"{task_type}_FAILED")
         if task_type == "EVIDENCE_ASSESS":
             claim_ids = [claim["claim_id"] for claim in task["payload"]["claims"]]
             return self._result(
@@ -635,10 +638,10 @@ def test_pipeline_prioritizes_the_explicit_independent_model_preference() -> Non
     assert len(proposal_tasks) == 3
 
 
-def test_pipeline_does_not_hide_agent_runtime_failure_with_static_result() -> None:
+def test_pipeline_fails_only_when_every_proposal_agent_fails() -> None:
     runtime = FakeRuntime(fail_on="PROPOSE_INDEPENDENT")
 
-    with pytest.raises(RuntimeError, match="PROPOSE_INDEPENDENT failed"):
+    with pytest.raises(ContractValidationError, match="No usable Agent proposal"):
         _pipeline(runtime, FakeMcp()).run(
             state=_state(),
             head=_head(),
@@ -647,6 +650,89 @@ def test_pipeline_does_not_hide_agent_runtime_failure_with_static_result() -> No
         )
 
     assert "CANDIDATE_AUDIT" not in runtime.task_types
+
+
+def test_pipeline_keeps_successful_proposals_when_one_parallel_agent_fails() -> None:
+    """한 Proposal Agent의 장애는 다른 Agent가 만든 후보를 폐기하지 않는다."""
+
+    class OneFailedProposalRuntime(FakeRuntime):
+        def __init__(self) -> None:
+            super().__init__()
+            self.failed_once = False
+
+        def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+            if task["task_type"] == "PROPOSE_INDEPENDENT" and not self.failed_once:
+                self.failed_once = True
+                self.task_types.append(task["task_type"])
+                self.tasks.append(deepcopy(task))
+                raise AgentRuntimeError("PROPOSAL_AGENT_UNAVAILABLE")
+            return super().invoke(task)
+
+    runtime = OneFailedProposalRuntime()
+    bundle = _pipeline(runtime, FakeMcp()).run(
+        state=_state(),
+        head=_head(),
+        workflow_run_id="workflow-partial-proposal",
+        evidence_records=[],
+    )
+
+    assert len(bundle.candidates) == 2
+    assert runtime.task_types.count("PROPOSE_INDEPENDENT") == 3
+    assert runtime.task_types[-1] == "CANDIDATE_AUDIT"
+
+
+def test_pipeline_keeps_existing_evidence_when_researcher_is_unavailable() -> None:
+    """Researcher 장애는 기존 근거와 Proposal Agent 실행을 막지 않는다."""
+
+    runtime = FakeRuntime(fail_on="EVIDENCE_ASSESS")
+    bundle = _pipeline(runtime, FakeMcp()).run(
+        state=_state(),
+        head=_head(),
+        workflow_run_id="workflow-researcher-unavailable",
+        evidence_records=[],
+    )
+
+    assert bundle.candidates
+    assert runtime.task_types.count("PROPOSE_INDEPENDENT") == 3
+    assert runtime.task_types[-1] == "CANDIDATE_AUDIT"
+
+
+def test_pipeline_returns_result_when_auditor_is_unavailable() -> None:
+    """Auditor 장애는 계산을 마친 후보를 버리지 않고 상태로 드러낸다."""
+
+    runtime = FakeRuntime(fail_on="CANDIDATE_AUDIT")
+    bundle = _pipeline(runtime, FakeMcp()).run(
+        state=_state(),
+        head=_head(),
+        workflow_run_id="workflow-auditor-unavailable",
+        evidence_records=[],
+    )
+
+    assert bundle.candidates
+    assert bundle.audit_status == AuditStatus.UNAVAILABLE
+
+
+def test_pipeline_marks_partial_audit_for_human_review() -> None:
+    """일부 후보만 감사한 결과는 실패가 아니라 사람 검토 상태로 반환한다."""
+
+    class PartialAuditRuntime(FakeRuntime):
+        def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+            result = super().invoke(task)
+            if task["task_type"] == "CANDIDATE_AUDIT":
+                result["payload"]["candidate_audits"] = result["payload"][
+                    "candidate_audits"
+                ][:1]
+            return result
+
+    bundle = _pipeline(PartialAuditRuntime(), FakeMcp()).run(
+        state=_state(),
+        head=_head(),
+        workflow_run_id="workflow-partial-audit",
+        evidence_records=[],
+    )
+
+    assert bundle.candidates
+    assert bundle.audit_status == AuditStatus.REQUIRES_HUMAN
 
 
 class AreaMcp(FakeMcp):
