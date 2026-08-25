@@ -560,8 +560,6 @@
 .preparation-side .decision-note { border-radius: var(--radius-md); }
 .warning-box .btn { margin-block-start: var(--space-sm); }
 .property-form__head { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
-.demo-input-note { padding: var(--space-sm); border-inline-start: var(--rule-strong) solid var(--color-accent); background: var(--color-paper-2); color: var(--color-neutral); }
-.demo-input-note strong { color: var(--color-ink); }
 .property-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); }
 .property-form .field:first-child, .property-form__action { grid-column: 1 / -1; }
 .property-form__action { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; padding-block-start: var(--space-sm); border-block-start: var(--rule-thin) solid var(--color-rule); }

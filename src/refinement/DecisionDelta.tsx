@@ -45,7 +45,7 @@ export function DecisionDelta({ delta, candidate, previousFinancialSummary }: {
       )}
       {change?.gate_changes?.length ? (
         <ul className="decision-delta__gates">
-          {change.gate_changes.map((gate) => <li key={gate.gate_type}>{gate.gate_type === 'CAPITAL' ? '자금 조건' : '판정 조건'}: {gate.previous_status === 'PASS' ? '통과' : gate.previous_status === 'FAIL' ? '막힘' : '이전'} → {gate.current_status === 'PASS' ? '통과' : gate.current_status === 'FAIL' ? '막힘' : '현재'}</li>)}
+          {change.gate_changes.map((gate) => <li key={gate.gate_type}>{gate.gate_type === 'CAPITAL' ? '자금 조건' : '판정 조건'}: {gate.previous_status === 'PASS' ? '통과' : gate.previous_status === 'FAIL' ? '막힘' : gate.previous_status === 'CONDITIONAL' ? '조건부' : '이전'} → {gate.current_status === 'PASS' ? '통과' : gate.current_status === 'FAIL' ? '막힘' : gate.current_status === 'CONDITIONAL' ? '조건부' : '현재'}</li>)}
         </ul>
       ) : null}
     </section>

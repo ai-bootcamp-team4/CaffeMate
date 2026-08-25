@@ -25,6 +25,7 @@ export function FinanceBreakdown({ candidate, onRefine, busy = false }: {
   busy?: boolean
 }) {
   const inputs = financeInputs(candidate)
+  const firstPropertyRefinement = inputs.find((input) => input.resolution_action?.type === 'PROPERTY_TERMS')?.field ?? null
   return (
     <section id="result-finance" className="result-section" aria-labelledby="financeBreakdownTitle">
       <header className="result-section__head">
@@ -42,6 +43,9 @@ export function FinanceBreakdown({ candidate, onRefine, busy = false }: {
         <div className="provenance-list">
           {inputs.map((input) => {
             const limitation = limitationCopy(input.limitation_code)
+            const actionLabel = input.resolution_action?.type === 'PROPERTY_TERMS' && input.field !== firstPropertyRefinement
+              ? null
+              : refinementLabel(input)
             return (
               <article className="provenance-row" key={input.field}>
                 <div>
@@ -66,9 +70,9 @@ export function FinanceBreakdown({ candidate, onRefine, busy = false }: {
                   ) : <span>사용자 입력 또는 등록된 모델 값</span>}
                   {input.applied_to.length > 0 && <small>적용: {input.applied_to.map((target) => internalLabel(target, '계산 항목')).join(' · ')}</small>}
                   {limitation && <small>{limitation}</small>}
-                  {refinementLabel(input) && onRefine && (
+                  {actionLabel && onRefine && (
                     <button className="btn btn--accent finance-refine-action" disabled={busy} type="button" onClick={() => onRefine(input)}>
-                      {refinementLabel(input)}
+                      {actionLabel}
                     </button>
                   )}
                 </div>

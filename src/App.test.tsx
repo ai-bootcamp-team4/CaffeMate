@@ -386,8 +386,12 @@ describe('CaffeMate Control API integration', () => {
     await screen.findByRole('heading', { name: '실제 숫자로 정밀화하기' })
     vi.mocked(client.getResult).mockResolvedValueOnce(recalculated)
 
-    fireEvent.click(screen.getByRole('button', { name: '데모 입력 예시 불러오기' }))
+    fireEvent.change(screen.getByLabelText('점포 주소'), { target: { value: '서울 마포구 공덕동 1-1' } })
+    fireEvent.change(screen.getByLabelText('면적(㎡)'), { target: { value: '33' } })
+    fireEvent.change(screen.getByLabelText('보증금(만원)'), { target: { value: '3000' } })
     fireEvent.change(screen.getByLabelText('월세(만원)'), { target: { value: '200' } })
+    fireEvent.change(screen.getByLabelText('관리비(만원)'), { target: { value: '20' } })
+    fireEvent.change(screen.getByLabelText('권리금(만원)'), { target: { value: '1000' } })
     fireEvent.change(screen.getByLabelText('층'), { target: { value: '2층' } })
     fireEvent.click(screen.getByRole('button', { name: '이 조건으로 다시 판단' }))
 

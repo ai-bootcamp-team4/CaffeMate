@@ -28,14 +28,14 @@ export type DocumentRecalculation = {
   previousFinancialSummary: ResultCandidate['financial_summary']
 }
 
-const demoPropertyTerms = {
-  address: '서울 마포구 공덕동 데모 점포 · 실매물 아님',
-  area_sqm: '33',
-  floor: '1층',
-  deposit_manwon: '3000',
-  monthly_rent_manwon: '220',
-  management_fee_manwon: '20',
-  key_money_manwon: '1000',
+const initialPropertyTerms = {
+  address: '',
+  area_sqm: '',
+  floor: '',
+  deposit_manwon: '',
+  monthly_rent_manwon: '',
+  management_fee_manwon: '',
+  key_money_manwon: '',
 }
 
 export function NumericRefinementFlow({
@@ -57,7 +57,7 @@ export function NumericRefinementFlow({
   onApplyProperty: (terms: PropertyTermsInput) => Promise<PropertyRecalculation>
   onDocumentApplied: () => Promise<DocumentRecalculation>
 }) {
-  const [values, setValues] = useState(demoPropertyTerms)
+  const [values, setValues] = useState(initialPropertyTerms)
   const [propertyInputMode, setPropertyInputMode] = useState<'MANUAL' | 'DOCUMENT'>('MANUAL')
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState('현재 참고값을 실제 숫자로 교체할 수 있어요.')
@@ -66,7 +66,7 @@ export function NumericRefinementFlow({
   const action = target.resolution_action
   const isProperty = action?.type === 'PROPERTY_TERMS'
   const isDocument = action?.type === 'DOCUMENT_INTAKE'
-  const setValue = (key: keyof typeof demoPropertyTerms, value: string) => setValues((current) => ({ ...current, [key]: value }))
+  const setValue = (key: keyof typeof initialPropertyTerms, value: string) => setValues((current) => ({ ...current, [key]: value }))
 
   const submitProperty = async (event: FormEvent) => {
     event.preventDefault()
@@ -162,8 +162,6 @@ export function NumericRefinementFlow({
 
           {propertyInputMode === 'MANUAL' ? (
             <>
-              <div className="demo-input-actions"><button className="btn btn--accent" type="button" onClick={() => setValues(demoPropertyTerms)}>데모 입력 예시 불러오기</button></div>
-              <p className="demo-input-note"><strong>데모 입력 예시</strong>는 입력 형식 확인용이며 실매물·공식 근거가 아닙니다.</p>
               <form className="property-form" onSubmit={submitProperty}>
                 <label className="field"><span>점포 주소</span><input required value={values.address} onChange={(event) => setValue('address', event.target.value)} /></label>
                 <label className="field"><span>면적(㎡)</span><input required min="1" step="0.1" type="number" value={values.area_sqm} onChange={(event) => setValue('area_sqm', event.target.value)} /></label>
@@ -213,7 +211,7 @@ export function NumericRefinementFlow({
 
       {!isProperty && !isDocument && (
         <section className="refinement-section">
-          <p className="contract-gap">이 입력 유형은 개발 미리보기만 준비되어 있고 아직 별도 입력 UI가 연결되지 않았습니다.</p>
+          <p className="contract-gap">이 입력 유형은 아직 별도 입력 UI가 연결되지 않았습니다.</p>
         </section>
       )}
 

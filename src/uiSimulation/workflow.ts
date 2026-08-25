@@ -47,7 +47,7 @@ export function createSimulationWorkflowRegistry(projectId: string, timeScaleInp
     progress(workflowRunId: string) {
       const run = runs.get(workflowRunId)
       const startedAtMs = startedAt.get(workflowRunId)
-      if (!run || startedAtMs == null) throw new Error('UI_SIMULATION_WORKFLOW_NOT_FOUND')
+      if (!run || startedAtMs == null) throw new Error('WORKFLOW_NOT_FOUND')
       const progress = buildSimulationWorkflowProgress(run, (Date.now() - startedAtMs) / timeScale)
       return progress.poll_after_ms == null
         ? progress

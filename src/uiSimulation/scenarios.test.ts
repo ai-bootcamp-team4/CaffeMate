@@ -1,31 +1,38 @@
 import { describe, expect, it } from 'vitest'
-import { searchSimulationAreas, simulationAreaCatalogue } from './scenarios'
+import { searchSimulationAreas, simulationAreaByToken } from './scenarios'
 
-describe('UI simulation area scenarios', () => {
-  it('keeps a broad catalogue of distinct local search scenarios', () => {
-    expect(simulationAreaCatalogue.length).toBeGreaterThanOrEqual(16)
-    expect(new Set(simulationAreaCatalogue.map((area) => area.profile_key)).size).toBeGreaterThanOrEqual(8)
-  })
-
-  it('returns multiple plausible matches for ambiguous neighborhood searches', () => {
-    const seongsu = searchSimulationAreas('성수')
-    expect(seongsu.map((area) => area.display_name)).toEqual(expect.arrayContaining([
+describe('area search fixtures', () => {
+  it('returns a realistic first page of geographic matches for 성수', () => {
+    const results = searchSimulationAreas('성수')
+    expect(results).toHaveLength(8)
+    expect(results.slice(0, 2).map((area) => area.display_name)).toEqual([
       '서울특별시 성동구 성수동1가',
       '서울특별시 성동구 성수동2가',
+    ])
+    expect(results.map((area) => area.display_name)).toEqual(expect.arrayContaining([
+      '전북특별자치도 임실군 성수면',
+      '전북특별자치도 임실군 성수면 도인리',
+      '전북특별자치도 임실군 성수면 봉강리',
+      '전북특별자치도 임실군 성수면 삼봉리',
     ]))
-
-    const gangnam = searchSimulationAreas('강남')
-    expect(gangnam.length).toBeGreaterThanOrEqual(2)
+    expect(JSON.stringify(results)).not.toMatch(/ui[-_ ]?only|simulat|fixture|demo/i)
   })
 
-  it('supports common aliases and city-plus-neighborhood queries', () => {
-    expect(searchSimulationAreas('홍대').some((area) => area.display_name.includes('서교동'))).toBe(true)
-    expect(searchSimulationAreas('부산 전포').some((area) => area.display_name.includes('전포동'))).toBe(true)
-    expect(searchSimulationAreas('광교').some((area) => area.display_name.includes('이의동'))).toBe(true)
-    expect(searchSimulationAreas('송도').some((area) => area.display_name.includes('송도동'))).toBe(true)
+  it('narrows a city-qualified query without inventing market-area choices', () => {
+    expect(searchSimulationAreas('서울 성수').map((area) => area.display_name)).toEqual([
+      '서울특별시 성동구 성수동1가',
+      '서울특별시 성동구 성수동2가',
+    ])
   })
 
-  it('returns no fabricated fallback when nothing matches', () => {
+  it('supports deep analysis only for the Seoul Seongsu selections', () => {
+    const results = searchSimulationAreas('성수')
+    expect(simulationAreaByToken(results[0].selection_token)?.analysis_key).toBe('SEOUL_SEONGSU_1GA')
+    expect(simulationAreaByToken(results[1].selection_token)?.analysis_key).toBe('SEOUL_SEONGSU_2GA')
+    expect(simulationAreaByToken(results[2].selection_token)).toBeNull()
+  })
+
+  it('returns no fallback when the address search does not match', () => {
     expect(searchSimulationAreas('없는동네테스트')).toEqual([])
   })
 })
