@@ -2,6 +2,10 @@ import type { AuthGateway, AuthSession } from './auth'
 import type {
   AreaSearchResult,
   ControlApiClient,
+  DocumentExtractionForm,
+  DocumentRevision,
+  DocumentType,
+  ExtractionFormApplication,
   FeedbackPreview,
   FeedbackResolution,
   HeadFence,
@@ -9,6 +13,7 @@ import type {
   Project,
   ResultExplanation,
   ResultView,
+  SignedDocumentUpload,
   WorkflowProgress,
   WorkflowRun,
 } from './apiClient'
@@ -121,6 +126,7 @@ const initialResult: ResultView = {
         { field: 'own_funds_krw', label: '현재 자기자금', value: 80_000_000, provenance: 'USER_INPUT', resolution_status: 'USER_CONFIRMED_FACT', decision_role: 'CONSTRAINT_INPUT', source: null, applied_to: ['CAPITAL'], replaceable_by: [], limitation_code: null, resolution_action: { type: 'USER_INPUT', target_fields: ['own_funds_krw'] } },
         { field: 'monthly_occupancy_krw', label: '지역 임차비 참고값', range: { currency: 'KRW', low: 1_700_000, base: 2_100_000, high: 2_500_000, provenance_refs: ['ui-only-rent-benchmark'] }, provenance: 'BENCHMARK', resolution_status: 'RESOLVED_BENCHMARK', decision_role: 'FINANCE_INPUT', source: { title: '한국부동산원 상업용부동산 임대동향조사 · UI 예시', source_ref: 'https://www.reb.or.kr', data_date: '2026-06-30', geographic_scope: '수원시 영통구' }, applied_to: ['INITIAL_CASH', 'MONTHLY_FIXED_COST'], replaceable_by: ['PROPERTY_TERMS'], limitation_code: 'REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY', resolution_action: { type: 'PROPERTY_TERMS', target_fields: ['deposit_krw', 'monthly_rent_krw', 'management_fee_krw', 'key_money_krw'] } },
         { field: 'equipment_cost_krw', label: '장비비', range: { currency: 'KRW', low: 12_000_000, base: 15_000_000, high: 18_000_000, provenance_refs: ['ui-only-assumption'] }, provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', decision_role: 'FINANCE_INPUT', source: null, applied_to: ['INITIAL_CASH'], replaceable_by: ['EQUIPMENT_QUOTE'], limitation_code: null, resolution_action: { type: 'DOCUMENT_INTAKE', target_fields: ['equipment_cost_krw'], accepted_document_types: ['EQUIPMENT_QUOTE'] } },
+        { field: 'construction_cost_krw', label: '인테리어비', range: { currency: 'KRW', low: 18_000_000, base: 22_000_000, high: 28_000_000, provenance_refs: ['ui-only-assumption'] }, provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', decision_role: 'FINANCE_INPUT', source: null, applied_to: ['INITIAL_CASH'], replaceable_by: ['INTERIOR_QUOTE'], limitation_code: 'DEV_PREVIEW_BACKEND_NOT_WIRED', resolution_action: { type: 'DOCUMENT_INTAKE', target_fields: ['construction_cost_krw'], accepted_document_types: ['INTERIOR_QUOTE'] } },
       ],
       decision_trace: { gates: [{ gate_type: 'CAPITAL', status: 'PASS', reason_code: 'CURRENT_CONSTRAINTS_SATISFIED', decisive_input_refs: ['own_funds_krw', 'monthly_occupancy_krw'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 55_000_000, remaining_at_minimum_krw: 25_000_000 } }] },
       rank_trace: { basis: 'NEXT_REVIEW_PRIORITY', factors: [{ code: 'INITIAL_CASH_BASE', value: 65_000_000 }, { code: 'MONTHLY_FIXED_COST_BASE', value: 3_800_000 }], decisive_factor: 'INITIAL_CASH_BASE' },
@@ -158,7 +164,8 @@ const initialResult: ResultView = {
       next_actions: ['본사 출점 가능 여부 확인'],
       decision_inputs: [
         { field: 'franchise_initial_cost_krw', label: '가맹 초기비용', range: { currency: 'KRW', low: 70_000_000, base: 82_000_000, high: 95_000_000, provenance_refs: ['ui-only-franchise-evidence'] }, provenance: 'FACT', resolution_status: 'RESOLVED_FACT', decision_role: 'FINANCE_INPUT', source: { title: '예시 브랜드 정보공개서 · UI 예시', source_ref: null, data_date: '2026-05-31', geographic_scope: '브랜드 공통' }, applied_to: ['INITIAL_CASH'], replaceable_by: [], limitation_code: null, resolution_action: null },
-        { field: 'royalty', label: '로열티 참고 가정', value: '매출의 3%', provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', decision_role: 'FINANCE_INPUT', source: null, applied_to: ['BREAK_EVEN'], replaceable_by: ['FRANCHISE_DISCLOSURE'], limitation_code: null, resolution_action: { type: 'DOCUMENT_INTAKE', target_fields: ['royalty'], accepted_document_types: ['FRANCHISE_DISCLOSURE', 'FRANCHISE_AGREEMENT'] } },
+        { field: 'franchise_initial_fees_krw', label: '가맹비·교육비·보증금', range: { currency: 'KRW', low: 8_000_000, base: 11_000_000, high: 14_000_000, provenance_refs: ['ui-only-franchise-assumption'] }, provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', decision_role: 'FINANCE_INPUT', source: null, applied_to: ['INITIAL_CASH'], replaceable_by: ['FRANCHISE_DISCLOSURE', 'FRANCHISE_AGREEMENT'], limitation_code: 'DEV_PREVIEW_BACKEND_NOT_WIRED', resolution_action: { type: 'DOCUMENT_INTAKE', target_fields: ['franchise_initial_fees_krw'], accepted_document_types: ['FRANCHISE_DISCLOSURE', 'FRANCHISE_AGREEMENT'] } },
+        { field: 'royalty', label: '로열티 참고 가정', value: '매출의 3%', provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', decision_role: 'FINANCE_INPUT', source: null, applied_to: ['BREAK_EVEN'], replaceable_by: ['FRANCHISE_DISCLOSURE'], limitation_code: 'DEV_PREVIEW_BACKEND_NOT_WIRED', resolution_action: { type: 'DOCUMENT_INTAKE', target_fields: ['royalty'], accepted_document_types: ['FRANCHISE_DISCLOSURE', 'FRANCHISE_AGREEMENT'] } },
       ],
       decision_trace: { gates: [{ gate_type: 'CAPITAL', status: 'PASS', reason_code: 'CURRENT_CONSTRAINTS_SATISFIED', decisive_input_refs: ['franchise_initial_cost_krw'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 70_000_000, remaining_at_minimum_krw: 10_000_000 } }] },
       rank_trace: { basis: 'NEXT_REVIEW_PRIORITY', factors: [{ code: 'INITIAL_CASH_BASE', value: 82_000_000 }], decisive_factor: 'INITIAL_CASH_BASE' },
@@ -177,10 +184,6 @@ const initialResult: ResultView = {
       rank_trace: { basis: 'NEXT_REVIEW_PRIORITY', factors: [{ code: 'INITIAL_CASH_BASE', value: 76_000_000 }], decisive_factor: 'INITIAL_CASH_BASE' }, verification_requirements: [],
     },
   ],
-}
-
-function unsupported(): Promise<never> {
-  return Promise.reject(new Error('UI_ONLY_UNSUPPORTED'))
 }
 
 export function createUiOnlyDependencies(): {
@@ -203,6 +206,146 @@ export function createUiOnlyDependencies(): {
   let currentResult = initialResult
   let selectedCandidateId = initialResult.primary_candidate_id ?? initialResult.candidates[0].candidate_id
   let feedbackStatus: FeedbackPreview['status'] = 'REVIEW_REQUIRED'
+  let documentSequence = 0
+  let currentDocumentType: DocumentType = 'PROPERTY_LISTING'
+  let currentDocumentRevision: DocumentRevision | null = null
+  let currentDocumentForm: DocumentExtractionForm | null = null
+
+  const extractionFieldsFor = (documentType: DocumentType): DocumentExtractionForm['fields'] => {
+    const field = (
+      field_id: string,
+      claim_type: string,
+      label: string,
+      value: string | number | boolean | null,
+      unit: string | null,
+      section: string,
+    ) => ({
+      field_id, claim_type, label, raw_value_text: value == null ? null : String(value),
+      extracted_value: value, current_value: value, unit, materiality: 'HIGH',
+      extraction_status: 'AUTO_FILLED' as const, edit_status: 'UNCHANGED' as const,
+      anchor: { page_index: 0, section_path: section }, warnings: [],
+    })
+    if (documentType === 'PROPERTY_LISTING') return [
+      field('address', 'ADDRESS', '점포 주소', '서울 마포구 공덕동 1-1 · 개발 미리보기', null, '매물 정보'),
+      field('area', 'AREA', '면적', 35, '㎡', '매물 정보'),
+      field('floor', 'FLOOR', '층', '1층', null, '매물 정보'),
+      field('deposit', 'LEASE_DEPOSIT', '보증금', 40_000_000, '원', '임대 조건'),
+      field('rent', 'MONTHLY_RENT', '월세', 2_100_000, '원', '임대 조건'),
+      field('management', 'MANAGEMENT_FEE', '관리비', 150_000, '원', '임대 조건'),
+      field('key-money', 'KEY_MONEY', '권리금', 7_000_000, '원', '임대 조건'),
+    ]
+    if (documentType === 'COMMERCIAL_LEASE') return [
+      field('area', 'AREA', '면적', 35, '㎡', '임대차 목적물'),
+      field('floor', 'FLOOR', '층', '1층', null, '임대차 목적물'),
+      field('deposit', 'LEASE_DEPOSIT', '보증금', 40_000_000, '원', '임대 조건'),
+      field('rent', 'MONTHLY_RENT', '월세', 2_100_000, '원', '임대 조건'),
+      field('management', 'MANAGEMENT_FEE', '관리비', 150_000, '원', '임대 조건'),
+      field('key-money', 'KEY_MONEY', '권리금', 7_000_000, '원', '임대 조건'),
+    ]
+    if (documentType === 'EQUIPMENT_QUOTE') return [
+      field('equipment_cost_krw', 'QUOTE_TOTAL', '장비 견적 총액', 13_000_000, '원', '견적 합계'),
+    ]
+    if (documentType === 'INTERIOR_QUOTE') return [
+      field('construction_cost_krw', 'QUOTE_TOTAL', '인테리어 견적 총액', 20_000_000, '원', '공사비 합계'),
+      field('interior_vat', 'VAT_STATUS', '부가세 포함 여부', '포함', null, '견적 조건'),
+    ]
+    if (documentType === 'FRANCHISE_DISCLOSURE' || documentType === 'FRANCHISE_AGREEMENT') return [
+      field('franchise_initial_fees_krw', 'FRANCHISE_FEE', '가맹비·교육비·보증금', 10_000_000, '원', '가맹금'),
+      field('royalty', 'ROYALTY', '로열티', '매출의 2.5%', null, '로열티'),
+    ]
+    return [field('material_fact', 'MATERIAL_FACT', '확인한 값', '개발 미리보기 문서 값', null, '본문')]
+  }
+
+  const makeExtractionForm = (revision: DocumentRevision): DocumentExtractionForm => ({
+    form_id: `ui-only-form-${revision.revision_number}`,
+    project_id: project.project_id,
+    document_id: revision.document_id,
+    document_revision_id: revision.document_revision_id,
+    expected_state_version: currentResult.current_head.state_version,
+    form_status: 'READY_FOR_REVIEW',
+    fields: extractionFieldsFor(revision.document_type),
+    apply_label: '반영하고 다시 계산',
+    form_digest: `sha256:${String(revision.revision_number).padStart(64, 'a')}`,
+    applied_state_version: null,
+  })
+
+  const applyUiOnlyDocumentResult = (form: DocumentExtractionForm) => {
+    const selected = currentResult.candidates.find((candidate) => candidate.candidate_id === selectedCandidateId) ?? currentResult.candidates[0]
+    const previousSummary = selected.financial_summary
+    const beforeInputs = selected.decision_inputs ?? []
+    const updates = new Map(form.fields.map((entry) => [entry.field_id, entry.current_value]))
+    const inputChanges: NonNullable<ResultView['decision_delta']>['candidate_changes'][number]['input_changes'] = []
+    const decisionInputs = beforeInputs.map((input) => {
+      if (!updates.has(input.field)) return input
+      const nextValue = updates.get(input.field) ?? null
+      const after = {
+        ...input,
+        value: nextValue,
+        range: undefined,
+        provenance: 'USER_INPUT' as const,
+        resolution_status: 'USER_CONFIRMED_FACT' as const,
+        source: { title: '개발 미리보기 업로드 문서', source_ref: null, data_date: '2026-08-25', geographic_scope: '선택 후보' },
+        replaceable_by: [],
+        limitation_code: null,
+        resolution_action: null,
+      }
+      inputChanges.push({ field: input.field, before: input, after, applied_to: input.applied_to })
+      return after
+    })
+    const initialDelta = ['EQUIPMENT_QUOTE', 'INTERIOR_QUOTE', 'FRANCHISE_DISCLOSURE', 'FRANCHISE_AGREEMENT'].includes(currentDocumentType)
+      ? -2_000_000
+      : 0
+    const monthlyDelta = updates.has('royalty') ? 250_000 : 0
+    const nextCandidate = {
+      ...selected,
+      state_version: selected.state_version + 1,
+      decision_inputs: decisionInputs,
+      financial_summary: {
+        ...previousSummary,
+        initial_cash: {
+          ...previousSummary.initial_cash,
+          low: previousSummary.initial_cash.low == null ? null : Math.max(0, previousSummary.initial_cash.low + initialDelta),
+          base: previousSummary.initial_cash.base == null ? null : Math.max(0, previousSummary.initial_cash.base + initialDelta),
+          high: previousSummary.initial_cash.high == null ? null : Math.max(0, previousSummary.initial_cash.high + initialDelta),
+          provenance_refs: ['ui-only-uploaded-document'],
+        },
+        break_even_monthly_sales_krw: previousSummary.break_even_monthly_sales_krw == null
+          ? null
+          : previousSummary.break_even_monthly_sales_krw + monthlyDelta,
+      },
+    }
+    const nextHead = { ...currentResult.current_head, state_version: currentResult.current_head.state_version + 1, workflow_generation: currentResult.current_head.workflow_generation + 1 }
+    currentResult = {
+      ...currentResult,
+      result_bundle_id: `ui-only-result-document-${documentSequence}`,
+      head: nextHead,
+      current_head: nextHead,
+      candidates: currentResult.candidates.map((candidate) => candidate.candidate_id === selected.candidate_id ? nextCandidate : candidate),
+      decision_delta: {
+        previous_result_bundle_id: currentResult.result_bundle_id,
+        current_result_bundle_id: `ui-only-result-document-${documentSequence}`,
+        primary_candidate_changed: false,
+        requires_human_review: false,
+        human_review_reason_codes: [],
+        candidate_changes: [{
+          candidate_key: `${selected.case_type}:${selected.independent_model?.model_id ?? selected.franchise?.brand_id ?? 'candidate'}`,
+          display_name: selected.display_name,
+          change_type: 'UPDATED',
+          previous_rank: selected.rank,
+          current_rank: selected.rank,
+          previous_review_status: selected.review_status,
+          current_review_status: selected.review_status,
+          initial_cash_base_delta_krw: initialDelta,
+          monthly_fixed_cost_base_delta_krw: 0,
+          break_even_monthly_sales_delta_krw: monthlyDelta,
+          reason_codes_added: [],
+          reason_codes_removed: [],
+          input_changes: inputChanges,
+          gate_changes: [],
+        }],
+      },
+    }
+  }
 
   const apiFactory = (): ControlApiClient => ({
     createProject: async () => currentProject,
@@ -302,7 +445,16 @@ export function createUiOnlyDependencies(): {
       jurisdiction_display_name: '경기도 수원시 영통구 원천동',
       as_of: '2026-08-25',
       status: 'REVIEW_REQUIRED',
-      procedures: [],
+      procedures: [
+        {
+          procedure_type: 'HYGIENE_EDUCATION', status: 'OK', missing_fields: [], conflicts: [], error_codes: [],
+          steps: [{ procedure_type: 'HYGIENE_EDUCATION', step_order: 1, title: '신규 영업자 위생교육 이수', required: true, authority: '식품위생교육기관', source_date: '2026-08-25', evidence_id: 'ui-only-procedure-hygiene' }],
+        },
+        {
+          procedure_type: 'FOOD_SERVICE_REPORT', status: 'PARTIAL', missing_fields: ['facility_check'], conflicts: [], error_codes: [],
+          steps: [{ procedure_type: 'FOOD_SERVICE_REPORT', step_order: 1, title: '휴게음식점 영업신고 준비', required: true, authority: '관할 구청 위생 담당 부서', source_date: '2026-08-25', evidence_id: 'ui-only-procedure-report' }],
+        },
+      ],
       human_actions_only: true,
       external_submission_performed: false,
       generated_at: now,
@@ -347,13 +499,80 @@ export function createUiOnlyDependencies(): {
         input_kind: 'USER_CONFIRMED_PROPERTY_TERMS' as const, is_demo_fixture: true, created_at: now,
       }
     },
-    beginDocumentUpload: unsupported,
-    uploadDocument: unsupported,
-    completeDocumentUpload: unsupported,
-    getDocumentRevision: unsupported,
-    getDocumentExtractionForm: unsupported,
-    updateDocumentExtractionForm: unsupported,
-    applyDocumentExtractionForm: unsupported,
+    beginDocumentUpload: async (_projectId, file, documentType): Promise<SignedDocumentUpload> => {
+      documentSequence += 1
+      currentDocumentType = documentType
+      const documentId = `ui-only-document-${documentSequence}`
+      const revisionId = `ui-only-revision-${documentSequence}`
+      currentDocumentRevision = {
+        document_id: documentId,
+        document_revision_id: revisionId,
+        project_id: project.project_id,
+        revision_number: documentSequence,
+        document_type: documentType,
+        original_filename: file.name,
+        content_type: file.type,
+        size_bytes: file.size,
+        sha256: 'a'.repeat(64),
+        status: 'UPLOAD_PENDING',
+        failure_codes: [],
+        created_at: now,
+        updated_at: now,
+        completed_at: null,
+      }
+      currentDocumentForm = null
+      return {
+        document_id: documentId,
+        document_revision_id: revisionId,
+        revision_number: documentSequence,
+        object_path: `ui-only/${documentId}/${file.name}`,
+        upload_url: 'ui-only://upload',
+        method: 'PUT',
+        required_headers: { 'Content-Type': file.type },
+        expires_at: '2026-08-25T23:59:59Z',
+        status: 'UPLOAD_PENDING',
+      }
+    },
+    uploadDocument: async () => undefined,
+    completeDocumentUpload: async (_projectId, revisionId): Promise<DocumentRevision> => {
+      if (!currentDocumentRevision || currentDocumentRevision.document_revision_id !== revisionId) throw new Error('UI_ONLY_DOCUMENT_NOT_FOUND')
+      currentDocumentRevision = { ...currentDocumentRevision, status: 'EXTRACTION_READY', updated_at: now, completed_at: now }
+      currentDocumentForm = makeExtractionForm(currentDocumentRevision)
+      return currentDocumentRevision
+    },
+    getDocumentRevision: async (_projectId, revisionId): Promise<DocumentRevision> => {
+      if (!currentDocumentRevision || currentDocumentRevision.document_revision_id !== revisionId) throw new Error('UI_ONLY_DOCUMENT_NOT_FOUND')
+      return currentDocumentRevision
+    },
+    getDocumentExtractionForm: async (_projectId, revisionId): Promise<DocumentExtractionForm> => {
+      if (!currentDocumentForm || currentDocumentForm.document_revision_id !== revisionId) throw new Error('UI_ONLY_EXTRACTION_NOT_READY')
+      return currentDocumentForm
+    },
+    updateDocumentExtractionForm: async (_projectId, form, edits): Promise<DocumentExtractionForm> => {
+      const editMap = new Map(edits.map((edit) => [edit.field_id, edit.value]))
+      currentDocumentForm = {
+        ...form,
+        fields: form.fields.map((entry) => editMap.has(entry.field_id)
+          ? { ...entry, current_value: editMap.get(entry.field_id) ?? null, edit_status: 'EDITED' as const }
+          : entry),
+        form_digest: `sha256:${'b'.repeat(64)}`,
+      }
+      return currentDocumentForm
+    },
+    applyDocumentExtractionForm: async (_projectId, form): Promise<ExtractionFormApplication> => {
+      applyUiOnlyDocumentResult(form)
+      currentDocumentForm = { ...form, form_status: 'APPLIED', applied_state_version: currentResult.current_head.state_version }
+      return {
+        application_id: `ui-only-application-${documentSequence}`,
+        project_id: project.project_id,
+        document_revision_id: form.document_revision_id,
+        applied_state_version: currentResult.current_head.state_version,
+        recompute_workflow_run_id: `ui-only-document-workflow-${documentSequence}`,
+        claims: [],
+        conflicts: [],
+        requires_human_review: false,
+      }
+    },
   })
 
   return { authGateway, apiFactory }

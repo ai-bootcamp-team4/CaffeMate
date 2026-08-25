@@ -99,6 +99,9 @@ export function limitationCopy(code: string | null) {
   if (code === 'REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY') {
     return '지역 참고값이며 실제 점포의 임대 조건은 아닙니다.'
   }
+  if (code === 'DEV_PREVIEW_BACKEND_NOT_WIRED') {
+    return '개발 미리보기용 정밀화 항목입니다. 실제 반영 계약은 백엔드 연결 후 확정됩니다.'
+  }
   return '적용 범위에 제한이 있는 자료입니다. 실제 조건으로 교체할 수 있어요.'
 }
 

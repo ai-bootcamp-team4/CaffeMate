@@ -129,10 +129,13 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.getByRole('heading', { name: '왜 이 안을 검토할 수 있나요?' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: '돈이 어떻게 계산됐나요?' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: '같이 살펴본 상권 정보' })).toBeTruthy()
-    expect(screen.getByRole('heading', { name: '자료를 넣으면 다시 판단할 수 있어요' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '자료를 넣으면 다시 판단할 수 있어요' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: '무엇이 바뀌면 판단도 바뀌나요?' })).toBeNull()
     const externalHeading = screen.getByRole('heading', { name: 'CaffeMate 밖에서 확인해야 해요' })
+    const preparationHeading = screen.getByRole('heading', { name: '실제로 진행한다면' })
     const assistantInput = screen.getByLabelText('CaffeMate에게 물어보기')
-    expect(externalHeading.compareDocumentPosition(assistantInput) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(externalHeading.compareDocumentPosition(preparationHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(preparationHeading.compareDocumentPosition(assistantInput) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.queryByRole('tab', { name: '필요자금' })).toBeNull()
     expect(screen.queryByRole('tab', { name: '상권 신호' })).toBeNull()
   })
@@ -151,33 +154,41 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.getByText('비용·예상매출·성공확률 계산에는 사용하지 않았어요.')).toBeTruthy()
   })
 
-  it('defers official startup procedures until the final verification step', async () => {
+  it('loads startup procedures from the initial result without entering refinement', async () => {
     const { client } = setup()
     await completeOnboarding()
 
-    fireEvent.click(screen.getByRole('button', { name: '실제 조건으로 검증하기' }))
-
-    expect(await screen.findByRole('heading', { name: '실제 조건으로 검증하기' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '실제로 진행한다면' })).toBeTruthy()
     expect(client.getPreparationGuide).not.toHaveBeenCalled()
-    expect(screen.queryByText('신규 영업자 위생교육 이수')).toBeNull()
-
     fireEvent.click(screen.getByRole('button', { name: '창업 준비 절차 보기' }))
+
+    await waitFor(() => expect(client.selectCandidate).toHaveBeenCalledWith('project-1', result, 'candidate-1'))
     await waitFor(() => expect(client.getPreparationGuide).toHaveBeenCalledWith('project-1', 'selection-1'))
     expect(await screen.findByText('신규 영업자 위생교육 이수')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '실제 조건으로 검증하기' })).toBeNull()
   })
 
-  it('persists an explicit next-preparation selection through the API', async () => {
+  it('opens target-specific numeric refinement from a finance row', async () => {
     const { client } = setup()
     await completeOnboarding()
-    fireEvent.click(screen.getByRole('button', { name: '실제 조건으로 검증하기' }))
-    await waitFor(() => expect(client.selectCandidate).toHaveBeenCalledWith('project-1', result, 'candidate-1'))
-    expect(client.getPreparationGuide).not.toHaveBeenCalled()
-    expect(await screen.findByRole('heading', { name: '실제 조건으로 검증하기' })).toBeTruthy()
-    expect(screen.getByRole('heading', { name: '지역 참고값을 실제 임대 조건으로 교체해요' })).toBeTruthy()
-    expect(screen.getByRole('heading', { name: '참고 가정을 실제 문서 숫자로 교체해요' })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: '결과 비교로 돌아가기' }))
-    expect(screen.getByRole('button', { name: '검증 계속하기' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '실제 조건으로 검증하기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '검증 계속하기' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '실제 매물로 바꾸기' }))
+
+    await waitFor(() => expect(client.selectCandidate).toHaveBeenCalledWith('project-1', result, 'candidate-1'))
+    expect(await screen.findByRole('heading', { name: '실제 숫자로 정밀화하기' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '지역 참고값을 실제 임대 조건으로 교체해요' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '직접 입력' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '파일로 불러오기' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '파일로 불러오기' }))
+    expect(screen.getByRole('option', { name: '점포 매물 자료' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: '상가 임대차계약서' })).toBeTruthy()
+    expect(screen.queryByRole('option', { name: '장비 견적서' })).toBeNull()
+    expect(screen.getByLabelText('파일 선택')).toBeTruthy()
+    expect(screen.queryByLabelText('검증 순서')).toBeNull()
+    expect(screen.queryByRole('heading', { name: '계산으로 끝낼 수 없는 조건을 따로 확인해요' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: '경제·계약 검토 뒤에 공식 절차를 확인해요' })).toBeNull()
   })
 
   it('refreshes a stale result in the same project before selecting the candidate', async () => {
@@ -195,11 +206,68 @@ describe('CaffeMate Control API integration', () => {
     await completeOnboarding()
     vi.mocked(client.getResult).mockResolvedValueOnce(refreshedResult)
 
-    fireEvent.click(screen.getByRole('button', { name: '실제 조건으로 검증하기' }))
+    fireEvent.click(screen.getByRole('button', { name: '실제 매물로 바꾸기' }))
 
     await waitFor(() => expect(client.startFirstProposal).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(client.selectCandidate).toHaveBeenCalledWith('project-1', refreshedResult, 'candidate-1'))
-    expect(await screen.findByRole('heading', { name: '실제 조건으로 검증하기' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '실제 숫자로 정밀화하기' })).toBeTruthy()
+  })
+
+  it('loads property terms from a listing document into the same manual property form before applying', async () => {
+    const { client } = setup()
+    await completeOnboarding()
+    fireEvent.click(screen.getByRole('button', { name: '실제 매물로 바꾸기' }))
+    await screen.findByRole('heading', { name: '실제 숫자로 정밀화하기' })
+    fireEvent.click(screen.getByRole('button', { name: '파일로 불러오기' }))
+
+    const uploadTicket = {
+      document_id: 'property-document', document_revision_id: 'property-revision', revision_number: 1,
+      object_path: 'users/user-1/projects/project-1/documents/property-document/revisions/1/listing.pdf',
+      upload_url: 'https://storage.example.test/upload', method: 'PUT' as const,
+      required_headers: { 'Content-Type': 'application/pdf' }, expires_at: '2026-08-25T06:00:00Z', status: 'UPLOAD_PENDING' as const,
+    }
+    const revision = {
+      document_id: 'property-document', document_revision_id: 'property-revision', project_id: 'project-1', revision_number: 1,
+      document_type: 'PROPERTY_LISTING' as const, original_filename: 'listing.pdf', content_type: 'application/pdf', size_bytes: 4,
+      sha256: 'd'.repeat(64), status: 'EXTRACTION_READY' as const, failure_codes: [],
+      created_at: '2026-08-25T05:00:00Z', updated_at: '2026-08-25T05:01:00Z', completed_at: '2026-08-25T05:01:00Z',
+    }
+    const extractionForm = {
+      form_id: 'property-form-1', project_id: 'project-1', document_id: 'property-document', document_revision_id: 'property-revision',
+      expected_state_version: 2, form_status: 'READY_FOR_REVIEW', apply_label: '반영하고 다시 계산',
+      form_digest: `sha256:${'e'.repeat(64)}`, applied_state_version: null,
+      fields: [
+        { field_id: 'address', claim_type: 'ADDRESS', label: '점포 주소', raw_value_text: '서울 마포구 공덕동 1-1', extracted_value: '서울 마포구 공덕동 1-1', current_value: '서울 마포구 공덕동 1-1', unit: null, materiality: 'HIGH', extraction_status: 'AUTO_FILLED' as const, edit_status: 'UNCHANGED' as const, anchor: { page_index: 0, section_path: '매물 정보' }, warnings: [] },
+        { field_id: 'area', claim_type: 'AREA', label: '면적', raw_value_text: '35㎡', extracted_value: 35, current_value: 35, unit: '㎡', materiality: 'HIGH', extraction_status: 'AUTO_FILLED' as const, edit_status: 'UNCHANGED' as const, anchor: { page_index: 0, section_path: '매물 정보' }, warnings: [] },
+        { field_id: 'floor', claim_type: 'FLOOR', label: '층', raw_value_text: '1층', extracted_value: '1층', current_value: '1층', unit: null, materiality: 'MEDIUM', extraction_status: 'AUTO_FILLED' as const, edit_status: 'UNCHANGED' as const, anchor: { page_index: 0, section_path: '매물 정보' }, warnings: [] },
+        { field_id: 'deposit', claim_type: 'LEASE_DEPOSIT', label: '보증금', raw_value_text: '4,000만원', extracted_value: 40_000_000, current_value: 40_000_000, unit: '원', materiality: 'HIGH', extraction_status: 'AUTO_FILLED' as const, edit_status: 'UNCHANGED' as const, anchor: { page_index: 0, section_path: '임대 조건' }, warnings: [] },
+        { field_id: 'rent', claim_type: 'MONTHLY_RENT', label: '월세', raw_value_text: '210만원', extracted_value: 2_100_000, current_value: 2_100_000, unit: '원', materiality: 'HIGH', extraction_status: 'AUTO_FILLED' as const, edit_status: 'UNCHANGED' as const, anchor: { page_index: 0, section_path: '임대 조건' }, warnings: [] },
+        { field_id: 'management', claim_type: 'MANAGEMENT_FEE', label: '관리비', raw_value_text: '15만원', extracted_value: 150_000, current_value: 150_000, unit: '원', materiality: 'MEDIUM', extraction_status: 'AUTO_FILLED' as const, edit_status: 'UNCHANGED' as const, anchor: { page_index: 0, section_path: '임대 조건' }, warnings: [] },
+        { field_id: 'key-money', claim_type: 'KEY_MONEY', label: '권리금', raw_value_text: '700만원', extracted_value: 7_000_000, current_value: 7_000_000, unit: '원', materiality: 'MEDIUM', extraction_status: 'AUTO_FILLED' as const, edit_status: 'UNCHANGED' as const, anchor: { page_index: 0, section_path: '임대 조건' }, warnings: [] },
+      ],
+    }
+    vi.mocked(client.beginDocumentUpload).mockResolvedValueOnce(uploadTicket)
+    vi.mocked(client.uploadDocument).mockResolvedValueOnce(undefined)
+    vi.mocked(client.completeDocumentUpload).mockResolvedValueOnce(revision)
+    vi.mocked(client.getDocumentRevision).mockResolvedValueOnce(revision)
+    vi.mocked(client.getDocumentExtractionForm).mockResolvedValueOnce(extractionForm)
+
+    const file = new File(['test'], 'listing.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'arrayBuffer', { value: async () => new TextEncoder().encode('test').buffer })
+    fireEvent.change(screen.getByLabelText('파일 선택'), { target: { files: [file] } })
+    fireEvent.click(screen.getByRole('button', { name: '업로드하고 값 찾기' }))
+
+    expect(await screen.findByDisplayValue('40000000')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '이 값으로 점포 입력 채우기' }))
+
+    expect((await screen.findByLabelText('점포 주소') as HTMLInputElement).value).toBe('서울 마포구 공덕동 1-1')
+    expect((screen.getByLabelText('면적(㎡)') as HTMLInputElement).value).toBe('35')
+    expect((screen.getByLabelText('보증금(만원)') as HTMLInputElement).value).toBe('4000')
+    expect((screen.getByLabelText('월세(만원)') as HTMLInputElement).value).toBe('210')
+    expect((screen.getByLabelText('관리비(만원)') as HTMLInputElement).value).toBe('15')
+    expect((screen.getByLabelText('권리금(만원)') as HTMLInputElement).value).toBe('700')
+    expect(client.applyDocumentExtractionForm).not.toHaveBeenCalled()
+    expect(client.applyPropertyTerms).not.toHaveBeenCalled()
   })
 
   it('recalculates the selected candidate and explains what changed', async () => {
@@ -237,8 +305,8 @@ describe('CaffeMate Control API integration', () => {
     }
     const { client } = setup()
     await completeOnboarding()
-    fireEvent.click(screen.getByRole('button', { name: '실제 조건으로 검증하기' }))
-    await screen.findByRole('heading', { name: '실제 조건으로 검증하기' })
+    fireEvent.click(screen.getByRole('button', { name: '실제 매물로 바꾸기' }))
+    await screen.findByRole('heading', { name: '실제 숫자로 정밀화하기' })
     vi.mocked(client.getResult).mockResolvedValueOnce(recalculated)
 
     fireEvent.click(screen.getByRole('button', { name: '데모 입력 예시 불러오기' }))
@@ -260,8 +328,8 @@ describe('CaffeMate Control API integration', () => {
   it('uploads a document, exposes editable extracted values, applies them, and refreshes the result', async () => {
     const { client } = setup()
     await completeOnboarding()
-    fireEvent.click(screen.getByRole('button', { name: '실제 조건으로 검증하기' }))
-    await screen.findByRole('heading', { name: '실제 조건으로 검증하기' })
+    fireEvent.click(screen.getByRole('button', { name: '장비 견적 반영하기' }))
+    await screen.findByRole('heading', { name: '실제 숫자로 정밀화하기' })
 
     const uploadTicket = {
       document_id: 'document-1', document_revision_id: 'revision-1', revision_number: 1,
@@ -271,7 +339,7 @@ describe('CaffeMate Control API integration', () => {
     }
     const revision = {
       document_id: 'document-1', document_revision_id: 'revision-1', project_id: 'project-1', revision_number: 1,
-      document_type: 'COMMERCIAL_LEASE' as const, original_filename: 'lease.pdf', content_type: 'application/pdf', size_bytes: 4,
+      document_type: 'EQUIPMENT_QUOTE' as const, original_filename: 'lease.pdf', content_type: 'application/pdf', size_bytes: 4,
       sha256: 'a'.repeat(64), status: 'EXTRACTION_READY' as const, failure_codes: [],
       created_at: '2026-08-23T00:00:00Z', updated_at: '2026-08-23T00:01:00Z', completed_at: '2026-08-23T00:01:00Z',
     }
@@ -318,7 +386,7 @@ describe('CaffeMate Control API integration', () => {
     }
     vi.mocked(client.getResult).mockResolvedValueOnce(excludedResult)
 
-    const file = new File(['test'], 'lease.pdf', { type: 'application/pdf' })
+    const file = new File(['test'], 'equipment.pdf', { type: 'application/pdf' })
     Object.defineProperty(file, 'arrayBuffer', { value: async () => new TextEncoder().encode('test').buffer })
     fireEvent.change(screen.getByLabelText('파일 선택'), { target: { files: [file] } })
     fireEvent.click(screen.getByRole('button', { name: '업로드하고 값 찾기' }))
@@ -330,23 +398,21 @@ describe('CaffeMate Control API integration', () => {
     await waitFor(() => expect(client.updateDocumentExtractionForm).toHaveBeenCalledWith('project-1', extractionForm, [{ field_id: 'monthly_rent_krw', value: 2_000_000 }]))
     await waitFor(() => expect(client.applyDocumentExtractionForm).toHaveBeenCalledWith('project-1', appliedForm))
     expect(await screen.findByText('문서 값을 반영하고 창업안을 다시 계산했어요.')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '다시 계산한 결과 보기' }))
+    fireEvent.click(screen.getByRole('button', { name: '결과로 돌아가기' }))
     expect(await screen.findByRole('heading', { name: '이번 분석의 결론' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: '왜 이 안은 지금 진행하기 어려운가요?' })).toBeTruthy()
     expect(screen.queryByText('입력 조건이 바뀌었어요.')).toBeNull()
   })
 
-  it('keeps verification usable when official procedure lookup fails', async () => {
+  it('keeps the initial result usable when official procedure lookup fails', async () => {
     const { client } = setup()
     vi.mocked(client.getPreparationGuide).mockRejectedValueOnce(new Error('temporary procedure lookup failure'))
     await completeOnboarding()
 
-    fireEvent.click(screen.getByRole('button', { name: '실제 조건으로 검증하기' }))
-    expect(await screen.findByRole('heading', { name: '실제 조건으로 검증하기' })).toBeTruthy()
-    expect(screen.getByRole('heading', { name: '지역 참고값을 실제 임대 조건으로 교체해요' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '창업 준비 절차 보기' }))
     expect(await screen.findByRole('button', { name: '다시 확인' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '이 조건으로 다시 판단' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '실제 매물로 바꾸기' })).toBeTruthy()
+    expect(screen.getByLabelText('CaffeMate에게 물어보기')).toBeTruthy()
   })
 
   it('shows an authoritative funding failure without a separate condition-change CTA', async () => {

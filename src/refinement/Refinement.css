@@ -1,0 +1,23 @@
+.refinement-page { max-width: 1040px; padding-bottom: 5rem; }
+.refinement-hero { display: flex; justify-content: space-between; gap: 2rem; align-items: flex-start; padding: 4rem 0 2rem; }
+.refinement-hero > div { max-width: 760px; }
+.refinement-hero h1 { margin: 0 0 .7rem; font-size: clamp(2rem,5vw,3.6rem); letter-spacing: -.04em; }
+.refinement-hero p { line-height: 1.65; }
+.refinement-section { padding: 3rem 0; border-top: 1px solid rgba(45,40,34,.12); }
+.refinement-section__head { max-width: 760px; margin-bottom: 1.3rem; }
+.refinement-section__head h2 { margin: 0 0 .6rem; font-size: clamp(1.45rem,3vw,2rem); letter-spacing: -.03em; }
+.refinement-section__head p { line-height: 1.65; }
+.refinement-targets { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+.refinement-targets span { padding: .4rem .65rem; border-radius: 999px; background: rgba(45,40,34,.07); font-size: .8rem; font-weight: 800; }
+.decision-delta__status { display: flex; align-items: center; gap: 1rem; font-size: 1.2rem; margin: 1rem 0; }
+.decision-delta__status span { padding: .65rem .9rem; border-radius: 12px; background: rgba(247,244,238,.9); font-weight: 800; }
+.decision-delta__money { display: grid; grid-template-columns: repeat(auto-fit,minmax(250px,1fr)); gap: .75rem; }
+.decision-delta__money > div, .decision-delta__causes article { display: flex; flex-direction: column; gap: .35rem; padding: 1rem; border: 1px solid rgba(45,40,34,.12); border-radius: 14px; background: #fff; }
+.decision-delta__causes { display: grid; gap: .6rem; margin-top: .75rem; }
+.decision-delta__gates { margin-top: .8rem; }
+.refinement-boundary { padding: 1.5rem; margin: 1rem 0 3rem; border: 0; border-radius: 18px; background: #201d19; color: #fff; }
+@media (max-width: 760px) {
+  .refinement-hero { flex-direction: column; padding-top: 2.5rem; }
+}
+.property-input-mode { display: flex; flex-wrap: wrap; gap: .55rem; margin: 0 0 1rem; }
+.property-input-mode .btn[aria-pressed="true"] { box-shadow: inset 0 0 0 2px currentColor; }

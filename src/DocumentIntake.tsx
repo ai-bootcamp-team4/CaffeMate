@@ -34,15 +34,22 @@ function documentError(caught: unknown, fallback: string): string {
   return message
 }
 
-export function DocumentIntake({ client, projectId, enabled, onApplied, onViewResult }: {
+export function DocumentIntake({ client, projectId, enabled, onApplied, onViewResult, acceptedDocumentTypes, targetLabel, onUsePreparedValues, usePreparedValuesLabel }: {
   client: ControlApiClient
   projectId: string
   enabled: boolean
   onApplied: () => Promise<void>
   onViewResult?: () => void
+  acceptedDocumentTypes?: DocumentType[]
+  targetLabel?: string
+  onUsePreparedValues?: (form: DocumentExtractionForm) => Promise<void>
+  usePreparedValuesLabel?: string
 }) {
+  const availableDocumentTypes = acceptedDocumentTypes?.length
+    ? documentTypes.filter((type) => acceptedDocumentTypes.includes(type.value))
+    : documentTypes
   const [file, setFile] = useState<File | null>(null)
-  const [documentType, setDocumentType] = useState<DocumentType>('PROPERTY_LISTING')
+  const [documentType, setDocumentType] = useState<DocumentType>(availableDocumentTypes[0]?.value ?? 'OTHER')
   const [form, setForm] = useState<DocumentExtractionForm | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
   const [busyAction, setBusyAction] = useState<'upload' | 'apply' | null>(null)
@@ -50,6 +57,8 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
   const [status, setStatus] = useState('PDF, JPG, PNG, DOCX · 최대 50MB')
   const [error, setError] = useState('')
   const busy = busyAction !== null
+
+
 
   const waitForExtraction = async (revisionId: string) => {
     for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -92,6 +101,24 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
     await uploadFile(file, documentType)
   }
 
+  const transferPreparedValues = async () => {
+    if (!form || !onUsePreparedValues) return
+    setBusyAction('apply')
+    setError('')
+    try {
+      const edits = changedExtractionFields(form, values)
+      const updated = edits.length
+        ? await client.updateDocumentExtractionForm(projectId, form, edits)
+        : form
+      await onUsePreparedValues(updated)
+      setStatus('문서에서 찾은 값을 점포 입력에 가져왔어요. 빠진 값만 확인해 주세요.')
+    } catch (caught) {
+      setError(documentError(caught, '문서 값을 점포 입력으로 가져오지 못했어요. 값을 확인한 뒤 다시 시도해 주세요.'))
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
   const apply = async () => {
     if (!form) return
     setBusyAction('apply')
@@ -117,9 +144,9 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
   }
 
   return <article className="surface document-intake" aria-labelledby="documentIntakeTitle">
-    <div className="surface__head"><div><h2 id="documentIntakeTitle">문서로 조건 채우기</h2><p>견적서나 계약서를 올리면 중요한 값만 한 번에 확인하고 계산에 반영해요.</p></div></div>
+    <div className="surface__head"><div><h2 id="documentIntakeTitle">{targetLabel ? `${targetLabel} 문서로 반영` : '문서로 조건 채우기'}</h2><p>견적서나 계약서를 올리면 중요한 값만 한 번에 확인하고 계산에 반영해요.</p></div></div>
     {!form && <div className="document-intake__upload">
-      <label className="field"><span>자료 종류</span><select value={documentType} disabled={busy} onChange={(event) => setDocumentType(event.target.value as DocumentType)}>{documentTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
+      <label className="field"><span>자료 종류</span><select value={documentType} disabled={busy} onChange={(event) => setDocumentType(event.target.value as DocumentType)}>{availableDocumentTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
       <label className="field"><span>파일 선택</span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.docx,application/pdf,image/jpeg,image/png,application/vnd.openxmlformats-officedocument.wordprocessingml.document" disabled={busy} onChange={(event) => {
         const nextFile = event.target.files?.[0] ?? null
         setFile(nextFile)
@@ -140,7 +167,14 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
         }} />
         <small>{field.anchor ? `${field.anchor.page_index + 1}쪽${field.anchor.section_path ? ` · ${field.anchor.section_path}` : ''}` : '원문 위치 확인 필요'}{field.extraction_status !== 'AUTO_FILLED' ? ' · 직접 확인이 필요한 값' : ''}</small>
       </label>)}
-      <div className="document-intake__actions"><button className="btn btn--accent" type="button" disabled={busy} onClick={() => { setForm(null); setFile(null); setApplied(false) }}>다른 문서 선택</button>{applied && onViewResult ? <button className="btn btn--primary" type="button" onClick={onViewResult}>다시 계산한 결과 보기</button> : <button className="btn btn--primary" type="button" disabled={busy || !form.form_digest} aria-busy={busyAction === 'apply'} onClick={() => void apply()}>{busyAction === 'apply' ? '다시 계산 중' : form.apply_label}</button>}</div>
+      <div className="document-intake__actions">
+        <button className="btn btn--accent" type="button" disabled={busy} onClick={() => { setForm(null); setFile(null); setApplied(false) }}>다른 문서 선택</button>
+        {onUsePreparedValues
+          ? <button className="btn btn--primary" type="button" disabled={busy} aria-busy={busyAction === 'apply'} onClick={() => void transferPreparedValues()}>{busyAction === 'apply' ? '값 가져오는 중' : (usePreparedValuesLabel ?? '이 값 사용하기')}</button>
+          : applied && onViewResult
+            ? <button className="btn btn--primary" type="button" onClick={onViewResult}>다시 계산한 결과 보기</button>
+            : <button className="btn btn--primary" type="button" disabled={busy || !form.form_digest} aria-busy={busyAction === 'apply'} onClick={() => void apply()}>{busyAction === 'apply' ? '다시 계산 중' : form.apply_label}</button>}
+      </div>
     </div>}
     <p className="document-intake__status" aria-live="polite">{status}</p>
     {error && <p className="document-intake__error" role="alert">{error}</p>}

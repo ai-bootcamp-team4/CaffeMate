@@ -38,21 +38,16 @@
 .market-context-grid article { padding: 1rem; border-radius: 15px; background: #fff; }
 .market-context-grid article { display: flex; flex-direction: column; gap: .4rem; }
 .market-context-grid p { font-size: .85rem; line-height: 1.5; color: var(--muted, #6b665f); }
-.action-list, .counterfactual-list { display: grid; gap: .65rem; padding: 0; list-style: none; }
+.action-list { display: grid; gap: .65rem; padding: 0; list-style: none; }
 .action-list li { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem; border: 1px solid rgba(45,40,34,.11); border-radius: 14px; background: #fff; }
 .action-list li p { margin: .3rem 0; line-height: 1.5; color: var(--muted, #6b665f); }
 .action-list li > span { white-space: nowrap; font-size: .78rem; font-weight: 800; padding: .35rem .55rem; border-radius: 999px; background: rgba(45,40,34,.07); }
-.counterfactual-list li { padding: 1rem; border-left: 3px solid currentColor; background: rgba(247,244,238,.6); }
-.counterfactual-list p { margin-bottom: 0; }
 .contract-gap { padding: .9rem 1rem; border-radius: 12px; background: rgba(247,244,238,.8); color: var(--muted, #6b665f); }
-.result-next-action { display: flex; justify-content: space-between; gap: 1.5rem; align-items: flex-end; margin: 2rem 0 4rem; padding: 1.5rem; border-radius: 20px; background: #201d19; color: #fff; }
-.result-next-action p { max-width: 650px; }
 .result-assistant-wrap { max-width: 900px; margin: 0 auto 5rem; }
 .result-assistant-wrap .feedback-panel { position: static; max-height: none; }
 @media (max-width: 760px) {
   .result-hero { padding-top: 2.5rem; }
   .provenance-row { grid-template-columns: 1fr; }
-  .result-next-action { align-items: stretch; flex-direction: column; }
   .action-list li { flex-direction: column; }
 }
 
@@ -107,3 +102,18 @@
   .feedback-compose--dock { grid-template-columns: minmax(0, 1fr) auto; }
   .result-assistant-wrap .sample-row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: .25rem; }
 }
+.finance-refine-action { margin-top: .45rem; align-self: flex-start; }
+.startup-preparation .surface { margin-top: 1rem; }
+.startup-boundary { margin-top: 1.25rem; padding: 1.1rem 1.2rem; border-radius: 16px; background: #201d19; color: #fff; }
+.startup-boundary p { margin-bottom: 0; line-height: 1.6; }
+.refinement-target { display: grid; grid-template-columns: minmax(0,.8fr) minmax(0,1.2fr); gap: 1rem; margin: 0 0 1.5rem; padding: 1.2rem; border-radius: 18px; background: rgba(247,244,238,.9); }
+.refinement-target h2 { margin: 0; font-size: clamp(1.35rem,3vw,2rem); }
+.refinement-target dl { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .7rem; margin: 0; }
+.refinement-target dl > div { padding: .8rem; border-radius: 12px; background: #fff; }
+.refinement-target dt { color: var(--muted,#6b665f); font-size: .78rem; }
+.refinement-target dd { margin: .3rem 0 0; font-weight: 800; line-height: 1.45; }
+@media (max-width: 760px) {
+  .refinement-target { grid-template-columns: 1fr; }
+  .refinement-target dl { grid-template-columns: 1fr; }
+}
+.result-action-error { margin: -2rem 0 2.5rem; padding: .8rem 1rem; border-radius: 12px; background: rgba(160,35,35,.08); }

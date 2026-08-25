@@ -1,8 +1,29 @@
-import type { ResultCandidate } from '../apiClient'
+import type { DecisionInput, ResultCandidate } from '../apiClient'
 import { formatRange, formatWon, internalLabel, isHttpSource } from '../presentation'
 import { decisionInputLabel, decisionInputValue, financeInputs, limitationCopy, provenanceLabel } from './resultPresentation'
 
-export function FinanceBreakdown({ candidate }: { candidate: ResultCandidate }) {
+function refinementLabel(input: DecisionInput) {
+  const action = input.resolution_action
+  if (!action) return null
+  if (action.type !== 'PROPERTY_TERMS' && ['USER_CONFIRMED_FACT', 'RESOLVED_FACT'].includes(input.resolution_status)) return null
+  if (action.type === 'PROPERTY_TERMS') return '실제 매물로 바꾸기'
+  if (action.type === 'DOCUMENT_INTAKE') {
+    const types = action.accepted_document_types ?? []
+    if (types.includes('EQUIPMENT_QUOTE')) return '장비 견적 반영하기'
+    if (types.includes('INTERIOR_QUOTE')) return '인테리어 견적 반영하기'
+    if (input.field.toLowerCase().includes('royalty')) return '로열티 문서 반영하기'
+    if (types.includes('FRANCHISE_DISCLOSURE') || types.includes('FRANCHISE_AGREEMENT')) return '가맹비 문서 반영하기'
+    return '문서 값 반영하기'
+  }
+  if (action.type === 'USER_INPUT') return '직접 값 입력하기'
+  return null
+}
+
+export function FinanceBreakdown({ candidate, onRefine, busy = false }: {
+  candidate: ResultCandidate
+  onRefine?: (input: DecisionInput) => void
+  busy?: boolean
+}) {
   const inputs = financeInputs(candidate)
   return (
     <section className="result-section" aria-labelledby="financeBreakdownTitle">
@@ -45,6 +66,11 @@ export function FinanceBreakdown({ candidate }: { candidate: ResultCandidate }) 
                   ) : <span>사용자 입력 또는 등록된 모델 값</span>}
                   {input.applied_to.length > 0 && <small>적용: {input.applied_to.map((target) => internalLabel(target, '계산 항목')).join(' · ')}</small>}
                   {limitation && <small>{limitation}</small>}
+                  {refinementLabel(input) && onRefine && (
+                    <button className="btn btn--accent finance-refine-action" disabled={busy} type="button" onClick={() => onRefine(input)}>
+                      {refinementLabel(input)}
+                    </button>
+                  )}
                 </div>
               </article>
             )

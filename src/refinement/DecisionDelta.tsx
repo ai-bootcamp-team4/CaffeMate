@@ -16,9 +16,9 @@ export function DecisionDelta({ delta, candidate, previousFinancialSummary }: {
 }) {
   const change = changeForCandidate(delta, candidate)
   return (
-    <section className="verification-section decision-delta" aria-labelledby="decisionDeltaTitle">
-      <header className="verification-section__head">
-        <p className="result-kicker">3 · 새 조건으로 다시 판단</p>
+    <section className="refinement-section decision-delta" aria-labelledby="decisionDeltaTitle">
+      <header className="refinement-section__head">
+        <p className="result-kicker">다시 계산한 결과</p>
         <h2 id="decisionDeltaTitle">무엇이 바뀌어서 판단이 달라졌나요?</h2>
         <p>총액 차이만이 아니라 교체된 입력과 Gate 변화를 함께 확인합니다.</p>
       </header>
