@@ -1,9 +1,6 @@
-import { createHash } from 'node:crypto'
 import { computeAgentTaskInputDigest } from './input-digest'
-import { canonicalizeJson } from './input-digest'
 import { TASK_REGISTRY } from './registry'
 import { validateAgentTask, validateAgentTaskResult } from './schema-validator'
-import { validateAgentSemantics } from './semantic-validator'
 import type { AgentExecutorMap, AgentTask, AgentTaskResult, HeadFence } from './types'
 
 export class AgentDispatchError extends Error {
@@ -21,12 +18,7 @@ export class AgentDispatchError extends Error {
   }
 }
 
-const REPAIRABLE_RESULT_CODES = new Set([
-  'RESULT_SCHEMA_INVALID',
-  'RESULT_SEMANTIC_INVALID',
-])
-
-type AgentResultValidationOutcome = 'VALID' | 'REPAIR_REQUIRED' | 'REJECTED'
+type AgentResultValidationOutcome = 'VALID' | 'REJECTED'
 
 function resultDecision(result: AgentTaskResult): string | undefined {
   if (!result.payload || typeof result.payload !== 'object' || Array.isArray(result.payload)) return undefined
@@ -149,38 +141,6 @@ function validateResult(task: AgentTask, result: AgentTaskResult): void {
     )
   }
   assertResultEcho(task, result)
-  const semanticValidation = validateAgentSemantics(task, result)
-  if (!semanticValidation.ok) {
-    throw new AgentDispatchError(
-      'RESULT_SEMANTIC_INVALID',
-      JSON.stringify(semanticValidation.issues),
-      semanticValidation.issues.slice(0, 50).map((issue) => ({
-        code: issue.code,
-        json_pointer: issue.path,
-        message: issue.message.slice(0, 500),
-      })),
-    )
-  }
-}
-
-function buildInlineRepairTask(
-  task: AgentTask,
-  result: AgentTaskResult,
-  error: AgentDispatchError,
-): AgentTask {
-  const previousResponseText = canonicalizeJson(result).slice(0, 65536)
-  return {
-    ...task,
-    repair_attempt: 1,
-    repair_of_invocation_id: task.invocation_id,
-    repair_context: {
-      previous_response_text: previousResponseText,
-      previous_response_digest: `sha256:${createHash('sha256').update(previousResponseText).digest('hex')}`,
-      validator_errors: error.validatorErrors.length > 0
-        ? error.validatorErrors
-        : [{ code: error.code, json_pointer: '', message: error.message.slice(0, 500) }],
-    },
-  }
 }
 
 export async function dispatchAgentTask(task: AgentTask, executors: AgentExecutorMap): Promise<AgentTaskResult> {
@@ -192,6 +152,8 @@ export async function dispatchAgentTask(task: AgentTask, executors: AgentExecuto
     throw new AgentDispatchError('AGENT_EXECUTOR_UNAVAILABLE', `no executor is registered for ${registration.agentName}`)
   }
 
+  // 사용자 의도: LLM 출력 오류 때문에 같은 요청을 반복 생성하지 않는다.
+  // Runtime은 구조만 한 번 검증하고, 제품 의미는 Control API의 단일 경계가 판정한다.
   const result = await executor(task)
   try {
     validateResult(task, result)
@@ -199,32 +161,8 @@ export async function dispatchAgentTask(task: AgentTask, executors: AgentExecuto
     return result
   } catch (error) {
     if (error instanceof AgentDispatchError) {
-      recordResultValidation(
-        task,
-        result,
-        REPAIRABLE_RESULT_CODES.has(error.code) && task.repair_attempt === 0
-          ? 'REPAIR_REQUIRED'
-          : 'REJECTED',
-        error,
-      )
+      recordResultValidation(task, result, 'REJECTED', error)
     }
-    if (!(error instanceof AgentDispatchError)
-      || !REPAIRABLE_RESULT_CODES.has(error.code)
-      || task.repair_attempt !== 0) {
-      throw error
-    }
-    const repairTask = buildInlineRepairTask(task, result, error)
-    validateAgentTaskForDispatch(repairTask)
-    const repaired = await executor(repairTask)
-    try {
-      validateResult(repairTask, repaired)
-      recordResultValidation(repairTask, repaired, 'VALID')
-      return repaired
-    } catch (repairError) {
-      if (repairError instanceof AgentDispatchError) {
-        recordResultValidation(repairTask, repaired, 'REJECTED', repairError)
-      }
-      throw repairError
-    }
+    throw error
   }
 }

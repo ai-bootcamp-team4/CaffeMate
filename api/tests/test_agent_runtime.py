@@ -130,6 +130,17 @@ def test_operational_probe_can_build_a_live_shaped_intent_task() -> None:
     assert 0 < remaining.total_seconds() <= 30
 
 
+def test_operational_probe_uses_current_release_registration() -> None:
+    task = _agent_runtime_probe_task("evidence_assess-complete")
+
+    assert task["task_type"] == "EVIDENCE_ASSESS"
+    assert task["agent_name"] == "EVIDENCE_RESEARCHER"
+    assert task["prompt_version"] == "evidence-assessor.v3"
+    assert task["input_schema_id"] == "caffemate.agent.evidence-assess-input.v1"
+    assert task["output_schema_id"] == "caffemate.agent.evidence-assess-result.v1"
+    assert task["input_digest"] == compute_agent_input_digest(task)
+
+
 def evidence_fixture() -> tuple[dict[str, Any], dict[str, Any]]:
     root = Path(__file__).resolve().parents[2]
     matrix = json.loads(
@@ -613,11 +624,10 @@ def test_stream_retry_enqueues_only_the_uncertain_failed_session() -> None:
     ]
 
 
-def test_schema_invalid_result_is_repaired_once_in_a_new_session() -> None:
-    task, result = evidence_fixture()
+def test_schema_invalid_result_stops_after_one_model_generation() -> None:
+    task, _result = evidence_fixture()
     streams = 0
     sent_tasks: list[dict[str, Any]] = []
-    invocation_ids = iter(["inv-repair-1"])
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal streams
@@ -626,45 +636,22 @@ def test_schema_invalid_result_is_repaired_once_in_a_new_session() -> None:
         streams += 1
         sent_task = json.loads(body["input"]["message"])
         sent_tasks.append(sent_task)
-        if sent_task["repair_attempt"] == 0:
-            response_text = "{not-json"
-        else:
-            response_result = copy.deepcopy(result)
-            response_result["invocation_id"] = sent_task["invocation_id"]
-            response_text = json.dumps(response_result)
         event = {
             "author": task["agent_name"],
-            "content": {"parts": [{"text": response_text}]},
+            "content": {"parts": [{"text": "{not-json"}]},
         }
         return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
 
-    loaded = runtime_client(
-        httpx.MockTransport(handler),
-        FakeCleanupSink(),
-        new_invocation_id=lambda: next(invocation_ids),
-    ).invoke(task)
+    with pytest.raises(AgentRuntimeError, match="RUNTIME_RESULT_SCHEMA_INVALID"):
+        runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
 
-    assert loaded["invocation_id"] == "inv-repair-1"
-    assert streams == 2
-    assert [sent["repair_attempt"] for sent in sent_tasks] == [0, 1]
-    repair = sent_tasks[1]
-    assert repair["repair_of_invocation_id"] == task["invocation_id"]
-    assert repair["input_digest"] == task["input_digest"]
-    assert repair["repair_context"]["previous_response_text"] == "{not-json"
-    assert repair["repair_context"]["previous_response_digest"].startswith("sha256:")
-    assert repair["repair_context"]["validator_errors"] == [
-        {
-            "code": "JSON_PARSE_FAILED",
-            "json_pointer": "",
-            "message": "Response is not one valid JSON object",
-        }
-    ]
+    assert streams == 1
+    assert [sent["repair_attempt"] for sent in sent_tasks] == [0]
 
 
-def test_second_schema_failure_stops_without_third_generation() -> None:
+def test_schema_failure_never_starts_a_repair_generation() -> None:
     task, _result = evidence_fixture()
     streams = 0
-    invocation_ids = iter(["inv-repair-1"])
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal streams
@@ -678,12 +665,8 @@ def test_second_schema_failure_stops_without_third_generation() -> None:
         return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
 
     with pytest.raises(AgentRuntimeError, match="RUNTIME_RESULT_SCHEMA_INVALID"):
-        runtime_client(
-            httpx.MockTransport(handler),
-            FakeCleanupSink(),
-            new_invocation_id=lambda: next(invocation_ids),
-        ).invoke(task)
-    assert streams == 2
+        runtime_client(httpx.MockTransport(handler), FakeCleanupSink()).invoke(task)
+    assert streams == 1
 
 
 @pytest.mark.parametrize(
@@ -812,11 +795,11 @@ def test_retry_after_is_used_only_within_two_seconds() -> None:
     assert sleeps == [1.5]
 
 
-def test_transport_retry_then_repair_references_invalid_retry_invocation() -> None:
-    task, result = evidence_fixture()
+def test_transport_retry_does_not_add_a_result_repair_generation() -> None:
+    task, _result = evidence_fixture()
     stream_calls = 0
     sent_tasks: list[dict[str, Any]] = []
-    invocation_ids = iter(["inv-transport-2", "inv-repair-after-retry"])
+    invocation_ids = iter(["inv-transport-2"])
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal stream_calls
@@ -827,25 +810,22 @@ def test_transport_retry_then_repair_references_invalid_retry_invocation() -> No
             return httpx.Response(503)
         sent_task = json.loads(body["input"]["message"])
         sent_tasks.append(sent_task)
-        if sent_task["repair_attempt"] == 0:
-            response_text = "invalid"
-        else:
-            response_result = copy.deepcopy(result)
-            response_result["invocation_id"] = sent_task["invocation_id"]
-            response_text = json.dumps(response_result)
         event = {
             "author": task["agent_name"],
-            "content": {"parts": [{"text": response_text}]},
+            "content": {"parts": [{"text": "invalid"}]},
         }
         return httpx.Response(200, text=f"data: {json.dumps(event)}\n\n")
 
-    runtime_client(
-        httpx.MockTransport(handler),
-        FakeCleanupSink(),
-        sleep=lambda _seconds: None,
-        new_invocation_id=lambda: next(invocation_ids),
-    ).invoke(task)
-    assert sent_tasks[1]["repair_of_invocation_id"] == "inv-transport-2"
+    with pytest.raises(AgentRuntimeError, match="RUNTIME_RESULT_SCHEMA_INVALID"):
+        runtime_client(
+            httpx.MockTransport(handler),
+            FakeCleanupSink(),
+            sleep=lambda _seconds: None,
+            new_invocation_id=lambda: next(invocation_ids),
+        ).invoke(task)
+    assert len(sent_tasks) == 1
+    assert sent_tasks[0]["repair_attempt"] == 0
+    assert sent_tasks[0]["invocation_id"] == "inv-transport-2"
 
 
 def test_session_is_not_started_when_cleanup_reserve_is_unavailable() -> None:

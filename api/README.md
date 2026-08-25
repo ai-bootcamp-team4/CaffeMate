@@ -197,10 +197,10 @@ Agent Runtime 호출은 논리 Task의 `task_id`와 `input_digest`를 유지하�
 시도하며 250ms·750ms 지연과 invocation 기반 jitter를 적용한다. 2초 이하의 `Retry-After`만
 남은 deadline 안에서 사용한다. 400·401·403과 safety block은 다시 시도하지 않는다.
 
-final event의 JSON parse 또는 `AgentTaskResult` Schema 검증이 실패하면 이전 응답 text·digest와
-최대 50개 validator error를 넣은 repair Task를 새 session에서 한 번만 실행한다. echo·protocol·
-권한 오류는 repair하지 않으며 두 번째 Schema 실패 뒤에는 세 번째 생성을 호출하지 않는다.
-모든 HTTP timeout은 Task의 남은 deadline보다 길 수 없고, deadline 뒤 결과는 반환하지 않는다.
+final event의 JSON parse 또는 `AgentTaskResult` Schema 검증이 실패하면 같은 입력을 다시 생성하지
+않고 `RUNTIME_RESULT_SCHEMA_INVALID`로 반환한다. Runtime은 구조와 immutable envelope만 확인하고,
+제품 의미·권한·참조 검증은 Control API의 단일 boundary에서 수행한다. 모든 HTTP timeout은 Task의
+남은 deadline보다 길 수 없고, deadline 뒤 결과는 반환하지 않는다.
 
 동기 Agent 호출의 session 삭제가 실패하면 API는 `AGENT_SESSION_CLEANUP` Outbox를 남긴다.
 private Worker의 `POST /internal/v1/agent-sessions:cleanup`은 이 항목만 별도로 lease하고, 설정에

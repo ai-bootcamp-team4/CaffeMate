@@ -149,10 +149,17 @@ def _agent_runtime_probe_task(
     fixture = _agent_runtime_probe_fixture(fixture_id)
     task = copy.deepcopy(fixture["task"])
     release = json.loads((root / "agents" / "release-manifest.json").read_text(encoding="utf-8"))
-    deadline_seconds = release["tasks"][task["task_type"]]["deadline_seconds"]
+    registration = release["tasks"][task["task_type"]]
+    deadline_seconds = registration["deadline_seconds"]
     probe_id = uuid4().hex
+    # 사용자 의도: 오래된 fixture 메타데이터 때문에 모델 호출 전 검증이 실패하지 않게 한다.
+    # probe 입력 내용은 fixture를 쓰되 실행 계약은 현재 release manifest를 따른다.
     task.update(
         {
+            "agent_name": registration["agent_name"],
+            "prompt_version": registration["prompt_version"],
+            "input_schema_id": registration["input_schema_id"],
+            "output_schema_id": registration["output_schema_id"],
             "task_id": f"runtime-preflight-{probe_id}",
             "invocation_id": str(uuid4()),
             "workflow_run_id": f"runtime-preflight-{probe_id}",

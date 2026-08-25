@@ -271,7 +271,7 @@ describe('agent semantic validator', () => {
   })
 
   it.each(['PROPOSE_INDEPENDENT', 'PROPOSE_FRANCHISE'] as const)(
-    'rejects an empty %s result when the controller supplied eligible sources',
+    'allows an explicit %s abstention without inventing a proposal',
     (taskType) => {
       const { task, result } = fixture(taskType)
       result.status = 'ABSTAIN'
@@ -279,10 +279,7 @@ describe('agent semantic validator', () => {
       result.reason_codes = ['INSUFFICIENT_CONTEXT']
 
       const validation = validateAgentSemantics(task, result)
-      expect(validation.ok).toBe(false)
-      expect(validation.issues).toEqual(expect.arrayContaining([
-        expect.objectContaining({ code: 'PROPOSAL_COUNT_INVALID' }),
-      ]))
+      expect(validation.ok).toBe(true)
     },
   )
 
@@ -435,7 +432,7 @@ describe('agent semantic validator', () => {
     expect(validation.issues.some((issue) => issue.code === 'UNSUPPORTED_REFERENCE')).toBe(true)
   })
 
-  it('rejects Evidence Assess output that omits a supplied candidate', () => {
+  it('allows Evidence Assess output to leave a supplied candidate unresolved', () => {
     const { task, result } = fixture('EVIDENCE_ASSESS')
     const first = evidenceRecord({ evidenceId: 'ev-first-candidate' })
     const second = evidenceRecord({ evidenceId: 'ev-second-candidate' })
@@ -453,8 +450,7 @@ describe('agent semantic validator', () => {
     }
 
     const validation = validateAgentSemantics(task, result)
-    expect(validation.ok).toBe(false)
-    expect(validation.issues.some((issue) => issue.code === 'EVIDENCE_ASSESS_COVERAGE_INCOMPLETE')).toBe(true)
+    expect(validation.ok).toBe(true)
   })
 
   it('allows UNKNOWN evidence to be assessed as ambiguous without using it as evidence coverage', () => {
@@ -498,15 +494,14 @@ describe('agent semantic validator', () => {
     expect(validation.issues.some((issue) => issue.code === 'DOCUMENT_ANCHOR_NOT_SUPPLIED')).toBe(true)
   })
 
-  it('requires a complete candidate audit to cover every supplied candidate exactly once', () => {
+  it('allows a partial candidate audit to require later human review', () => {
     const { task, result } = fixture('CANDIDATE_AUDIT')
     const payload = result.payload as { candidate_audits: unknown[] }
     payload.candidate_audits = []
 
     const validation = validateAgentSemantics(task, result)
 
-    expect(validation.ok).toBe(false)
-    expect(validation.issues.some((issue) => issue.code === 'CANDIDATE_AUDIT_COVERAGE_INVALID')).toBe(true)
+    expect(validation.ok).toBe(true)
   })
 
   it('rejects unsupported calculation references and PASS audits with findings', () => {

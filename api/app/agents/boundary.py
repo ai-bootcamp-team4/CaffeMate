@@ -472,18 +472,6 @@ def _validate_proposal_semantics(
                 message="Agent returned more candidates than requested",
             )
         )
-    evidence_ids = set(_collect_evidence_records(task_payload))
-    result_evidence_refs = {
-        value for value in result.get("evidence_refs", []) if isinstance(value, str)
-    }
-    if not result_evidence_refs.issubset(evidence_ids):
-        errors.append(
-            BoundaryError(
-                code="PROPOSAL_EVIDENCE_REFERENCE_INVALID",
-                json_pointer="/evidence_refs",
-                message="Proposal result evidence refs must point to frozen Evidence records",
-            )
-        )
     for index, proposal in enumerate(proposals):
         if not isinstance(proposal, dict):
             continue
@@ -506,67 +494,6 @@ def _validate_proposal_semantics(
                     message="Proposal source does not match its allocated input",
                 )
             )
-        if proposal.get("display_name") != source.get("display_name"):
-            errors.append(
-                BoundaryError(
-                    code="PROPOSAL_DISPLAY_NAME_MISMATCH",
-                    json_pointer=f"{path}/display_name",
-                    message="Proposal display name must preserve its registered source",
-                )
-            )
-        referenced_evidence = {
-            value for value in proposal.get("evidence_refs", []) if isinstance(value, str)
-        }
-        if not referenced_evidence.issubset(evidence_ids):
-            errors.append(
-                BoundaryError(
-                    code="PROPOSAL_EVIDENCE_REFERENCE_INVALID",
-                    json_pointer=f"{path}/evidence_refs",
-                    message="Proposal evidence refs must point to frozen Evidence records",
-                )
-            )
-        if task_type == "PROPOSE_FRANCHISE":
-            required_evidence = {
-                value for value in source.get("evidence_refs", []) if isinstance(value, str)
-            }
-            required_missing = {
-                value for value in source.get("missing_fields", []) if isinstance(value, str)
-            }
-            proposal_missing = {
-                value for value in proposal.get("missing_fields", []) if isinstance(value, str)
-            }
-            if not required_evidence.issubset(referenced_evidence):
-                errors.append(
-                    BoundaryError(
-                        code="FRANCHISE_ELIGIBILITY_EVIDENCE_DROPPED",
-                        json_pointer=f"{path}/evidence_refs",
-                        message="Franchise proposal dropped its eligibility Evidence",
-                    )
-                )
-            if not required_missing.issubset(proposal_missing):
-                errors.append(
-                    BoundaryError(
-                        code="FRANCHISE_MISSING_CONTEXT_DROPPED",
-                        json_pointer=f"{path}/missing_fields",
-                        message="Franchise proposal dropped required missing context",
-                    )
-                )
-        else:
-            required_assumptions = {
-                value for value in source.get("support_refs", []) if isinstance(value, str)
-            }
-            proposal_assumptions = {
-                value for value in proposal.get("assumption_refs", []) if isinstance(value, str)
-            }
-            if not required_assumptions.issubset(proposal_assumptions):
-                errors.append(
-                    BoundaryError(
-                        code="SEED_ASSUMPTION_REFERENCE_DROPPED",
-                        json_pointer=f"{path}/assumption_refs",
-                        message="Independent proposal dropped its seed assumptions",
-                    )
-                )
-            errors.extend(_validate_independent_parameters(source, proposal, path))
     return errors
 
 
@@ -580,11 +507,6 @@ def _validate_candidate_audit(
     result_payload = result.get("payload")
     if not isinstance(task_payload, dict) or not isinstance(result_payload, dict):
         return []
-    expected = [
-        value.get("candidate_id")
-        for value in task_payload.get("candidates", [])
-        if isinstance(value, dict) and isinstance(value.get("candidate_id"), str)
-    ]
     audits = result_payload.get("candidate_audits", [])
     produced = [
         value.get("candidate_id")
@@ -592,12 +514,12 @@ def _validate_candidate_audit(
         if isinstance(value, dict) and isinstance(value.get("candidate_id"), str)
     ]
     errors: list[BoundaryError] = []
-    if len(produced) != len(set(produced)) or set(produced) != set(expected):
+    if len(produced) != len(set(produced)):
         errors.append(
             BoundaryError(
-                code="CANDIDATE_AUDIT_COVERAGE_INVALID",
+                code="CANDIDATE_AUDIT_DUPLICATED",
                 json_pointer="/payload/candidate_audits",
-                message="Complete audit must cover every input candidate exactly once",
+                message="Candidate audit ids must be unique",
             )
         )
     calculation = task_payload.get("calculation_snapshot", {})
@@ -641,90 +563,11 @@ def _validate_candidate_audit(
     return errors
 
 
-def _validate_independent_parameters(
-    source: dict[str, Any],
-    proposal: dict[str, Any],
-    path: str,
-) -> list[BoundaryError]:
-    allowed = {
-        value["field_path"]: value
-        for value in source.get("allowed_parameters", [])
-        if isinstance(value, dict) and isinstance(value.get("field_path"), str)
-    }
-    errors: list[BoundaryError] = []
-    for index, parameter in enumerate(proposal.get("adjusted_parameters", [])):
-        if not isinstance(parameter, dict):
-            continue
-        parameter_path = f"{path}/adjusted_parameters/{index}"
-        contract = allowed.get(parameter.get("field_path"))
-        if contract is None:
-            errors.append(
-                BoundaryError(
-                    code="PARAMETER_FIELD_NOT_ALLOWED",
-                    json_pointer=f"{parameter_path}/field_path",
-                    message="Adjusted parameter is outside the selected seed contract",
-                )
-            )
-            continue
-        typed_value = parameter.get("value")
-        if not isinstance(typed_value, dict) or typed_value.get("kind") != contract.get(
-            "value_kind"
-        ):
-            errors.append(
-                BoundaryError(
-                    code="PARAMETER_VALUE_KIND_INVALID",
-                    json_pointer=f"{parameter_path}/value",
-                    message="Adjusted parameter kind differs from its seed contract",
-                )
-            )
-        if parameter.get("unit") != contract.get("unit"):
-            errors.append(
-                BoundaryError(
-                    code="PARAMETER_UNIT_INVALID",
-                    json_pointer=f"{parameter_path}/unit",
-                    message="Adjusted parameter unit differs from its seed contract",
-                )
-            )
-        numeric_values = _typed_numeric_values(typed_value)
-        minimum = contract.get("minimum")
-        maximum = contract.get("maximum")
-        if any(
-            (isinstance(minimum, (int, float)) and value < minimum)
-            or (isinstance(maximum, (int, float)) and value > maximum)
-            for value in numeric_values
-        ):
-            errors.append(
-                BoundaryError(
-                    code="PARAMETER_RANGE_INVALID",
-                    json_pointer=f"{parameter_path}/value",
-                    message="Adjusted parameter is outside its seed range",
-                )
-            )
-    return errors
-
-
-def _typed_numeric_values(value: object) -> list[float]:
-    if not isinstance(value, dict):
-        return []
-    kind = value.get("kind")
-    if kind in {"INTEGER", "DECIMAL"}:
-        number = value.get("value")
-        return [float(number)] if isinstance(number, (int, float)) else []
-    if kind == "MONEY_RANGE":
-        return [
-            float(value[key])
-            for key in ("low", "base", "high")
-            if isinstance(value.get(key), (int, float))
-        ]
-    return []
-
-
 def _validate_evidence_assessment_metadata(
     task: dict[str, Any],
     result: dict[str, Any],
 ) -> list[BoundaryError]:
-    # 사용자 의도: 전달한 근거 후보를 모델이 조용히 생략하면 공식 근거가
-    # 사라지므로, 모든 후보가 정확히 한 번씩 평가됐는지 경계에서 확인한다.
+    # 사용자 의도: 모델이 실제로 평가한 행만 검증하고, 생략한 근거는 미확인으로 남긴다.
     if task["task_type"] != "EVIDENCE_ASSESS" or result.get("payload") is None:
         return []
 
@@ -737,14 +580,11 @@ def _validate_evidence_assessment_metadata(
     }
     evidence_records = _collect_evidence_records(task_payload)
     errors: list[BoundaryError] = []
-    assessed_counts: dict[str, int] = {}
     for index, assessment in enumerate(result_payload.get("assessments", [])):
         if not isinstance(assessment, dict):
             continue
         claim = claims.get(assessment.get("claim_id"))
         candidate_ref = assessment.get("candidate_ref")
-        if isinstance(candidate_ref, str):
-            assessed_counts[candidate_ref] = assessed_counts.get(candidate_ref, 0) + 1
         evidence = evidence_records.get(candidate_ref) if isinstance(candidate_ref, str) else None
         if claim is None or evidence is None:
             continue
@@ -789,24 +629,6 @@ def _validate_evidence_assessment_metadata(
                     ),
                 )
             )
-    missing_candidate_refs = sorted(set(evidence_records) - set(assessed_counts))
-    duplicate_candidate_refs = sorted(
-        candidate_ref
-        for candidate_ref, count in assessed_counts.items()
-        if count != 1
-    )
-    if missing_candidate_refs or duplicate_candidate_refs:
-        errors.append(
-            BoundaryError(
-                code="EVIDENCE_ASSESS_COVERAGE_INCOMPLETE",
-                json_pointer="/payload/assessments",
-                message=(
-                    "Every supplied candidate must be assessed exactly once; "
-                    f"missing={','.join(missing_candidate_refs)}; "
-                    f"duplicate={','.join(duplicate_candidate_refs)}"
-                ),
-            )
-        )
     return errors
 
 

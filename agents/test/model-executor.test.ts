@@ -94,7 +94,7 @@ describe('local model-backed Agent executors', () => {
     })
   })
 
-  it('repairs the production Candidate Audit status-contract failure once', async () => {
+  it('rejects an invalid Candidate Audit result without another model generation', async () => {
     const { task, result } = completeFixture('CANDIDATE_AUDIT')
     const invalid = {
       ...result,
@@ -102,55 +102,44 @@ describe('local model-backed Agent executors', () => {
       missing_claim_ids: [],
       reason_codes: ['INSUFFICIENT_CONTEXT'],
     }
-    const generate = vi.fn(async (invocation: AgentModelInvocation) => ({
-      kind: 'TEXT' as const,
-      text: JSON.stringify(semanticResult(invocation.repairAttempt === 0 ? invalid : result)),
-    }))
-
-    const repaired = await dispatchAgentTask(
-      task,
-      createModelExecutors({ generate }, APPROVED_MODEL),
-    )
-
-    expect(repaired).toEqual(result)
-    expect(generate).toHaveBeenCalledTimes(2)
-    expect(generate.mock.calls[0]?.[0].repairAttempt).toBe(0)
-    expect(generate.mock.calls[1]?.[0].repairAttempt).toBe(1)
-    expect(generate.mock.calls[1]?.[0].systemInstruction).toContain(PROMPTS['repair.v1'])
-    expect(generate.mock.calls[1]?.[0].task.repair_context).toMatchObject({
-      validator_errors: expect.arrayContaining([
-        expect.objectContaining({ code: 'RESULT_SCHEMA_MINITEMS' }),
-      ]),
+    const generate = vi.fn(async (invocation: AgentModelInvocation) => {
+      expect(invocation.repairAttempt).toBe(0)
+      return {
+        kind: 'TEXT' as const,
+        text: JSON.stringify(semanticResult(invalid)),
+      }
     })
+
+    await expect(dispatchAgentTask(
+      task, createModelExecutors({ generate }, APPROVED_MODEL),
+    )).rejects.toMatchObject({ code: 'RESULT_SCHEMA_INVALID' })
+
+    expect(generate).toHaveBeenCalledTimes(1)
+    expect(generate.mock.calls[0]?.[0].repairAttempt).toBe(0)
   })
 
-  it('repairs incomplete Candidate Audit coverage before returning a final event', async () => {
+  it('returns partial Candidate Audit coverage after one model generation', async () => {
     const { task, result } = completeFixture('CANDIDATE_AUDIT')
     const invalid = structuredClone(result)
     if (!invalid.payload || typeof invalid.payload !== 'object' || Array.isArray(invalid.payload)) {
       throw new Error('candidate audit fixture payload is invalid')
     }
     invalid.payload = { ...invalid.payload, candidate_audits: [] }
-    const generate = vi.fn(async (invocation: AgentModelInvocation) => ({
+    const generate = vi.fn(async () => ({
       kind: 'TEXT' as const,
-      text: JSON.stringify(semanticResult(invocation.repairAttempt === 0 ? invalid : result)),
+      text: JSON.stringify(semanticResult(invalid)),
     }))
 
-    const repaired = await dispatchAgentTask(
+    const partial = await dispatchAgentTask(
       task,
       createModelExecutors({ generate }, APPROVED_MODEL),
     )
 
-    expect(repaired).toEqual(result)
-    expect(generate).toHaveBeenCalledTimes(2)
-    expect(generate.mock.calls[1]?.[0].task.repair_context).toMatchObject({
-      validator_errors: expect.arrayContaining([
-        expect.objectContaining({ code: 'CANDIDATE_AUDIT_COVERAGE_INVALID' }),
-      ]),
-    })
+    expect(partial).toEqual(invalid)
+    expect(generate).toHaveBeenCalledTimes(1)
   })
 
-  it('repairs an empty Proposal result when eligible candidate sources were supplied', async () => {
+  it('returns Proposal abstention after one model generation', async () => {
     const { task, result } = completeFixture('PROPOSE_INDEPENDENT')
     const invalid = {
       ...result,
@@ -158,32 +147,26 @@ describe('local model-backed Agent executors', () => {
       payload: null,
       reason_codes: ['INSUFFICIENT_CONTEXT'],
     }
-    const generate = vi.fn(async (invocation: AgentModelInvocation) => ({
+    const generate = vi.fn(async () => ({
       kind: 'TEXT' as const,
-      text: JSON.stringify(semanticResult(invocation.repairAttempt === 0 ? invalid : result)),
+      text: JSON.stringify(semanticResult(invalid)),
     }))
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
 
     try {
-      const repaired = await dispatchAgentTask(
+      const abstained = await dispatchAgentTask(
         task,
         createModelExecutors({ generate }, APPROVED_MODEL),
       )
 
-      expect(repaired).toEqual(result)
-      expect(generate).toHaveBeenCalledTimes(2)
-      expect(generate.mock.calls[1]?.[0].task.repair_context).toMatchObject({
-        validator_errors: expect.arrayContaining([
-          expect.objectContaining({ code: 'PROPOSAL_COUNT_INVALID' }),
-        ]),
-      })
+      expect(abstained).toEqual(invalid)
+      expect(generate).toHaveBeenCalledTimes(1)
       const events = info.mock.calls.map(([line]) => JSON.parse(String(line)))
       expect(events.at(-1)).toMatchObject({
         event: 'AGENT_RESULT_VALIDATION',
         task_type: 'PROPOSE_INDEPENDENT',
-        repair_attempt: 1,
+        repair_attempt: 0,
         outcome: 'VALID',
-        candidate_proposal_count: 1,
       })
     } finally {
       info.mockRestore()

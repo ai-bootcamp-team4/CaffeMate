@@ -178,7 +178,7 @@ Control API가 수용하는 final event는 다음 조건을 모두 만족해야 
 - 사용자 token, MCP credential, database credential과 raw secret을 Agent 입력에 넣지 않는다.
 - runtime의 Agent identity에는 모델 호출과 자체 session 외에 MCP, Cloud SQL, BigQuery, Cloud Storage, Secret Manager 권한을 주지 않는다.
 
-전송 adapter는 `AgentTask` 검증·digest 재계산, session 수명주기, IAM 호출, final event 선택, JSON parsing, `AgentTaskResult`와 의미 규칙 검증을 담당한다. 모델에는 역할 수행에 필요한 `task_type`, payload, input artifact, 허용 tool catalog와 repair context만 투영한다. task·invocation·project·full head·digest·output Schema 같은 불변 envelope는 모델이 생성하지 않으며 Runtime이 검증된 `AgentTask`에서 결합한다. session event 전문은 일반 log에 남기지 않고 trace id·latency·status·digest만 남긴다.
+전송 adapter는 `AgentTask` 검증·digest 재계산, session 수명주기, IAM 호출, final event 선택, JSON parsing과 `AgentTaskResult` 구조 검증을 담당한다. 모델에는 역할 수행에 필요한 `task_type`, payload, input artifact와 허용 tool catalog만 투영한다. task·invocation·project·full head·digest·output Schema 같은 불변 envelope는 모델이 생성하지 않으며 Runtime이 검증된 `AgentTask`에서 결합한다. 제품 의미·권한·참조 검증은 Control API의 단일 boundary가 담당한다. session event 전문은 일반 log에 남기지 않고 trace id·latency·status·digest만 남긴다.
 
 ## 5. 논리 요청 계약
 
@@ -193,7 +193,7 @@ task_type: registered task
 workflow_run_id: required
 stage_run_id: required
 transport_attempt: 1..3
-repair_attempt: 0..1
+repair_attempt: 0
 venture_project_id: required
 head_fence: full immutable input fence
 prompt_version: required
@@ -229,7 +229,7 @@ trace_context: optional W3C trace context
 - `input_artifacts`는 id·kind·version·digest를 기록한다. Agent가 id만으로 저장소를 다시 읽지는 않는다.
 - 실제 판단에 필요한 내용은 검증된 `payload`에 inline으로 전달한다.
 - Proposal 입력은 frozen Evidence Snapshot과 등록 seed·brand universe만 포함한다.
-- `proposal-agent.v3`는 후보마다 자금·운영·사용자 선호·상권·근거 완성도 관점을 정확히 한 번씩 반환한다. 각 관점은 숫자 점수가 아닌 typed signal이며, 공급된 State 필드·Claim·Evidence·가정 참조 또는 `missing_context`에 연결한다.
+- `proposal-agent.v3`는 후보마다 자금·운영·사용자 선호·상권·근거 완성도 관점을 최대 다섯 개의 typed signal로 반환할 수 있다. 일부 관점이 빠져도 후보 전체를 폐기하지 않고 미확인 정보로 남긴다.
 - Proposal의 관점별 signal은 계산·Hard Gate·순위·주력 후보 선택이 아니다. 이 권한은 계속 Control API의 결정론적 단계에만 있다.
 - Evidence Assessment 입력은 Control API가 실행하고 검증한 tool result만 포함한다.
 - Document 입력은 한 revision의 허용 parser block·anchor만 포함한다.
@@ -316,7 +316,7 @@ GCP transport success
 → task·invocation·agent·type·venture project·full head·digest echo
 → registered role payload Schema
 → Evidence and artifact reference subset
-→ semantic support validator
+→ Control API authority and reference boundary
 → product Guardrail
 → downstream deterministic calculation
 ```
@@ -344,8 +344,6 @@ JSON Schema가 두 필드 사이의 동일성, 배열 참조의 포함관계와 
 | `FRANCHISE_ELIGIBILITY_UNVERIFIED` | 순위가 있는 프랜차이즈의 개인 가맹 가능 여부가 근거와 함께 `VERIFIED`인가 | `EXCLUDED`, rank null |
 | `MONEY_RANGE_NON_MONOTONIC` | 알려진 비용 범위가 `low <= base <= high`인가 | 후보 계산 실패 |
 | `MATERIAL_PROVENANCE_MISSING` | 추천 후보의 초기비용·고정비와 계산 입력에 material provenance가 있는가 | 최대 `CONDITIONAL_REVIEW` |
-| `PROPOSAL_FIT_AXES_INVALID` | `proposal-agent.v3`가 다섯 fit 관점을 누락·중복 없이 정확히 한 번씩 반환했는가 | 결과 폐기 |
-| `PROPOSAL_FIT_BASIS_MISSING` | 각 fit 관점이 입력 필드·Claim·Evidence·가정 또는 missing context에 연결됐는가 | 결과 폐기 |
 | `RANK_INVARIANT_VIOLATION` | hard Gate 통과 집합과 조건부 검토 집합이 섞이지 않고 rank가 연속·유일한가 | 전체 rank 재계산 |
 
 `UNALLOCATED_OUTPUT_ID`를 피하기 위해 backend가 Intent의 `operation_id_pool`, Evidence plan의 `action_id_pool`, Proposal seed·brand의 `proposal_id`, 문서 추출의 `claim_id_pool`을 입력에 미리 넣는다. Agent는 새 domain id를 만들지 않는다. transport의 `invocation_id`만 adapter가 물리 호출마다 발급한다.
@@ -357,7 +355,7 @@ JSON Schema가 두 필드 사이의 동일성, 배열 참조의 포함관계와 
 - `task_id`: 같은 Workflow generation 안의 논리 stage에 고정
 - `invocation_id`: 실제 GCP 호출마다 새 값
 - `transport_attempt`: 같은 logical input의 initial call과 408·429·5xx·network retry를 `1..3`으로 구분
-- `repair_attempt`: 원 호출은 `0`, schema repair 호출만 `1`
+- `repair_attempt`: 현재 실행 경로는 항상 `0`; `1`은 과거 계약 호환을 위해 Schema에만 남아 있으며 Runtime은 수용하지 않음
 - `input_digest`: payload, fence, schema와 prompt version을 포함한 canonical digest
 
 Agent 호출은 side effect가 없으므로 동일 `task_id`가 둘 이상 실행돼도 State를 바꾸지 않는다.
@@ -369,15 +367,13 @@ Control API는 `(task_id, input_digest)`와 current full head를 검증하여 �
 | 실패 | 재시도 | 처리 |
 | --- | ---: | --- |
 | network, HTTP 408·429·5xx | 최대 2회 | 새 `invocation_id`, 같은 `task_id`·digest, `transport_attempt` 증가 |
-| JSON parse·Schema 실패 | repair 1회 | 새 invocation에 이전 response text·digest와 제한된 validator error를 `repair_context`로 전달 |
+| JSON parse·Schema 실패 | 0회 | `RUNTIME_RESULT_SCHEMA_INVALID`; 해당 역할 분기만 실패 처리 |
 | safety block | 0회 | `SAFETY_BLOCKED` |
 | HTTP 400·401·403 | 0회 | 설정·권한 오류로 실패 |
 | fence·ACL·unsupported ref | 0회 | 즉시 폐기 |
 | deadline 초과 | 0회 | `TIMED_OUT`, session stream 종료, 늦은 결과 폐기 |
 
-transport backoff는 250ms, 750ms이고 invocation id에서 파생한 0~100ms jitter를 더한다. 429의 `Retry-After`는 2초 이하이면서 남은 deadline 안에 있을 때만 우선한다. Runtime 내부 session 생성, run, 삭제, response validation, repair와 cleanup enqueue까지 모두 `deadline_at` 예산에 포함하며 각 호출 직전에 남은 시간이 2초 미만이면 재시도하지 않는다. ephemeral stream은 현재 남은 logical deadline에서 durable cleanup enqueue용 2초를 제외한 값만 timeout으로 사용한다. 따라서 60초 task가 transport의 30초 상한으로 조용히 잘리지 않는다. stream이 중단되거나 Runtime이 삭제 실패를 명시하면 Control API는 해당 invocation의 deterministic session id를 cleanup outbox에 넣고 원래 실패를 보존한다.
-
-repair는 같은 session 이력에 의존하지 않는다. `repair_context`에 직전 응답 text, 그 SHA-256 digest와 최대 50개 validator error가 반드시 들어간다. 두 번째 schema 실패는 기권으로 끝나며 세 번째 생성 호출은 없다.
+transport backoff는 250ms, 750ms이고 invocation id에서 파생한 0~100ms jitter를 더한다. 429의 `Retry-After`는 2초 이하이면서 남은 deadline 안에 있을 때만 우선한다. Runtime 내부 session 생성, run, 삭제, response validation과 cleanup enqueue까지 모두 `deadline_at` 예산에 포함하며 각 호출 직전에 남은 시간이 2초 미만이면 재시도하지 않는다. ephemeral stream은 현재 남은 logical deadline에서 durable cleanup enqueue용 2초를 제외한 값만 timeout으로 사용한다. 따라서 60초 task가 transport의 30초 상한으로 조용히 잘리지 않는다. stream이 중단되거나 Runtime이 삭제 실패를 명시하면 Control API는 해당 invocation의 deterministic session id를 cleanup outbox에 넣고 원래 실패를 보존한다.
 
 Agent invocation이 호출자 연결 종료나 내부 운영 취소로 폐기된 뒤 도착한 결과는 full head가 같아도
 적용하지 않는다. 그 외 결과도 current full head의 여덟 차원이 모두 요청과 같을 때만 수용한다.
@@ -577,10 +573,9 @@ Evidence Researcher는 MCP 결과의 scope, 날짜, 원문 위치와 출처 권�
 후보의 근거 누락과 위험 표현을 검사한다. 최종 비용 계산, 자금 판정, 순위와 저장은 계속 Control API가
 담당한다.
 
-`EVIDENCE_ASSESS`에 전달한 제한된 Evidence 후보는 모두 정확히 한 번씩 평가해야 한다. 일부 후보의
-생략이나 중복 평가는 유효한 완료가 아니며 같은 Agent의 validator-guided repair 대상으로 처리한다.
-이 규칙은 검색 결과를 자동 승인하는 규칙이 아니라, 모델의 출력 누락을 근거 부재로 잘못 해석하지
-않기 위한 응답 완전성 계약이다.
+`EVIDENCE_ASSESS`는 반환한 평가 행만 검증하고 freeze한다. 일부 후보가 생략되면 근거 부재로
+단정하지 않고 미평가 상태로 남긴다. Evidence Researcher가 실패해도 기존에 검증된 근거는 보존하며,
+다른 Proposal 분기는 계속 실행한다.
 
 ### 9.2 RESULT_FEEDBACK
 
@@ -631,7 +626,8 @@ Vertex가 `MAX_TOKENS` 또는 다른 불완전 finish reason을 반환하면 부
 않는다. 이는 같은 입력을 반복해도 회복되지 않는 terminal model-output failure이므로 Runtime은
 HTTP 422로 분류하고 Control API는 transport retry를 실행하지 않는다. 408·429·5xx와 네트워크
 장애만 새 invocation·session을 사용하는 bounded transport retry 대상이다. schema-valid text의
-Schema·echo·의미 오류만 같은 Agent의 단일 validator-guided repair 대상이다.
+Schema·echo·의미 오류는 같은 Agent에 재생성을 요청하지 않는다. 구조 오류는 해당 역할 실패로,
+권한·참조·full-head 위반은 즉시 치명적 경계 오류로 처리한다.
 
 ### 9.3 DOCUMENT_UPDATE
 
@@ -655,7 +651,7 @@ validated parser blocks
 | `CP-001` | 정상 Proposal | `status=COMPLETE`, 정확한 role payload·지원 ref만 반환하고 expected result와 일치 |
 | `CP-002` | full head 여덟 차원을 각각 하나씩 변경 | 모든 case에서 current State write 0 |
 | `CP-003` | Agent가 pool 밖 id·Evidence id 생성 | `UNALLOCATED_OUTPUT_ID` 또는 `UNSUPPORTED_REFERENCE`로 폐기 |
-| `CP-004` | schema-invalid output | 새 session repair에 이전 text·digest·validator error가 전달되고 2차 실패 후 partial commit 0 |
+| `CP-004` | schema-invalid output | 추가 모델 호출 없이 해당 역할이 실패하고, 다른 사용 가능한 분기는 계속 실행 |
 | `CP-005` | 같은 task 중복 완료 | 첫 valid result만 수용 |
 | `CP-006` | 폐기된 Agent invocation의 결과가 뒤늦게 도착 | `LATE_DISCARDED`, current write 0 |
 | `CP-007` | MCP scope token project 불일치 | 403, retrieval result 0 |

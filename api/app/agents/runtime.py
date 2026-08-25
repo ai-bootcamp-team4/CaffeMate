@@ -123,14 +123,6 @@ class _RetryableTransportError(Exception):
         self.retry_after_seconds = retry_after_seconds
 
 
-class _RepairableResultError(Exception):
-    def __init__(self, response_text: str, validator_errors: list[dict[str, str]]) -> None:
-        super().__init__("RUNTIME_RESULT_REPAIR_REQUIRED")
-        self.response_text = response_text
-        self.validator_errors = validator_errors
-        self.invocation_id: str | None = None
-
-
 class _HardRuntimeDeadlineError(AgentRuntimeError):
     pass
 
@@ -253,14 +245,9 @@ class AgentRuntimeHttpClient:
                 traced_task["trace_context"] = carrier
             started_at = time.monotonic()
             try:
-                try:
-                    result = self._invoke_logical(traced_task)
-                except _RepairableResultError as first_error:
-                    repair_task = self._build_repair_task(traced_task, first_error)
-                    try:
-                        result = self._invoke_with_transport_retries(repair_task)
-                    except _RepairableResultError as second_error:
-                        raise AgentRuntimeError("RUNTIME_RESULT_SCHEMA_INVALID") from second_error
+                # 사용자 의도: 잘못된 LLM 출력을 같은 모델에 다시 보내 호출 수를 증폭하지 않는다.
+                # 일시적인 전송 오류만 재시도하고, 출력 구조 오류는 한 번에 드러낸다.
+                result = self._invoke_logical(traced_task)
             except Exception as error:
                 span.record_exception(error)
                 record_safe_metric(
@@ -305,9 +292,6 @@ class AgentRuntimeHttpClient:
             self._contracts.validate_agent_task(current_task)
             try:
                 return self._invoke_once(current_task)
-            except _RepairableResultError as error:
-                error.invocation_id = current_task["invocation_id"]
-                raise
             except _RetryableTransportError as error:
                 if attempt == 3 or self._remaining_seconds(current_task) < 2:
                     raise AgentRuntimeError(error.runtime_code) from error
@@ -361,80 +345,14 @@ class AgentRuntimeHttpClient:
         try:
             result = json.loads(response_text)
         except json.JSONDecodeError as error:
-            raise _RepairableResultError(
-                response_text,
-                [
-                    {
-                        "code": "JSON_PARSE_FAILED",
-                        "json_pointer": "",
-                        "message": "Response is not one valid JSON object",
-                    }
-                ],
-            ) from error
+            raise AgentRuntimeError("RUNTIME_RESULT_SCHEMA_INVALID") from error
         if not isinstance(result, dict):
-            raise _RepairableResultError(
-                response_text,
-                [
-                    {
-                        "code": "JSON_OBJECT_REQUIRED",
-                        "json_pointer": "",
-                        "message": "Response root must be an object",
-                    }
-                ],
-            )
+            raise AgentRuntimeError("RUNTIME_RESULT_SCHEMA_INVALID")
         try:
             self._contracts.validate_agent_task_result(result)
         except ContractValidationError as error:
-            validation_errors = self._result_validation_errors(result, error)
-            raise _RepairableResultError(response_text, validation_errors) from error
+            raise AgentRuntimeError("RUNTIME_RESULT_SCHEMA_INVALID") from error
         return result
-
-    def _result_validation_errors(
-        self,
-        result: dict[str, Any],
-        fallback_error: ContractValidationError,
-    ) -> list[dict[str, str]]:
-        collector = getattr(self._contracts, "agent_task_result_errors", None)
-        if callable(collector):
-            errors = collector(result)
-            if errors:
-                return list(errors[:50])
-        return [
-            {
-                "code": "AGENT_RESULT_SCHEMA_INVALID",
-                "json_pointer": "",
-                "message": str(fallback_error)[:500] or "Agent result Schema validation failed",
-            }
-        ]
-
-    def _build_repair_task(
-        self,
-        original_task: dict[str, Any],
-        error: _RepairableResultError,
-    ) -> dict[str, Any]:
-        self._ensure_retry_budget(original_task)
-        previous_text = error.response_text
-        if not previous_text:
-            previous_text = "null"
-        previous_text = previous_text[:65536]
-        repair_task = deepcopy(original_task)
-        repair_task["repair_attempt"] = 1
-        repair_task["transport_attempt"] = 1
-        repair_task["repair_of_invocation_id"] = (
-            error.invocation_id or original_task["invocation_id"]
-        )
-        repair_task["invocation_id"] = self._new_invocation_id()
-        repair_task["repair_context"] = {
-            "previous_response_text": previous_text,
-            "previous_response_digest": (
-                f"sha256:{hashlib.sha256(previous_text.encode()).hexdigest()}"
-            ),
-            "validator_errors": error.validator_errors[:50],
-        }
-        if repair_task["input_digest"] != compute_agent_input_digest(repair_task):
-            raise AgentRuntimeError("RUNTIME_REPAIR_DIGEST_CHANGED")
-        self._contracts.validate_agent_task(repair_task)
-        return repair_task
 
     def _stream_query(
         self,
