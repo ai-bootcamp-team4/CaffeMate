@@ -654,13 +654,13 @@ report = rows[0]["jsonPayload"]
 assert report["status"] == "verified"
 assert report["requested_cafe_type_preference"] == "OPEN_TO_BOTH"
 assert report["workflow_status"] == "SUCCEEDED"
-assert report["stage_count"] == 1
+assert report["stage_count"] == 6
 assert report["max_stage_attempt"] == 1
 assert report["elapsed_ms"] <= 120_000, report
 assert report["candidate_count"] >= 1
 assert {"INDEPENDENT", "FRANCHISE"} <= set(report.get("candidate_case_types", [])), report
 assert report["result_freshness"] == "CURRENT"
-print("PASS FIRST_PROPOSAL completed the single RUN_PROPOSAL stage")
+print("PASS FIRST_PROPOSAL completed all six public progress checkpoints")
 PY
 unset canary_reports
 
@@ -692,7 +692,7 @@ report = rows[0]["jsonPayload"]
 assert report["status"] == "verified"
 assert report["requested_cafe_type_preference"] == "FRANCHISE_ONLY"
 assert report["workflow_status"] == "SUCCEEDED"
-assert report["stage_count"] == 1
+assert report["stage_count"] == 6
 assert report["max_stage_attempt"] == 1
 assert report["elapsed_ms"] <= 120_000, report
 assert report["candidate_count"] >= 1

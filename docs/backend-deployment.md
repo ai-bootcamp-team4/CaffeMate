@@ -82,8 +82,10 @@ digest-pinned image·source revision 설정을 모두 read-back해야 한다.
 
 API와 Worker runtime은 migration이 검증된 같은 digest를 사용한다. API만 Cloud Run IAM에서
 공개 호출을 허용하고 모든 업무 endpoint는 Firebase ID token을 다시 검사한다. Worker는 internal
-ingress를 유지하며 Scheduler와 Worker identity만 invoker다. 사용자 제안은 Control API가 한
-transaction에서 동기 실행하므로 Worker, Pub/Sub 또는 Outbox를 거치지 않는다.
+ingress를 유지하며 Scheduler와 Pub/Sub push identity만 invoker다. 첫 제안은 Control API가
+Workflow·progress row·Outbox를 transaction으로 저장한 뒤 Pub/Sub로 Worker에 전달한다. Worker는
+DB lease와 heartbeat를 소유하고 Worker identity로 Control API 내부 실행 endpoint를 호출하며,
+최종 결과는 Control API가 authoritative transaction으로 저장한다.
 
 Agent Runtime release는 임의의 로컬 작업 트리를 배포하지 않는다. 요청한 full commit SHA가
 깨끗한 현재 checkout 및 `origin/main`과 일치해야 한다. Cloud Build는 로컬 업로드를 빌드하지
@@ -194,8 +196,8 @@ Migration job은 API 시작 명령을 사용하지 않고 `caffemate-api migrate
 4. API `/health`가 외부 요청에서 HTTP 200이고 Worker `/health`가 외부 요청을 거절함
 5. API 업무 endpoint의 무인증 요청이 거절됨
 6. Worker 업무 endpoint가 internet과 권한 없는 identity에서 거절됨
-7. 단일 `RUN_PROPOSAL` 실행이 `SUCCEEDED` 결과를 만들고 Agent session cleanup Scheduler가
-   Worker 내부 endpoint에서 HTTP 200을 반환함
+7. `RUN_PROPOSAL` lease 실행이 여섯 개의 공개 progress checkpoint를 완료해 `SUCCEEDED` 결과를
+   만들고 Agent session cleanup Scheduler가 Worker 내부 endpoint에서 HTTP 200을 반환함
 8. Control API identity로 Agent Runtime ephemeral stream의 session 생성·실행·typed final 검증·삭제 성공
 9. regional document bucket의 public access prevention·CORS·최소 권한 IAM read-back과,
    signed upload → object 검증 → scan 결과 → parser 결과 → 실제 `DOCUMENT_EXTRACT` Agent →

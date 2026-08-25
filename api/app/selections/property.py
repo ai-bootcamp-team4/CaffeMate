@@ -1,4 +1,4 @@
-"""사용자가 입력한 실제 점포 조건은 선택 후보 비용을 즉시 다시 계산해야 한다."""
+"""사용자가 입력한 실제 점포 조건은 저장 후 durable 재계산 Workflow를 시작한다."""
 
 import hashlib
 import json
@@ -23,7 +23,6 @@ from app.domain.reducer import reduce_venture_state
 from app.selections.models import PropertyTermsApplication, PropertyTermsInput
 from app.workflows.models import HeadFence
 from app.workflows.selective_start import start_selective_first_proposal
-from app.workflows.simple_proposal import PropertyCostOverride
 
 
 class PropertyTermsService:
@@ -232,14 +231,6 @@ class PropertyTermsService:
                 previous_head=previous_head,
                 now=occurred_at,
                 new_id=self._new_id,
-                property_cost_override=PropertyCostOverride(
-                    property_input_id=property_input_id,
-                    source_id=source_id,
-                    deposit_krw=terms.deposit_krw,
-                    monthly_rent_krw=terms.monthly_rent_krw,
-                    management_fee_krw=terms.management_fee_krw,
-                    key_money_krw=terms.key_money_krw,
-                ),
             )
             previous_financial_summary = candidate.get("financial_summary")
             if not isinstance(previous_financial_summary, dict):

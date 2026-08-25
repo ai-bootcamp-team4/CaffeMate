@@ -15,6 +15,7 @@ from app.domain.errors import (
     WorkflowPreconditionError,
 )
 from app.domain.models import VentureState
+from app.workflows.async_persistence import enqueue_first_proposal
 from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import (
     HeadFence,
@@ -23,7 +24,11 @@ from app.workflows.models import (
     WorkflowRun,
     WorkflowStageProgress,
 )
-from app.workflows.persistence import persist_completed_first_proposal
+from app.workflows.progress import FIRST_PROPOSAL_PROGRESS_STAGES
+
+PROGRESS_STAGE_ORDER = {
+    stage.value: index for index, stage in enumerate(FIRST_PROPOSAL_PROGRESS_STAGES)
+}
 
 
 class PostgresWorkflowRepository:
@@ -90,14 +95,27 @@ class PostgresWorkflowRepository:
                     workflow_run_id=workflow_run_id,
                     user_id=command.user_id,
                 )
-            run = persist_completed_first_proposal(
+            active = self._load_current_active_workflow(
+                connection,
+                project_id=command.project_id,
+                user_id=command.user_id,
+            )
+            if active is not None:
+                self._complete_idempotency(
+                    connection,
+                    user_id=command.user_id,
+                    operation=operation,
+                    idempotency_key=command.idempotency_key,
+                    workflow_run_id=active.workflow_run_id,
+                )
+                return active
+            run = enqueue_first_proposal(
                 connection,
                 project_id=command.project_id,
                 user_id=command.user_id,
                 state=state,
                 policy_snapshot_id=self._policy_snapshot_id,
                 seed_registry_id=self._seed_registry_id,
-                pipeline=self._pipeline,
                 now=self._now(),
                 new_id=self._new_id,
             )
@@ -131,19 +149,29 @@ class PostgresWorkflowRepository:
                            result_json, failure_json, updated_at, completed_at
                     FROM stage_runs
                     WHERE workflow_run_id=:workflow_run_id
-                    ORDER BY created_at, stage_code
+                      AND stage_code <> 'RUN_PROPOSAL'
                     """
                 ),
                 {"workflow_run_id": workflow_run_id},
             ).mappings().all()
+            internal_failure = connection.execute(
+                text(
+                    "SELECT failure_json FROM stage_runs "
+                    "WHERE workflow_run_id=:workflow_run_id AND stage_code='RUN_PROPOSAL'"
+                ),
+                {"workflow_run_id": workflow_run_id},
+            ).scalar_one_or_none()
+        rows = sorted(rows, key=lambda row: PROGRESS_STAGE_ORDER.get(str(row["stage_code"]), 999))
         stages = [self._stage_from_row(row) for row in rows]
-        terminal_reasons = sorted(
-            {
-                stage.failure_code
-                for stage in stages
-                if isinstance(stage.failure_code, str)
-            }
-        )
+        terminal_reasons = {
+            stage.failure_code
+            for stage in stages
+            if isinstance(stage.failure_code, str)
+        }
+        if run.status.value == "FAILED" and isinstance(internal_failure, dict):
+            internal_code = internal_failure.get("code")
+            if isinstance(internal_code, str):
+                terminal_reasons.add(internal_code)
         return WorkflowProgress(
             **run.model_dump(),
             stages=stages,
@@ -157,8 +185,13 @@ class PostgresWorkflowRepository:
                 if stage.status.value in {"READY", "RUNNING"}
             ],
             human_review_requests=[],
-            terminal_reason_codes=terminal_reasons,
-            poll_after_ms=None,
+            terminal_reason_codes=sorted(terminal_reasons),
+            poll_after_ms=(
+                None
+                if run.status.value
+                in {"SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED", "STALE", "WAITING_FOR_HUMAN"}
+                else 750
+            ),
         )
 
     @staticmethod
@@ -195,6 +228,35 @@ class PostgresWorkflowRepository:
                 raise ProjectNotFoundError("Project does not exist")
             raise WorkflowPreconditionError("Onboarding State must exist before workflow start")
         return VentureState.model_validate(row)
+
+    @staticmethod
+    def _load_current_active_workflow(
+        connection: Connection,
+        *,
+        project_id: str,
+        user_id: str,
+    ) -> WorkflowRun | None:
+        row = connection.execute(
+            text(
+                """
+                SELECT workflow.*
+                FROM workflow_runs workflow
+                JOIN venture_projects project ON project.project_id=workflow.project_id
+                WHERE workflow.project_id=:project_id
+                  AND project.owner_user_id=:user_id
+                  AND workflow.workflow_code='FIRST_PROPOSAL'
+                  AND workflow.status IN ('QUEUED', 'RUNNING')
+                  AND workflow.source_workflow_run_id IS NULL
+                  AND workflow.workflow_generation=project.workflow_generation
+                  AND workflow.state_version=project.current_state_version
+                ORDER BY workflow.created_at DESC, workflow.workflow_run_id DESC
+                LIMIT 1
+                FOR UPDATE OF workflow
+                """
+            ),
+            {"project_id": project_id, "user_id": user_id},
+        ).mappings().one_or_none()
+        return PostgresWorkflowRepository._workflow_from_row(row) if row is not None else None
 
     @staticmethod
     def _load_owned_workflow(

@@ -2,16 +2,20 @@
 
 ## 실제 trace 경계
 
-`FIRST_PROPOSAL`의 실제 동기 요청 경로는 다음과 같다.
+`FIRST_PROPOSAL`의 실제 실행 경로는 다음과 같다.
 
 ```text
-Control API
+Control API (QUEUED workflow + outbox)
+→ Worker (lease + heartbeat)
+→ Control API internal execute
 → MCP / RAG
 → Agent Runtime
 → Vertex AI Gemini
 ```
 
-Worker는 `FIRST_PROPOSAL` 실행 경로에 없다. Worker가 처리하는 Agent session cleanup과 dead-letter 작업은 각 요청에서 시작하는 독립 trace로 관측한다. 이 구분을 지키면 존재하지 않는 API→Worker 호출을 발표나 대시보드에서 암시하지 않는다.
+Worker는 비즈니스 판단을 하지 않고 durable delivery와 lease 생명주기만 소유한다. 실제 MCP·Agent
+호출과 결정론적 계산은 Control API internal execute에서 수행한다. Agent session cleanup과
+dead-letter 작업은 workflow 실행과 별도의 운영 trace로 관측한다.
 
 각 AgentTask는 Control API에서 생성한 W3C `traceparent`를 포함한다. Agent Runtime은 그 context를 부모로 사용해 역할 실행 span을 만들고, Gemini `generateContent` 호출은 그 자식 span이 된다. 병렬 Proposal Agent 실행은 각각 별도 자식 span이지만 동일한 요청 trace에 속한다.
 

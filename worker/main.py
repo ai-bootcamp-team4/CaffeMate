@@ -1,4 +1,4 @@
-"""백그라운드 서비스는 문서 정리와 운영 Outbox만 처리하며 제안 단계를 실행하지 않는다."""
+"""백그라운드 서비스는 workflow delivery, lease와 운영 Outbox를 처리한다."""
 
 import os
 from collections.abc import AsyncIterator
@@ -9,8 +9,10 @@ from app.agents.runtime import GoogleAccessTokenProvider
 from app.database import DatabaseHandle, create_database_handle
 from app.observability import SafeTracingMiddleware, configure_cloud_trace, tracer
 from app.settings import RuntimeSettings
+from app.workflows.dispatch import PostgresPubSubWorkflowDispatcher, WorkflowDispatcher
+from app.workflows.lease import PostgresWorkflowLeaseRepository
 from fastapi import FastAPI, Query, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from worker.agent_cleanup import (
@@ -18,6 +20,7 @@ from worker.agent_cleanup import (
     AgentSessionCleanupConsumer,
     CleanupOutcome,
 )
+from worker.control_api import ControlApiWorkflowProcessor, GoogleIdentityTokenProvider
 from worker.dead_letter import (
     DeadLetterOperationError,
     DeadLetterOperations,
@@ -27,6 +30,12 @@ from worker.dead_letter import (
     UnavailableDeadLetterOperations,
 )
 from worker.outbox import PostgresOutboxRepository
+from worker.pubsub import (
+    InvalidPubSubEnvelopeError,
+    PubSubDelivery,
+    decode_push_envelope,
+)
+from worker.workflow_runtime import DurableWorkflowWorker, WorkerRetryRequiredError
 
 
 class SessionCleanupHandler(Protocol):
@@ -44,6 +53,10 @@ class DeadLetterHandler(Protocol):
     ) -> DeadLetterReprocessResult: ...
 
 
+class WorkflowDeliveryHandler(Protocol):
+    def handle(self, delivery: PubSubDelivery) -> object: ...
+
+
 class AgentCleanupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -59,6 +72,17 @@ class AgentCleanupResponse(BaseModel):
     drained: bool
 
 
+class OutboxPublishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class OutboxPublishResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    published: int = Field(ge=0)
+    drained: bool
+
+
 class OutboxConfigurationUnavailableError(RuntimeError):
     pass
 
@@ -68,10 +92,18 @@ class UnavailableSessionCleanupHandler:
         raise OutboxConfigurationUnavailableError("Agent cleanup is not configured")
 
 
+class UnavailableWorkflowDeliveryHandler:
+    def handle(self, delivery: PubSubDelivery) -> object:
+        del delivery
+        raise OutboxConfigurationUnavailableError("Workflow delivery is not configured")
+
+
 def create_worker_app(
     *,
     cleanup_consumer: SessionCleanupHandler | None = None,
     dead_letter_operations: DeadLetterHandler | None = None,
+    workflow_delivery_handler: WorkflowDeliveryHandler | None = None,
+    workflow_dispatcher: WorkflowDispatcher | None = None,
 ) -> FastAPI:
     settings = RuntimeSettings.from_environment()
     configure_cloud_trace(
@@ -108,6 +140,41 @@ def create_worker_app(
     else:
         dead_letters = UnavailableDeadLetterOperations()
 
+    if workflow_delivery_handler is not None:
+        workflow_delivery = workflow_delivery_handler
+    elif (
+        database_handle is not None
+        and settings.control_api_url
+        and settings.control_api_audience
+        and settings.worker_id
+    ):
+        workflow_delivery = DurableWorkflowWorker(
+            PostgresWorkflowLeaseRepository(database_handle.engine),
+            ControlApiWorkflowProcessor(
+                base_url=settings.control_api_url,
+                audience=settings.control_api_audience,
+                token_provider=GoogleIdentityTokenProvider(),
+            ),
+            worker_id=settings.worker_id,
+        )
+    else:
+        workflow_delivery = UnavailableWorkflowDeliveryHandler()
+
+    if workflow_dispatcher is not None:
+        pending_workflows = workflow_dispatcher
+    elif (
+        database_handle is not None
+        and settings.workflow_stage_topic_resource
+        and settings.worker_id
+    ):
+        pending_workflows = PostgresPubSubWorkflowDispatcher(
+            database_handle.engine,
+            topic_resource=settings.workflow_stage_topic_resource,
+            publisher_id=settings.worker_id,
+        )
+    else:
+        pending_workflows = None
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         try:
@@ -122,6 +189,67 @@ def create_worker_app(
     @app.get("/health", tags=["operations"])
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.post(
+        "/internal/v1/pubsub/workflow-stages",
+        status_code=status.HTTP_204_NO_CONTENT,
+        response_model=None,
+        tags=["internal"],
+    )
+    def consume_workflow_stage(body: dict[str, object]) -> Response | JSONResponse:
+        if not settings.pubsub_subscription:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"code": "WORKFLOW_SUBSCRIPTION_UNAVAILABLE"},
+            )
+        try:
+            delivery = decode_push_envelope(
+                body,
+                expected_subscription=settings.pubsub_subscription,
+            )
+            workflow_delivery.handle(delivery)
+        except InvalidPubSubEnvelopeError:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"code": "INVALID_WORKFLOW_DELIVERY"},
+            )
+        except WorkerRetryRequiredError:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"code": "WORKFLOW_RETRY_REQUIRED"},
+            )
+        except OutboxConfigurationUnavailableError:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"code": "WORKFLOW_DELIVERY_UNAVAILABLE"},
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.post(
+        "/internal/v1/outbox:publish",
+        response_model=OutboxPublishResponse,
+        tags=["internal"],
+    )
+    def publish_workflow_outbox(
+        request: OutboxPublishRequest,
+    ) -> OutboxPublishResponse | JSONResponse:
+        if pending_workflows is None:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"code": "WORKFLOW_DISPATCH_UNAVAILABLE"},
+            )
+        published = 0
+        try:
+            for _ in range(request.limit):
+                if not pending_workflows.dispatch():
+                    return OutboxPublishResponse(published=published, drained=True)
+                published += 1
+        except Exception:  # noqa: BLE001 - Scheduler must retry transport failures
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"code": "WORKFLOW_DISPATCH_FAILED"},
+            )
+        return OutboxPublishResponse(published=published, drained=False)
 
     @app.post(
         "/internal/v1/agent-sessions:cleanup",

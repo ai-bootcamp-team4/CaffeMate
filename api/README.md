@@ -43,14 +43,18 @@ docker run --rm -p 8081:8080 caffemate-backend:local \
 같은 이미지에서 migration job은 `caffemate-api migrate`를 실행한다. API와 Worker의 업무
 endpoint는 필수 환경과 비밀값이 없으면 `503`으로 실패하며 `/health`만 liveness를 반환한다.
 
-Worker는 사용자 제안을 실행하지 않는다. `WORKER_ID`, `AGENT_RUNTIME_PROJECT_ID`,
-`AGENT_RUNTIME_RESOURCE_ID`와 DB 설정을 사용해 실패한 Agent session 정리와 dead-letter 운영만
-처리한다. 두 endpoint는 public API가 아니며 private Cloud Run IAM 호출만 허용해야 한다.
+Worker는 사용자 제안의 비즈니스 계산을 직접 수행하지 않지만, durable delivery의 queue claim,
+lease와 heartbeat를 소유한다. 실제 제안 파이프라인은 Worker가 service identity로 Control API의
+내부 실행 endpoint를 호출했을 때 Control API에서 실행한다. Worker의 workflow delivery,
+Agent session cleanup과 dead-letter endpoint는 public API가 아니며 private Cloud Run IAM 호출만
+허용해야 한다.
 
 `FIRST_PROPOSAL`은 Control API가 private MCP 조회, Evidence Researcher, 최대 세 개의 병렬
-Proposal Agent, 결정론적 계산과 Candidate Auditor를 한 번의 선형 호출 사슬로 실행한다. stage queue,
-lease, heartbeat와 중복 검증 gate는 사용하지 않으며 실행 기록은 단일 `RUN_PROPOSAL` stage로
-남긴다. Agent 오류를 등록 후보나 정적 결과로 조용히 대체하지 않는다.
+Proposal Agent, 결정론적 계산과 Candidate Auditor를 한 번의 선형 호출 사슬로 실행한다. 공개
+요청은 `QUEUED` workflow와 내부 `RUN_PROPOSAL` 실행 stage, 여섯 개의 사용자용 progress
+checkpoint를 먼저 저장한다. Worker가 lease와 heartbeat를 유지하는 동안 Control API가 계산하고,
+마지막 checkpoint에서 결과를 원자적으로 확정한다. Agent 오류를 등록 후보나 정적 결과로 조용히
+대체하지 않는다.
 
 첫 제안, 자연어 피드백과 문서 추출에서 관리형 Agent Runtime을 사용하려면 다음 설정이 모두 필요하다.
 
@@ -89,16 +93,18 @@ MCP의 `resolve_area`를 대신 호출한다. 응답 후보는 `AreaIdentity`와
 
 ## Workflow 진행 조회
 
-`POST /v1/projects/{project_id}/workflows/FIRST_PROPOSAL`은 계산과 결과 저장을 마친
-`SUCCEEDED` 실행을 반환한다. 프론트엔드는 이어서
-`GET /v1/projects/{project_id}/workflows/{workflow_run_id}`와 결과 endpoint를 한 번씩 읽는다.
+`POST /v1/projects/{project_id}/workflows/FIRST_PROPOSAL`은 durable 실행과 Outbox를 저장한 뒤
+`QUEUED` 실행을 `202`로 반환한다. 프론트엔드는
+`GET /v1/projects/{project_id}/workflows/{workflow_run_id}`를 `poll_after_ms` 기준으로 조회하고,
+terminal 성공 뒤 결과 endpoint를 읽는다.
 진행 응답은 기존 Workflow 식별값과 full head에 다음 정보를 함께 반환한다.
 
-- `stages`: 단일 `RUN_PROPOSAL` 실행 기록
-- `completed_stage_count`, `total_stage_count`: 정상 완료 시 `1`, `1`
-- `current_stage_codes`, `human_review_requests`: 완료된 동기 실행에서는 빈 배열
+- `stages`: 근거 조회, 근거 평가, 후보 생성, 재무·순위, 후보 감사, 결과 저장의 여섯 progress checkpoint
+- `completed_stage_count`, `total_stage_count`: 정상 완료 시 `6`, `6`
+- `current_stage_codes`: 현재 `RUNNING`인 사용자 progress checkpoint
+- `human_review_requests`: 사람 확인이 필요한 terminal 요청
 - `terminal_reason_codes`: 저장된 실행이 실패한 경우의 기계 판독 코드
-- `poll_after_ms`: 동기 실행이므로 `null`
+- `poll_after_ms`: 진행 중에는 다음 조회 권장 간격, terminal에서는 `null`
 
 프론트엔드는 Stage 이름이나 reason code로 권위 판단을 다시 계산하지 않는다. 표시 문구만
 매핑하며, 현재 결과는 별도의 `GET /v1/projects/{project_id}/result`에서 조회한다.
@@ -180,8 +186,9 @@ Claim id, 계약에 없는 Claim type, Parser가 제공하지 않은 anchor를 �
 `POST /v1/projects/{project_id}/documents/{revision}/extraction-form:apply`는 form digest와
 State version을 함께 잠근다. 비어 있지 않은 값만 `CONFIRMED` Claim으로 승격하며, 같은 종류의
 기존 문서 Claim과 값이 다르면 어느 쪽도 자동 선택하지 않고 `OPEN` conflict를 만든다. Event,
-State revision, Claim, conflict와 단일 `RUN_PROPOSAL` 재계산은 하나의 PostgreSQL transaction으로
-저장된다. 재계산기는 선택된 후보의 문서 Claim을 사용자 확인 값으로 우선
+State revision, Claim, conflict와 `QUEUED` 재계산 Workflow·Outbox는 하나의 PostgreSQL
+transaction으로 저장된다. commit 뒤 Worker가 같은 durable 실행 경로에서 재계산하며, 재계산기는
+선택된 후보의 문서 Claim을 사용자 확인 값으로 우선
 사용하며, 열린 충돌이 있는 비용 항목은 `UNKNOWN`으로 처리한다.
 
 선택적 재계산 Workflow는 원본 Workflow와 원본 Result를 명시적으로 참조한다. 새 Result가
@@ -189,6 +196,12 @@ State revision, Claim, conflict와 단일 `RUN_PROPOSAL` 재계산은 하나의 
 이전 결과와 비교한다. `GET /v1/projects/{project_id}/result`의 `decision_delta`에는 후보 추가·삭제,
 순위와 검토 상태, 초기 필요 현금·월 고정비·손익분기 매출의 변화가 포함된다. 비교할 원본 Result가
 없는 최초 결과에는 `decision_delta`가 `null`이다.
+
+선택적 재계산도 `QUEUED` Workflow와 Outbox를 먼저 저장하고 Worker가 실행한다. 이미 저장된
+근거·후보를 재사용하므로 외부 검색·Agent 단계는 공개 progress에서 `SKIPPED`로 남기고
+`FINANCE_AND_RANK`와 `COMMIT_RESULT`만 실제 실행한다. 반대로 최초 분석을 다시 여는 경우 현재
+State에 이미 진행 중인 최초 `FIRST_PROPOSAL`이 있으면 새 generation을 만들지 않고 그 Workflow를
+그대로 이어서 조회한다.
 
 ## Agent Runtime session 정리
 
@@ -228,7 +241,7 @@ version과 실제로 달라진 경우에만 해당 Evidence를 `STALE`로 표시
 30일, web·PDF는 90일의 기본 정책으로 만료를 평가하며, 기준일이 없으면 최신으로 간주하지 않는다.
 
 영향받은 current Result에는 `invalidation_reason_codes`가 추가되고 `freshness`가 `STALE`이 된다.
-동시에 단일 `RUN_PROPOSAL` 재계산을 원자적으로 실행한다. 새 Snapshot이 검증되어
+동시에 `RUN_PROPOSAL` 재계산 Workflow와 Outbox를 원자적으로 queue한다. Worker 실행 후 새 Snapshot이 검증되어
 커밋되면 새 Evidence는 `ACTIVE`, 같은 원본의 이전 Evidence는 `SUPERSEDED`, 검증된 상충 자료는
 `CONFLICT`가 된다. 재계산이 이미 실행 중이면 새 Workflow를 중첩 생성하지 않고 `409`로 거절한다.
 
