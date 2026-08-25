@@ -5,6 +5,7 @@ import type {
   ResultView,
 } from '../apiClient'
 import type { OnboardingValues } from '../onboardingState'
+import { formatRange } from '../presentation'
 import type { ResultCandidate } from '../resultContracts'
 
 type ConditionField = 'own_funds_krw' | 'borrowing_intent' | 'cafe_type_preference' | 'operation_mode'
@@ -154,7 +155,7 @@ function evidenceFromCandidate(candidate: ResultCandidate, preferredField?: stri
     return [{
       evidence_id: input.range?.provenance_refs[0] ?? `evidence:${input.field}`,
       label: input.label ?? input.field,
-      value: input.range?.base == null ? null : formatWon(input.range.base),
+      value: input.range ? formatRange(input.range) : null,
       source_title: input.source.title,
       source_ref: input.source.source_ref,
       data_date: input.source.data_date,
@@ -248,8 +249,8 @@ export function explainSimulationResult(
       ? `${selected.display_name}과 ${comparison.display_name}은 초기 필요자금과 월 고정비, 현재 검토 상태에서 차이가 납니다.`
       : `${selected.display_name}만 현재 비교 대상으로 남아 있습니다.`
     reasons = comparison ? [
-      `${selected.display_name} 초기 필요자금 기준값은 ${formatWon(selected.financial_summary.initial_cash.base)}, ${comparison.display_name}은 ${formatWon(comparison.financial_summary.initial_cash.base)}입니다.`,
-      `${selected.display_name} 월 고정비 기준값은 ${formatWon(selected.financial_summary.monthly_fixed_cost.base)}, ${comparison.display_name}은 ${formatWon(comparison.financial_summary.monthly_fixed_cost.base)}입니다.`,
+      `${selected.display_name} 초기 필요자금은 ${formatRange(selected.financial_summary.initial_cash)}, ${comparison.display_name}은 ${formatRange(comparison.financial_summary.initial_cash)}입니다.`,
+      `${selected.display_name} 월 고정비는 ${formatRange(selected.financial_summary.monthly_fixed_cost)}, ${comparison.display_name}은 ${formatRange(comparison.financial_summary.monthly_fixed_cost)}입니다.`,
       `${selected.display_name}은 ${selected.rank ?? '순위 제외'}, ${comparison.display_name}은 ${comparison.rank ?? '순위 제외'} 상태입니다.`,
     ] : [gateReason(selected)]
   } else if (intent === 'FINANCE') {
@@ -257,8 +258,8 @@ export function explainSimulationResult(
     const monthly = selected.financial_summary.monthly_fixed_cost
     conclusion = `${selected.display_name}의 초기 필요자금과 월 고정비를 현재 확인된 값·지역 참고값·등록 가정을 합쳐 계산했습니다.`
     reasons = [
-      `초기 필요자금은 ${formatWon(initial.low)} ~ ${formatWon(initial.high)}이고 기준값은 ${formatWon(initial.base)}입니다.`,
-      `월 고정비 기준값은 ${formatWon(monthly.base)}, 손익분기 월매출 계산값은 ${formatWon(selected.financial_summary.break_even_monthly_sales_krw)}입니다.`,
+      `초기 필요자금은 ${formatRange(initial)}입니다.`,
+      `월 고정비는 ${formatRange(monthly)}, 손익분기 월매출 계산값은 ${formatWon(selected.financial_summary.break_even_monthly_sales_krw)}입니다.`,
       `손익분기 계산상 하루 필요 주문은 약 ${selected.financial_summary.required_daily_orders ?? '확인 필요'}건입니다.`,
     ]
     evidence = evidenceFromCandidate(selected, 'MONTHLY_OCCUPANCY')

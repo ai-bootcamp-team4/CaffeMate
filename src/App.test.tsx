@@ -396,10 +396,10 @@ describe('CaffeMate Control API integration', () => {
     fireEvent.click(screen.getByRole('button', { name: '이 조건으로 다시 판단' }))
 
     await waitFor(() => expect(client.applyPropertyTerms).toHaveBeenCalledWith('project-1', 'selection-1', 2, expect.objectContaining({ monthly_rent_krw: 2_000_000, deposit_krw: 30_000_000, floor: '2층' })))
-    expect(await screen.findByRole('heading', { name: '무엇이 바뀌어서 판단이 달라졌나요?' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '입력값을 바꾼 뒤 무엇이 달라졌나요?' })).toBeTruthy()
     expect(screen.getAllByText('실제 월세').length).toBeGreaterThan(0)
     expect(screen.getByText(/지역 참고값.*실제 입력으로 확인/)).toBeTruthy()
-    expect(screen.getByText(/자금 조건: 통과.*통과/)).toBeTruthy()
+    expect(screen.getByText('자금 조건: 유지 · 자기자금으로 충당 가능')).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText('월세(만원)'), { target: { value: '190' } })
     fireEvent.click(screen.getByRole('button', { name: '이 조건으로 다시 판단' }))

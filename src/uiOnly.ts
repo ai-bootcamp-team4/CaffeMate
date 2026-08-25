@@ -17,7 +17,11 @@ import type {
 import type { OnboardingValues } from './onboardingState'
 import { buildSimulationProject, buildSimulationResult } from './uiSimulation/result'
 import { searchSimulationAreas, simulationAreaByToken, type SupportedAreaScenario } from './uiSimulation/scenarios'
-import { createSimulationWorkflowRegistry } from './uiSimulation/workflow'
+import {
+  createSimulationWorkflowRegistry,
+  feedbackRecalculationStages,
+  financialRecalculationStages,
+} from './uiSimulation/workflow'
 import { applyDocumentScenario, applyPropertyScenario } from './uiSimulation/refinement'
 import { buildSeongsuPreparationGuide } from './uiSimulation/preparation'
 import {
@@ -28,6 +32,9 @@ import {
 
 const now = '2026-08-25T06:40:00Z'
 const projectId = 'project:seongsu-review'
+const DOCUMENT_OCR_DELAY_MS = 3_200
+const RESULT_LANGUAGE_DELAY_MS = 1_800
+const CONDITION_PREVIEW_DELAY_MS = 900
 
 const head: HeadFence = {
   workflow_generation: 1,
@@ -111,6 +118,10 @@ export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}):
   let currentDocumentRevision: DocumentRevision | null = null
   let currentDocumentForm: DocumentExtractionForm | null = null
   const workflows = createSimulationWorkflowRegistry(project.project_id, options.workflowTimeScale)
+  const timeScale = Math.max(0.001, options.workflowTimeScale ?? 1)
+  const simulationDelay = (durationMs: number) => new Promise<void>((resolve) => {
+    window.setTimeout(resolve, Math.max(1, Math.round(durationMs * timeScale)))
+  })
 
   const extractionFieldsFor = (documentType: DocumentType): DocumentExtractionForm['fields'] => {
     const field = (
@@ -244,11 +255,13 @@ export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}):
     },
     getWorkflow: async (_projectId, workflowRunId) => workflows.progress(workflowRunId),
     getResult: async () => currentResult,
-    explainResult: async (_projectId, _result, question, candidateId): Promise<ResultExplanation> => (
-      explainSimulationResult(question, currentResult, candidateId)
-    ),
+    explainResult: async (_projectId, _result, question, candidateId): Promise<ResultExplanation> => {
+      await simulationDelay(RESULT_LANGUAGE_DELAY_MS)
+      return explainSimulationResult(question, currentResult, candidateId)
+    },
     createFeedbackPreview: async (_projectId, input): Promise<FeedbackPreview> => {
       if (!confirmedValues) throw new Error('변경할 현재 창업 조건을 찾을 수 없습니다.')
+      await simulationDelay(CONDITION_PREVIEW_DELAY_MS)
       return buildConditionPreview(input, currentResult, confirmedValues)
     },
     confirmFeedback: async (_projectId, preview): Promise<FeedbackResolution> => {
@@ -272,7 +285,11 @@ export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}):
         current_head: nextHead,
       }, selectedAreaScenario, confirmedValues)
       selectedCandidateId = currentResult.primary_candidate_id ?? currentResult.candidates[0]?.candidate_id ?? ''
-      const recompute = workflows.start(`workflow:feedback:${Date.now()}`, currentResult.current_head)
+      const recompute = workflows.start(
+        `workflow:feedback:${Date.now()}`,
+        currentResult.current_head,
+        feedbackRecalculationStages,
+      )
       return { preview: { ...preview, status: 'CONFIRMED' }, state_version: nextStateVersion, workflow: recompute }
     },
     cancelFeedback: async (_projectId, previewId): Promise<FeedbackResolution> => {
@@ -330,7 +347,11 @@ export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}):
       if (!selected) throw new Error('선택한 후보를 찾을 수 없습니다.')
       const previousFinancialSummary = selected.financial_summary
       currentResult = applyPropertyScenario(currentResult, selectedCandidateId, confirmedValues, terms)
-      const workflow = workflows.start(`workflow:property-recompute:${Date.now()}`, currentResult.current_head)
+      const workflow = workflows.start(
+        `workflow:property-recompute:${Date.now()}`,
+        currentResult.current_head,
+        financialRecalculationStages,
+      )
       return {
         property_input_id: `property-input:${Date.now()}`,
         project_id: currentProject.project_id,
@@ -382,6 +403,8 @@ export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}):
     uploadDocument: async () => undefined,
     completeDocumentUpload: async (_projectId, revisionId): Promise<DocumentRevision> => {
       if (!currentDocumentRevision || currentDocumentRevision.document_revision_id !== revisionId) throw new Error('DOCUMENT_NOT_FOUND')
+      currentDocumentRevision = { ...currentDocumentRevision, status: 'PARSING', updated_at: now }
+      await simulationDelay(DOCUMENT_OCR_DELAY_MS)
       currentDocumentRevision = { ...currentDocumentRevision, status: 'EXTRACTION_READY', updated_at: now, completed_at: now }
       currentDocumentForm = makeExtractionForm(currentDocumentRevision)
       return currentDocumentRevision
@@ -409,7 +432,7 @@ export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}):
       applyConfirmedDocument(form)
       currentDocumentForm = { ...form, form_status: 'APPLIED', applied_state_version: currentResult.current_head.state_version }
       const recomputeWorkflowRunId = `workflow:document-recompute:${documentSequence}:${Date.now()}`
-      workflows.start(recomputeWorkflowRunId, currentResult.current_head)
+      workflows.start(recomputeWorkflowRunId, currentResult.current_head, financialRecalculationStages)
       return {
         application_id: `document-application:${documentSequence}`,
         project_id: currentProject.project_id,

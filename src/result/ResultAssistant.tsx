@@ -1,13 +1,13 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import {
-  waitForWorkflow,
   type ControlApiClient,
   type FeedbackPreview,
   type ResultCandidate,
   type ResultExplanation,
   type ResultView,
+  type WorkflowRun,
 } from '../apiClient'
-import { displayText, displayValue, explanationError, internalLabel, uniqueLabels, userError } from '../presentation'
+import { displayFounderValue, displayText, explanationError, internalLabel, uniqueLabels, userError } from '../presentation'
 
 const ASSISTANT_SAMPLES = [
   '왜 이 안을 먼저 보나요?',
@@ -26,12 +26,16 @@ export function FeedbackPanel({
   result,
   candidate,
   onResult,
+  onRecompute,
+  onRecomputeFinished,
 }: {
   client: ControlApiClient
   projectId: string
   result: ResultView
   candidate: ResultCandidate
   onResult: (result: ResultView) => void
+  onRecompute: (workflow: WorkflowRun) => Promise<void>
+  onRecomputeFinished: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [draft, setDraft] = useState('')
@@ -144,18 +148,14 @@ export function FeedbackPanel({
     try {
       const resolution = await client.confirmFeedback(projectId, preview)
       if (resolution.workflow) {
-        const progress = await waitForWorkflow(client, projectId, resolution.workflow, (next) =>
-          setStatus(`결과 재계산 ${next.completed_stage_count}/${next.total_stage_count}`),
-        )
-        if (!['SUCCEEDED', 'PARTIAL'].includes(progress.status)) {
-          throw new Error(`재계산이 완료되지 않았습니다: ${internalLabel(progress.status)}`)
-        }
+        await onRecompute(resolution.workflow)
         onResult(await client.getResult(projectId))
       }
       setPreview(null)
       setStatus('확인한 변경안을 반영하고 결과를 갱신했습니다.')
       setStatusTone('success')
     } catch (error) {
+      onRecomputeFinished()
       setStatus(userError(error, '변경안을 반영하지 못했습니다.'))
       setStatusTone('error')
     } finally {
@@ -260,9 +260,9 @@ export function FeedbackPanel({
                   <div className="diff-row" key={field}>
                     <span className="diff-label">{internalLabel(field, '창업 조건')}</span>
                     <div className="diff-values">
-                      <span className="diff-old">{displayValue(preview.before_founder[field])}</span>
+                      <span className="diff-old">{displayFounderValue(field, preview.before_founder[field])}</span>
                       <span>→</span>
-                      <span className="diff-new">{displayValue(preview.after_founder?.[field])}</span>
+                      <span className="diff-new">{displayFounderValue(field, preview.after_founder?.[field])}</span>
                     </div>
                   </div>
                 ))}

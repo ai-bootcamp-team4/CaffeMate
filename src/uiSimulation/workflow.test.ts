@@ -4,6 +4,8 @@ import {
   SIMULATION_WORKFLOW_DURATION_MS,
   buildSimulationWorkflowProgress,
   createSimulationWorkflowRegistry,
+  feedbackRecalculationStages,
+  financialRecalculationStages,
   simulationWorkflowStages,
 } from './workflow'
 
@@ -67,5 +69,28 @@ describe('UI simulation workflow timeline', () => {
     expect(terminal.status).toBe('SUCCEEDED')
     expect(terminal.completed_stage_count).toBe(terminal.total_stage_count)
     expect(terminal.poll_after_ms).toBeNull()
+  })
+
+  it('runs only dependency-relevant stages for result recalculation', () => {
+    const registry = createSimulationWorkflowRegistry('simulation-project')
+    const propertyRun = registry.start('property-workflow', head, financialRecalculationStages)
+
+    const propertyProgress = registry.progress(propertyRun.workflow_run_id)
+    expect(propertyProgress.stages?.map((stage) => stage.stage_code)).toEqual([
+      'FINANCE_AND_RANK',
+      'CANDIDATE_AUDIT',
+      'COMMIT_RESULT',
+    ])
+    expect(propertyProgress.total_stage_count).toBe(3)
+
+    const feedbackRun = registry.start('feedback-workflow', head, feedbackRecalculationStages)
+    const feedbackProgress = registry.progress(feedbackRun.workflow_run_id)
+    expect(feedbackProgress.stages?.map((stage) => stage.stage_code)).toEqual([
+      'PROPOSAL_GENERATION',
+      'FINANCE_AND_RANK',
+      'CANDIDATE_AUDIT',
+      'COMMIT_RESULT',
+    ])
+    expect(feedbackProgress.total_stage_count).toBe(4)
   })
 })

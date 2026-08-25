@@ -120,9 +120,14 @@ describe('UI-only development mode', () => {
     expect((await screen.findByLabelText('월세(만원)') as HTMLInputElement).value).toBe('650')
     fireEvent.click(screen.getByRole('button', { name: '이 조건으로 다시 판단' }))
 
+    expect(await screen.findByRole('heading', { name: '입력한 점포 조건으로 다시 계산하고 있어요' })).toBeTruthy()
+    expect((screen.getByLabelText('월세(만원)') as HTMLInputElement).value).toBe('650')
+    const propertyProgress = await screen.findByLabelText('분석 진행 상황')
+    expect(within(propertyProgress).queryByText('지역 범위와 검색 조건 확인')).toBeNull()
+    expect(within(propertyProgress).getByText('비용·현실성 비교')).toBeTruthy()
     expect(await screen.findByRole('heading', { name: '무엇이 바뀌어서 판단이 달라졌나요?' })).toBeTruthy()
     expect(screen.getByText(/지역 참고값.*실제 입력으로 확인/)).toBeTruthy()
-    expect(screen.getByText(/자금 조건: 조건부.*막힘/)).toBeTruthy()
+    expect(screen.getByText(/자금 조건: 실제 비용 범위 확인 필요.*자기자금만으로 부족/)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '결과로 돌아가기' }))
     await waitFor(() => expect(screen.getByRole('heading', { name: '왜 이 안은 지금 진행하기 어려운가요?' })).toBeTruthy())
@@ -150,6 +155,10 @@ describe('UI-only development mode', () => {
     expect(screen.getByText('100,000,000')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '변경 적용' }))
 
+    expect(await screen.findByRole('heading', { name: '바뀐 조건으로 결과를 다시 계산하고 있어요' })).toBeTruthy()
+    const feedbackProgress = await screen.findByLabelText('분석 진행 상황')
+    expect(within(feedbackProgress).queryByText('지역 범위와 검색 조건 확인')).toBeNull()
+    expect(within(feedbackProgress).getByText('창업안 후보 만들기')).toBeTruthy()
     expect(await screen.findByRole('button', { name: 'CaffeMate에게 물어보기' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /생활권 단골 균형형 개인카페/ }))
     expect(await screen.findByRole('heading', { name: '왜 이 안은 지금 진행하기 어려운가요?' })).toBeTruthy()

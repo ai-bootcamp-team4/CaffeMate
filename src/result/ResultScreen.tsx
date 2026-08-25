@@ -9,6 +9,8 @@ import {
   type PropertyTermsInput,
   type ResultCandidate,
   type ResultView,
+  type WorkflowProgress,
+  type WorkflowRun,
 } from '../apiClient'
 import { candidateSource, internalLabel, userError } from '../presentation'
 import { Badge } from '../ui/Badge'
@@ -26,12 +28,19 @@ import { FeedbackPanel } from './ResultAssistant'
 import { ResultHero } from './ResultHero'
 import { ResultSectionNav } from './ResultSectionNav'
 import { StartupPreparation } from './StartupPreparation'
+import { WorkflowProgressView } from '../WorkflowProgressView'
 import './Result.css'
 
 interface SelectionContext {
   selection: CandidateSelection
   result: ResultView
   candidate: ResultCandidate
+}
+
+interface RecalculationView {
+  title: string
+  description: string
+  progress: WorkflowProgress | null
 }
 
 export function ResultScreen({ client, project, initialResult }: {
@@ -50,7 +59,28 @@ export function ResultScreen({ client, project, initialResult }: {
   const [preparationGuide, setPreparationGuide] = useState<PreparationGuide | null>(null)
   const [preparationBusy, setPreparationBusy] = useState(false)
   const [preparationError, setPreparationError] = useState('')
+  const [recalculation, setRecalculation] = useState<RecalculationView | null>(null)
   const resultScrollYRef = useRef(0)
+
+  const waitForResultWorkflow = async (
+    workflow: WorkflowRun,
+    title: string,
+    description: string,
+  ) => {
+    setRecalculation({ title, description, progress: null })
+    window.scrollTo({ top: 0 })
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+    const terminal = await waitForWorkflow(client, project.project_id, workflow, (progress) => {
+      setRecalculation({ title, description, progress })
+    })
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+    if (!['SUCCEEDED', 'PARTIAL'].includes(terminal.status)) {
+      setRecalculation(null)
+      throw new Error(`재계산이 완료되지 않았습니다: ${internalLabel(terminal.status)}`)
+    }
+  }
+
+  const finishRecalculation = () => setRecalculation(null)
 
   const candidates = result.candidates
   const activeCandidate = candidates.find((candidate) => candidate.candidate_id === activeCandidateId) ?? candidates[0]
@@ -127,18 +157,27 @@ export function ResultScreen({ client, project, initialResult }: {
       selection.selected_state_version,
       terms,
     )
-    const terminal = await waitForWorkflow(client, project.project_id, application.recompute_workflow)
-    if (terminal.status !== 'SUCCEEDED') throw new Error('점포 조건 재계산을 완료하지 못했습니다.')
-    const nextResult = await client.getResult(project.project_id)
-    if (nextResult.freshness !== 'CURRENT') throw new Error('점포 조건 반영 결과를 최신 상태로 저장하지 못했습니다.')
-    const source = candidateSource(activeCandidate)
-    const nextCandidate = nextResult.candidates.find((candidate) => candidateSource(candidate) === source)
-    if (!nextCandidate) throw new Error('재계산된 후보를 찾지 못했습니다.')
-    setResult(nextResult)
-    setActiveCandidateId(nextCandidate.candidate_id)
-    setSelection((current) => current ? { ...current, selected_state_version: application.applied_state_version } : current)
-    setPreparationGuide(null)
-    return { mode: 'LIVE', application, candidate: nextCandidate, result: nextResult }
+    try {
+      await waitForResultWorkflow(
+        application.recompute_workflow,
+        '입력한 점포 조건으로 다시 계산하고 있어요',
+        '지역 조사와 후보 생성은 유지하고, 바뀐 비용과 판정에 필요한 단계만 다시 확인합니다.',
+      )
+      const nextResult = await client.getResult(project.project_id)
+      if (nextResult.freshness !== 'CURRENT') throw new Error('점포 조건 반영 결과를 최신 상태로 저장하지 못했습니다.')
+      const source = candidateSource(activeCandidate)
+      const nextCandidate = nextResult.candidates.find((candidate) => candidateSource(candidate) === source)
+      if (!nextCandidate) throw new Error('재계산된 후보를 찾지 못했습니다.')
+      setResult(nextResult)
+      setActiveCandidateId(nextCandidate.candidate_id)
+      setSelection((current) => current ? { ...current, selected_state_version: application.applied_state_version } : current)
+      setPreparationGuide(null)
+      finishRecalculation()
+      return { mode: 'LIVE', application, candidate: nextCandidate, result: nextResult }
+    } catch (error) {
+      finishRecalculation()
+      throw error
+    }
   }
 
   const refreshAfterDocument = async (): Promise<DocumentRecalculation> => {
@@ -153,7 +192,9 @@ export function ResultScreen({ client, project, initialResult }: {
     setActiveCandidateId(nextCandidate.candidate_id)
     setSelection((current) => current ? { ...current, selected_state_version: nextResult.current_head.state_version } : current)
     setPreparationGuide(null)
-    return { candidate: nextCandidate, result: nextResult, previousFinancialSummary }
+    const next = { candidate: nextCandidate, result: nextResult, previousFinancialSummary }
+    finishRecalculation()
+    return next
   }
 
   const updateResult = (next: ResultView) => {
@@ -163,6 +204,7 @@ export function ResultScreen({ client, project, initialResult }: {
     setRefinementTarget(null)
     setPreparationGuide(null)
     setPreparationError('')
+    finishRecalculation()
   }
 
   const changeCandidate = (candidateId: string) => {
@@ -202,63 +244,94 @@ export function ResultScreen({ client, project, initialResult }: {
         result={result}
         candidate={activeCandidate}
         onResult={updateResult}
+        onRecompute={(workflow) => waitForResultWorkflow(
+          workflow,
+          '바뀐 조건으로 결과를 다시 계산하고 있어요',
+          '지역 자료는 그대로 두고, 후보 구성과 비용·판정처럼 영향을 받는 단계만 다시 확인합니다.',
+        )}
+        onRecomputeFinished={finishRecalculation}
       />
     </div>
   )
 
+  const recalculationScreen = recalculation ? (
+    <div className="shell min-h-dvh recalculation-screen">
+      <header className="topbar"><a className="wordmark" href="#recalculationTop">CaffeMate</a></header>
+      <main className="analysis-stage" id="recalculationTop" aria-live="polite">
+        <div className="analysis-stage__pulse" aria-hidden="true"><span /><span /><span /></div>
+        <p className="stage-label">결과 업데이트</p>
+        <h1>{recalculation.title}</h1>
+        <p>{recalculation.description}</p>
+        {recalculation.progress && <WorkflowProgressView progress={recalculation.progress} />}
+      </main>
+    </div>
+  ) : null
+
   if (selection && refinementTarget) {
     return (
       <div className="shell min-h-dvh">
-        {topbar}
-        <NumericRefinementFlow
-          client={client}
-          projectId={project.project_id}
-          candidate={activeCandidate}
-          selection={selection}
-          target={refinementTarget}
-          onBack={closeRefinement}
-          onApplyProperty={applyPropertyTerms}
-          onDocumentApplied={refreshAfterDocument}
-        />
-        {assistant}
-        <footer className="footer"><strong>CaffeMate</strong><span>계약과 최종 창업 결정을 대신하지 않습니다.</span></footer>
+        {recalculationScreen}
+        <div className="result-screen-underlay" aria-hidden={Boolean(recalculation)} inert={recalculation ? true : undefined}>
+          {topbar}
+          <NumericRefinementFlow
+            client={client}
+            projectId={project.project_id}
+            candidate={activeCandidate}
+            selection={selection}
+            target={refinementTarget}
+            onBack={closeRefinement}
+            onApplyProperty={applyPropertyTerms}
+            onDocumentApplied={refreshAfterDocument}
+            onDocumentRecompute={(workflow) => waitForResultWorkflow(
+              workflow,
+              '확인한 문서 값으로 다시 계산하고 있어요',
+              '문서에서 확인한 비용이 영향을 주는 계산과 판정 단계만 다시 확인합니다.',
+            )}
+            onRecomputeFinished={finishRecalculation}
+          />
+          {assistant}
+          <footer className="footer"><strong>CaffeMate</strong><span>계약과 최종 창업 결정을 대신하지 않습니다.</span></footer>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="shell min-h-dvh">
-      {topbar}
-      <main className="page result-page" id="top">
-        {result.freshness === 'STALE' && (
-          <div className="demo-notice" role="note"><span className="demo-notice__mark">!</span><p>입력 조건이 바뀌었어요. 실제값을 반영하기 전에 최신 조건으로 다시 계산합니다.</p></div>
-        )}
-        <ResultHero candidate={activeCandidate} />
-        <ResultSectionNav
-          showCandidates={candidates.length > 1}
-          showMarket={(activeCandidate.market_signals ?? []).some((signal) => signal.decision_role === 'CONTEXT_ONLY')}
-          showExternal={(activeCandidate.verification_requirements?.length ?? 0) > 0}
-        />
-        <CandidateComparison
-          candidates={candidates}
-          activeCandidateId={activeCandidate.candidate_id}
-          onSelect={changeCandidate}
-        />
-        <DecisionReasons candidate={activeCandidate} />
-        <FinanceBreakdown candidate={activeCandidate} onRefine={(input) => void openRefinement(input)} busy={selectionBusy} />
-        {refinementError && <p className="result-action-error" role="alert">{refinementError}</p>}
-        <MarketContext candidate={activeCandidate} />
-        <ExternalChecks candidate={activeCandidate} />
-        <StartupPreparation
-          key={activeCandidate.candidate_id}
-          guide={preparationGuide}
-          busy={preparationBusy}
-          error={preparationError}
-          onLoad={() => void loadPreparationGuide()}
-        />
-      </main>
-      {assistant}
-      <footer className="footer"><strong>CaffeMate</strong><span>계약과 최종 창업 결정을 대신하지 않습니다.</span><span>현재 입력과 확인된 자료를 기준으로 계산했어요.</span></footer>
+      {recalculationScreen}
+      <div className="result-screen-underlay" aria-hidden={Boolean(recalculation)} inert={recalculation ? true : undefined}>
+        {topbar}
+        <main className="page result-page" id="top">
+          {result.freshness === 'STALE' && (
+            <div className="demo-notice" role="note"><span className="demo-notice__mark">!</span><p>입력 조건이 바뀌었어요. 실제값을 반영하기 전에 최신 조건으로 다시 계산합니다.</p></div>
+          )}
+          <ResultHero candidate={activeCandidate} />
+          <ResultSectionNav
+            showCandidates={candidates.length > 1}
+            showMarket={(activeCandidate.market_signals ?? []).some((signal) => signal.decision_role === 'CONTEXT_ONLY')}
+            showExternal={(activeCandidate.verification_requirements?.length ?? 0) > 0}
+          />
+          <CandidateComparison
+            candidates={candidates}
+            activeCandidateId={activeCandidate.candidate_id}
+            onSelect={changeCandidate}
+          />
+          <DecisionReasons candidate={activeCandidate} />
+          <FinanceBreakdown candidate={activeCandidate} onRefine={(input) => void openRefinement(input)} busy={selectionBusy} />
+          {refinementError && <p className="result-action-error" role="alert">{refinementError}</p>}
+          <MarketContext candidate={activeCandidate} />
+          <ExternalChecks candidate={activeCandidate} />
+          <StartupPreparation
+            key={activeCandidate.candidate_id}
+            guide={preparationGuide}
+            busy={preparationBusy}
+            error={preparationError}
+            onLoad={() => void loadPreparationGuide()}
+          />
+        </main>
+        {assistant}
+        <footer className="footer"><strong>CaffeMate</strong><span>계약과 최종 창업 결정을 대신하지 않습니다.</span><span>현재 입력과 확인된 자료를 기준으로 계산했어요.</span></footer>
+      </div>
     </div>
   )
 }

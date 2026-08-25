@@ -3,7 +3,7 @@ import { formatRange, formatWon, internalLabel } from '../presentation'
 
 export function publicStatus(status: ResultCandidate['review_status']) {
   if (status === 'REVIEW_RECOMMENDED') return '검토 추천'
-  if (status === 'CONDITIONAL_REVIEW') return '조건부 검토'
+  if (status === 'CONDITIONAL_REVIEW') return '추가 확인 후 판단'
   return '현재 조건에서 어려움'
 }
 

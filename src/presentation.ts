@@ -2,7 +2,7 @@ import { ControlApiError, type ResultCandidate } from "./apiClient";
 
 const internalLabels: Record<string, string> = {
   REVIEW_RECOMMENDED: "검토 추천",
-  CONDITIONAL_REVIEW: "조건부 검토",
+  CONDITIONAL_REVIEW: "추가 확인 후 판단",
   EXCLUDED: "현재 검토에서 제외",
   CURRENT_CONSTRAINTS_SATISFIED: "현재 입력 조건을 충족함",
   INITIAL_CASH_LOW_UNKNOWN: "최소 창업비 확인 필요",
@@ -172,6 +172,33 @@ export function displayValue(value: unknown): string {
   return "변경됨";
 }
 
+const founderValueLabels: Record<string, Record<string, string>> = {
+  borrowing_intent: {
+    YES: "대출 고려",
+    NO: "대출 안 함",
+    UNDECIDED: "미정",
+  },
+  cafe_type_preference: {
+    OPEN_TO_BOTH: "개인카페·프랜차이즈 모두 비교",
+    INDEPENDENT_ONLY: "개인카페만",
+    FRANCHISE_ONLY: "프랜차이즈만",
+  },
+  operation_mode: {
+    DIRECT_FULL_TIME: "직접 전업 운영",
+    DIRECT_PART_TIME: "직접 시간제 운영",
+    EMPLOYEE_LED: "직원 중심 운영",
+    UNDECIDED: "미정",
+  },
+};
+
+export function displayFounderValue(field: string, value: unknown): string {
+  if (typeof value === "string") {
+    const label = founderValueLabels[field]?.[value];
+    if (label) return label;
+  }
+  return displayValue(value);
+}
+
 export function uniqueLabels(values: string[], fallback?: string) {
   return [...new Set(values.map((value) => internalLabel(value, fallback)))];
 }
@@ -185,9 +212,9 @@ export function formatWon(value: number | null | undefined) {
 export function formatRange(
   range: ResultCandidate["financial_summary"]["initial_cash"],
 ) {
-  if (range.low == null || range.base == null || range.high == null)
-    return "확인되지 않음";
-  return `${formatWon(range.low)} ~ ${formatWon(range.high)} (기준 ${formatWon(range.base)})`;
+  if (range.low == null || range.high == null) return "확인되지 않음";
+  if (range.low === range.high) return formatWon(range.low);
+  return `${formatWon(range.low)} ~ ${formatWon(range.high)}`;
 }
 
 export function candidateSource(candidate: ResultCandidate) {

@@ -3,6 +3,7 @@ import {
   type ControlApiClient,
   type DocumentExtractionForm,
   type DocumentType,
+  type WorkflowRun,
   sha256File,
   waitForWorkflow,
 } from './apiClient'
@@ -34,7 +35,7 @@ function documentError(caught: unknown, fallback: string): string {
   return message
 }
 
-export function DocumentIntake({ client, projectId, enabled, onApplied, onViewResult, acceptedDocumentTypes, targetLabel, onUsePreparedValues, usePreparedValuesLabel }: {
+export function DocumentIntake({ client, projectId, enabled, onApplied, onViewResult, acceptedDocumentTypes, targetLabel, onUsePreparedValues, usePreparedValuesLabel, onRecompute, onRecomputeFinished }: {
   client: ControlApiClient
   projectId: string
   enabled: boolean
@@ -44,6 +45,8 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
   targetLabel?: string
   onUsePreparedValues?: (form: DocumentExtractionForm) => Promise<void>
   usePreparedValuesLabel?: string
+  onRecompute?: (workflow: WorkflowRun) => Promise<void>
+  onRecomputeFinished?: () => void
 }) {
   const availableDocumentTypes = acceptedDocumentTypes?.length
     ? documentTypes.filter((type) => acceptedDocumentTypes.includes(type.value))
@@ -83,6 +86,7 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
       setStatus('파일을 전송하고 있어요.')
       const uploadTicket = await client.beginDocumentUpload(projectId, nextFile, nextDocumentType, await sha256File(nextFile))
       await client.uploadDocument(uploadTicket, nextFile)
+      setStatus('문서를 읽고 중요한 숫자와 조건을 찾고 있어요.')
       await client.completeDocumentUpload(projectId, uploadTicket.document_revision_id)
       const nextForm = await waitForExtraction(uploadTicket.document_revision_id)
       setForm(nextForm)
@@ -131,12 +135,17 @@ export function DocumentIntake({ client, projectId, enabled, onApplied, onViewRe
       const application = await client.applyDocumentExtractionForm(projectId, updated)
       setStatus('확인한 값을 반영해 비용과 위험을 다시 계산하고 있어요.')
       const workflow = await client.getWorkflow(projectId, application.recompute_workflow_run_id)
-      const progress = await waitForWorkflow(client, projectId, workflow)
-      if (progress.status !== 'SUCCEEDED') throw new Error('재계산 일부를 완료하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.')
+      if (onRecompute) await onRecompute(workflow)
+      else {
+        const progress = await waitForWorkflow(client, projectId, workflow)
+        if (progress.status !== 'SUCCEEDED') throw new Error('재계산 일부를 완료하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.')
+      }
       await onApplied()
+      onRecomputeFinished?.()
       setApplied(true)
       setStatus('문서 값을 반영하고 창업안을 다시 계산했어요.')
     } catch (caught) {
+      onRecomputeFinished?.()
       setError(documentError(caught, '문서 값을 반영하지 못했어요. 입력값을 확인한 뒤 다시 시도해 주세요.'))
     } finally {
       setBusyAction(null)

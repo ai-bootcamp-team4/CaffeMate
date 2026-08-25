@@ -3,6 +3,14 @@
   padding-bottom: calc(var(--space-2xl) + var(--space-md));
 }
 
+.result-screen-underlay { min-height: 100dvh; }
+.recalculation-screen {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-modal) + 1);
+  overflow-y: auto;
+}
+
 
 .result-section-nav {
   position: sticky;

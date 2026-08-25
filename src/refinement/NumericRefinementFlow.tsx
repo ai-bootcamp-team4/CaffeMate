@@ -9,6 +9,7 @@ import type {
   PropertyTermsInput,
   ResultCandidate,
   ResultView,
+  WorkflowRun,
 } from '../apiClient'
 import { internalLabel } from '../presentation'
 import { buildRefinementGroups } from '../result/refinementGroups'
@@ -48,6 +49,8 @@ export function NumericRefinementFlow({
   onBack,
   onApplyProperty,
   onDocumentApplied,
+  onDocumentRecompute,
+  onRecomputeFinished,
 }: {
   client: ControlApiClient
   projectId: string
@@ -57,6 +60,8 @@ export function NumericRefinementFlow({
   onBack: () => void
   onApplyProperty: (terms: PropertyTermsInput) => Promise<PropertyRecalculation>
   onDocumentApplied: () => Promise<DocumentRecalculation>
+  onDocumentRecompute: (workflow: WorkflowRun) => Promise<void>
+  onRecomputeFinished: () => void
 }) {
   const [values, setValues] = useState(initialPropertyTerms)
   const [propertyInputMode, setPropertyInputMode] = useState<'MANUAL' | 'DOCUMENT'>('MANUAL')
@@ -218,6 +223,8 @@ export function NumericRefinementFlow({
             acceptedDocumentTypes={action.accepted_document_types}
             targetLabel={decisionInputLabel(target)}
             onApplied={documentApplied}
+            onRecompute={onDocumentRecompute}
+            onRecomputeFinished={onRecomputeFinished}
           />
         </section>
       )}

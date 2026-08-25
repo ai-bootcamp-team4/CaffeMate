@@ -80,4 +80,12 @@ describe('result assistant scenarios', () => {
     expect(franchiseResult.candidates).toHaveLength(1)
     expect(franchiseResult.candidates[0].case_type).toBe('FRANCHISE')
   })
+
+  it('shows source-backed financial evidence as a range without a base amount', () => {
+    const { result } = scenarioResult()
+    const answer = explainSimulationResult('월 점유비 출처가 뭐야?', result, result.primary_candidate_id ?? undefined)
+
+    expect(answer.evidence[0]?.value).toMatch(/^\d[\d,]*원(?: ~ \d[\d,]*원)?$/)
+    expect(answer.evidence[0]?.value).not.toContain('기준')
+  })
 })
