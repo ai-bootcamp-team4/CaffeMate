@@ -28,12 +28,12 @@ COPY api/pyproject.toml api/uv.lock ./api/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --project api --locked --no-install-project
 
-COPY api/app ./api/app
-COPY api/migrations ./api/migrations
-COPY agents/release-manifest.json ./agents/release-manifest.json
-COPY agents/fixtures ./agents/fixtures
-COPY docs/contracts ./docs/contracts
-COPY worker ./worker
+COPY --chown=caffemate:caffemate api/app ./api/app
+COPY --chown=caffemate:caffemate api/migrations ./api/migrations
+COPY --chown=caffemate:caffemate agents/release-manifest.json ./agents/release-manifest.json
+COPY --chown=caffemate:caffemate agents/fixtures ./agents/fixtures
+COPY --chown=caffemate:caffemate docs/contracts ./docs/contracts
+COPY --chown=caffemate:caffemate worker ./worker
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --project api --locked --no-dev \
