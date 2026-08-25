@@ -72,6 +72,7 @@ steps:
       - --service-account=${_API_RUNTIME_SERVICE_ACCOUNT}
       - --port=8080
       - --ingress=all
+      - --min=1
       - --update-labels=source-revision=${SHORT_SHA},managed-by=cloud-build
       - --quiet
 

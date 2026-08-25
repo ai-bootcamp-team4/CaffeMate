@@ -308,7 +308,7 @@ gcloud run deploy caffemate-api \
   --allow-unauthenticated \
   --cpu=1 \
   --memory=512Mi \
-  --min=0 \
+  --min=1 \
   --max=10 \
   --labels="source-revision=${source_revision},managed-by=caffemate-deploy" \
   --quiet >/dev/null
