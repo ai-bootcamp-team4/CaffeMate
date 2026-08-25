@@ -237,6 +237,7 @@ export function ResultScreen({ client, project, initialResult }: {
         <ResultSectionNav
           showCandidates={candidates.length > 1}
           showMarket={(activeCandidate.market_signals ?? []).some((signal) => signal.decision_role === 'CONTEXT_ONLY')}
+          showExternal={(activeCandidate.verification_requirements?.length ?? 0) > 0}
         />
         <CandidateComparison
           candidates={candidates}

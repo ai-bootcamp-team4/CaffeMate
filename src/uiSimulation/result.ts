@@ -2,7 +2,7 @@ import type { OnboardingValues } from '../onboardingState'
 import type { Project } from '../apiClient'
 import type { DecisionGateTrace, DecisionInput, MoneyRange, ResultCandidate, ResultView } from '../resultContracts'
 import type { SupportedAreaScenario } from './scenarios'
-import { deriveOccupancyRange, independentSeeds, marketSignals, rebBenchmark, type IndependentSeed, type SeedRange } from './seongsuData'
+import { deriveOccupancyRange, independentSeeds, marketSignals, rebBenchmark, seongsuVerificationRequirements, type IndependentSeed, type SeedRange } from './seongsuData'
 
 const INITIAL_FIELDS = ['DEPOSIT', 'ACQUISITION_OR_PREMIUM', 'CONSTRUCTION', 'EQUIPMENT', 'PREOPENING', 'OPENING_INVENTORY', 'CONTINGENCY', 'OPERATING_RESERVE']
 const MONTHLY_FIELDS = ['MONTHLY_OCCUPANCY', 'MONTHLY_LABOR', 'MONTHLY_OTHER_FIXED']
@@ -188,7 +188,7 @@ function independentCandidate(seed: IndependentSeed, area: SupportedAreaScenario
     decision_inputs: inputs,
     decision_trace: { gates: [gate] },
     rank_trace: null,
-    verification_requirements: [],
+    verification_requirements: seongsuVerificationRequirements('INDEPENDENT'),
   }
 }
 
@@ -286,16 +286,7 @@ function ediyaCandidate(area: SupportedAreaScenario, values: OnboardingValues): 
     decision_inputs: Object.keys(ranges).map(input),
     decision_trace: { gates: [gate] },
     rank_trace: null,
-    verification_requirements: [{
-      requirement_code: 'FRANCHISE_AREA_APPROVAL',
-      label: '이 주소의 출점 가능 여부',
-      resolver: 'FRANCHISE_HQ',
-      authority: '이디야커피 본사',
-      current_status: 'EXTERNAL_CONFIRMATION_REQUIRED',
-      required_evidence: ['본사 서면 확인'],
-      reason: '특정 후보 주소의 출점 승인 여부는 해당 프랜차이즈 본사가 결정하므로 CaffeMate가 확정할 수 없습니다.',
-      resolution_action: { type: 'EXTERNAL_CONFIRMATION', target_fields: ['franchise.area_availability'] },
-    }],
+    verification_requirements: seongsuVerificationRequirements('FRANCHISE'),
   }
 }
 

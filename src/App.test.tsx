@@ -397,7 +397,7 @@ describe('CaffeMate Control API integration', () => {
 
     await waitFor(() => expect(client.applyPropertyTerms).toHaveBeenCalledWith('project-1', 'selection-1', 2, expect.objectContaining({ monthly_rent_krw: 2_000_000, deposit_krw: 30_000_000, floor: '2층' })))
     expect(await screen.findByRole('heading', { name: '무엇이 바뀌어서 판단이 달라졌나요?' })).toBeTruthy()
-    expect(screen.getByText('실제 월세')).toBeTruthy()
+    expect(screen.getAllByText('실제 월세').length).toBeGreaterThan(0)
     expect(screen.getByText(/지역 참고값.*실제 입력으로 확인/)).toBeTruthy()
     expect(screen.getByText(/자금 조건: 통과.*통과/)).toBeTruthy()
 

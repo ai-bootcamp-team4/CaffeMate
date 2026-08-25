@@ -189,7 +189,40 @@
   font-weight: 700;
   text-underline-offset: var(--space-2xs);
 }
-.finance-refine-action { justify-self: start; margin-block-start: var(--space-xs); }
+.finance-refinement { display: grid; gap: var(--space-lg); margin-block-start: var(--space-2xl); }
+.finance-refinement__head { display: grid; gap: var(--space-xs); max-width: 58rem; }
+.finance-refinement__head h3 { font-family: var(--font-display); font-size: var(--text-xl); }
+.finance-refinement__head > p:last-child { color: var(--color-neutral); }
+.finance-refinement__groups { display: grid; gap: var(--space-md); }
+.finance-refinement-card {
+  display: grid;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  border: var(--rule-thin) solid var(--color-rule-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.finance-refinement-card__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-xl);
+  align-items: start;
+}
+.finance-refinement-card__head > div { display: grid; gap: var(--space-xs); }
+.finance-refinement-card__head span { color: var(--color-muted); font-size: var(--text-xs); font-weight: 700; }
+.finance-refinement-card__head h4 { font-family: var(--font-display); font-size: var(--text-lg); }
+.finance-refinement-card__head p { max-width: 64ch; color: var(--color-neutral); }
+.finance-refinement-card__inputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  border-block: var(--rule-thin) solid var(--color-rule);
+}
+.finance-refinement-card__inputs > div { display: grid; gap: var(--space-2xs); padding: var(--space-md) var(--space-lg) var(--space-md) 0; }
+.finance-refinement-card__inputs dt { color: var(--color-neutral); font-size: var(--text-sm); }
+.finance-refinement-card__inputs dd { font-weight: 700; font-variant-numeric: tabular-nums; }
+.finance-refinement-card__inputs small { color: var(--color-muted); font-size: var(--text-xs); }
+.finance-refinement-card__documents { display: flex; flex-wrap: wrap; gap: var(--space-sm) var(--space-lg); color: var(--color-neutral); font-size: var(--text-sm); }
+.finance-refinement-card__documents strong { color: var(--color-ink); }
 
 .market-context-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
 .market-context-grid article { display: grid; align-content: start; gap: var(--space-xs); padding: var(--space-lg) var(--space-lg) var(--space-lg) 0; border-block-start: var(--rule-thin) solid var(--color-rule); }
@@ -226,6 +259,22 @@
   font-weight: 700;
   white-space: nowrap;
 }
+.external-checks__summary { margin-block: var(--space-lg) var(--space-sm); color: var(--color-neutral); font-size: var(--text-sm); }
+.external-checks__evidence { display: grid; gap: var(--space-xs); margin-block-start: var(--space-sm); }
+.external-checks__evidence b { color: var(--color-ink); font-size: var(--text-sm); }
+.external-checks__evidence-items { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.external-checks__evidence-items span {
+  display: inline-flex;
+  min-height: 1.8rem;
+  align-items: center;
+  padding-inline: var(--space-sm);
+  border: var(--rule-thin) solid var(--color-rule);
+  border-radius: var(--radius-round);
+  background: var(--color-paper-2);
+  color: var(--color-ink-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
 .contract-gap {
   display: grid;
   gap: var(--space-xs);
@@ -246,6 +295,19 @@
   color: var(--color-ink-2);
 }
 .startup-boundary strong { color: var(--color-ink); }
+.startup-boundary__actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); margin-block-start: var(--space-xs); }
+.startup-boundary__actions span {
+  display: inline-flex;
+  min-height: 1.85rem;
+  align-items: center;
+  padding-inline: var(--space-sm);
+  border: var(--rule-thin) solid var(--color-rule-strong);
+  border-radius: var(--radius-round);
+  background: var(--color-surface);
+  color: var(--color-ink-2);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
 
 .result-action-error {
   margin-block: calc(var(--space-lg) * -1) var(--space-xl);
@@ -380,6 +442,8 @@
   .result-section--muted { padding: var(--space-lg); }
   .provenance-row { grid-template-columns: minmax(0, 1fr); }
   .provenance-source { border-inline-start: 0; border-block-start: var(--rule-thin) solid var(--color-rule); }
+  .finance-refinement-card__head { grid-template-columns: minmax(0, 1fr); }
+  .finance-refinement-card__head .btn { justify-self: start; }
   .action-list li { grid-template-columns: minmax(0, 1fr); }
 }
 

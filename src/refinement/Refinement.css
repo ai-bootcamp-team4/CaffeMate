@@ -28,6 +28,9 @@
 .refinement-target dl > div { display: grid; align-content: start; gap: var(--space-2xs); padding: var(--space-md) 0; border-block-end: var(--rule-thin) solid var(--color-rule); }
 .refinement-target dt { color: var(--color-muted); font-size: var(--text-sm); }
 .refinement-target dd { font-weight: 700; font-variant-numeric: tabular-nums; }
+.refinement-target__values { display: grid; gap: var(--space-xs); }
+.refinement-target__values span { display: grid; gap: var(--space-2xs); }
+.refinement-target__values b { color: var(--color-neutral); font-size: var(--text-xs); }
 
 .refinement-section { padding-block: var(--space-2xl); border-block-start: var(--rule-thin) solid var(--color-rule); }
 .refinement-section__head { display: grid; gap: var(--space-xs); max-width: 48rem; margin-block-end: var(--space-lg); }

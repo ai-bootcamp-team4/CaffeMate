@@ -1,22 +1,16 @@
 import type { DecisionInput, ResultCandidate } from '../apiClient'
 import { formatRange, formatWon, internalLabel, isHttpSource } from '../presentation'
 import { decisionInputLabel, decisionInputValue, financeInputs, limitationCopy, provenanceLabel } from './resultPresentation'
+import { buildRefinementGroups } from './refinementGroups'
 
-function refinementLabel(input: DecisionInput) {
-  const action = input.resolution_action
-  if (!action) return null
-  if (action.type !== 'PROPERTY_TERMS' && ['USER_CONFIRMED_FACT', 'RESOLVED_FACT'].includes(input.resolution_status)) return null
-  if (action.type === 'PROPERTY_TERMS') return '실제 매물로 바꾸기'
-  if (action.type === 'DOCUMENT_INTAKE') {
-    const types = action.accepted_document_types ?? []
-    if (types.includes('EQUIPMENT_QUOTE')) return '장비 견적 반영하기'
-    if (types.includes('INTERIOR_QUOTE')) return '인테리어 견적 반영하기'
-    if (input.field.toLowerCase().includes('royalty')) return '로열티 문서 반영하기'
-    if (types.includes('FRANCHISE_DISCLOSURE') || types.includes('FRANCHISE_AGREEMENT')) return '가맹비 문서 반영하기'
-    return '문서 값 반영하기'
-  }
-  if (action.type === 'USER_INPUT') return '직접 값 입력하기'
-  return null
+const documentTypeLabels: Record<string, string> = {
+  COMMERCIAL_LEASE: '상가 임대차계약서',
+  PROPERTY_LISTING: '점포 매물 자료',
+  INTERIOR_QUOTE: '인테리어 견적서',
+  EQUIPMENT_QUOTE: '장비 견적서',
+  FRANCHISE_DISCLOSURE: '프랜차이즈 정보공개서',
+  FRANCHISE_AGREEMENT: '가맹계약서',
+  LOAN_TERMS: '대출 조건서',
 }
 
 export function FinanceBreakdown({ candidate, onRefine, busy = false }: {
@@ -25,7 +19,7 @@ export function FinanceBreakdown({ candidate, onRefine, busy = false }: {
   busy?: boolean
 }) {
   const inputs = financeInputs(candidate)
-  const firstPropertyRefinement = inputs.find((input) => input.resolution_action?.type === 'PROPERTY_TERMS')?.field ?? null
+  const refinementGroups = buildRefinementGroups(inputs)
   return (
     <section id="result-finance" className="result-section" aria-labelledby="financeBreakdownTitle">
       <header className="result-section__head">
@@ -43,9 +37,6 @@ export function FinanceBreakdown({ candidate, onRefine, busy = false }: {
         <div className="provenance-list">
           {inputs.map((input) => {
             const limitation = limitationCopy(input.limitation_code)
-            const actionLabel = input.resolution_action?.type === 'PROPERTY_TERMS' && input.field !== firstPropertyRefinement
-              ? null
-              : refinementLabel(input)
             return (
               <article className="provenance-row" key={input.field}>
                 <div>
@@ -70,11 +61,6 @@ export function FinanceBreakdown({ candidate, onRefine, busy = false }: {
                   ) : <span>사용자 입력 또는 등록된 모델 값</span>}
                   {input.applied_to.length > 0 && <small>적용: {input.applied_to.map((target) => internalLabel(target, '계산 항목')).join(' · ')}</small>}
                   {limitation && <small>{limitation}</small>}
-                  {actionLabel && onRefine && (
-                    <button className="btn btn--accent finance-refine-action" disabled={busy} type="button" onClick={() => onRefine(input)}>
-                      {actionLabel}
-                    </button>
-                  )}
                 </div>
               </article>
             )
@@ -82,6 +68,54 @@ export function FinanceBreakdown({ candidate, onRefine, busy = false }: {
         </div>
       ) : (
         <p className="contract-gap">총액은 계산됐지만 항목별 provenance가 아직 공개 응답에 포함되지 않았습니다.</p>
+      )}
+
+      {refinementGroups.length > 0 && onRefine && (
+        <section className="finance-refinement" aria-labelledby="financeRefinementTitle">
+          <header className="finance-refinement__head">
+            <p className="result-kicker">다음에 실제값으로 교체</p>
+            <h3 id="financeRefinementTitle">실제값으로 바꿔서 다시 계산하기</h3>
+            <p>같은 자료로 함께 바뀌는 값은 한 번에 묶었습니다. 하나씩 따로 입력할 필요가 없습니다.</p>
+          </header>
+          <div className="finance-refinement__groups">
+            {refinementGroups.map((group, index) => {
+              const titleId = `finance-refinement-${index}`
+              return (
+                <article className="finance-refinement-card" key={group.key} aria-labelledby={titleId}>
+                  <div className="finance-refinement-card__head">
+                    <div>
+                      <span>{group.inputs.length}개 입력을 함께 확인</span>
+                      <h4 id={titleId}>{group.title}</h4>
+                      <p>{group.description}</p>
+                    </div>
+                    <button
+                      className="btn btn--accent"
+                      disabled={busy}
+                      type="button"
+                      onClick={() => onRefine(group.representative)}
+                    >
+                      {group.actionLabel}
+                    </button>
+                  </div>
+                  <dl className="finance-refinement-card__inputs">
+                    {group.inputs.map((input) => (
+                      <div key={input.field}>
+                        <dt>{decisionInputLabel(input)}</dt>
+                        <dd>{decisionInputValue(input)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {group.acceptedDocumentTypes.length > 0 && (
+                    <p className="finance-refinement-card__documents">
+                      <strong>받을 수 있는 자료</strong>
+                      <span>{group.acceptedDocumentTypes.map((type) => documentTypeLabels[type] ?? type).join(' · ')}</span>
+                    </p>
+                  )}
+                </article>
+              )
+            })}
+          </div>
+        </section>
       )}
     </section>
   )

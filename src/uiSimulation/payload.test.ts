@@ -44,6 +44,10 @@ describe('development dependency public payload boundary', () => {
     expectProductionShaped(confirmed)
     const initial = await client.getResult(created.project_id)
     expectProductionShaped(initial)
+    const independent = initial.candidates.find((candidate) => candidate.case_type === 'INDEPENDENT')
+    const franchise = initial.candidates.find((candidate) => candidate.case_type === 'FRANCHISE')
+    expect(independent?.verification_requirements?.length).toBeGreaterThanOrEqual(6)
+    expect(franchise?.verification_requirements?.length).toBeGreaterThanOrEqual(9)
 
     const workflow = await client.startFirstProposal(created.project_id)
     expectProductionShaped(workflow)
@@ -55,7 +59,9 @@ describe('development dependency public payload boundary', () => {
     const candidateId = initial.primary_candidate_id ?? initial.candidates[0].candidate_id
     const selection = await client.selectCandidate(created.project_id, initial, candidateId)
     expectProductionShaped(selection)
-    expectProductionShaped(await client.getPreparationGuide(created.project_id, selection.selection_id))
+    const preparation = await client.getPreparationGuide(created.project_id, selection.selection_id)
+    expectProductionShaped(preparation)
+    expect(preparation.procedures).toHaveLength(6)
 
     const property = await client.applyPropertyTerms(created.project_id, selection.selection_id, initial.current_head.state_version, {
       address: '서울특별시 성동구 연무장길 57',
@@ -82,6 +88,9 @@ describe('development dependency public payload boundary', () => {
     expectProductionShaped(revision)
     const form = await client.getDocumentExtractionForm(created.project_id, revision.document_revision_id)
     expectProductionShaped(form)
+    expect(form.fields.length).toBeGreaterThanOrEqual(9)
+    expect(form.fields.some((field) => field.label === '2그룹 에스프레소 머신')).toBe(true)
+    expect(form.fields.some((field) => field.label === '설치·시운전')).toBe(true)
     const application = await client.applyDocumentExtractionForm(created.project_id, form)
     expectProductionShaped(application)
     const documentResult = await client.getResult(created.project_id)

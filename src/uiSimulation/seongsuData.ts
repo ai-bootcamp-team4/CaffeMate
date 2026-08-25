@@ -1,4 +1,4 @@
-import type { ResultCandidate } from '../resultContracts'
+import type { ResultCandidate, VerificationRequirement } from '../resultContracts'
 import type { SupportedAnalysisKey } from './scenarios'
 
 export interface SeedRange {
@@ -133,6 +133,118 @@ export const rebBenchmark = {
   sourceRef: 'https://www.reb.or.kr',
   dataDate: '2026-06-30',
   geographicScope: '서울특별시 · 소규모 상가',
+}
+
+function externalRequirement(
+  requirementCode: string,
+  label: string,
+  resolver: string,
+  authority: string,
+  requiredEvidence: string[],
+  reason: string,
+  targetFields: string[],
+): VerificationRequirement {
+  return {
+    requirement_code: requirementCode,
+    label,
+    resolver,
+    authority,
+    current_status: 'EXTERNAL_CONFIRMATION_REQUIRED',
+    required_evidence: requiredEvidence,
+    reason,
+    resolution_action: { type: 'EXTERNAL_CONFIRMATION', target_fields: targetFields },
+  }
+}
+
+export function seongsuVerificationRequirements(caseType: ResultCandidate['case_type']): VerificationRequirement[] {
+  const common = [
+    externalRequirement(
+      'SITE_FACILITY_COMPLIANCE',
+      '점포 시설기준 최종 확인',
+      'LOCAL_AUTHORITY',
+      '성동구청 휴게음식점 영업신고 담당 부서',
+      ['SITE_PLAN_AND_AUTHORITY_CONFIRMATION', 'CURRENT_FACILITY_PHOTOS'],
+      '도면과 공개자료만으로는 실제 조리장·급수·환기·세척·화장실 등 현장 시설이 영업신고 기준을 충족하는지 최종 확정할 수 없습니다.',
+      ['site.food_service_facility_compliance'],
+    ),
+    externalRequirement(
+      'FIRE_SAFETY_SITE_CONFIRMATION',
+      '점포별 소방안전 적용 확인',
+      'FIRE_AUTHORITY',
+      '성동소방서 예방·안전 담당 부서',
+      ['FIRE_SAFETY_CONFIRMATION', 'CURRENT_FIRE_EQUIPMENT_STATUS'],
+      '면적·층·수용인원·건물 구조와 기존 소방시설에 따라 적용 요건이 달라져 현장 기준의 최종 확인이 필요합니다.',
+      ['site.fire_safety_applicability'],
+    ),
+    externalRequirement(
+      'LANDLORD_WORK_AND_USE_CONSENT',
+      '임대인 공사·업종 동의 확인',
+      'LANDLORD_OR_BUILDING_MANAGER',
+      '임대인 또는 건물 관리주체',
+      ['LANDLORD_WRITTEN_CONSENT', 'LEASE_SPECIAL_TERMS'],
+      '카페 업종 사용, 배기·급배수·전기 공사, 간판 설치와 원상복구 범위는 임대차계약과 건물 관리규정의 동의가 필요합니다.',
+      ['lease.use_consent', 'lease.construction_consent'],
+    ),
+    externalRequirement(
+      'SIGNAGE_SITE_APPLICABILITY',
+      '간판 신고·허가 대상 확인',
+      'LOCAL_AUTHORITY',
+      '성동구청 옥외광고물 담당 부서',
+      ['SIGNAGE_PLAN', 'SIGNAGE_AUTHORITY_CONFIRMATION'],
+      '간판 종류·크기·조명·설치 위치와 건물 조건에 따라 신고 또는 허가 여부가 달라지므로 설치안 기준 확인이 필요합니다.',
+      ['site.signage_applicability'],
+    ),
+    externalRequirement(
+      'ELECTRICAL_CAPACITY_CONFIRMATION',
+      '전력 용량·증설 가능 여부 확인',
+      'UTILITY_OR_BUILDING_MANAGER',
+      '건물 관리주체 및 전력 공급기관',
+      ['CURRENT_CONTRACTED_POWER', 'ELECTRICAL_UPGRADE_CONFIRMATION'],
+      '에스프레소 머신·제빙기·냉난방기 등 실제 장비 구성에 필요한 전력과 증설 가능 여부는 건물 전기설비와 계약전력 확인이 필요합니다.',
+      ['site.electrical_capacity'],
+    ),
+    externalRequirement(
+      'BUILDING_USE_COMPATIBILITY',
+      '건축물 용도와 영업 가능성 최종 확인',
+      'LOCAL_AUTHORITY',
+      '성동구청 건축·위생 관련 담당 부서',
+      ['BUILDING_REGISTER', 'AUTHORITY_USE_CONFIRMATION'],
+      '건축물대장 정보는 참고할 수 있지만 현재 점포에서 휴게음식점 영업이 가능한지에 대한 최종 행정 판단은 관할기관 확인이 필요합니다.',
+      ['site.building_use_compatibility'],
+    ),
+  ]
+
+  if (caseType !== 'FRANCHISE') return common
+  return [
+    ...common,
+    externalRequirement(
+      'FRANCHISE_AREA_APPROVAL',
+      '이 주소의 출점 가능 여부',
+      'FRANCHISE_HQ',
+      '이디야커피 본사',
+      ['DATED_HQ_WRITTEN_CONFIRMATION'],
+      '특정 후보 주소의 출점 승인 여부는 해당 프랜차이즈 본사가 결정하므로 CaffeMate가 확정할 수 없습니다.',
+      ['franchise.area_availability'],
+    ),
+    externalRequirement(
+      'FRANCHISE_TERRITORY_CONFIRMATION',
+      '영업지역 보호 범위 확인',
+      'FRANCHISE_HQ',
+      '이디야커피 본사',
+      ['HQ_TERRITORY_CONFIRMATION', 'LATEST_FRANCHISE_AGREEMENT_DRAFT'],
+      '인접 가맹점과의 영업지역 보호 범위, 향후 추가 출점 계획과 예외 조건은 현재 후보 주소를 기준으로 본사 확인이 필요합니다.',
+      ['franchise.protected_territory'],
+    ),
+    externalRequirement(
+      'FRANCHISE_SITE_DESIGN_APPROVAL',
+      '본사 점포·설계 승인',
+      'FRANCHISE_HQ',
+      '이디야커피 본사',
+      ['HQ_SITE_APPROVAL', 'HQ_DESIGN_APPROVAL'],
+      '점포 면적·전면폭·설비 배치와 인테리어 설계가 브랜드 기준을 충족하는지는 본사의 현장 검토와 설계 승인이 필요합니다.',
+      ['franchise.site_approval', 'franchise.design_approval'],
+    ),
+  ]
 }
 
 export function deriveOccupancyRange(seed: IndependentSeed): SeedRange {

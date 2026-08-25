@@ -36,7 +36,17 @@ export function StartupPreparation({
 
       <div className="startup-boundary" role="note">
         <strong>CaffeMate 검토 이후에는 사람이 직접 결정해요</strong>
-        <p>계약 체결, 송금·결제, 대출 실행, 법적 확정 판단, 고액 지출과 최종 창업 결정은 자동으로 수행하지 않습니다.</p>
+        <p>자료를 정리하고 질문을 만드는 것까지 도울 수 있지만, 아래 행동은 자동으로 수행하지 않습니다.</p>
+        <div className="startup-boundary__actions">
+          <span>계약 체결·서명</span>
+          <span>송금·결제</span>
+          <span>대출 신청·실행</span>
+          <span>정부 신고·등록 제출</span>
+          <span>본사·임대인·중개인 연락</span>
+          <span>법적 확정 판단</span>
+          <span>고액 지출 승인</span>
+          <span>최종 창업 Go / No-Go</span>
+        </div>
       </div>
     </section>
   )

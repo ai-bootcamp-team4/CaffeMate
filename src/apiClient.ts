@@ -179,6 +179,14 @@ export interface PreparationProcedure {
   missing_fields: string[]
   conflicts: string[]
   error_codes: string[]
+  source_trace?: Array<{
+    source_id?: string
+    source_ref: string
+    data_date?: string | null
+    retrieved_at?: string
+    content_digest?: string
+  }>
+  evidence_records?: Array<Record<string, unknown>>
 }
 
 export interface PreparationGuide {
@@ -191,6 +199,14 @@ export interface PreparationGuide {
   as_of: string
   status: 'COMPLETE' | 'REVIEW_REQUIRED' | 'UNAVAILABLE'
   procedures: PreparationProcedure[]
+  source_trace?: Array<{
+    source_id?: string
+    source_ref: string
+    data_date?: string | null
+    retrieved_at?: string
+    content_digest?: string
+  }>
+  evidence_records?: Array<Record<string, unknown>>
   human_actions_only: boolean
   external_submission_performed: boolean
   generated_at: string

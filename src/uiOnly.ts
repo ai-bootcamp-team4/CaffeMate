@@ -9,7 +9,6 @@ import type {
   FeedbackPreview,
   FeedbackResolution,
   HeadFence,
-  PreparationGuide,
   Project,
   ResultExplanation,
   ResultView,
@@ -20,6 +19,7 @@ import { buildSimulationProject, buildSimulationResult } from './uiSimulation/re
 import { searchSimulationAreas, simulationAreaByToken, type SupportedAreaScenario } from './uiSimulation/scenarios'
 import { createSimulationWorkflowRegistry } from './uiSimulation/workflow'
 import { applyDocumentScenario, applyPropertyScenario } from './uiSimulation/refinement'
+import { buildSeongsuPreparationGuide } from './uiSimulation/preparation'
 
 const now = '2026-08-25T06:40:00Z'
 const projectId = 'project:seongsu-review'
@@ -125,28 +125,62 @@ export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}):
       field('address', 'ADDRESS', '점포 주소', '서울특별시 성동구 연무장길 57', null, '매물 정보'),
       field('area', 'AREA', '면적', 33.1, '㎡', '매물 정보'),
       field('floor', 'FLOOR', '층', '1층', null, '매물 정보'),
+      field('frontage', 'FRONTAGE', '전면폭', 6.2, 'm', '점포 조건'),
+      field('ceiling-height', 'CEILING_HEIGHT', '천장고', 3.1, 'm', '점포 조건'),
+      field('building-use', 'BUILDING_USE', '건축물 표시 용도', '제2종근린생활시설', null, '점포 조건'),
+      field('contracted-power', 'CONTRACTED_POWER', '표시 계약전력', 20, 'kW', '설비 조건'),
+      field('water-drainage', 'WATER_DRAINAGE', '급배수', '급배수 인입 표시', null, '설비 조건'),
       field('deposit', 'LEASE_DEPOSIT', '보증금', 80_000_000, '원', '임대 조건'),
       field('rent', 'MONTHLY_RENT', '월세', 6_500_000, '원', '임대 조건'),
       field('management', 'MANAGEMENT_FEE', '관리비', 700_000, '원', '임대 조건'),
       field('key-money', 'KEY_MONEY', '권리금', 50_000_000, '원', '임대 조건'),
     ]
     if (documentType === 'COMMERCIAL_LEASE') return [
+      field('address', 'ADDRESS', '점포 주소', '서울특별시 성동구 연무장길 57', null, '임대차 목적물'),
       field('area', 'AREA', '면적', 33.1, '㎡', '임대차 목적물'),
       field('floor', 'FLOOR', '층', '1층', null, '임대차 목적물'),
       field('deposit', 'LEASE_DEPOSIT', '보증금', 80_000_000, '원', '임대 조건'),
       field('rent', 'MONTHLY_RENT', '월세', 6_500_000, '원', '임대 조건'),
       field('management', 'MANAGEMENT_FEE', '관리비', 700_000, '원', '임대 조건'),
       field('key-money', 'KEY_MONEY', '권리금', 50_000_000, '원', '임대 조건'),
+      field('lease-term', 'LEASE_TERM', '계약기간', '24개월', null, '계약 조건'),
+      field('rent-vat', 'VAT_STATUS', '월세 부가세', '별도', null, '계약 조건'),
+      field('restoration', 'RESTORATION_CLAUSE', '원상복구', '임차인 부담 조항 있음', null, '특약'),
     ]
     if (documentType === 'EQUIPMENT_QUOTE') return [
+      field('equipment-machine', 'QUOTE_LINE_ITEM', '2그룹 에스프레소 머신', 9_800_000, '원', '주요 장비'),
+      field('equipment-grinders', 'QUOTE_LINE_ITEM', '그라인더 2대', 3_200_000, '원', '주요 장비'),
+      field('equipment-ice', 'QUOTE_LINE_ITEM', '제빙기', 2_400_000, '원', '주요 장비'),
+      field('equipment-water', 'QUOTE_LINE_ITEM', '정수·필터 시스템', 900_000, '원', '주요 장비'),
+      field('equipment-cold', 'QUOTE_LINE_ITEM', '냉장·냉동고', 2_100_000, '원', '주요 장비'),
+      field('equipment-washer', 'QUOTE_LINE_ITEM', '식기세척기', 1_300_000, '원', '주요 장비'),
+      field('equipment-pos-small', 'QUOTE_LINE_ITEM', 'POS·소형 장비·바도구', 1_800_000, '원', '기타 장비'),
       field('EQUIPMENT', 'QUOTE_TOTAL', '장비 견적 총액', 21_500_000, '원', '견적 합계'),
+      field('equipment-vat', 'VAT_STATUS', '부가세 포함 여부', '포함', null, '견적 조건'),
+      field('equipment-install', 'INSTALLATION_STATUS', '설치·시운전', '포함', null, '견적 조건'),
     ]
     if (documentType === 'INTERIOR_QUOTE') return [
+      field('interior-demolition', 'QUOTE_LINE_ITEM', '철거·기초 공사', 4_500_000, '원', '공종별 금액'),
+      field('interior-mep', 'QUOTE_LINE_ITEM', '전기·급배수 공사', 8_200_000, '원', '공종별 금액'),
+      field('interior-finish', 'QUOTE_LINE_ITEM', '목공·도장·마감', 12_800_000, '원', '공종별 금액'),
+      field('interior-counter', 'QUOTE_LINE_ITEM', '바·주방 제작', 7_400_000, '원', '공종별 금액'),
+      field('interior-light', 'QUOTE_LINE_ITEM', '조명·전기기구', 3_100_000, '원', '공종별 금액'),
+      field('interior-hvac', 'QUOTE_LINE_ITEM', '냉난방·환기 보강', 4_500_000, '원', '공종별 금액'),
+      field('interior-design', 'QUOTE_LINE_ITEM', '설계·현장관리', 3_000_000, '원', '공종별 금액'),
       field('CONSTRUCTION', 'QUOTE_TOTAL', '인테리어 견적 총액', 43_500_000, '원', '공사비 합계'),
       field('interior_vat', 'VAT_STATUS', '부가세 포함 여부', '포함', null, '견적 조건'),
+      field('interior-period', 'CONSTRUCTION_PERIOD', '예상 공사기간', '28일', null, '견적 조건'),
+      field('interior-exclusion', 'QUOTE_EXCLUSION', '별도 항목', '간판·소방 증설·전력 증설은 별도', null, '견적 조건'),
     ]
     if (documentType === 'FRANCHISE_DISCLOSURE' || documentType === 'FRANCHISE_AGREEMENT') return [
+      field('franchise-reporting-year', 'REPORTING_YEAR', '기준연도', 2025, '년', '정보공개서'),
+      field('franchise-fee', 'FRANCHISE_FEE', '가맹비', 7_000_000, '원', '가맹금 구성'),
+      field('franchise-training-fee', 'EDUCATION_FEE', '교육비', 2_200_000, '원', '가맹금 구성'),
+      field('franchise-deposit', 'FRANCHISEE_DEPOSIT', '가맹보증금', 3_000_000, '원', '가맹금 구성'),
+      field('franchise-other-initial', 'OTHER_INITIAL_FEE', '기타 초기비용', 6_000_000, '원', '가맹금 구성'),
       field('FRANCHISE_INITIAL_FEES', 'FRANCHISE_INITIAL_FEE_TOTAL', '가맹 초기비용 총액', 18_200_000, '원', '가맹금'),
+      field('franchise-contract-term', 'CONTRACT_TERM', '계약기간', '3년', null, '계약 조건'),
+      field('franchise-renewal', 'RENEWAL_CONDITION', '갱신 조건', '계약서 확인 필요', null, '계약 조건'),
     ]
     return [field('material_fact', 'MATERIAL_FACT', '확인한 값', '확인된 문서 값', null, '본문')]
   }
@@ -305,29 +339,11 @@ export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}):
         document_intake_enabled: true,
       }
     },
-    getPreparationGuide: async (_projectId, selectionId): Promise<PreparationGuide> => ({
-      project_id: currentProject.project_id,
-      selection_id: selectionId,
-      candidate_id: selectedCandidateId,
-      candidate_type: currentResult.candidates.find((candidate) => candidate.candidate_id === selectedCandidateId)?.case_type ?? 'INDEPENDENT',
-      jurisdiction_code: currentProject.state?.area.area_id ?? 'area:unknown',
-      jurisdiction_display_name: currentProject.state?.area.display_name ?? '선택 지역',
-      as_of: '2026-08-25',
-      status: 'REVIEW_REQUIRED',
-      procedures: [
-        {
-          procedure_type: 'HYGIENE_EDUCATION', status: 'OK', missing_fields: [], conflicts: [], error_codes: [],
-          steps: [{ procedure_type: 'HYGIENE_EDUCATION', step_order: 1, title: '신규 영업자 위생교육 이수', required: true, authority: '식품위생교육기관', source_date: '2026-08-25', evidence_id: 'evidence-procedure:hygiene-education' }],
-        },
-        {
-          procedure_type: 'FOOD_SERVICE_REPORT', status: 'PARTIAL', missing_fields: ['facility_check'], conflicts: [], error_codes: [],
-          steps: [{ procedure_type: 'FOOD_SERVICE_REPORT', step_order: 1, title: '휴게음식점 영업신고 준비', required: true, authority: '관할 구청 위생 담당 부서', source_date: '2026-08-25', evidence_id: 'evidence-procedure:food-service-report' }],
-        },
-      ],
-      human_actions_only: true,
-      external_submission_performed: false,
-      generated_at: now,
-    }),
+    getPreparationGuide: async (_projectId, selectionId) => buildSeongsuPreparationGuide(
+      currentProject,
+      selectionId,
+      currentResult.candidates.find((candidate) => candidate.candidate_id === selectedCandidateId),
+    ),
     applyPropertyTerms: async (_projectId, selectionId, _expectedStateVersion, terms) => {
       if (!confirmedValues) throw new Error('재계산할 창업 조건을 찾을 수 없습니다.')
       const selected = currentResult.candidates.find((candidate) => candidate.candidate_id === selectedCandidateId)

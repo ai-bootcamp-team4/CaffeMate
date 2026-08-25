@@ -11,7 +11,8 @@ import type {
   ResultView,
 } from '../apiClient'
 import { internalLabel } from '../presentation'
-import { decisionInputLabel, decisionInputValue, provenanceLabel } from '../result/resultPresentation'
+import { buildRefinementGroups } from '../result/refinementGroups'
+import { decisionInputLabel, decisionInputValue, financeInputs, provenanceLabel } from '../result/resultPresentation'
 import { DecisionDelta } from './DecisionDelta'
 import './Refinement.css'
 
@@ -66,6 +67,10 @@ export function NumericRefinementFlow({
   const action = target.resolution_action
   const isProperty = action?.type === 'PROPERTY_TERMS'
   const isDocument = action?.type === 'DOCUMENT_INTAKE'
+  const refinementGroup = buildRefinementGroups(financeInputs(candidate))
+    .find((group) => group.inputs.some((input) => input.field === target.field))
+  const groupedInputs = refinementGroup?.inputs ?? [target]
+  const affectedCalculations = [...new Set(groupedInputs.flatMap((input) => input.applied_to))]
   const setValue = (key: keyof typeof initialPropertyTerms, value: string) => setValues((current) => ({ ...current, [key]: value }))
 
   const submitProperty = async (event: FormEvent) => {
@@ -138,13 +143,21 @@ export function NumericRefinementFlow({
 
       <section className="refinement-target" aria-labelledby="refinementTargetTitle">
         <div>
-          <p className="result-kicker">이번에 바꿀 값</p>
-          <h2 id="refinementTargetTitle">{decisionInputLabel(target)}</h2>
+          <p className="result-kicker">이번에 함께 바꿀 값</p>
+          <h2 id="refinementTargetTitle">{refinementGroup?.title ?? decisionInputLabel(target)}</h2>
+          {refinementGroup && <p>{refinementGroup.description}</p>}
         </div>
         <dl>
-          <div><dt>현재 값</dt><dd>{decisionInputValue(target)}</dd></div>
-          <div><dt>현재 근거</dt><dd>{provenanceLabel(target)}</dd></div>
-          <div><dt>영향받는 계산</dt><dd>{target.applied_to.length ? target.applied_to.map((item) => internalLabel(item, '계산 항목')).join(' · ') : '재계산 입력'}</dd></div>
+          <div>
+            <dt>현재 값</dt>
+            <dd className="refinement-target__values">
+              {groupedInputs.map((input) => (
+                <span key={input.field}><b>{decisionInputLabel(input)}</b>{decisionInputValue(input)} · {provenanceLabel(input)}</span>
+              ))}
+            </dd>
+          </div>
+          <div><dt>같이 바뀌는 항목</dt><dd>{groupedInputs.map((input) => decisionInputLabel(input)).join(' · ')}</dd></div>
+          <div><dt>영향받는 계산</dt><dd>{affectedCalculations.length ? affectedCalculations.map((item) => internalLabel(item, '계산 항목')).join(' · ') : '재계산 입력'}</dd></div>
         </dl>
       </section>
 

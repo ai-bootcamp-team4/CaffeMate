@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import App from './App'
 import { createUiOnlyDependencies } from './uiOnly'
@@ -41,9 +41,19 @@ describe('UI-only development mode', () => {
     expect(screen.getByRole('button', { name: /생활권 단골 균형형 개인카페/ })).toBeTruthy()
     expect(screen.getAllByText('한국부동산원 상업용부동산 임대동향조사').length).toBeGreaterThan(0)
     expect(screen.getAllByText('장비비').length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: '실제 매물로 바꾸기' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '실제값으로 바꿔서 다시 계산하기' })).toBeTruthy()
+    const propertyGroup = screen.getByRole('article', { name: '실제 점포 조건' })
+    expect(within(propertyGroup).getByText('보증금')).toBeTruthy()
+    expect(within(propertyGroup).getByText('권리금·양수비')).toBeTruthy()
+    expect(within(propertyGroup).getByText('월 점유비')).toBeTruthy()
+    expect(within(propertyGroup).getAllByRole('button', { name: '실제 매물로 바꾸기' })).toHaveLength(1)
     expect(screen.getByRole('button', { name: '장비 견적 반영하기' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '인테리어 견적 반영하기' })).toBeTruthy()
+
+    const independentExternal = screen.getByRole('region', { name: 'CaffeMate 밖에서 확인해야 해요' })
+    expect(within(independentExternal).getByText('점포 시설기준 최종 확인')).toBeTruthy()
+    expect(within(independentExternal).getByText('점포별 소방안전 적용 확인')).toBeTruthy()
+    expect(within(independentExternal).getByText('임대인 공사·업종 동의 확인')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '장비 견적 반영하기' }))
     expect(await screen.findByRole('heading', { name: '실제 숫자로 정밀화하기' })).toBeTruthy()
@@ -59,6 +69,8 @@ describe('UI-only development mode', () => {
     fireEvent.click(screen.getByRole('button', { name: /이디야커피/ }))
     expect(screen.getByText('이 주소의 출점 가능 여부')).toBeTruthy()
     expect(screen.getByText(/CaffeMate가 확정할 수 없습니다/)).toBeTruthy()
+    expect(screen.getByText('영업지역 보호 범위 확인')).toBeTruthy()
+    expect(screen.getByText('본사 점포·설계 승인')).toBeTruthy()
     expect(screen.getByRole('button', { name: '가맹비 문서 반영하기' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: '로열티 문서 반영하기' })).toBeNull()
 
@@ -70,6 +82,10 @@ describe('UI-only development mode', () => {
     fireEvent.click(screen.getByRole('button', { name: '창업 준비 절차 보기' }))
     expect(await screen.findByText('신규 영업자 위생교육 이수')).toBeTruthy()
     expect(screen.getByText('휴게음식점 영업신고 준비')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '시설 기준 확인' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '사업자등록' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '간판 신고 확인' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '소방 안전 확인' })).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /가치·속도 회전형 개인카페/ }))
     fireEvent.click(screen.getByRole('button', { name: '실제 매물로 바꾸기' }))

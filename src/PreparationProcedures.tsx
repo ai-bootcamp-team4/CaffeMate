@@ -2,19 +2,6 @@ import type { PreparationGuide, PreparationProcedure, ProcedureType } from './ap
 
 /* Hallmark · pre-emit critique: P5 H4 E4 S4 R5 V3 */
 
-interface OfficialSourceTrace {
-  source_ref?: unknown
-}
-
-interface ProcedureWithSources extends PreparationProcedure {
-  source_trace?: OfficialSourceTrace[]
-}
-
-interface GuideWithSources extends PreparationGuide {
-  source_trace?: OfficialSourceTrace[]
-  procedures: ProcedureWithSources[]
-}
-
 export interface PreparationProceduresProps {
   guide: PreparationGuide | null
   busy: boolean
@@ -130,7 +117,7 @@ function safeAction(value: unknown, fallback: string): string {
   return concise(cleaned, fallback)
 }
 
-function uniqueActions(procedure: ProcedureWithSources): string[] {
+function uniqueActions(procedure: PreparationProcedure): string[] {
   const copy = procedureCopy[procedure.procedure_type]
   const seen = new Set<string>()
   const actions: string[] = []
@@ -145,7 +132,7 @@ function uniqueActions(procedure: ProcedureWithSources): string[] {
   return actions.length ? actions : [copy.fallbackAction]
 }
 
-function uniqueAuthorities(procedure: ProcedureWithSources): string {
+function uniqueAuthorities(procedure: PreparationProcedure): string {
   const copy = procedureCopy[procedure.procedure_type]
   const values = procedure.steps
     .map((step) => concise(step.authority, ''))
@@ -163,7 +150,7 @@ function isOfficialUrl(value: unknown): value is string {
   }
 }
 
-function sourceUrls(procedure: ProcedureWithSources, guide: GuideWithSources): string[] {
+function sourceUrls(procedure: PreparationProcedure, guide: PreparationGuide): string[] {
   const local = procedure.source_trace ?? []
   const shared = guide.source_trace ?? []
   const localUrls = [...new Set(local.map((source) => source.source_ref).filter(isOfficialUrl))]
@@ -171,7 +158,7 @@ function sourceUrls(procedure: ProcedureWithSources, guide: GuideWithSources): s
   return [...new Set(shared.map((source) => source.source_ref).filter(isOfficialUrl))]
 }
 
-function cautionFor(procedure: ProcedureWithSources): string {
+function cautionFor(procedure: PreparationProcedure): string {
   const copy = procedureCopy[procedure.procedure_type]
   if (procedure.conflicts.length) return '자료 내용이 서로 달라 관할 기관 확인이 필요해요.'
   if (procedure.status === 'STALE') return '기준일이 지난 자료일 수 있어 최신 안내를 다시 확인하세요.'
@@ -182,8 +169,7 @@ function cautionFor(procedure: ProcedureWithSources): string {
 }
 
 export function PreparationProcedures({ guide, busy, error, onRetry }: PreparationProceduresProps) {
-  const typedGuide = guide as GuideWithSources | null
-  const procedures = [...(typedGuide?.procedures ?? [])]
+  const procedures = [...(guide?.procedures ?? [])]
     .filter((procedure) => procedure.steps.length > 0)
     .sort((left, right) => procedureOrder.indexOf(left.procedure_type) - procedureOrder.indexOf(right.procedure_type))
 
@@ -192,8 +178,8 @@ export function PreparationProcedures({ guide, busy, error, onRetry }: Preparati
       <div className="surface__head">
         <h2 id="officialProceduresTitle">공식 창업 절차</h2>
         <p>
-          {typedGuide?.jurisdiction_display_name
-            ? `${typedGuide.jurisdiction_display_name} 기준으로 먼저 할 일을 정리했어요.`
+          {guide?.jurisdiction_display_name
+            ? `${guide.jurisdiction_display_name} 기준으로 먼저 할 일을 정리했어요.`
             : '선택 지역을 기준으로 먼저 할 일을 정리했어요.'}
         </p>
       </div>
@@ -209,7 +195,7 @@ export function PreparationProcedures({ guide, busy, error, onRetry }: Preparati
         <div className="procedure-list">
           {procedures.map((procedure) => {
             const copy = procedureCopy[procedure.procedure_type]
-            const urls = sourceUrls(procedure, typedGuide as GuideWithSources)
+            const urls = sourceUrls(procedure, guide as PreparationGuide)
             return (
               <section className="procedure-row" key={procedure.procedure_type} aria-labelledby={`procedure-${procedure.procedure_type}`}>
                 <div className="procedure-row__head">
