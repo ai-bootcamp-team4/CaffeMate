@@ -49,6 +49,18 @@ class SpaceProfile(StrictModel):
         return self
 
 
+class PaidStaffFteProfile(StrictModel):
+    low: float = Field(ge=0, le=20)
+    base: float = Field(ge=0, le=20)
+    high: float = Field(ge=0, le=20)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> "PaidStaffFteProfile":
+        if not self.low <= self.base <= self.high:
+            raise ValueError("paid staff FTE profile must satisfy low <= base <= high")
+        return self
+
+
 class IndependentFinanceProfile(StrictModel):
     """Versioned, explicitly provisional finance inputs for a seed model.
 
@@ -63,6 +75,7 @@ class IndependentFinanceProfile(StrictModel):
     space_profile_sqm: SpaceProfile
     commercial_property_class: CommercialPropertyClass
     management_fee_ratio_bps: int = Field(ge=0, le=5_000)
+    paid_staff_fte: PaidStaffFteProfile
 
     @model_validator(mode="after")
     def validate_complete_profile(self) -> "IndependentFinanceProfile":

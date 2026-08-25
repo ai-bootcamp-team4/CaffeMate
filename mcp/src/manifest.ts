@@ -5,6 +5,7 @@ export const MCP_TOOL_NAMES = [
   'resolve_area',
   'get_area_profile',
   'get_property_reference',
+  'get_cost_reference',
   'search_cafe_observations',
   'search_business_events',
   'list_franchise_universe',

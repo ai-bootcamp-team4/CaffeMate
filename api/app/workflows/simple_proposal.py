@@ -31,6 +31,10 @@ from app.finance.case_facts import (
     PropertyContext,
 )
 from app.finance.franchise_disclosure import FranchiseDisclosureResolution
+from app.finance.labor_benchmark import (
+    MinimumWageReference,
+    resolve_seed_labor_benchmarks,
+)
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
     MONTHLY_FIXED_COST_CATEGORIES,
@@ -90,6 +94,7 @@ class SimpleProposalBuilder:
         case_fact_resolution: CaseFactResolution | None = None,
         franchise_disclosure_resolution: FranchiseDisclosureResolution | None = None,
         property_rent_benchmarks: list[PropertyRentBenchmark] | None = None,
+        minimum_wage_references: list[MinimumWageReference] | None = None,
         agent_proposals: list[dict[str, Any]] | None = None,
         franchise_universe: list[dict[str, Any]] | None = None,
     ) -> ResultBundlePayload:
@@ -109,10 +114,23 @@ class SimpleProposalBuilder:
             ],
             benchmarks=property_rent_benchmarks or [],
         )
+        labor_benchmark_resolution = resolve_seed_labor_benchmarks(
+            seeds=[
+                (
+                    seed.model_id,
+                    profile.paid_staff_fte,
+                    profile.cost_ranges[CostCategory.MONTHLY_LABOR],
+                )
+                for seed in independent_seeds
+                if (profile := seed.finance_profile) is not None
+            ],
+            references=minimum_wage_references or [],
+        )
         finance_resolver = FinancialInputResolver(
             property_context=property_context,
             case_resolution=case_fact_resolution,
             benchmark_resolution=benchmark_resolution,
+            labor_benchmark_resolution=labor_benchmark_resolution,
             franchise_disclosure_resolution=franchise_disclosure_resolution,
         )
         preference = state.founder.cafe_type_preference

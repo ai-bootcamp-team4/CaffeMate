@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0.0",
+  "snapshot_id": "cost-references-20260825",
+  "checked_at": "2026-08-25T08:00:00Z",
+  "references": [
+    {
+      "reference_id": "kr-minimum-wage-2026",
+      "reference_type": "MINIMUM_WAGE",
+      "effective_from": "2026-01-01",
+      "effective_to": "2026-12-31",
+      "hourly_rate_krw": 10320,
+      "monthly_equivalent_hours": 209,
+      "monthly_equivalent_krw": 2156880,
+      "source_title": "최저임금위원회 연도별 최저임금",
+      "source_ref": "https://www.minimumwage.go.kr/minWage/policy/decisionMain.do",
+      "source_anchor": "연도별 최저임금 결정현황 > 2026",
+      "published_or_data_date": "2025-08-05"
+    },
+    {
+      "reference_id": "kr-minimum-wage-2027",
+      "reference_type": "MINIMUM_WAGE",
+      "effective_from": "2027-01-01",
+      "effective_to": "2027-12-31",
+      "hourly_rate_krw": 10700,
+      "monthly_equivalent_hours": 209,
+      "monthly_equivalent_krw": 2236300,
+      "source_title": "최저임금위원회 연도별 최저임금",
+      "source_ref": "https://www.minimumwage.go.kr/minWage/policy/decisionMain.do",
+      "source_anchor": "연도별 최저임금 결정현황 > 2027",
+      "published_or_data_date": "2026-08-05"
+    }
+  ]
+}

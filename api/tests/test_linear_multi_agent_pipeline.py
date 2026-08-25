@@ -314,6 +314,7 @@ def test_pipeline_calls_research_proposals_and_auditor_in_one_linear_flow() -> N
     assert set(mcp.tool_names) == {
         "get_area_profile",
         "get_property_reference",
+        "get_cost_reference",
         "search_cafe_observations",
         "retrieve_official_documents",
     }
@@ -422,6 +423,124 @@ def test_pipeline_applies_regional_property_reference_to_finance() -> None:
     assert occupancy["value_range_krw"]["base"] == 1_174_708
     assert occupancy["provenance"] == "BENCHMARK"
     assert occupancy["resolution_status"] == "RESOLVED_BENCHMARK"
+
+
+def test_pipeline_applies_minimum_wage_floor_to_paid_staff_labor() -> None:
+    class CostReferenceMcp(FakeMcp):
+        async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+            if kwargs["tool_name"] != "get_cost_reference":
+                return await super().call_tool(**kwargs)
+            self.tool_names.append("get_cost_reference")
+            evidence_id = "cost-reference:kr-minimum-wage-2026"
+            content = {
+                "schema_version": "1.0.0",
+                "request_id": "request-get_cost_reference",
+                "tool_name": "get_cost_reference",
+                "tool_version": "1.0.0",
+                "status": "OK",
+                "project_id": "project-1",
+                "evidence_records": [
+                    {
+                        "schema_version": "2.0.0",
+                        "evidence_id": evidence_id,
+                        "project_id": "project-1",
+                        "claim_type": "LABOR_COST_REFERENCE",
+                        "metric": "MINIMUM_WAGE_MONTHLY_209H",
+                        "value": {"kind": "INTEGER", "value": 2_156_880},
+                        "value_kind": "EVIDENCED_FACT",
+                        "unit": "KRW/month",
+                        "geographic_scope": {
+                            "scope_type": "NATIONAL",
+                            "scope_id": "KR",
+                            "boundary_version": None,
+                        },
+                        "source": {
+                            "title": "최저임금위원회 연도별 최저임금",
+                            "source_ref": "https://www.minimumwage.go.kr/minWage/policy/decisionMain.do",
+                            "authority": "PRIMARY_OFFICIAL",
+                            "source_type": "WEB",
+                            "source_family": "LABOR_COST_REFERENCE",
+                            "published_or_data_date": "2025-08-05",
+                            "source_observed_at": "2026-08-25T08:00:00Z",
+                            "document_version": "2026-01-01",
+                            "checksum": f"sha256:{'b' * 64}",
+                        },
+                        "original_anchor": {
+                            "anchor_type": "SECTION",
+                            "locator": "연도별 최저임금 결정현황 > 2026",
+                            "excerpt_hash": f"sha256:{'c' * 64}",
+                        },
+                        "freshness_status": "FRESH",
+                        "conflict_status": "NONE",
+                        "retrieved_at": "2026-08-25T08:00:00Z",
+                        "missing_context": [
+                            "PAID_STAFF_FTE_IS_REGISTERED_ASSUMPTION",
+                            "EXCLUDES_OVERTIME_ALLOWANCES_AND_EMPLOYER_INSURANCE",
+                        ],
+                        "durable_evidence_refs": [
+                            "https://www.minimumwage.go.kr/minWage/policy/decisionMain.do"
+                        ],
+                    }
+                ],
+                "missing_fields": [],
+                "conflicts": [],
+                "source_trace": [],
+                "error_codes": [],
+                "observed_at": "2026-08-25T08:00:00Z",
+                "data": [
+                    {
+                        "reference_type": "MINIMUM_WAGE",
+                        "effective_from": "2026-01-01",
+                        "effective_to": "2026-12-31",
+                        "hourly_rate_krw": 10_320,
+                        "monthly_equivalent_hours": 209,
+                        "monthly_equivalent_krw": 2_156_880,
+                        "evidence_id": evidence_id,
+                    }
+                ],
+            }
+            return McpCallOutcome(
+                request_id="request-get_cost_reference",
+                tool_name="get_cost_reference",
+                tool_version="1.0.0",
+                status="OK",
+                is_complete=True,
+                structured_content=content,
+            )
+
+    bundle = _pipeline(
+        FakeRuntime(),
+        CostReferenceMcp(),
+        now=datetime(2026, 8, 25, 1, tzinfo=UTC),
+    ).run(
+        state=_state(CafeTypePreference.INDEPENDENT_ONLY),
+        head=_head(),
+        workflow_run_id="workflow-minimum-wage",
+        evidence_records=[],
+    )
+
+    candidate = next(
+        value
+        for value in bundle.candidates
+        if value["independent_model"]["model_id"] == "independent-seating-focused-v1"
+    )
+    labor = next(
+        value for value in candidate["decision_inputs"] if value["field"] == "MONTHLY_LABOR"
+    )
+    assert labor["value_range_krw"] == {
+        "low": 5_000_000,
+        "base": 9_000_000,
+        "high": 15_098_160,
+    }
+    assert labor["provenance"] == "BENCHMARK"
+    assert labor["resolution_status"] == "RESOLVED_BENCHMARK"
+    assert labor["limitation_code"] == "OFFICIAL_MINIMUM_WAGE_FLOOR_NOT_ACTUAL_PAYROLL"
+    assert labor["derivation"]["formula_code"] == "MINIMUM_WAGE_FTE_FLOOR_V1"
+    assert labor["derivation"]["inputs"]["paid_staff_fte"] == {
+        "low": 2.0,
+        "base": 4.0,
+        "high": 7.0,
+    }
 
 
 def test_pipeline_keeps_running_when_one_mcp_read_fails() -> None:

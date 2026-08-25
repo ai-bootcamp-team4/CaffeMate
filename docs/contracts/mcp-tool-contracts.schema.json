@@ -33,6 +33,20 @@
         "as_of": { "type": "string", "format": "date" }
       }
     },
+    "getCostReferenceInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference_types", "as_of"],
+      "properties": {
+        "reference_types": {
+          "type": "array",
+          "items": { "enum": ["MINIMUM_WAGE"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "as_of": { "type": "string", "format": "date" }
+      }
+    },
     "searchCafeObservationsInput": {
       "type": "object",
       "additionalProperties": false,
@@ -196,6 +210,7 @@
             "resolve_area",
             "get_area_profile",
             "get_property_reference",
+            "get_cost_reference",
             "search_cafe_observations",
             "search_business_events",
             "list_franchise_universe",
@@ -297,6 +312,28 @@
         "region_name": { "type": "string", "minLength": 1, "maxLength": 64 },
         "coverage_status": { "enum": ["EXACT_MARKET", "PARENT_REGION"] },
         "floor_basis": { "enum": ["FIRST_FLOOR"] },
+        "evidence_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "costReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference_type",
+        "effective_from",
+        "effective_to",
+        "hourly_rate_krw",
+        "monthly_equivalent_hours",
+        "monthly_equivalent_krw",
+        "evidence_id"
+      ],
+      "properties": {
+        "reference_type": { "const": "MINIMUM_WAGE" },
+        "effective_from": { "type": "string", "format": "date" },
+        "effective_to": { "type": "string", "format": "date" },
+        "hourly_rate_krw": { "type": "integer", "minimum": 1 },
+        "monthly_equivalent_hours": { "type": "integer", "minimum": 1, "maximum": 744 },
+        "monthly_equivalent_krw": { "type": "integer", "minimum": 1 },
         "evidence_id": { "type": "string", "minLength": 1, "maxLength": 128 }
       }
     },
@@ -499,6 +536,20 @@
           "properties": {
             "tool_name": { "const": "get_property_reference" },
             "data": { "type": "array", "items": { "$ref": "#/$defs/propertyReference" } }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "getCostReferenceResult": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/resultBase" },
+        {
+          "type": "object",
+          "properties": {
+            "tool_name": { "const": "get_cost_reference" },
+            "data": { "type": "array", "items": { "$ref": "#/$defs/costReference" } }
           }
         }
       ],

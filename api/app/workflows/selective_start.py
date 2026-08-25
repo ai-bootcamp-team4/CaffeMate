@@ -12,6 +12,7 @@ from app.candidates.seed_registry import IndependentSeedRegistry
 from app.domain.errors import FeedbackPreconditionError
 from app.domain.models import VentureState
 from app.finance.case_facts import PropertyContext
+from app.finance.labor_benchmark import replay_minimum_wage_references
 from app.finance.property_benchmark import replay_property_rent_benchmarks
 from app.workflows.models import HeadFence, WorkflowRun
 from app.workflows.persistence import persist_completed_first_proposal
@@ -51,6 +52,7 @@ def start_selective_first_proposal(
         raise FeedbackPreconditionError("Recompute source result is invalid")
     franchise_universe = _franchise_universe(source_bundle)
     property_rent_benchmarks = replay_property_rent_benchmarks(source_bundle)
+    minimum_wage_references = replay_minimum_wage_references(source_bundle)
 
     registry = IndependentSeedRegistry.load_default()
     return persist_completed_first_proposal(
@@ -67,6 +69,7 @@ def start_selective_first_proposal(
         source_result_bundle_id=str(source_result["result_bundle_id"]),
         property_context=property_context,
         property_rent_benchmarks=property_rent_benchmarks,
+        minimum_wage_references=minimum_wage_references,
         franchise_universe=franchise_universe,
     )
 

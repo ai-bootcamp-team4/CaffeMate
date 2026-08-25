@@ -3,6 +3,7 @@ import { RetrievalCoordinator } from '../../rag/src/retrieval'
 import { createVertexRagBackend } from '../../rag/src/vertex-rag-backend'
 import { createConnectorRegistry } from './connectors'
 import { createBigQueryGroundingConnectors } from './bigquery-grounding'
+import { createCostReferenceConnector } from './cost-reference'
 import { createFranchiseCatalogConnector } from './franchise-catalog'
 import { createFranchiseDisclosureConnector } from './franchise-disclosure'
 import {
@@ -93,6 +94,7 @@ export function createProductionMcpConnectors(options: ProductionMcpConnectorOpt
       fetch: fetchImpl,
       now,
     }),
+    get_cost_reference: createCostReferenceConnector({ now }),
     list_franchise_universe: createFranchiseCatalogConnector({ now }),
     get_franchise_disclosure: createFranchiseDisclosureConnector({
       projectId: options.projectId,

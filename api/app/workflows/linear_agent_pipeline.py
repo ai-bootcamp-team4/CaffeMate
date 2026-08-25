@@ -1,58 +1,41 @@
 """사용자는 복잡한 단계 제어 없이 실제 Researcher, Proposal, Auditor 결과를 받는다."""
 
 import asyncio
-import hashlib
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from copy import deepcopy
-from datetime import UTC, date, datetime, timedelta
-from typing import Any, Protocol, cast
-from zoneinfo import ZoneInfo
-
-import rfc8785
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from app.agents.boundary import validate_agent_boundary
 from app.agents.protocols import AgentRuntime
 from app.agents.runtime import AgentRuntimeError
 from app.agents.task_factory import AgentTaskFactory
-from app.candidates.seed_registry import IndependentSeedDefinition, IndependentSeedRegistry
+from app.candidates.seed_registry import IndependentSeedRegistry
 from app.contracts.schema_registry import ContractRegistry
 from app.domain.errors import ContractValidationError, ExternalExecutionUnavailableError
 from app.domain.models import CafeTypePreference, VentureState
-from app.finance.calculator import calculate_finance
 from app.finance.case_facts import CaseFactResolution, PropertyContext
-from app.finance.models import (
-    INITIAL_COST_CATEGORIES,
-    MONTHLY_FIXED_COST_CATEGORIES,
-    CostCategory,
-    CostLine,
-    FinanceInput,
-    MoneyRange,
-    ValueProvenance,
-)
+from app.finance.labor_benchmark import minimum_wage_references_from_mcp_results
 from app.finance.property_benchmark import property_rent_benchmarks_from_mcp_results
-from app.mcp.client import McpCallOutcome, McpClientError
+from app.mcp.client import McpCallOutcome
 from app.observability import tracer
 from app.results.models import AuditStatus, ResultBundlePayload
 from app.workflows.franchise_grounding import (
     franchise_disclosure_resolution,
     franchise_universe,
-    verified_franchise_brand_ids,
 )
+from app.workflows.independent_finance_snapshot import independent_finance_snapshot
 from app.workflows.models import HeadFence, StageLease
+from app.workflows.proposal_evidence_retrieval import (
+    ProposalEvidenceRetriever,
+    ProposalMcp,
+    deduplicate_evidence,
+)
 from app.workflows.simple_proposal import SimpleProposalBuilder
 from app.workflows.stage_context import StageContext
 
-FRANCHISE_RAG_QUERIES: tuple[str, ...] = (
-    "컴포즈커피 개인 가맹점 창업 신청 가맹 모집 가능 여부 공식 안내",
-    "컴포즈커피 공식 창업 비용 10평 15평 포함 제외 항목",
-    "메가MGC커피 개인 가맹점 창업 신청 가맹 모집 가능 여부 공식 안내",
-    "메가MGC커피 공식 창업 비용 10평 포함 제외 항목",
-    "이디야커피 개인 가맹점 창업 신청 가맹 모집 가능 여부 공식 안내",
-    "이디야커피 공식 창업 비용 가맹비 월 로열티 포함 제외 항목",
-)
-SEOUL_TIMEZONE = ZoneInfo("Asia/Seoul")
 FATAL_AGENT_BOUNDARY_CODES = {
     "TASK_ECHO_MISMATCH",
     "FENCE_ECHO_MISMATCH",
@@ -62,20 +45,6 @@ FATAL_AGENT_BOUNDARY_CODES = {
     "SEED_REFERENCE_MISMATCH",
     "BRAND_REFERENCE_MISMATCH",
 }
-
-
-class ProposalMcp(Protocol):
-    async def call_tool(
-        self,
-        *,
-        venture_project_id: str,
-        workflow_run_id: str,
-        head: HeadFence,
-        tool_name: str,
-        arguments: dict[str, Any],
-        traceparent: str | None = None,
-        timeout_seconds: float = 30.0,
-    ) -> McpCallOutcome: ...
 
 
 class LinearMultiAgentProposalPipeline:
@@ -98,6 +67,11 @@ class LinearMultiAgentProposalPipeline:
         self._tasks = task_factory or AgentTaskFactory()
         self._contracts = ContractRegistry()
         self._now = now or (lambda: datetime.now(UTC))
+        self._evidence_retriever = ProposalEvidenceRetriever(
+            mcp=mcp,
+            contracts=self._contracts,
+            now=self._now,
+        )
 
     def run(
         self,
@@ -130,15 +104,18 @@ class LinearMultiAgentProposalPipeline:
         case_fact_resolution: CaseFactResolution | None,
     ) -> ResultBundlePayload:
         outcomes = asyncio.run(
-            self._retrieve_evidence(
+            self._evidence_retriever.retrieve(
                 state=state,
                 head=head,
                 workflow_run_id=workflow_run_id,
             )
         )
         # 공식 RAG 검색 결과도 다른 MCP 근거와 같은 EvidenceRecord 계약으로 전달한다.
-        outcomes = [self._with_official_rag_evidence(outcome) for outcome in outcomes]
-        newly_retrieved_records = self._deduplicate_evidence(
+        outcomes = [
+            self._evidence_retriever.with_official_rag_evidence(outcome)
+            for outcome in outcomes
+        ]
+        newly_retrieved_records = deduplicate_evidence(
             [
                 record
                 for outcome in outcomes
@@ -176,7 +153,7 @@ class LinearMultiAgentProposalPipeline:
                 assessment_payload=evidence_payload,
             )
         else:
-            retrieved_records = self._deduplicate_evidence(evidence_records)
+            retrieved_records = deduplicate_evidence(evidence_records)
 
         disclosure_resolution = franchise_disclosure_resolution(
             outcomes=outcomes,
@@ -216,6 +193,9 @@ class LinearMultiAgentProposalPipeline:
             property_rent_benchmarks=property_rent_benchmarks_from_mcp_results(
                 [outcome.structured_content for outcome in outcomes]
             ),
+            minimum_wage_references=minimum_wage_references_from_mcp_results(
+                [outcome.structured_content for outcome in outcomes]
+            ),
             agent_proposals=proposals,
             franchise_universe=franchise_universe(
                 outcomes,
@@ -237,312 +217,6 @@ class LinearMultiAgentProposalPipeline:
             audit_result = None
         return self._apply_audit(bundle, audit_result)
 
-    async def _retrieve_evidence(
-        self,
-        *,
-        state: VentureState,
-        head: HeadFence,
-        workflow_run_id: str,
-    ) -> list[McpCallOutcome]:
-        # 사용자 의도: 국내 창업 자료의 기준일은 서버의 UTC 날짜가 아니라
-        # 실제 서비스 지역인 서울의 달력 날짜와 일치해야 한다.
-        as_of = self._now().astimezone(SEOUL_TIMEZONE).date().isoformat()
-        calls: list[tuple[str, dict[str, Any]]] = []
-        if state.area.administrative_code and state.area.boundary_version:
-            calls.append(
-                (
-                    "get_area_profile",
-                    {
-                        "administrative_code": state.area.administrative_code,
-                        "boundary_version": state.area.boundary_version,
-                        "as_of": as_of,
-                    },
-                )
-            )
-            calls.append(
-                (
-                    "get_property_reference",
-                    {
-                        "administrative_code": state.area.administrative_code,
-                        "boundary_version": state.area.boundary_version,
-                        "as_of": as_of,
-                    },
-                )
-            )
-            calls.append(
-                (
-                    "search_cafe_observations",
-                    {
-                        "administrative_code": state.area.administrative_code,
-                        "boundary_version": state.area.boundary_version,
-                        "as_of": as_of,
-                        "metrics": [
-                            "CAFE_COUNT",
-                            "OPEN_COUNT",
-                            "CLOSE_COUNT",
-                            "CLOSURE_RATE",
-                            "ESTIMATED_SALES",
-                            "FOOT_TRAFFIC",
-                            "RESIDENT_POPULATION",
-                            "WORKER_POPULATION",
-                            "AGE_DISTRIBUTION",
-                        ],
-                    },
-                )
-            )
-        if state.founder.cafe_type_preference != CafeTypePreference.INDEPENDENT_ONLY:
-            calls.append(
-                (
-                    "list_franchise_universe",
-                    {"business_category": "CAFE", "as_of": as_of},
-                )
-            )
-        calls.append(
-            (
-                "retrieve_official_documents",
-                {
-                    "query": (
-                        f"{state.founder.target_area_input} 카페 창업 비용 인허가 "
-                        "프랜차이즈 정보공개서"
-                    ),
-                    # 공식 RAG에는 현재 정부 안내 자료만 적재되어 있습니다.
-                    # 상권 수치와 가맹 후보는 각각의 구조화 MCP 도구에서 조회합니다.
-                    "source_families": ["GOVERNMENT_GUIDE"],
-                    "as_of": as_of,
-                    "limit": 10,
-                },
-            )
-        )
-        if state.founder.cafe_type_preference != CafeTypePreference.INDEPENDENT_ONLY:
-            calls.extend(
-                (
-                    "retrieve_official_documents",
-                    {
-                        "query": query,
-                        "source_families": ["COMPANY_OFFICIAL_FRANCHISE"],
-                        "as_of": as_of,
-                        "limit": 3,
-                    },
-                )
-                for query in FRANCHISE_RAG_QUERIES
-            )
-        # 사용자 의도: 한 자료원의 MCP 오류가 성공한 조회와 세 Agent 역할까지
-        # 함께 취소해서는 안 된다. 오류는 근거 없는 ERROR action으로 보존한다.
-        outcomes = await asyncio.gather(
-            *[
-                self._retrieve_one_evidence_call(
-                    call_index=index,
-                    state=state,
-                    head=head,
-                    workflow_run_id=workflow_run_id,
-                    tool_name=tool_name,
-                    arguments=arguments,
-                )
-                for index, (tool_name, arguments) in enumerate(calls)
-            ]
-        )
-        verified_brand_ids = verified_franchise_brand_ids(outcomes)
-        if not verified_brand_ids:
-            return outcomes
-        disclosure_outcomes = await asyncio.gather(
-            *[
-                self._retrieve_one_evidence_call(
-                    call_index=len(calls) + index,
-                    state=state,
-                    head=head,
-                    workflow_run_id=workflow_run_id,
-                    tool_name="get_franchise_disclosure",
-                    arguments={"brand_id": brand_id, "as_of": as_of},
-                )
-                for index, brand_id in enumerate(verified_brand_ids)
-            ]
-        )
-        return [*outcomes, *disclosure_outcomes]
-
-    async def _retrieve_one_evidence_call(
-        self,
-        *,
-        call_index: int,
-        state: VentureState,
-        head: HeadFence,
-        workflow_run_id: str,
-        tool_name: str,
-        arguments: dict[str, Any],
-    ) -> McpCallOutcome:
-        try:
-            return await self._mcp.call_tool(
-                venture_project_id=state.project_id,
-                workflow_run_id=workflow_run_id,
-                head=head,
-                tool_name=tool_name,
-                arguments=arguments,
-            )
-        except McpClientError as error:
-            request_digest = hashlib.sha256(
-                f"{workflow_run_id}:{call_index}:{tool_name}".encode()
-            ).hexdigest()[:20]
-            request_id = f"failed-mcp-{request_digest}"
-            tool_version = self._contracts.mcp_tool_version(tool_name)
-            content = {
-                "schema_version": "1.0.0",
-                "request_id": request_id,
-                "tool_name": tool_name,
-                "tool_version": tool_version,
-                "status": "ERROR",
-                "project_id": state.project_id,
-                "evidence_records": [],
-                "missing_fields": [f"{tool_name}_result"],
-                "conflicts": [],
-                "source_trace": [],
-                "error_codes": [error.mcp_code],
-                "observed_at": self._now().isoformat().replace("+00:00", "Z"),
-                "data": [],
-            }
-            self._contracts.validate_mcp_tool_result(tool_name, content)
-            return McpCallOutcome(
-                request_id=request_id,
-                tool_name=tool_name,
-                tool_version=tool_version,
-                status="ERROR",
-                is_complete=False,
-                structured_content=content,
-            )
-
-    def _with_official_rag_evidence(
-        self,
-        outcome: McpCallOutcome,
-    ) -> McpCallOutcome:
-        """출처와 원문 위치가 확인된 공식 RAG hit만 표준 근거로 연결한다."""
-
-        if outcome.tool_name != "retrieve_official_documents":
-            return outcome
-        content = outcome.structured_content
-        existing = content.get("evidence_records")
-        if isinstance(existing, list) and existing:
-            return outcome
-
-        traces = [
-            trace
-            for trace in content.get("source_trace", [])
-            if isinstance(trace, dict)
-            and isinstance(trace.get("source_ref"), str)
-            and isinstance(trace.get("data_date"), str)
-            and isinstance(trace.get("content_digest"), str)
-        ]
-        observed_at = content.get("observed_at")
-        project_id = content.get("project_id")
-        if not isinstance(observed_at, str) or not isinstance(project_id, str):
-            return outcome
-
-        records: list[dict[str, Any]] = []
-        for hit in content.get("data", []):
-            if not isinstance(hit, dict):
-                continue
-            required = {
-                key: hit.get(key)
-                for key in (
-                    "document_revision_id",
-                    "title",
-                    "anchor",
-                    "excerpt",
-                    "source_date",
-                    "evidence_id",
-                )
-            }
-            if not all(isinstance(value, str) and value for value in required.values()):
-                continue
-            anchor = cast(str, required["anchor"])
-            source_date = cast(str, required["source_date"])
-            matching_traces = [
-                trace
-                for trace in traces
-                if anchor.startswith(trace["source_ref"])
-                and source_date == trace["data_date"]
-            ]
-            if len(matching_traces) != 1:
-                continue
-            trace = matching_traces[0]
-            excerpt = cast(str, required["excerpt"])
-            source_family = hit.get("source_family")
-            claim_type = hit.get("claim_type")
-            brand_id = hit.get("brand_id")
-            is_company_franchise = source_family == "COMPANY_OFFICIAL_FRANCHISE"
-            record = {
-                "schema_version": "2.0.0",
-                "evidence_id": f"official-rag:{required['evidence_id']}",
-                "project_id": project_id,
-                "claim_type": (
-                    claim_type
-                    if isinstance(claim_type, str) and claim_type
-                    else "OFFICIAL_STARTUP_GUIDANCE"
-                ),
-                "metric": (
-                    brand_id if isinstance(brand_id, str) and brand_id else None
-                ),
-                "value": {"kind": "STRING", "value": excerpt},
-                "value_kind": "EVIDENCED_FACT",
-                "unit": None,
-                "geographic_scope": {
-                    "scope_type": "NATIONAL",
-                    "scope_id": "KR",
-                    "boundary_version": None,
-                },
-                "source": {
-                    "title": required["title"],
-                    "source_ref": trace["source_ref"],
-                    "authority": (
-                        "COMPANY_OFFICIAL"
-                        if is_company_franchise
-                        else "PRIMARY_OFFICIAL"
-                    ),
-                    "source_type": "WEB",
-                    **(
-                        {"source_family": source_family}
-                        if isinstance(source_family, str) and source_family
-                        else {}
-                    ),
-                    "published_or_data_date": source_date,
-                    "source_observed_at": observed_at,
-                    "document_version": required["document_revision_id"],
-                    "checksum": trace["content_digest"],
-                },
-                "original_anchor": {
-                    "anchor_type": "SECTION",
-                    "locator": anchor,
-                    "excerpt_hash": content_digest(excerpt),
-                },
-                "freshness_status": self._freshness_status(source_date),
-                "conflict_status": "NONE",
-                "retrieved_at": observed_at,
-                "missing_context": (
-                    ["AREA_AVAILABILITY_REQUIRES_HEADQUARTERS_CONFIRMATION"]
-                    if claim_type == "FRANCHISE_INDIVIDUAL_ELIGIBILITY"
-                    else []
-                ),
-                "durable_evidence_refs": [
-                    trace["source_ref"],
-                    required["document_revision_id"],
-                    required["evidence_id"],
-                ],
-            }
-            self._contracts.validate_evidence_record(record)
-            records.append(record)
-
-        if not records:
-            return outcome
-        enriched = deepcopy(content)
-        enriched["evidence_records"] = self._deduplicate_evidence(records)
-        return outcome.model_copy(update={"structured_content": enriched})
-
-    def _freshness_status(self, source_date: str) -> str:
-        try:
-            age = self._now().date() - date.fromisoformat(source_date)
-        except ValueError:
-            return "UNKNOWN"
-        if age.days < 0:
-            return "UNKNOWN"
-        return "FRESH" if age.days <= 365 else "STALE"
-
     def _proposal_tasks(
         self,
         *,
@@ -555,6 +229,9 @@ class LinearMultiAgentProposalPipeline:
         independent_tasks: list[dict[str, Any]] = []
         franchise_tasks: list[dict[str, Any]] = []
         preference = state.founder.cafe_type_preference
+        minimum_wage_references = minimum_wage_references_from_mcp_results(
+            [outcome.structured_content for outcome in outcomes]
+        )
         if preference != CafeTypePreference.FRANCHISE_ONLY:
             seeds = self._seeds.select(state.founder)[:3]
             context = self._context(
@@ -579,7 +256,10 @@ class LinearMultiAgentProposalPipeline:
                                             value.model_dump(mode="json")
                                             for value in seed.allowed_parameters
                                         ],
-                                        "finance_snapshot": self._finance_snapshot(seed),
+                                        "finance_snapshot": independent_finance_snapshot(
+                                            seed,
+                                            minimum_wage_references,
+                                        ),
                                         "support_refs": seed.support_refs,
                                     }
                                     for seed in seeds
@@ -637,68 +317,6 @@ class LinearMultiAgentProposalPipeline:
             "founder": projection["founder"],
             "area": projection["area"],
             "evidence_records": evidence_records,
-        }
-
-    @staticmethod
-    def _finance_snapshot(seed: IndependentSeedDefinition) -> dict[str, Any]:
-        """Agent가 등록 비용을 읽되 권위 계산을 다시 만들지 않게 한다."""
-
-        profile = seed.finance_profile
-        if profile is None:
-            raise ContractValidationError(
-                f"Independent model has no registered finance profile: {seed.model_id}"
-            )
-        initial_lines = [
-            CostLine(
-                field_id=category.value,
-                category=category,
-                amount=profile.cost_ranges[category],
-                provenance=ValueProvenance.ASSUMPTION,
-            )
-            for category in sorted(INITIAL_COST_CATEGORIES, key=lambda value: value.value)
-            if category != CostCategory.FRANCHISE_INITIAL_FEES
-        ]
-        initial_lines.append(
-            CostLine(
-                field_id=CostCategory.FRANCHISE_INITIAL_FEES.value,
-                category=CostCategory.FRANCHISE_INITIAL_FEES,
-                amount=MoneyRange(low=0, base=0, high=0),
-                provenance=ValueProvenance.DERIVED,
-            )
-        )
-        monthly_lines = [
-            CostLine(
-                field_id=category.value,
-                category=category,
-                amount=profile.cost_ranges[category],
-                provenance=ValueProvenance.ASSUMPTION,
-            )
-            for category in sorted(
-                MONTHLY_FIXED_COST_CATEGORIES,
-                key=lambda value: value.value,
-            )
-        ]
-        finance = calculate_finance(
-            FinanceInput(
-                initial_cost_lines=initial_lines,
-                monthly_fixed_cost_lines=monthly_lines,
-                contribution_margin_bps=profile.contribution_margin_bps,
-                operating_days_per_month=profile.operating_days_per_month,
-                average_ticket_krw=profile.average_ticket_krw,
-            )
-        )
-        return {
-            "initial_cash_krw": finance.initial_cash.model_dump(mode="json"),
-            "monthly_fixed_cost_krw": finance.monthly_fixed_cost.model_dump(mode="json"),
-            "contribution_margin_bps": profile.contribution_margin_bps,
-            "operating_days_per_month": profile.operating_days_per_month,
-            "average_ticket_krw": profile.average_ticket_krw,
-            "break_even_monthly_sales_krw": finance.break_even_monthly_sales_krw,
-            "required_daily_orders": (
-                float(finance.required_daily_orders)
-                if finance.required_daily_orders is not None
-                else None
-            ),
         }
 
     def _context(
@@ -787,6 +405,7 @@ class LinearMultiAgentProposalPipeline:
                 "claim_type": {
                     "get_area_profile": "AREA_DEMAND_SIGNALS",
                     "get_property_reference": "PROPERTY_RENT_REFERENCE",
+                    "get_cost_reference": "LABOR_COST_REFERENCE",
                     "search_cafe_observations": "AREA_DEMAND_SIGNALS",
                     "list_franchise_universe": "FRANCHISE_UNIVERSE_ELIGIBILITY",
                     "get_franchise_disclosure": "FRANCHISE_DISCLOSURE_FACT",
@@ -853,17 +472,6 @@ class LinearMultiAgentProposalPipeline:
             claim_ids.append(f"claim:{tool_name}{suffix}")
         return claim_ids
 
-    @staticmethod
-    def _deduplicate_evidence(
-        records: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        by_id: dict[str, dict[str, Any]] = {}
-        for record in records:
-            evidence_id = record.get("evidence_id")
-            if isinstance(evidence_id, str):
-                by_id[evidence_id] = record
-        return [by_id[key] for key in sorted(by_id)]
-
     def _freeze_assessed_evidence(
         self,
         *,
@@ -887,7 +495,7 @@ class LinearMultiAgentProposalPipeline:
         frozen_retrieved = [
             record for record in retrieved if record.get("evidence_id") in accepted_refs
         ]
-        return self._deduplicate_evidence(existing + frozen_retrieved)
+        return deduplicate_evidence(existing + frozen_retrieved)
 
     @staticmethod
     def _apply_audit(
@@ -922,7 +530,3 @@ class LinearMultiAgentProposalPipeline:
                 )
             }
         )
-
-
-def content_digest(value: Any) -> str:
-    return f"sha256:{hashlib.sha256(rfc8785.dumps(value)).hexdigest()}"

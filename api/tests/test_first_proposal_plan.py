@@ -2,6 +2,7 @@
 
 from inspect import signature
 
+from app.finance.labor_benchmark import replay_minimum_wage_references
 from app.finance.property_benchmark import replay_property_rent_benchmarks
 from app.workflows.first_proposal import (
     FirstProposalStage,
@@ -97,6 +98,68 @@ def test_selective_recompute_replays_regional_occupancy_benchmark() -> None:
     assert benchmark.effective_rent_krw_per_sqm_month == 95_000
     assert benchmark.conversion_rate_bps == 680
     assert benchmark.coverage_status == "PARENT_REGION"
+
+
+def test_selective_recompute_replays_minimum_wage_reference() -> None:
+    source_bundle = {
+        "candidates": [
+            {
+                "decision_inputs": [
+                    {
+                        "field": "MONTHLY_LABOR",
+                        "provenance": "BENCHMARK",
+                        "source_title": "최저임금위원회 연도별 최저임금",
+                        "source_ref": (
+                            "https://www.minimumwage.go.kr/minWage/policy/decisionMain.do"
+                        ),
+                        "data_date": "2025-08-05",
+                        "geographic_scope": {
+                            "scope_type": "NATIONAL",
+                            "scope_id": "KR",
+                            "boundary_version": None,
+                        },
+                        "source_anchor": "MINIMUM_WAGE:2026-01-01:2026-12-31",
+                        "derivation": {
+                            "formula_code": "MINIMUM_WAGE_FTE_FLOOR_V1",
+                            "inputs": {
+                                "hourly_rate_krw": 10_320,
+                                "monthly_equivalent_hours": 209,
+                                "monthly_equivalent_krw": 2_156_880,
+                                "paid_staff_fte": {
+                                    "low": 2.0,
+                                    "base": 4.0,
+                                    "high": 7.0,
+                                },
+                                "seed_labor_assumption_krw": {
+                                    "low": 5_000_000,
+                                    "base": 9_000_000,
+                                    "high": 15_000_000,
+                                },
+                                "legal_floor_krw": {
+                                    "low": 4_313_760,
+                                    "base": 8_627_520,
+                                    "high": 15_098_160,
+                                },
+                                "effective_from": "2026-01-01",
+                                "effective_to": "2026-12-31",
+                            },
+                            "coverage_status": "NATIONAL_LEGAL_FLOOR",
+                        },
+                    }
+                ]
+            }
+        ]
+    }
+
+    references = replay_minimum_wage_references(source_bundle)
+
+    assert len(references) == 1
+    reference = references[0]
+    assert reference.effective_from == "2026-01-01"
+    assert reference.effective_to == "2026-12-31"
+    assert reference.hourly_rate_krw == 10_320
+    assert reference.monthly_equivalent_hours == 209
+    assert reference.monthly_equivalent_krw == 2_156_880
 
 
 def test_selective_recompute_replays_grounded_franchise_finance_profile() -> None:

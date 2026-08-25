@@ -28,6 +28,14 @@
       "output_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/getPropertyReferenceResult"
     },
     {
+      "name": "get_cost_reference",
+      "version": "1.0.0",
+      "input_schema_id": "caffemate.mcp.get-cost-reference.input.v1",
+      "input_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/getCostReferenceInput",
+      "output_schema_id": "caffemate.mcp.get-cost-reference.result.v1",
+      "output_schema_ref": "./mcp-tool-contracts.schema.json#/$defs/getCostReferenceResult"
+    },
+    {
       "name": "search_cafe_observations",
       "version": "1.0.0",
       "input_schema_id": "caffemate.mcp.search-cafe-observations.input.v1",

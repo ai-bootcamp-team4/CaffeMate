@@ -141,7 +141,7 @@ def project_finance_decision_inputs(
                     [] if action.action_type == ResolutionActionType.NONE else [action.action_type]
                 ),
                 resolution_action=action,
-                limitation_code=_limitation_code(line),
+                limitation_code=_limitation_code(line, decision_source),
                 derivation=(
                     decision_source.get("derivation")
                     if isinstance(decision_source, dict)
@@ -397,8 +397,21 @@ def _synthetic_variable_rate_source_title(line: VariableCostRateLine) -> str | N
     return None
 
 
-def _limitation_code(line: CostLine) -> str | None:
+def _limitation_code(
+    line: CostLine,
+    decision_source: dict[str, Any] | None,
+) -> str | None:
     if line.provenance == ValueProvenance.BENCHMARK:
+        derivation = (
+            decision_source.get("derivation")
+            if isinstance(decision_source, dict)
+            else None
+        )
+        if (
+            isinstance(derivation, dict)
+            and derivation.get("formula_code") == "MINIMUM_WAGE_FTE_FLOOR_V1"
+        ):
+            return "OFFICIAL_MINIMUM_WAGE_FLOOR_NOT_ACTUAL_PAYROLL"
         return "REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY"
     if line.provenance == ValueProvenance.ASSUMPTION:
         return "REPLACE_WITH_CASE_DATA"

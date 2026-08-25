@@ -15,7 +15,7 @@
   "allow_global_fallback": false,
   "network_mode": "GCP_CONNECTED",
   "prompt_bundle_digest": "sha256:b9a5d335d07f38d81e2a2c6f155aa5badd467da38f807d3cf812559e3ca518f0",
-  "agent_contract_bundle_digest": "sha256:4653cd2c9775f2a9f860baf288f9f69178a1ef319bce1fbb8fde242b7c6bea4d",
+  "agent_contract_bundle_digest": "sha256:981f1516459e1c5614b614675e24bc04a72bec4b5dd359936ecce8ba60f95a30",
   "mcp": {
     "protocol_revision": "2026-07-28",
     "server_sdk": "@modelcontextprotocol/server@2.0.0",
@@ -29,7 +29,7 @@
       "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-backend/mcp@sha256:ac59ae246e0a7e9409c350094c5784d9d750e78b8ce078f04f3cf5a5e4fb5cb3"
     }
   },
-  "mcp_manifest_digest": "sha256:82348856485cf1d9fcb735e0f2b349cd2bbcd97bdf6c6c039b1d72e68413d889",
+  "mcp_manifest_digest": "sha256:9af08d96879d1b9204ae46e9f727040470b63e496fbec01964a92937023b25f1",
   "index_generation": {
     "generation_id": "official-2026-08-25-v2",
     "status": "ACTIVE",

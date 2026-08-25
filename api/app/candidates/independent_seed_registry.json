@@ -31,7 +31,8 @@
         "average_ticket_krw": 6500,
         "space_profile_sqm": {"low": 20, "base": 30, "high": 40},
         "commercial_property_class": "SMALL_RETAIL",
-        "management_fee_ratio_bps": 1000
+        "management_fee_ratio_bps": 1000,
+        "paid_staff_fte": {"low": 0, "base": 0.5, "high": 1}
       },
       "support_refs": ["declared-assumption:independent-small-takeout-v1"],
       "selection_keywords": ["포장", "테이크아웃", "저가", "회전", "빠른"],
@@ -68,7 +69,8 @@
         "average_ticket_krw": 7000,
         "space_profile_sqm": {"low": 35, "base": 50, "high": 70},
         "commercial_property_class": "SMALL_RETAIL",
-        "management_fee_ratio_bps": 1000
+        "management_fee_ratio_bps": 1000,
+        "paid_staff_fte": {"low": 1, "base": 2, "high": 4}
       },
       "support_refs": ["declared-assumption:independent-balanced-v1"],
       "selection_keywords": ["단골", "주거", "동네", "생활권", "균형"],
@@ -105,7 +107,8 @@
         "average_ticket_krw": 7500,
         "space_profile_sqm": {"low": 60, "base": 90, "high": 120},
         "commercial_property_class": "MEDIUM_LARGE_RETAIL",
-        "management_fee_ratio_bps": 1000
+        "management_fee_ratio_bps": 1000,
+        "paid_staff_fte": {"low": 2, "base": 4, "high": 7}
       },
       "support_refs": ["declared-assumption:independent-seating-focused-v1"],
       "selection_keywords": ["좌석", "체류", "작업", "공부", "노트북"],
@@ -142,7 +145,8 @@
         "average_ticket_krw": 8000,
         "space_profile_sqm": {"low": 30, "base": 45, "high": 65},
         "commercial_property_class": "SMALL_RETAIL",
-        "management_fee_ratio_bps": 1000
+        "management_fee_ratio_bps": 1000,
+        "paid_staff_fte": {"low": 1, "base": 2, "high": 3}
       },
       "support_refs": ["declared-assumption:independent-specialty-v1"],
       "selection_keywords": ["스페셜티", "원두", "핸드드립", "필터", "로스터리"],
@@ -179,7 +183,8 @@
         "average_ticket_krw": 11500,
         "space_profile_sqm": {"low": 50, "base": 75, "high": 100},
         "commercial_property_class": "MEDIUM_LARGE_RETAIL",
-        "management_fee_ratio_bps": 1000
+        "management_fee_ratio_bps": 1000,
+        "paid_staff_fte": {"low": 2, "base": 3, "high": 4}
       },
       "support_refs": ["declared-assumption:independent-dessert-bakery-v1"],
       "selection_keywords": ["디저트", "베이커리", "제빵", "케이크", "빵"],
@@ -216,7 +221,8 @@
         "average_ticket_krw": 13500,
         "space_profile_sqm": {"low": 90, "base": 140, "high": 220},
         "commercial_property_class": "MEDIUM_LARGE_RETAIL",
-        "management_fee_ratio_bps": 1000
+        "management_fee_ratio_bps": 1000,
+        "paid_staff_fte": {"low": 2, "base": 3.5, "high": 5}
       },
       "support_refs": ["declared-assumption:independent-destination-experience-v1"],
       "selection_keywords": ["목적지", "관광", "공원", "전망", "경험", "체험", "시그니처"],
