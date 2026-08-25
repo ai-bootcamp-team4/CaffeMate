@@ -14,9 +14,11 @@ import type {
   ResultExplanation,
   ResultView,
   SignedDocumentUpload,
-  WorkflowProgress,
-  WorkflowRun,
 } from './apiClient'
+import type { OnboardingValues } from './onboardingState'
+import { buildSimulationProject, buildSimulationResult } from './uiSimulation/result'
+import { searchSimulationAreas, simulationAreaByToken, type SimulationAreaScenario } from './uiSimulation/scenarios'
+import { createSimulationWorkflowRegistry } from './uiSimulation/workflow'
 
 const now = '2026-08-25T02:00:00Z'
 
@@ -55,30 +57,10 @@ const project: Project = {
   },
 }
 
-const workflow: WorkflowRun = {
-  workflow_run_id: 'ui-only-workflow',
-  project_id: project.project_id,
-  workflow_code: 'FIRST_PROPOSAL',
-  status: 'SUCCEEDED',
-  head,
-  created_at: now,
-  updated_at: now,
-}
-
-const progress: WorkflowProgress = {
-  ...workflow,
-  completed_stage_count: 1,
-  total_stage_count: 1,
-  current_stage_codes: [],
-  terminal_reason_codes: [],
-  human_review_requests: [],
-  poll_after_ms: null,
-}
-
 const initialResult: ResultView = {
   result_bundle_id: 'ui-only-result',
   project_id: project.project_id,
-  workflow_run_id: workflow.workflow_run_id,
+  workflow_run_id: 'ui-only-workflow',
   head,
   current_head: head,
   primary_candidate_id: 'ui-only-independent',
@@ -186,7 +168,11 @@ const initialResult: ResultView = {
   ],
 }
 
-export function createUiOnlyDependencies(): {
+export interface UiOnlySimulationOptions {
+  workflowTimeScale?: number
+}
+
+export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}): {
   authGateway: AuthGateway
   apiFactory: (session: AuthSession) => ControlApiClient
 } {
@@ -204,12 +190,15 @@ export function createUiOnlyDependencies(): {
 
   let currentProject = { ...project, state: null } as Project
   let currentResult = initialResult
+  let selectedAreaScenario: SimulationAreaScenario | null = null
+  let confirmedValues: OnboardingValues | null = null
   let selectedCandidateId = initialResult.primary_candidate_id ?? initialResult.candidates[0].candidate_id
   let feedbackStatus: FeedbackPreview['status'] = 'REVIEW_REQUIRED'
   let documentSequence = 0
   let currentDocumentType: DocumentType = 'PROPERTY_LISTING'
   let currentDocumentRevision: DocumentRevision | null = null
   let currentDocumentForm: DocumentExtractionForm | null = null
+  const workflows = createSimulationWorkflowRegistry(project.project_id, options.workflowTimeScale)
 
   const extractionFieldsFor = (documentType: DocumentType): DocumentExtractionForm['fields'] => {
     const field = (
@@ -226,7 +215,7 @@ export function createUiOnlyDependencies(): {
       anchor: { page_index: 0, section_path: section }, warnings: [],
     })
     if (documentType === 'PROPERTY_LISTING') return [
-      field('address', 'ADDRESS', '점포 주소', '서울 마포구 공덕동 1-1 · 개발 미리보기', null, '매물 정보'),
+      field('address', 'ADDRESS', '점포 주소', `${currentProject.state?.area.display_name ?? '선택 지역'} · 가상 매물`, null, '매물 정보'),
       field('area', 'AREA', '면적', 35, '㎡', '매물 정보'),
       field('floor', 'FLOOR', '층', '1층', null, '매물 정보'),
       field('deposit', 'LEASE_DEPOSIT', '보증금', 40_000_000, '원', '임대 조건'),
@@ -354,26 +343,27 @@ export function createUiOnlyDependencies(): {
       query,
       status: 'OK',
       completeness: 'UNVERIFIED',
-      candidates: [{
-        area_id: 'legal-dong:4111710300',
-        scope_type: 'LEGAL_DONG',
-        display_name: '경기도 수원시 영통구 원천동',
-        legal_dong_code: '4111710300',
-        administrative_dong_codes: [],
-        mapping_status: 'UNVERIFIED',
-        source_revision: 'UI_ONLY_FIXTURE',
-        boundary_version: null,
-        selection_token: 'ui-only-area-token',
-      }],
+      candidates: searchSimulationAreas(query),
       missing_fields: [],
       source_trace: [],
     }),
-    confirmOnboarding: async () => {
-      currentProject = project
-      return project
+    confirmOnboarding: async (_projectId, values, areaSelectionToken) => {
+      const area = simulationAreaByToken(areaSelectionToken)
+      if (!area) throw new Error('선택한 지역 시뮬레이션이 만료되었습니다. 지역을 다시 선택해 주세요.')
+      selectedAreaScenario = area
+      confirmedValues = values
+      currentProject = buildSimulationProject(project, area, values)
+      currentResult = buildSimulationResult(initialResult, area, values)
+      selectedCandidateId = currentResult.primary_candidate_id ?? currentResult.candidates[0]?.candidate_id ?? ''
+      return currentProject
     },
-    startFirstProposal: async () => workflow,
-    getWorkflow: async () => progress,
+    startFirstProposal: async () => {
+      if (!selectedAreaScenario || !confirmedValues) throw new Error('분석할 지역과 창업 조건을 먼저 확정해 주세요.')
+      const run = workflows.start(`ui-only-workflow-${Date.now()}`, currentResult.current_head)
+      currentResult = { ...currentResult, workflow_run_id: run.workflow_run_id }
+      return run
+    },
+    getWorkflow: async (_projectId, workflowRunId) => workflows.progress(workflowRunId),
     getResult: async () => currentResult,
     explainResult: async (_projectId, _result, question, candidateId): Promise<ResultExplanation> => ({
       explanation_id: 'ui-only-explanation',
@@ -395,8 +385,8 @@ export function createUiOnlyDependencies(): {
       head,
       status: feedbackStatus,
       latest_user_input: input,
-      before_founder: { own_funds_krw: 80_000_000 },
-      after_founder: { own_funds_krw: 70_000_000 },
+      before_founder: { own_funds_krw: currentProject.state?.founder.own_funds_krw ?? 80_000_000 },
+      after_founder: { own_funds_krw: Math.max(0, Number(currentProject.state?.founder.own_funds_krw ?? 80_000_000) - 10_000_000) },
       operations: [],
       clarifying_questions: [],
       affected_stage_codes: ['RUN_PROPOSAL'],
@@ -405,7 +395,8 @@ export function createUiOnlyDependencies(): {
     }),
     confirmFeedback: async (_projectId, preview): Promise<FeedbackResolution> => {
       feedbackStatus = 'CONFIRMED'
-      return { preview: { ...preview, status: 'CONFIRMED' }, state_version: 2, workflow }
+      const recompute = workflows.start(`ui-only-feedback-workflow-${Date.now()}`, currentResult.current_head)
+      return { preview: { ...preview, status: 'CONFIRMED' }, state_version: 2, workflow: recompute }
     },
     cancelFeedback: async (_projectId, previewId): Promise<FeedbackResolution> => {
       feedbackStatus = 'CANCELLED'
@@ -441,8 +432,8 @@ export function createUiOnlyDependencies(): {
       selection_id: 'ui-only-selection',
       candidate_id: selectedCandidateId,
       candidate_type: currentResult.candidates.find((candidate) => candidate.candidate_id === selectedCandidateId)?.case_type ?? 'INDEPENDENT',
-      jurisdiction_code: '4111756000',
-      jurisdiction_display_name: '경기도 수원시 영통구 원천동',
+      jurisdiction_code: currentProject.state?.area.area_id ?? 'ui-sim:unknown',
+      jurisdiction_display_name: currentProject.state?.area.display_name ?? '선택 지역',
       as_of: '2026-08-25',
       status: 'REVIEW_REQUIRED',
       procedures: [
@@ -462,6 +453,20 @@ export function createUiOnlyDependencies(): {
     applyPropertyTerms: async (_projectId, selectionId, _expectedStateVersion, terms) => {
       const selected = currentResult.candidates.find((candidate) => candidate.candidate_id === selectedCandidateId) ?? currentResult.candidates[0]
       const previousInput = selected.decision_inputs?.find((input) => input.resolution_action?.type === 'PROPERTY_TERMS') ?? null
+      const ownFundsKrw = Number(currentProject.state?.founder.own_funds_krw ?? 0)
+      const propertyInitialLow = 38_000_000 + terms.deposit_krw + (terms.key_money_krw ?? 0)
+      const propertyInitialBase = propertyInitialLow + 7_000_000
+      const propertyInitialHigh = propertyInitialLow + 16_000_000
+      const propertyMonthlyBase = 2_950_000 + terms.monthly_rent_krw + terms.management_fee_krw
+      const propertyMonthlyLow = Math.max(0, propertyMonthlyBase - 400_000)
+      const propertyMonthlyHigh = propertyMonthlyBase + 500_000
+      const excluded = ownFundsKrw < propertyInitialLow
+      const nextReviewStatus = excluded ? 'EXCLUDED' as const : 'REVIEW_RECOMMENDED' as const
+      const reasonCode = excluded ? 'MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS' : 'CURRENT_CONSTRAINTS_SATISFIED'
+      const previousCapitalStatus = selected.decision_trace?.gates.find((gate) => gate.gate_type === 'CAPITAL')?.status ?? null
+      const capitalMetrics: Record<string, string | number | boolean | null> = excluded
+        ? { own_funds_krw: ownFundsKrw, minimum_required_krw: propertyInitialLow, shortfall_krw: propertyInitialLow - ownFundsKrw }
+        : { own_funds_krw: ownFundsKrw, minimum_required_krw: propertyInitialLow, remaining_at_minimum_krw: ownFundsKrw - propertyInitialLow }
       const actualInput = {
         field: 'actual_property_terms', label: '실제 점포 임대 조건', value: `${terms.monthly_rent_krw.toLocaleString('ko-KR')}원/월`,
         provenance: 'USER_INPUT' as const, resolution_status: 'USER_CONFIRMED_FACT' as const, decision_role: 'FINANCE_INPUT' as const,
@@ -470,32 +475,32 @@ export function createUiOnlyDependencies(): {
       }
       const recalculatedCandidate = {
         ...selected,
-        candidate_id: `${selected.candidate_id}-property`, state_version: 2, review_status: 'EXCLUDED' as const,
-        reason_codes: ['MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS'], rank: null, rank_basis: 'NOT_RANKED', is_primary_next_review: false,
-        summary: '실제 점포 임대 조건을 반영하니 현재 자기자금 범위를 넘었습니다.',
+        candidate_id: `${selected.candidate_id}-property`, state_version: 2, review_status: nextReviewStatus,
+        reason_codes: [reasonCode], rank: excluded ? null : selected.rank, rank_basis: excluded ? 'NOT_RANKED' : selected.rank_basis, is_primary_next_review: !excluded && selected.is_primary_next_review,
+        summary: excluded ? '실제 점포 임대 조건을 반영하니 현재 자기자금 범위를 넘었습니다.' : '실제 점포 임대 조건을 반영해도 현재 자기자금 범위 안에 있습니다.',
         financial_summary: {
           ...selected.financial_summary,
-          initial_cash: { currency: 'KRW' as const, low: 85_000_000, base: 92_000_000, high: 101_000_000, provenance_refs: ['ui-only-property'] },
-          monthly_fixed_cost: { currency: 'KRW' as const, low: 4_800_000, base: 5_200_000, high: 5_700_000, provenance_refs: ['ui-only-property'] },
+          initial_cash: { currency: 'KRW' as const, low: propertyInitialLow, base: propertyInitialBase, high: propertyInitialHigh, provenance_refs: ['ui-only-property'] },
+          monthly_fixed_cost: { currency: 'KRW' as const, low: propertyMonthlyLow, base: propertyMonthlyBase, high: propertyMonthlyHigh, provenance_refs: ['ui-only-property'] },
         },
         decision_inputs: [...(selected.decision_inputs ?? []).filter((input) => input !== previousInput), actualInput],
-        decision_trace: { gates: [{ gate_type: 'CAPITAL', status: 'FAIL' as const, reason_code: 'MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS', decisive_input_refs: ['actual_property_terms'], metrics: { own_funds_krw: 80_000_000, minimum_required_krw: 85_000_000, shortfall_krw: 5_000_000 } }] },
-        rank_trace: null,
+        decision_trace: { gates: [{ gate_type: 'CAPITAL', status: excluded ? 'FAIL' as const : 'PASS' as const, reason_code: reasonCode, decisive_input_refs: ['actual_property_terms'], metrics: capitalMetrics }] },
+        rank_trace: excluded ? null : selected.rank_trace,
       }
       currentResult = {
         ...currentResult,
-        result_bundle_id: 'ui-only-result-property', primary_candidate_id: null, outcome_status: 'NO_REVIEWABLE_CANDIDATES',
+        result_bundle_id: 'ui-only-result-property', primary_candidate_id: excluded ? null : recalculatedCandidate.candidate_id, outcome_status: excluded ? 'NO_REVIEWABLE_CANDIDATES' : 'REVIEWABLE_CANDIDATES',
         candidates: [recalculatedCandidate], head: { ...head, state_version: 2, workflow_generation: 2 }, current_head: { ...head, state_version: 2, workflow_generation: 2 },
         decision_delta: {
-          previous_result_bundle_id: initialResult.result_bundle_id, current_result_bundle_id: 'ui-only-result-property', primary_candidate_changed: true,
+          previous_result_bundle_id: initialResult.result_bundle_id, current_result_bundle_id: 'ui-only-result-property', primary_candidate_changed: excluded,
           requires_human_review: false, human_review_reason_codes: [],
-          candidate_changes: [{ candidate_key: `${selected.case_type}:${selected.independent_model?.model_id ?? selected.franchise?.brand_id ?? 'candidate'}`, display_name: selected.display_name, change_type: 'UPDATED', previous_rank: selected.rank, current_rank: null, previous_review_status: selected.review_status, current_review_status: 'EXCLUDED', initial_cash_base_delta_krw: 27_000_000, monthly_fixed_cost_base_delta_krw: 1_400_000, break_even_monthly_sales_delta_krw: null, reason_codes_added: ['MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS'], reason_codes_removed: [], input_changes: [{ field: 'actual_property_terms', before: previousInput, after: actualInput, applied_to: ['INITIAL_CASH', 'MONTHLY_FIXED_COST'] }], gate_changes: [{ gate_type: 'CAPITAL', previous_status: 'PASS', current_status: 'FAIL', reason_code: 'MINIMUM_INITIAL_CASH_EXCEEDS_OWN_FUNDS' }] }],
+          candidate_changes: [{ candidate_key: `${selected.case_type}:${selected.independent_model?.model_id ?? selected.franchise?.brand_id ?? 'candidate'}`, display_name: selected.display_name, change_type: 'UPDATED', previous_rank: selected.rank, current_rank: recalculatedCandidate.rank, previous_review_status: selected.review_status, current_review_status: nextReviewStatus, initial_cash_base_delta_krw: propertyInitialBase - (selected.financial_summary.initial_cash.base ?? propertyInitialBase), monthly_fixed_cost_base_delta_krw: propertyMonthlyBase - (selected.financial_summary.monthly_fixed_cost.base ?? propertyMonthlyBase), break_even_monthly_sales_delta_krw: null, reason_codes_added: selected.reason_codes.includes(reasonCode) ? [] : [reasonCode], reason_codes_removed: selected.reason_codes.filter((code) => code !== reasonCode), input_changes: [{ field: 'actual_property_terms', before: previousInput, after: actualInput, applied_to: ['INITIAL_CASH', 'MONTHLY_FIXED_COST'] }], gate_changes: [{ gate_type: 'CAPITAL', previous_status: previousCapitalStatus, current_status: excluded ? 'FAIL' : 'PASS', reason_code: reasonCode }] }],
         },
       }
       return {
         property_input_id: 'ui-only-property', project_id: project.project_id, selection_id: selectionId, candidate_id: selectedCandidateId,
         applied_state_version: 2, terms, previous_financial_summary: selected.financial_summary,
-        recompute_workflow: { ...workflow, workflow_run_id: 'ui-only-property-workflow', head: { ...head, state_version: 2, workflow_generation: 2 } },
+        recompute_workflow: workflows.start('ui-only-property-workflow', { ...head, state_version: 2, workflow_generation: 2 }),
         input_kind: 'USER_CONFIRMED_PROPERTY_TERMS' as const, is_demo_fixture: true, created_at: now,
       }
     },
@@ -562,12 +567,14 @@ export function createUiOnlyDependencies(): {
     applyDocumentExtractionForm: async (_projectId, form): Promise<ExtractionFormApplication> => {
       applyUiOnlyDocumentResult(form)
       currentDocumentForm = { ...form, form_status: 'APPLIED', applied_state_version: currentResult.current_head.state_version }
+      const recomputeWorkflowRunId = `ui-only-document-workflow-${documentSequence}`
+      workflows.start(recomputeWorkflowRunId, currentResult.current_head)
       return {
         application_id: `ui-only-application-${documentSequence}`,
         project_id: project.project_id,
         document_revision_id: form.document_revision_id,
         applied_state_version: currentResult.current_head.state_version,
-        recompute_workflow_run_id: `ui-only-document-workflow-${documentSequence}`,
+        recompute_workflow_run_id: recomputeWorkflowRunId,
         claims: [],
         conflicts: [],
         requires_human_review: false,

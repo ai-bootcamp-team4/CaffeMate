@@ -24,7 +24,7 @@ async function completeUiOnlyOnboarding() {
 
 describe('UI-only development mode', () => {
   it('opens the onboarding UI without Firebase or a Control API', async () => {
-    const { authGateway, apiFactory } = createUiOnlyDependencies()
+    const { authGateway, apiFactory } = createUiOnlyDependencies({ workflowTimeScale: 0.001 })
     render(<App authGateway={authGateway} apiFactory={apiFactory} />)
 
     fireEvent.click(screen.getByRole('button', { name: /내 카페 창업 분석 시작하기/ }))
@@ -33,13 +33,13 @@ describe('UI-only development mode', () => {
   })
 
   it('demonstrates benchmark grounding, external checks, and an actual-property decision flip', async () => {
-    const { authGateway, apiFactory } = createUiOnlyDependencies()
+    const { authGateway, apiFactory } = createUiOnlyDependencies({ workflowTimeScale: 0.001 })
     render(<App authGateway={authGateway} apiFactory={apiFactory} />)
     await completeUiOnlyOnboarding()
 
     expect(screen.getByRole('button', { name: /예시 프랜차이즈 후보/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: /소형 좌석 균형형 개인카페/ })).toBeTruthy()
-    expect(screen.getByText('한국부동산원 상업용부동산 임대동향조사 · UI 예시')).toBeTruthy()
+    expect(screen.getByText('지역 임차비 참고 범위 · UI 시뮬레이션')).toBeTruthy()
     expect(screen.getAllByText('장비비').length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: '실제 매물로 바꾸기' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '장비 견적 반영하기' })).toBeTruthy()
