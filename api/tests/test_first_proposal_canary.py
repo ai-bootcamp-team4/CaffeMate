@@ -507,6 +507,40 @@ def test_canary_allows_conditional_result_while_market_evidence_is_pending() -> 
     assert cleaner.calls == [("canary-project", "first-proposal-canary-ungrounded")]
 
 
+def test_canary_allows_conditional_franchise_while_official_cost_evidence_is_pending() -> None:
+    conditional = result()
+    conditional.candidates[1]["official_documents"] = []
+
+    report = FirstProposalCanary(
+        projects=FakeProjects(),
+        workflows=FakeWorkflows(progress(WorkflowStatus.SUCCEEDED)),
+        results=FakeResults(conditional),
+        cleaner=FakeCleaner(),
+        new_id=lambda: "conditional-franchise",
+    ).run()
+
+    assert report.franchise_candidate_brand_ids == ("kr-ediya-coffee",)
+    assert report.franchise_official_citations == ()
+
+
+def test_canary_rejects_recommended_franchise_without_required_official_citations() -> None:
+    recommended = result()
+    recommended.candidates[1]["review_status"] = "REVIEW_RECOMMENDED"
+    recommended.candidates[1]["official_documents"] = []
+
+    with pytest.raises(
+        FirstProposalCanaryError,
+        match="CANARY_FRANCHISE_OFFICIAL_CITATION_MISSING",
+    ):
+        FirstProposalCanary(
+            projects=FakeProjects(),
+            workflows=FakeWorkflows(progress(WorkflowStatus.SUCCEEDED)),
+            results=FakeResults(recommended),
+            cleaner=FakeCleaner(),
+            new_id=lambda: "recommended-franchise",
+        ).run()
+
+
 def test_canary_accepts_a_current_no_reviewable_result_without_a_primary() -> None:
     """사용자 의도: 전 후보 제외는 실패가 아니라 그대로 보여줘야 할 제품 결과다."""
 

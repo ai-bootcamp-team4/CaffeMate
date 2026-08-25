@@ -438,6 +438,19 @@ class FirstProposalCanary:
             "FRANCHISE_INDIVIDUAL_ELIGIBILITY",
             "FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE",
         }
+        # 사용자 의도: 공식 비용 자료가 부족한 프랜차이즈는 조건부 후보로 계속 보여준다.
+        # 추천 후보만 완전한 공식 인용을 요구하며, 조건부 후보를 검증 실패로 바꾸지 않는다.
+        citation_required_brand_ids = {
+            str(franchise["brand_id"])
+            for candidate in result.candidates
+            if candidate.get("case_type") == "FRANCHISE"
+            and candidate.get("review_status") == "REVIEW_RECOMMENDED"
+            and isinstance(candidate.get("rank"), int)
+            and isinstance((franchise := candidate.get("franchise")), dict)
+            and franchise.get("eligibility") == "VERIFIED"
+            and isinstance(franchise.get("brand_id"), str)
+            and franchise["brand_id"]
+        }
         citation_claims_by_brand = {
             brand_id: {
                 str(claim_type)
@@ -445,7 +458,7 @@ class FirstProposalCanary:
                 if citation["brand_id"] == brand_id
                 for claim_type in citation["claim_types"]
             }
-            for brand_id in franchise_brand_ids
+            for brand_id in citation_required_brand_ids
         }
         missing_citation_brands = sorted(
             brand_id

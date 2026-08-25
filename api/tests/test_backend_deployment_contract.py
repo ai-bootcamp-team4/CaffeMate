@@ -399,8 +399,10 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert 'set(report.get("candidate_case_types", [])) == {"FRANCHISE"}' in verifier
     assert 'report.get("franchise_candidate_brand_ids")' in verifier
     assert 'report.get("franchise_official_citations"' in verifier
-    assert '"FRANCHISE_INDIVIDUAL_ELIGIBILITY"' in verifier
-    assert '"FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE"' in verifier
+    # 사용자 의도: 추천 후보의 인용 완전성은 Python 제품 검증기가 한 번만 판정한다.
+    # 배포 셸은 조건부 후보의 근거 부족을 전체 실행 실패로 다시 판정하지 않는다.
+    assert '"FRANCHISE_INDIVIDUAL_ELIGIBILITY"' not in verifier
+    assert '"FRANCHISE_OFFICIAL_OPENING_COST_GUIDANCE"' not in verifier
     assert 'jsonPayload.event=\\"VERTEX_AGENT_GENERATION\\"' in verifier
     assert 'jsonPayload.event=\\"AGENT_RESULT_VALIDATION\\"' in verifier
     assert "Worker has public invoker policy" in verifier
