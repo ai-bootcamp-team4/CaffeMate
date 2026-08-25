@@ -21,7 +21,7 @@ export function StartupPreparation({
   }
 
   return (
-    <section className="result-section startup-preparation" aria-labelledby="startupPreparationTitle">
+    <section id="result-preparation" className="result-section startup-preparation" aria-labelledby="startupPreparationTitle">
       <header className="result-section__head">
         <p className="result-kicker">실제 진행 단계</p>
         <h2 id="startupPreparationTitle">실제로 진행한다면</h2>

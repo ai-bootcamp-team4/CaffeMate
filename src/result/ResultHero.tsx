@@ -4,7 +4,7 @@ import { conclusionCopy, publicStatus } from './resultPresentation'
 
 export function ResultHero({ candidate }: { candidate: ResultCandidate }) {
   return (
-    <section className="result-hero" aria-labelledby="resultConclusionTitle">
+    <section id="result-conclusion" className="result-hero" aria-labelledby="resultConclusionTitle">
       <div className="result-hero__eyebrow">
         <Badge>{candidate.case_type === 'FRANCHISE' ? '프랜차이즈' : '개인카페'}</Badge>
         <Badge tone={candidate.review_status === 'REVIEW_RECOMMENDED' ? 'success' : candidate.review_status === 'CONDITIONAL_REVIEW' ? 'warning' : ''}>

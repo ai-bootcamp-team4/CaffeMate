@@ -26,7 +26,7 @@ export function FinanceBreakdown({ candidate, onRefine, busy = false }: {
 }) {
   const inputs = financeInputs(candidate)
   return (
-    <section className="result-section" aria-labelledby="financeBreakdownTitle">
+    <section id="result-finance" className="result-section" aria-labelledby="financeBreakdownTitle">
       <header className="result-section__head">
         <p className="result-kicker">판정에 실제 사용</p>
         <h2 id="financeBreakdownTitle">돈이 어떻게 계산됐나요?</h2>

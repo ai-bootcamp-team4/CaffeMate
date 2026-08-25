@@ -3,7 +3,7 @@ import type { ResultCandidate } from '../apiClient'
 export function ExternalChecks({ candidate }: { candidate: ResultCandidate }) {
   const requirements = candidate.verification_requirements ?? []
   return (
-    <section className="result-section external-checks" role="region" aria-labelledby="externalChecksTitle">
+    <section id="result-external" className="result-section external-checks" role="region" aria-labelledby="externalChecksTitle">
       <header className="result-section__head">
         <p className="result-kicker">제품 밖에서 확정</p>
         <h2 id="externalChecksTitle">CaffeMate 밖에서 확인해야 해요</h2>

@@ -43,13 +43,14 @@ export function FeedbackPanel({
   const [invalid, setInvalid] = useState(false)
   const launcherRef = useRef<HTMLButtonElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const latestTurnRef = useRef<HTMLDivElement>(null)
+  const threadRef = useRef<HTMLDivElement>(null)
   const busy = busyAction !== null
   const collapseLocked = busy || preview !== null
 
   useEffect(() => {
     if (!expanded || (answers.length === 0 && !preview)) return
-    latestTurnRef.current?.scrollIntoView?.({ block: 'nearest' })
+    const thread = threadRef.current
+    if (thread) thread.scrollTop = thread.scrollHeight
   }, [answers.length, preview, expanded])
 
   useEffect(() => {
@@ -202,12 +203,11 @@ export function FeedbackPanel({
         </button>
       </div>
       {(answers.length > 0 || preview) && (
-        <div className="feedback-thread" aria-label="CaffeMate 대화">
+        <div ref={threadRef} className="feedback-thread" aria-label="CaffeMate 대화">
           {answers.map((entry, index) => (
             <div
               className="explanation-turn"
               key={`${entry.answer.explanation_id}-${index}`}
-              ref={index === answers.length - 1 && !preview ? latestTurnRef : undefined}
             >
               <p className="chat-bubble chat-bubble--user">{entry.question}</p>
               <article className="explanation-answer">
@@ -249,7 +249,7 @@ export function FeedbackPanel({
           ))}
 
           {preview && (
-            <div className="explanation-turn" ref={latestTurnRef}>
+            <div className="explanation-turn">
               <p className="chat-bubble chat-bubble--user">{preview.latest_user_input}</p>
               <section className="proposal" aria-labelledby="proposalTitle">
                 <div className="proposal__head">

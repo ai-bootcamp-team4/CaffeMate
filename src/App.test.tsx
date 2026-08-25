@@ -126,6 +126,29 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.queryByRole('tablist')).toBeNull()
   })
 
+  it('keeps the current reading position when switching comparison candidates', async () => {
+    const comparisonResult: ResultView = {
+      ...result,
+      candidates: [
+        result.candidates[0],
+        { ...result.candidates[0], candidate_id: 'candidate-2', display_name: '소형 포장 중심 개인카페', rank: 2, is_primary_next_review: false },
+      ],
+    }
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    try {
+      setup(comparisonResult)
+      await completeOnboarding()
+      scrollTo.mockClear()
+
+      fireEvent.click(screen.getByRole('button', { name: /소형 포장 중심 개인카페/ }))
+
+      expect(await screen.findByRole('heading', { name: '소형 포장 중심 개인카페' })).toBeTruthy()
+      expect(scrollTo).not.toHaveBeenCalled()
+    } finally {
+      scrollTo.mockRestore()
+    }
+  })
+
   it('renders one linear decision narrative before the result assistant', async () => {
     setup()
     await completeOnboarding()
@@ -139,6 +162,13 @@ describe('CaffeMate Control API integration', () => {
     const externalHeading = screen.getByRole('heading', { name: 'CaffeMate 밖에서 확인해야 해요' })
     const preparationHeading = screen.getByRole('heading', { name: '실제로 진행한다면' })
     const assistantLauncher = screen.getByRole('button', { name: 'CaffeMate에게 물어보기' })
+    const sectionNav = screen.getByRole('navigation', { name: '결과 바로가기' })
+    expect(within(sectionNav).getByRole('link', { name: '결론' }).getAttribute('href')).toBe('#result-conclusion')
+    expect(within(sectionNav).getByRole('link', { name: '판정 이유' }).getAttribute('href')).toBe('#result-decision')
+    expect(within(sectionNav).getByRole('link', { name: '비용·계산' }).getAttribute('href')).toBe('#result-finance')
+    expect(within(sectionNav).getByRole('link', { name: '참고 상권' }).getAttribute('href')).toBe('#result-market')
+    expect(within(sectionNav).getByRole('link', { name: '외부 확인' }).getAttribute('href')).toBe('#result-external')
+    expect(within(sectionNav).getByRole('link', { name: '진행 절차' }).getAttribute('href')).toBe('#result-preparation')
     expect(externalHeading.compareDocumentPosition(preparationHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(preparationHeading.compareDocumentPosition(assistantLauncher) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.queryByRole('tab', { name: '필요자금' })).toBeNull()
@@ -194,6 +224,31 @@ describe('CaffeMate Control API integration', () => {
     expect(screen.queryByLabelText('검증 순서')).toBeNull()
     expect(screen.queryByRole('heading', { name: '계산으로 끝낼 수 없는 조건을 따로 확인해요' })).toBeNull()
     expect(screen.queryByRole('heading', { name: '경제·계약 검토 뒤에 공식 절차를 확인해요' })).toBeNull()
+  })
+
+  it('restores the previous result position after returning from numeric refinement', async () => {
+    const { client } = setup()
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    const previousScrollY = Object.getOwnPropertyDescriptor(window, 'scrollY')
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 640 })
+    try {
+      await completeOnboarding()
+      scrollTo.mockClear()
+
+      fireEvent.click(screen.getByRole('button', { name: '실제 매물로 바꾸기' }))
+      await waitFor(() => expect(client.selectCandidate).toHaveBeenCalledWith('project-1', result, 'candidate-1'))
+      expect(await screen.findByRole('heading', { name: '실제 숫자로 정밀화하기' })).toBeTruthy()
+      expect(scrollTo).toHaveBeenCalledWith({ top: 0 })
+      scrollTo.mockClear()
+
+      fireEvent.click(screen.getByRole('button', { name: '결과로 돌아가기' }))
+
+      expect(await screen.findByRole('heading', { name: '이번 분석의 결론' })).toBeTruthy()
+      await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 640 }))
+    } finally {
+      scrollTo.mockRestore()
+      if (previousScrollY) Object.defineProperty(window, 'scrollY', previousScrollY)
+    }
   })
 
   it('refreshes a stale result in the same project before selecting the candidate', async () => {
@@ -485,7 +540,7 @@ describe('CaffeMate Control API integration', () => {
     expect(client.createFeedbackPreview).not.toHaveBeenCalled()
   })
 
-  it('moves the latest explanation into view after answering', async () => {
+  it('keeps answer auto-scroll inside the assistant instead of moving the result page', async () => {
     const scrollIntoView = vi.fn()
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
       configurable: true,
@@ -498,7 +553,8 @@ describe('CaffeMate Control API integration', () => {
 
       fireEvent.click(screen.getByRole('button', { name: '왜 이 안을 먼저 보나요?' }))
 
-      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' }))
+      expect(await screen.findByText(resultExplanation.conclusion)).toBeTruthy()
+      expect(scrollIntoView).not.toHaveBeenCalled()
     } finally {
       delete (Element.prototype as Partial<Element>).scrollIntoView
     }

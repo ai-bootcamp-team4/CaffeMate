@@ -5,7 +5,7 @@ export function DecisionReasons({ candidate }: { candidate: ResultCandidate }) {
   const title = decisionHeading(candidate.review_status)
   const gates = candidate.decision_trace?.gates ?? []
   return (
-    <section className="result-section" role="region" aria-labelledby="decisionReasonsTitle">
+    <section id="result-decision" className="result-section" role="region" aria-labelledby="decisionReasonsTitle">
       <header className="result-section__head">
         <p className="result-kicker">CaffeMate가 판정한 것</p>
         <h2 id="decisionReasonsTitle">{title}</h2>

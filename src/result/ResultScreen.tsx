@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   waitForWorkflow,
   type CandidateSelection,
@@ -24,6 +24,7 @@ import { FinanceBreakdown } from './FinanceBreakdown'
 import { MarketContext } from './MarketContext'
 import { FeedbackPanel } from './ResultAssistant'
 import { ResultHero } from './ResultHero'
+import { ResultSectionNav } from './ResultSectionNav'
 import { StartupPreparation } from './StartupPreparation'
 import './Result.css'
 
@@ -49,6 +50,7 @@ export function ResultScreen({ client, project, initialResult }: {
   const [preparationGuide, setPreparationGuide] = useState<PreparationGuide | null>(null)
   const [preparationBusy, setPreparationBusy] = useState(false)
   const [preparationError, setPreparationError] = useState('')
+  const resultScrollYRef = useRef(0)
 
   const candidates = result.candidates
   const activeCandidate = candidates.find((candidate) => candidate.candidate_id === activeCandidateId) ?? candidates[0]
@@ -89,6 +91,7 @@ export function ResultScreen({ client, project, initialResult }: {
   }
 
   const openRefinement = async (input: DecisionInput) => {
+    resultScrollYRef.current = window.scrollY
     setSelectionBusy(true)
     setRefinementError('')
     try {
@@ -168,7 +171,12 @@ export function ResultScreen({ client, project, initialResult }: {
     setRefinementTarget(null)
     setPreparationGuide(null)
     setPreparationError('')
-    window.scrollTo({ top: 0 })
+  }
+
+  const closeRefinement = () => {
+    const restoreTop = resultScrollYRef.current
+    setRefinementTarget(null)
+    window.setTimeout(() => window.scrollTo({ top: restoreTop }), 0)
   }
 
   if (!activeCandidate) {
@@ -208,7 +216,7 @@ export function ResultScreen({ client, project, initialResult }: {
           candidate={activeCandidate}
           selection={selection}
           target={refinementTarget}
-          onBack={() => { setRefinementTarget(null); window.scrollTo({ top: 0 }) }}
+          onBack={closeRefinement}
           onApplyProperty={applyPropertyTerms}
           onDocumentApplied={refreshAfterDocument}
         />
@@ -226,6 +234,10 @@ export function ResultScreen({ client, project, initialResult }: {
           <div className="demo-notice" role="note"><span className="demo-notice__mark">!</span><p>입력 조건이 바뀌었어요. 실제값을 반영하기 전에 최신 조건으로 다시 계산합니다.</p></div>
         )}
         <ResultHero candidate={activeCandidate} />
+        <ResultSectionNav
+          showCandidates={candidates.length > 1}
+          showMarket={(activeCandidate.market_signals ?? []).some((signal) => signal.decision_role === 'CONTEXT_ONLY')}
+        />
         <CandidateComparison
           candidates={candidates}
           activeCandidateId={activeCandidate.candidate_id}

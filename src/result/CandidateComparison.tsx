@@ -9,7 +9,7 @@ export function CandidateComparison({ candidates, activeCandidateId, onSelect }:
 }) {
   if (candidates.length < 2) return null
   return (
-    <section className="result-section" aria-labelledby="candidateComparisonTitle">
+    <section id="result-candidates" className="result-section" aria-labelledby="candidateComparisonTitle">
       <header className="result-section__head">
         <p className="result-kicker">후보 비교</p>
         <h2 id="candidateComparisonTitle">왜 이 안을 먼저 보나요?</h2>
