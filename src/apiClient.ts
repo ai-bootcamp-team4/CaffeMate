@@ -60,7 +60,21 @@ export interface WorkflowRun {
   updated_at: string
 }
 
+export type WorkflowStageStatus = 'PENDING' | 'READY' | 'RUNNING' | 'CHECKPOINTED' | 'SUCCEEDED' | 'SKIPPED' | 'WAITING_FOR_HUMAN' | 'TIMED_OUT' | 'FAILED' | 'CANCELLED'
+
+export interface WorkflowStageProgress {
+  stage_run_id: string
+  stage_code: string
+  status: WorkflowStageStatus
+  attempt: number
+  reason_codes: string[]
+  failure_code: string | null
+  updated_at: string
+  completed_at: string | null
+}
+
 export interface WorkflowProgress extends WorkflowRun {
+  stages?: WorkflowStageProgress[]
   completed_stage_count: number
   total_stage_count: number
   current_stage_codes: string[]

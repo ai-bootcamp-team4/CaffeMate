@@ -7,6 +7,7 @@ import { createControlApiClient, ControlApiError, waitForWorkflow, type ControlA
 import type { OnboardingValues } from "./onboardingState";
 import { internalLabel, uniqueLabels, userError } from "./presentation";
 import { ResultScreen } from "./result/ResultScreen";
+import { WorkflowProgressView } from "./WorkflowProgressView";
 
 type AppScreen = "welcome" | "projects" | "onboarding" | "analysis" | "result";
 
@@ -196,16 +197,7 @@ export default function App({ authGateway, apiFactory }: AppProps = {}) {
           {projectError ||
             "프로젝트 목록을 벗어나도 분석은 계속됩니다. 현재 단계를 확인해 주세요."}
         </p>
-        {!projectError && (
-          <div className="analysis-checks" aria-label="분석 진행 항목">
-            <span>지역 확인</span>
-            <span>비용 범위</span>
-            <span>후보 비교</span>
-          </div>
-        )}
-        {progress && (
-          <p className="workflow-progress">{`분석 진행 ${progress.completed_stage_count}/${progress.total_stage_count} · ${progress.current_stage_codes.length ? uniqueLabels(progress.current_stage_codes).join(" · ") : internalLabel(progress.status)}`}</p>
-        )}
+        {!projectError && progress && <WorkflowProgressView progress={progress} />}
         {projectError && (
           <button
             className="btn btn--accent"
@@ -234,13 +226,7 @@ export default function App({ authGateway, apiFactory }: AppProps = {}) {
               .candidates;
           }}
         />
-        {progress && (
-          <p className="workflow-progress" aria-live="polite">
-            {progress.status === "WAITING_FOR_HUMAN"
-              ? `추가 확인 필요 · ${uniqueLabels(progress.human_review_requests.flatMap((request) => request.reason_codes)).join(" · ")}`
-              : `분석 진행 ${progress.completed_stage_count}/${progress.total_stage_count} · ${progress.current_stage_codes.length ? uniqueLabels(progress.current_stage_codes).join(" · ") : internalLabel(progress.status)}`}
-          </p>
-        )}
+        {progress && <div className="workflow-progress"><WorkflowProgressView progress={progress} compact /></div>}
       </>
     );
   if (client && project && result)
