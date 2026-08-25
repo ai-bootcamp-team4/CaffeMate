@@ -32,8 +32,8 @@ import {
 
 const now = '2026-08-25T06:40:00Z'
 const projectId = 'project:seongsu-review'
-const DOCUMENT_OCR_DELAY_MS = 3_200
-const RESULT_LANGUAGE_DELAY_MS = 1_800
+export const DOCUMENT_OCR_DELAY_MS = 6_000
+export const RESULT_LANGUAGE_DELAY_MS = 4_000
 const CONDITION_PREVIEW_DELAY_MS = 900
 
 const head: HeadFence = {

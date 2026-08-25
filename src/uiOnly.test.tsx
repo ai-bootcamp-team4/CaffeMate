@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import App from './App'
-import { createUiOnlyDependencies } from './uiOnly'
+import { createUiOnlyDependencies, DOCUMENT_OCR_DELAY_MS, RESULT_LANGUAGE_DELAY_MS } from './uiOnly'
 
 afterEach(cleanup)
 
@@ -27,6 +27,11 @@ async function completeUiOnlyOnboarding() {
 }
 
 describe('UI-only development mode', () => {
+  it('uses visible processing delays for result chat and document OCR', () => {
+    expect(RESULT_LANGUAGE_DELAY_MS).toBe(4_000)
+    expect(DOCUMENT_OCR_DELAY_MS).toBe(6_000)
+  })
+
   it('opens the onboarding UI without Firebase or a Control API', async () => {
     const { authGateway, apiFactory } = createUiOnlyDependencies({ workflowTimeScale: 0.001 })
     render(<App authGateway={authGateway} apiFactory={apiFactory} />)
