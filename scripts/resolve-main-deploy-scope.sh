@@ -30,7 +30,11 @@ fi
 if [ "$requested_scope" = "auto" ]; then
   revision="$(git -C "$repo_dir" rev-parse HEAD)"
   if git -C "$repo_dir" cat-file -e "${revision}^" 2>/dev/null; then
-    git -C "$repo_dir" diff-tree --no-commit-id --name-only -r "$revision" \
+    # Compare the deployed tree to its first parent. Plain diff-tree omits paths
+    # for merge commits, which can silently classify a --no-ff main merge as a
+    # no-op even when the merged branch changes runtime inputs.
+    git -C "$repo_dir" diff-tree --no-commit-id --name-only -r \
+      "${revision}^1" "$revision" \
       | sort -u > "$changed_files_path"
   else
     git -C "$repo_dir" ls-tree -r --name-only "$revision" \

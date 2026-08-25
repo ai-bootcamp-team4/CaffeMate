@@ -109,6 +109,56 @@ def test_main_deploy_scope_selects_only_changed_runtime(tmp_path: Path) -> None:
     assert commit_and_resolve("docs/notes.md", "docs\n") == ("false", "false")
 
 
+def test_main_deploy_scope_includes_changes_introduced_by_merge(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    output = tmp_path / "output"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
+    main_branch = subprocess.run(
+        ["git", "-C", str(repo), "branch", "--show-current"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    subprocess.run(["git", "-C", str(repo), "switch", "-qc", "feature"], check=True)
+    (repo / "src").mkdir()
+    (repo / "src" / "App.tsx").write_text("web\n", encoding="utf-8")
+    (repo / "api" / "app").mkdir(parents=True)
+    (repo / "api" / "app" / "main.py").write_text("backend\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "feature"], check=True)
+    subprocess.run(["git", "-C", str(repo), "switch", "-q", main_branch], check=True)
+    (repo / "README.md").write_text("main\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "commit", "-qam", "main"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "merge", "--no-ff", "-qm", "merge", "feature"],
+        check=True,
+    )
+
+    subprocess.run(
+        [
+            "bash",
+            str(ROOT / "scripts" / "resolve-main-deploy-scope.sh"),
+            str(repo),
+            str(output),
+            "auto",
+        ],
+        check=True,
+    )
+
+    assert (output / "deploy-web").read_text(encoding="utf-8").strip() == "true"
+    assert (output / "deploy-backend").read_text(encoding="utf-8").strip() == "true"
+
+
 def test_main_cloudbuild_guards_web_and_backend_deployments() -> None:
     config = (ROOT / "cloudbuild.main-webhook.yaml").read_text(encoding="utf-8")
 
@@ -588,17 +638,17 @@ def test_effective_iam_verification_runs_as_the_deployed_identities() -> None:
     assert "MCP_EFFECTIVE_IAM_OK" in smoke
 
 
-def test_backend_verifier_uses_the_requested_release_source_for_mcp_provenance() -> None:
+def test_backend_verifier_uses_manifest_pins_for_mcp_provenance() -> None:
     verifier = (ROOT / "scripts" / "verify-api-worker-runtime.sh").read_text(
         encoding="utf-8"
     )
 
     assert 'agents/release-manifest.json' in verifier
-    assert 'mcp_release_source_revision' not in verifier
-    assert 'mcp_release_image' not in verifier
-    assert '[ "$mcp_source_revision" = "$source_revision" ]' in verifier
-    assert '[ "$mcp_image" = "$mcp_tagged_digest" ]' in verifier
-    assert 'mcp:${source_revision}' in verifier
+    assert 'mcp_release_source_revision' in verifier
+    assert 'mcp_release_image' in verifier
+    assert '[ "$mcp_source_revision" = "$mcp_release_source_revision" ]' in verifier
+    assert '[ "$mcp_image" = "$mcp_release_image" ]' in verifier
+    assert 'mcp:${mcp_release_source_revision}' in verifier
     assert '[ "$agent_release_preflight_build_id" = "$mcp_verified_build_id" ]' not in verifier
 
 

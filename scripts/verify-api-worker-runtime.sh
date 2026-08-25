@@ -393,9 +393,23 @@ mcp_release_service_name=$(python3 -c \
   'import json; print(json.load(open("agents/release-manifest.json"))["mcp"]["runtime"]["service_name"])')
 mcp_release_region=$(python3 -c \
   'import json; print(json.load(open("agents/release-manifest.json"))["mcp"]["runtime"]["region"])')
+mcp_release_source_revision=$(python3 -c \
+  'import json; print(json.load(open("agents/release-manifest.json"))["mcp"]["runtime"]["source_revision"])')
+mcp_release_image=$(python3 -c \
+  'import json; print(json.load(open("agents/release-manifest.json"))["mcp"]["runtime"]["image_uri"])')
 [ "$mcp_release_service_name" = 'caffemate-mcp' ] && [ "$mcp_release_region" = "$region" ] || {
   printf '%s\n' 'FAIL MCP release manifest service or region pin is invalid' >&2; exit 1;
 }
+case "$mcp_release_source_revision" in
+  *[!0-9a-f]*|'') printf '%s\n' 'FAIL MCP release manifest source pin is invalid' >&2; exit 1 ;;
+esac
+[ "${#mcp_release_source_revision}" -eq 40 ] || {
+  printf '%s\n' 'FAIL MCP release manifest source pin is invalid' >&2; exit 1;
+}
+case "$mcp_release_image" in
+  "${region}-docker.pkg.dev/${project_id}/caffemate-backend/mcp@sha256:"*) ;;
+  *) printf '%s\n' 'FAIL MCP release manifest image pin is invalid' >&2; exit 1 ;;
+esac
 
 mcp_service_json=$(gcloud run services describe "$mcp_release_service_name" --project="$project_id" \
   --region="$region" --format=json)
@@ -407,22 +421,22 @@ mcp_source_revision=$(printf '%s' "$mcp_service_json" | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["spec"]["template"]["metadata"]["labels"]["source-revision"])')
 mcp_build_id=$(printf '%s' "$mcp_service_json" | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["spec"]["template"]["metadata"]["labels"]["build-id"])')
-[ "$mcp_source_revision" = "$source_revision" ] || {
-  printf '%s\n' 'FAIL deployed MCP source differs from requested release source' >&2; exit 1;
+[ "$mcp_source_revision" = "$mcp_release_source_revision" ] || {
+  printf '%s\n' 'FAIL deployed MCP source differs from release manifest pin' >&2; exit 1;
 }
-mcp_tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-backend/mcp:${source_revision}"
+mcp_tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-backend/mcp:${mcp_release_source_revision}"
 mcp_tagged_digest=$(gcloud artifacts docker images describe "$mcp_tagged_image" \
   --project="$project_id" --format='value(image_summary.fully_qualified_digest)')
-[ "$mcp_image" = "$mcp_tagged_digest" ] || {
-  printf '%s\n' 'FAIL deployed MCP image differs from requested source tag' >&2; exit 1;
+[ "$mcp_image" = "$mcp_release_image" ] && [ "$mcp_tagged_digest" = "$mcp_release_image" ] || {
+  printf '%s\n' 'FAIL deployed MCP image or source tag differs from release manifest pin' >&2; exit 1;
 }
 mcp_verified_build_id=$(verified_build_id_for_image \
-  "$mcp_tagged_image" "${mcp_tagged_digest##*@}" "$source_revision" \
+  "$mcp_tagged_image" "${mcp_tagged_digest##*@}" "$mcp_release_source_revision" \
   "projects/${project_id}/serviceAccounts/caffemate-backend-build@${project_id}.iam.gserviceaccount.com")
 [ "$mcp_build_id" = "$mcp_verified_build_id" ] || {
   printf '%s\n' 'FAIL MCP producer build provenance differs from deployed label' >&2; exit 1;
 }
-printf '%s\n' 'PASS deployed MCP source, image and build match requested release provenance'
+printf '%s\n' 'PASS deployed MCP source, image and build match release manifest provenance'
 
 agent_release_preflight_tag="${region}-docker.pkg.dev/${project_id}/caffemate-backend/agent-release-preflight:${source_revision}"
 agent_release_preflight_image=$(gcloud artifacts docker images describe "$agent_release_preflight_tag" \

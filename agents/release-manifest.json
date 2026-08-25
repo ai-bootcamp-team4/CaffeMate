@@ -3,8 +3,8 @@
   "runtime_region": "asia-northeast3",
   "runtime": {
     "resource_name": "projects/proj-aj20-211200020328/locations/asia-northeast3/reasoningEngines/4667470840374231040",
-    "source_revision": "bfdea1a06f2d537da4ff640c3ca52b8aabef0e49",
-    "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-agents/caffemate-agent-runtime@sha256:b6eb204a19c67492515d0a990ba5e61057bf68c381e7607287e8610a90292da0"
+    "source_revision": "cc92707f066499f0037b01ca09de2ad77007e9e8",
+    "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-agents/caffemate-agent-runtime@sha256:b5dd4d834219037f0de48ff7f658086f729fd7525f0194c96000ae8f4bd541b5"
   },
   "model": {
     "id": "gemini-3.7-flash",
@@ -25,8 +25,8 @@
     "runtime": {
       "service_name": "caffemate-mcp",
       "region": "asia-northeast3",
-      "source_revision": "bfdea1a06f2d537da4ff640c3ca52b8aabef0e49",
-      "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-backend/mcp@sha256:ac59ae246e0a7e9409c350094c5784d9d750e78b8ce078f04f3cf5a5e4fb5cb3"
+      "source_revision": "cc92707f066499f0037b01ca09de2ad77007e9e8",
+      "image_uri": "asia-northeast3-docker.pkg.dev/proj-aj20-211200020328/caffemate-backend/mcp@sha256:536476a222813479037181299fc8460f1e950a32fbd9e26d89c5d289fdf1a38b"
     }
   },
   "mcp_manifest_digest": "sha256:0f0b4f097f61771fb1e41a255b812f7e3a161f555e89e537f640e6d5bd996622",
