@@ -67,6 +67,23 @@ describe('CaffeMate Control API integration', () => {
     expect(client.createProject).toHaveBeenCalledOnce()
   })
 
+  it('preserves the onboarding viewport when moving between input steps', async () => {
+    setup()
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    try {
+      await enterOnboarding()
+      scrollTo.mockClear()
+      fireEvent.change(screen.getByLabelText('희망 지역'), { target: { value: '수원 원천동' } })
+      fireEvent.click(await screen.findByRole('option', { name: /경기도 수원시 영통구 원천동/ }))
+      fireEvent.click(screen.getByRole('button', { name: '다음' }))
+      expect(await screen.findByRole('heading', { name: '사용할 수 있는 자금은 얼마인가요?' })).toBeTruthy()
+      expect(scrollTo).not.toHaveBeenCalled()
+      expect(document.activeElement).not.toBe(screen.getByLabelText('현재 자기자금'))
+    } finally {
+      scrollTo.mockRestore()
+    }
+  })
+
   it('runs FIRST_PROPOSAL and renders only the returned result', async () => {
     const { client } = setup()
     await completeOnboarding()
