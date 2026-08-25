@@ -409,6 +409,32 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "Scheduler reached Agent session cleanup with HTTP 200" in verifier
 
 
+def test_control_api_deployments_keep_one_warm_instance() -> None:
+    direct_deploy = (
+        ROOT / "scripts" / "deploy-api-worker-runtime.sh"
+    ).read_text(encoding="utf-8")
+    backend_cloudbuild = (ROOT / "cloudbuild.backend.yaml").read_text(
+        encoding="utf-8"
+    )
+    main_cloudbuild = (ROOT / "cloudbuild.main-webhook.yaml").read_text(
+        encoding="utf-8"
+    )
+
+    direct_api = direct_deploy.split("gcloud run deploy caffemate-api", 1)[1].split(
+        "gcloud run services add-iam-policy-binding caffemate-api", 1
+    )[0]
+    backend_api = backend_cloudbuild.split("- id: deploy-control-api", 1)[1].split(
+        "- id: deploy-worker", 1
+    )[0]
+    main_api = main_cloudbuild.split("- id: deploy-api", 1)[1].split(
+        "- id: deploy-worker", 1
+    )[0]
+
+    assert "--min=1" in direct_api
+    assert "--min=1" in backend_api
+    assert "--min=1" in main_api
+
+
 def test_agent_runtime_release_is_source_and_digest_bound() -> None:
     deploy = (ROOT / "scripts" / "deploy-agent-runtime.sh").read_text(encoding="utf-8")
     build = (ROOT / "scripts" / "build-agent-runtime-release.sh").read_text(
