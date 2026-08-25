@@ -11,7 +11,7 @@ from sqlalchemy.engine import Connection
 from app.candidates.seed_registry import IndependentSeedRegistry
 from app.domain.errors import FeedbackPreconditionError
 from app.domain.models import VentureState
-from app.finance.case_facts import PropertyCostOverride
+from app.finance.case_facts import PropertyContext
 from app.finance.property_benchmark import replay_property_rent_benchmarks
 from app.workflows.models import HeadFence, WorkflowRun
 from app.workflows.persistence import persist_completed_first_proposal
@@ -28,7 +28,7 @@ def start_selective_first_proposal(
     previous_head: HeadFence,
     now: datetime,
     new_id: Callable[[], str],
-    property_cost_override: PropertyCostOverride | None = None,
+    property_context: PropertyContext | None = None,
 ) -> WorkflowRun:
     """현재 State를 다시 계산하되 사용자가 확정한 점포 조건은 계속 보존한다."""
 
@@ -65,7 +65,7 @@ def start_selective_first_proposal(
         new_id=new_id,
         source_workflow_run_id=source_workflow_run_id,
         source_result_bundle_id=str(source_result["result_bundle_id"]),
-        property_cost_override=property_cost_override,
+        property_context=property_context,
         property_rent_benchmarks=property_rent_benchmarks,
         franchise_universe=franchise_universe,
     )

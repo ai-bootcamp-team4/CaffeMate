@@ -4,9 +4,9 @@ from app.finance.case_facts import (
     CaseFactRecord,
     CaseFactResolver,
     FinancialInputResolver,
+    PropertyContext,
 )
 from app.finance.models import CostCategory, CostLine, MoneyRange, ValueProvenance
-from app.workflows.proposal_finance import PropertyCostOverride
 
 
 def fact(
@@ -182,9 +182,12 @@ def test_financial_input_resolver_prefers_property_terms_over_document_lease() -
     ]
     case_resolution = CaseFactResolver().resolve(records=records, open_conflict_keys=set())
     resolver = FinancialInputResolver(
-        property_cost_override=PropertyCostOverride(
+        property_context=PropertyContext(
             property_input_id="property-1",
             source_id="independent-small-takeout-v1",
+            address="서울특별시 마포구 공덕동 실제 점포",
+            area_sqm=33,
+            floor="1층",
             deposit_krw=30_000_000,
             monthly_rent_krw=2_000_000,
             management_fee_krw=200_000,

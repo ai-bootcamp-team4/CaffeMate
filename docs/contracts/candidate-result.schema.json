@@ -123,6 +123,32 @@
         }
       }
     },
+    "property_context": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "property_input_id",
+        "address",
+        "area_sqm",
+        "floor",
+        "deposit_krw",
+        "monthly_rent_krw",
+        "management_fee_krw",
+        "key_money_krw",
+        "provenance"
+      ],
+      "properties": {
+        "property_input_id": { "type": "string", "minLength": 1 },
+        "address": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "area_sqm": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000 },
+        "floor": { "type": ["string", "null"], "maxLength": 32 },
+        "deposit_krw": { "type": "integer", "minimum": 0 },
+        "monthly_rent_krw": { "type": "integer", "minimum": 0 },
+        "management_fee_krw": { "type": "integer", "minimum": 0 },
+        "key_money_krw": { "type": ["integer", "null"], "minimum": 0 },
+        "provenance": { "const": "USER_INPUT" }
+      }
+    },
     "evidence_refs": {
       "type": "array",
       "items": {

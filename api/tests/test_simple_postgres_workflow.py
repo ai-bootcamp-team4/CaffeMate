@@ -53,7 +53,7 @@ class _RepositoryPipeline:
         return self._builder.build(
             state=kwargs["state"],
             evidence_records=kwargs["evidence_records"],
-            property_cost_override=kwargs.get("property_cost_override"),
+            property_context=kwargs.get("property_context"),
             case_fact_resolution=kwargs.get("case_fact_resolution"),
             franchise_universe=[
                 {
@@ -321,6 +321,22 @@ def test_property_terms_recalculate_selected_candidate_with_actual_costs(
     assert current["result_bundle_id"] != first["result_bundle_id"]
     assert recalculated["financial_summary"]["initial_cash"]["base"] == 134_500_000
     assert recalculated["financial_summary"]["monthly_fixed_cost"]["base"] == 6_000_000
+    assert recalculated["property_context"] == {
+        "property_input_id": application_response.json()["property_input_id"],
+        "address": "서울특별시 마포구 공덕동 실제 점포",
+        "area_sqm": 33.0,
+        "floor": "1층",
+        "deposit_krw": 30_000_000,
+        "monthly_rent_krw": 2_200_000,
+        "management_fee_krw": 200_000,
+        "key_money_krw": 10_000_000,
+        "provenance": "USER_INPUT",
+    }
+    assert all(
+        candidate["property_context"] is None
+        for candidate in current["candidates"]
+        if candidate["candidate_id"] != recalculated["candidate_id"]
+    )
     assert current["decision_delta"]["candidate_changes"]
 
 
@@ -439,6 +455,17 @@ def test_later_recompute_preserves_latest_selected_property_terms(
     )
     assert candidate["financial_summary"]["initial_cash"]["base"] == 134_500_000
     assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 6_000_000
+    assert candidate["property_context"] == {
+        "property_input_id": applied.json()["property_input_id"],
+        "address": "서울특별시 마포구 공덕동 실제 점포",
+        "area_sqm": 33.0,
+        "floor": "1층",
+        "deposit_krw": 30_000_000,
+        "monthly_rent_krw": 2_200_000,
+        "management_fee_krw": 200_000,
+        "key_money_krw": 10_000_000,
+        "provenance": "USER_INPUT",
+    }
 
 
 def test_property_terms_recalculate_selected_franchise_with_actual_costs(
@@ -530,6 +557,30 @@ def test_property_terms_recalculate_selected_franchise_with_actual_costs(
     assert current["result_bundle_id"] != first["result_bundle_id"]
     assert recalculated["financial_summary"]["initial_cash"]["base"] == 147_000_000
     assert recalculated["financial_summary"]["monthly_fixed_cost"]["base"] == 6_250_000
+    assert recalculated["property_context"] == {
+        "property_input_id": application_response.json()["property_input_id"],
+        "address": "서울특별시 성동구 성수동1가 실제 점포",
+        "area_sqm": 66.0,
+        "floor": "1층",
+        "deposit_krw": 30_000_000,
+        "monthly_rent_krw": 2_200_000,
+        "management_fee_krw": 200_000,
+        "key_money_krw": 10_000_000,
+        "provenance": "USER_INPUT",
+    }
+    hq_requirement = next(
+        item
+        for item in recalculated["verification_requirements"]
+        if item["requirement_id"] == "FRANCHISE_AREA_APPROVAL"
+    )
+    assert hq_requirement["status"] == "EXTERNAL_CONFIRMATION_REQUIRED"
+    assert hq_requirement["decision_role"] == "VERIFICATION_ONLY"
+    assert hq_requirement["resolver"] == "FRANCHISE_HQ"
+    assert hq_requirement["resolution_action"] == {
+        "action_type": "EXTERNAL_CONFIRMATION",
+        "target_fields": ["franchise.area_availability"],
+        "accepted_document_types": [],
+    }
     assert current["decision_delta"]["candidate_changes"]
 
 

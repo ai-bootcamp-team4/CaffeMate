@@ -16,9 +16,10 @@ from app.domain.models import (
     VentureState,
     VentureStatus,
 )
+from app.finance.case_facts import PropertyContext
 from app.finance.property_benchmark import PropertyRentBenchmark
 from app.results.models import ResultOutcomeStatus
-from app.workflows.simple_proposal import PropertyCostOverride, SimpleProposalBuilder
+from app.workflows.simple_proposal import SimpleProposalBuilder
 
 
 def _franchise_universe() -> list[dict[str, object]]:
@@ -285,9 +286,12 @@ def test_builder_replaces_selected_model_property_costs_with_user_input() -> Non
     recalculated = builder.build(
         state=state,
         evidence_records=[],
-        property_cost_override=PropertyCostOverride(
+        property_context=PropertyContext(
             property_input_id="property-input-1",
             source_id="independent-small-takeout-v1",
+            address="서울특별시 마포구 공덕동 실제 점포",
+            area_sqm=33,
+            floor="1층",
             deposit_krw=30_000_000,
             monthly_rent_krw=2_200_000,
             management_fee_krw=200_000,
@@ -367,9 +371,12 @@ def test_actual_property_terms_replace_regional_rent_benchmark() -> None:
         state=state,
         evidence_records=[],
         property_rent_benchmarks=[_seoul_small_retail_benchmark()],
-        property_cost_override=PropertyCostOverride(
+        property_context=PropertyContext(
             property_input_id="actual-store",
             source_id="independent-small-takeout-v1",
+            address="서울특별시 마포구 공덕동 실제 점포",
+            area_sqm=33,
+            floor="1층",
             deposit_krw=30_000_000,
             monthly_rent_krw=2_200_000,
             management_fee_krw=200_000,
@@ -402,9 +409,12 @@ def test_builder_replaces_selected_franchise_property_costs_with_user_input() ->
     recalculated = builder.build(
         state=state,
         evidence_records=[],
-        property_cost_override=PropertyCostOverride(
+        property_context=PropertyContext(
             property_input_id="property-input-2",
             source_id="kr-ediya-coffee",
+            address="서울특별시 성동구 성수동1가 실제 점포",
+            area_sqm=66,
+            floor="1층",
             deposit_krw=30_000_000,
             monthly_rent_krw=2_200_000,
             management_fee_krw=200_000,

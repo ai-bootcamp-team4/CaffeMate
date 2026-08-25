@@ -20,7 +20,7 @@ from app.domain.errors import (
 from app.domain.events import PropertyTermsApplied
 from app.domain.models import VentureState
 from app.domain.reducer import reduce_venture_state
-from app.finance.case_facts import PropertyCostOverride
+from app.finance.case_facts import PropertyContext
 from app.selections.models import PropertyTermsApplication, PropertyTermsInput
 from app.workflows.models import HeadFence
 from app.workflows.selective_start import start_selective_first_proposal
@@ -232,9 +232,12 @@ class PropertyTermsService:
                 previous_head=previous_head,
                 now=occurred_at,
                 new_id=self._new_id,
-                property_cost_override=PropertyCostOverride(
+                property_context=PropertyContext(
                     property_input_id=property_input_id,
                     source_id=source_id,
+                    address=terms.address,
+                    area_sqm=terms.area_sqm,
+                    floor=terms.floor,
                     deposit_krw=terms.deposit_krw,
                     monthly_rent_krw=terms.monthly_rent_krw,
                     management_fee_krw=terms.management_fee_krw,

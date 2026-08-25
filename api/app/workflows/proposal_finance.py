@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from app.finance.case_facts import FinancialInputResolver, PropertyCostOverride
+from app.finance.case_facts import FinancialInputResolver, PropertyContext
 from app.finance.models import CostCategory, CostLine, MoneyRange, ValueProvenance
 
 FRANCHISE_BENCHMARK_COSTS = {
@@ -169,7 +169,7 @@ def cost_refs(lines: list[CostLine]) -> list[str]:
 
 def property_adjusted_fields(
     source_id: str,
-    value: PropertyCostOverride | None,
+    value: PropertyContext | None,
 ) -> list[str]:
     if value is None or value.source_id != source_id:
         return []

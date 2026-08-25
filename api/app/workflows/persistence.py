@@ -13,7 +13,7 @@ from sqlalchemy.engine import Connection, RowMapping
 from app.domain.errors import ProjectNotFoundError, WorkflowPreconditionError
 from app.domain.models import VentureState
 from app.finance.case_fact_repository import load_current_case_fact_resolution
-from app.finance.case_facts import CaseFactResolution, PropertyCostOverride
+from app.finance.case_facts import CaseFactResolution, PropertyContext
 from app.finance.property_benchmark import PropertyRentBenchmark
 from app.results.delta import build_result_decision_delta
 from app.workflows.first_proposal import FirstProposalStage, stage_input_digest
@@ -36,7 +36,7 @@ def persist_completed_first_proposal(
     new_id: Callable[[], str],
     source_workflow_run_id: str | None = None,
     source_result_bundle_id: str | None = None,
-    property_cost_override: PropertyCostOverride | None = None,
+    property_context: PropertyContext | None = None,
     case_fact_resolution: CaseFactResolution | None = None,
     property_rent_benchmarks: list[PropertyRentBenchmark] | None = None,
     franchise_universe: list[dict[str, Any]] | None = None,
@@ -49,9 +49,9 @@ def persist_completed_first_proposal(
     if int(project["current_state_version"]) != state.state_version:
         raise WorkflowPreconditionError("Workflow State is no longer current")
 
-    effective_property_override = property_cost_override
-    if effective_property_override is None:
-        effective_property_override = _load_current_property_override(
+    effective_property_context = property_context
+    if effective_property_context is None:
+        effective_property_context = _load_current_property_context(
             connection,
             project_id=project_id,
             user_id=user_id,
@@ -82,7 +82,7 @@ def persist_completed_first_proposal(
             head=head,
             workflow_run_id=workflow_run_id,
             evidence_records=evidence_records,
-            property_cost_override=effective_property_override,
+            property_context=effective_property_context,
             case_fact_resolution=effective_case_resolution,
         )
     else:
@@ -90,7 +90,7 @@ def persist_completed_first_proposal(
         bundle = builder.build(
             state=state,
             evidence_records=evidence_records,
-            property_cost_override=effective_property_override,
+            property_context=effective_property_context,
             case_fact_resolution=effective_case_resolution,
             property_rent_benchmarks=property_rent_benchmarks,
             franchise_universe=franchise_universe,
@@ -497,14 +497,14 @@ def _active_evidence(
     return [dict(value) for value in rows if isinstance(value, dict)]
 
 
-def _load_current_property_override(
+def _load_current_property_context(
     connection: Connection,
     *,
     project_id: str,
     user_id: str,
     state: VentureState,
-) -> PropertyCostOverride | None:
-    """모든 재실행에서 선택 후보의 최신 실제 점포 비용을 자동으로 이어받는다."""
+) -> PropertyContext | None:
+    """모든 재실행에서 선택 후보의 최신 실제 점포 컨텍스트를 자동으로 이어받는다."""
 
     if state.active_case_id is None:
         return None
@@ -512,8 +512,8 @@ def _load_current_property_override(
         connection.execute(
             text(
                 """
-                SELECT property_input_id, source_id, deposit_krw,
-                       monthly_rent_krw, management_fee_krw, key_money_krw
+                SELECT property_input_id, source_id, address, area_sqm, floor,
+                       deposit_krw, monthly_rent_krw, management_fee_krw, key_money_krw
                 FROM candidate_property_intakes
                 WHERE project_id=:project_id
                   AND owner_user_id=:user_id
@@ -536,9 +536,12 @@ def _load_current_property_override(
     )
     if row is None:
         return None
-    return PropertyCostOverride(
+    return PropertyContext(
         property_input_id=str(row["property_input_id"]),
         source_id=str(row["source_id"]),
+        address=str(row["address"]),
+        area_sqm=float(row["area_sqm"]),
+        floor=(str(row["floor"]) if row["floor"] is not None else None),
         deposit_krw=int(row["deposit_krw"]),
         monthly_rent_krw=int(row["monthly_rent_krw"]),
         management_fee_krw=int(row["management_fee_krw"]),

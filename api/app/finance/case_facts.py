@@ -9,11 +9,19 @@ from app.finance.property_benchmark import PropertyBenchmarkResolution
 
 
 @dataclass(frozen=True)
-class PropertyCostOverride:
-    """Actual property terms that replace less-specific case assumptions."""
+class PropertyContext:
+    """User-confirmed property facts carried through every recalculation.
+
+    Monetary fields are authoritative finance inputs. Address, area and floor are
+    preserved as user facts for later spatial/building grounding, but do not by
+    themselves imply permits, franchise approval or other external decisions.
+    """
 
     property_input_id: str
     source_id: str
+    address: str
+    area_sqm: float
+    floor: str | None
     deposit_krw: int
     monthly_rent_krw: int
     management_fee_krw: int
@@ -22,6 +30,19 @@ class PropertyCostOverride:
     @property
     def evidence_ref(self) -> str:
         return f"property-input:{self.property_input_id}"
+
+    def public_projection(self) -> dict[str, object]:
+        return {
+            "property_input_id": self.property_input_id,
+            "address": self.address,
+            "area_sqm": self.area_sqm,
+            "floor": self.floor,
+            "deposit_krw": self.deposit_krw,
+            "monthly_rent_krw": self.monthly_rent_krw,
+            "management_fee_krw": self.management_fee_krw,
+            "key_money_krw": self.key_money_krw,
+            "provenance": ValueProvenance.USER_INPUT.value,
+        }
 
 
 @dataclass(frozen=True)
@@ -297,17 +318,25 @@ class FinancialInputResolver:
     def __init__(
         self,
         *,
-        property_cost_override: PropertyCostOverride | None = None,
+        property_context: PropertyContext | None = None,
         case_resolution: CaseFactResolution | None = None,
         benchmark_resolution: PropertyBenchmarkResolution | None = None,
     ) -> None:
-        self._property = property_cost_override
+        self._property = property_context
         self._case = case_resolution or CaseFactResolution()
         self._benchmark = benchmark_resolution or PropertyBenchmarkResolution()
         self.decision_sources = {
             **self._benchmark.sources,
             **self._case.sources,
         }
+        if property_context is not None:
+            self.decision_sources[property_context.evidence_ref] = {
+                "source_title": "사용자 확인 점포 조건",
+                "source_ref": None,
+                "data_date": None,
+                "geographic_scope": None,
+                "source_anchor": property_context.evidence_ref,
+            }
         self._case_by_key = {
             (value.source_id, value.category): value for value in self._case.overrides
         }

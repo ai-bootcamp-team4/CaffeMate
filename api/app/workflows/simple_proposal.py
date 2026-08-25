@@ -32,7 +32,7 @@ from app.finance.calculator import calculate_finance, evaluate_capital_gate
 from app.finance.case_facts import (
     CaseFactResolution,
     FinancialInputResolver,
-    PropertyCostOverride,
+    PropertyContext,
 )
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
@@ -95,7 +95,7 @@ class SimpleProposalBuilder:
         *,
         state: VentureState,
         evidence_records: list[dict[str, Any]],
-        property_cost_override: PropertyCostOverride | None = None,
+        property_context: PropertyContext | None = None,
         case_fact_resolution: CaseFactResolution | None = None,
         property_rent_benchmarks: list[PropertyRentBenchmark] | None = None,
         agent_proposals: list[dict[str, Any]] | None = None,
@@ -118,7 +118,7 @@ class SimpleProposalBuilder:
             benchmarks=property_rent_benchmarks or [],
         )
         finance_resolver = FinancialInputResolver(
-            property_cost_override=property_cost_override,
+            property_context=property_context,
             case_resolution=case_fact_resolution,
             benchmark_resolution=benchmark_resolution,
         )
@@ -147,7 +147,7 @@ class SimpleProposalBuilder:
                     state=state,
                     seed=seed,
                     evidence_records=evidence_records,
-                    property_cost_override=property_cost_override,
+                    property_context=property_context,
                     finance_resolver=finance_resolver,
                     agent_proposal=proposals_by_source.get(seed.model_id),
                 )
@@ -162,7 +162,7 @@ class SimpleProposalBuilder:
                 self._franchise_drafts(
                     state=state,
                     evidence_records=evidence_records,
-                    property_cost_override=property_cost_override,
+                    property_context=property_context,
                     finance_resolver=finance_resolver,
                     proposed_ids=proposed_ids,
                     franchise_universe=franchise_universe,
@@ -249,7 +249,7 @@ class SimpleProposalBuilder:
         state: VentureState,
         seed: IndependentSeedDefinition,
         evidence_records: list[dict[str, Any]],
-        property_cost_override: PropertyCostOverride | None,
+        property_context: PropertyContext | None,
         finance_resolver: FinancialInputResolver,
         agent_proposal: dict[str, Any] | None,
     ) -> _CandidateDraft:
@@ -315,7 +315,7 @@ class SimpleProposalBuilder:
             else []
         )
         adjusted_fields = set(
-            property_adjusted_fields(seed.model_id, property_cost_override)
+            property_adjusted_fields(seed.model_id, property_context)
         )
         adjusted_fields.update(
             value["field_path"]
@@ -343,6 +343,12 @@ class SimpleProposalBuilder:
                     "model_id": seed.model_id,
                     "adjusted_fields": sorted(adjusted_fields),
                 },
+                "property_context": (
+                    property_context.public_projection()
+                    if property_context is not None
+                    and property_context.source_id == seed.model_id
+                    else None
+                ),
                 "evidence_refs": evidence_refs,
                 "assumption_refs": assumption_refs,
                 "market_signals": signals,
@@ -417,7 +423,7 @@ class SimpleProposalBuilder:
         *,
         state: VentureState,
         evidence_records: list[dict[str, Any]],
-        property_cost_override: PropertyCostOverride | None,
+        property_context: PropertyContext | None,
         finance_resolver: FinancialInputResolver,
         proposed_ids: set[str] | None,
         franchise_universe: list[dict[str, Any]] | None,
@@ -539,6 +545,12 @@ class SimpleProposalBuilder:
                             "finance_profile": deepcopy(profile),
                         },
                         "independent_model": None,
+                        "property_context": (
+                            property_context.public_projection()
+                            if property_context is not None
+                            and property_context.source_id == brand_id
+                            else None
+                        ),
                         "evidence_refs": candidate_evidence_refs,
                         "assumption_refs": [assumption_ref],
                         "market_signals": brand_signals,
