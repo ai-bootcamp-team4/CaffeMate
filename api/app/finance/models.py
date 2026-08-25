@@ -92,9 +92,33 @@ class CostLine(StrictModel):
         return self
 
 
+class VariableCostRateLine(StrictModel):
+    """A sales-linked variable cost expressed in basis points of revenue."""
+
+    field_id: str = Field(min_length=1)
+    rate_bps: int | None = Field(default=None, ge=0, le=10_000)
+    provenance: ValueProvenance
+    evidence_ref: str | None = None
+
+    @model_validator(mode="after")
+    def provenance_matches_value(self) -> "VariableCostRateLine":
+        if self.provenance in {
+            ValueProvenance.FACT,
+            ValueProvenance.USER_INPUT,
+            ValueProvenance.BENCHMARK,
+        } and not self.evidence_ref:
+            raise ValueError("Grounded variable cost rate requires evidence_ref")
+        if self.provenance == ValueProvenance.UNKNOWN and self.rate_bps is not None:
+            raise ValueError("UNKNOWN variable cost rate cannot contain a numeric value")
+        if self.provenance != ValueProvenance.UNKNOWN and self.rate_bps is None:
+            raise ValueError("Known variable cost rate requires a numeric value")
+        return self
+
+
 class FinanceInput(StrictModel):
     initial_cost_lines: list[CostLine]
     monthly_fixed_cost_lines: list[CostLine]
+    variable_cost_rate_lines: list[VariableCostRateLine] = Field(default_factory=list)
     contribution_margin_bps: int | None = Field(default=None, ge=1, le=10_000)
     operating_days_per_month: int | None = Field(default=None, ge=1, le=31)
     average_ticket_krw: int | None = Field(default=None, ge=1)
@@ -114,6 +138,9 @@ class FinanceInput(StrictModel):
 class FinanceResult(StrictModel):
     initial_cash: MoneyRange
     monthly_fixed_cost: MoneyRange
+    base_contribution_margin_bps: int | None = None
+    variable_cost_rate_bps: int | None = None
+    effective_contribution_margin_bps: int | None = None
     break_even_monthly_sales_krw: int | None
     required_daily_orders: Decimal | None
     unknown_cost_fields: list[str]

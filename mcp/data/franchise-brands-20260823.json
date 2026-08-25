@@ -19,7 +19,7 @@
         "value_kind": "EVIDENCED_FACT",
         "known_initial_cost_range_krw": { "low": 27000000, "base": 27000000, "high": 27000000 },
         "reference_area_sqm": null,
-        "monthly_royalty_krw": 250000,
+        "monthly_royalty_krw": 250000, "sales_royalty_bps": null,
         "evidence_refs": ["franchise-cost:kr-ediya-coffee:2026-08-24"],
         "source_refs": ["https://www.ediya.com/C/contents/franchise_02.html"],
         "scope_note": "가맹비·홍보비·계약이행보증금·초도물품, VAT 별도",
@@ -42,7 +42,7 @@
         "value_kind": "EVIDENCED_FACT",
         "known_initial_cost_range_krw": { "low": 74230000, "base": 74230000, "high": 74230000 },
         "reference_area_sqm": 33,
-        "monthly_royalty_krw": null,
+        "monthly_royalty_krw": null, "sales_royalty_bps": null,
         "evidence_refs": ["franchise-cost:kr-mega-mgc-coffee:2026-08-24"],
         "source_refs": ["https://www.mega-mgccoffee.com/"],
         "scope_note": "10평 기준 본사 표시 창업비용; 임대차·권리금·현장 별도공사는 별도 확인",
@@ -61,7 +61,7 @@
       "disclosure_status": "MISSING",
       "finance_profile": {
         "currency": "KRW", "coverage": "UNKNOWN", "value_kind": "UNKNOWN",
-        "known_initial_cost_range_krw": null, "reference_area_sqm": null, "monthly_royalty_krw": null,
+        "known_initial_cost_range_krw": null, "reference_area_sqm": null, "monthly_royalty_krw": null, "sales_royalty_bps": null,
         "evidence_refs": [], "source_refs": ["https://composecoffee.co.kr/"],
         "scope_note": "공식 창업 모집만 확인; 비용은 정보공개서·본사 상담 필요",
         "missing_costs": ["TOTAL_INITIAL_COST", "ROYALTY"]
@@ -79,7 +79,7 @@
       "disclosure_status": "MISSING",
       "finance_profile": {
         "currency": "KRW", "coverage": "UNKNOWN", "value_kind": "UNKNOWN",
-        "known_initial_cost_range_krw": null, "reference_area_sqm": 26.4, "monthly_royalty_krw": null,
+        "known_initial_cost_range_krw": null, "reference_area_sqm": 26.4, "monthly_royalty_krw": null, "sales_royalty_bps": null,
         "evidence_refs": [], "source_refs": ["https://paikdabang.com/franchise/franchise/"],
         "scope_note": "1층 전용 8평 이상 조건만 확인; 비용은 정보공개서·본사 상담 필요",
         "missing_costs": ["TOTAL_INITIAL_COST", "ROYALTY"]
@@ -98,7 +98,7 @@
       "finance_profile": {
         "currency": "KRW", "coverage": "PARTIAL", "value_kind": "EVIDENCED_FACT",
         "known_initial_cost_range_krw": { "low": 86500000, "base": 86500000, "high": 86500000 },
-        "reference_area_sqm": 33, "monthly_royalty_krw": 150000,
+        "reference_area_sqm": 33, "monthly_royalty_krw": 150000, "sales_royalty_bps": null,
         "evidence_refs": ["franchise-cost:kr-the-venti:2026-08-24"],
         "source_refs": ["https://www.theventi.co.kr/new2022/fran/assets/download/information.pdf"],
         "scope_note": "10평 기준 정상가, VAT·냉난방기·전기증설·철거 별도; 한시 프로모션가 제외",
@@ -118,7 +118,7 @@
       "finance_profile": {
         "currency": "KRW", "coverage": "PARTIAL", "value_kind": "EVIDENCED_FACT",
         "known_initial_cost_range_krw": { "low": 66500000, "base": 66500000, "high": 66500000 },
-        "reference_area_sqm": 49.5, "monthly_royalty_krw": null,
+        "reference_area_sqm": 49.5, "monthly_royalty_krw": null, "sales_royalty_bps": null,
         "evidence_refs": ["franchise-cost:kr-coffee-bay:2026-08-24"],
         "source_refs": ["https://www.coffeebay.com/startup"],
         "scope_note": "15평형, VAT·철거·외관·전기증설·냉난방기·소방·초도물품 등 별도",
@@ -138,7 +138,7 @@
       "finance_profile": {
         "currency": "KRW", "coverage": "PARTIAL", "value_kind": "EVIDENCED_FACT",
         "known_initial_cost_range_krw": { "low": 251500000, "base": 251500000, "high": 251500000 },
-        "reference_area_sqm": 165, "monthly_royalty_krw": null,
+        "reference_area_sqm": 165, "monthly_royalty_krw": null, "sales_royalty_bps": null,
         "evidence_refs": ["franchise-cost:kr-hollys:2026-08-24"],
         "source_refs": ["https://www.hollys.co.kr/franchiseStore/franchiseStep.do"],
         "scope_note": "50평 기준, VAT·계약이행보증금·설계감리비·초도물품·별도공사 제외",
@@ -158,7 +158,7 @@
       "finance_profile": {
         "currency": "KRW", "coverage": "PARTIAL", "value_kind": "EVIDENCED_FACT",
         "known_initial_cost_range_krw": { "low": 243300000, "base": 259200000, "high": 275100000 },
-        "reference_area_sqm": 148.7, "monthly_royalty_krw": null,
+        "reference_area_sqm": 148.7, "monthly_royalty_krw": null, "sales_royalty_bps": null,
         "evidence_refs": ["franchise-cost:kr-a-twosome-place:2026-08-24"],
         "source_refs": ["https://twosome.co.kr/so/storeStartupInfo.do"],
         "scope_note": "45평·전면 15m 기준 공식 범위, 기준값은 양 끝값의 산술 중간값; 최초 오픈비·냉난방·현장공사 별도",
@@ -177,7 +177,7 @@
       "disclosure_status": "MISSING",
       "finance_profile": {
         "currency": "KRW", "coverage": "UNKNOWN", "value_kind": "UNKNOWN",
-        "known_initial_cost_range_krw": null, "reference_area_sqm": null, "monthly_royalty_krw": null,
+        "known_initial_cost_range_krw": null, "reference_area_sqm": null, "monthly_royalty_krw": null, "sales_royalty_bps": null,
         "evidence_refs": [], "source_refs": ["https://www.mmthcoffee.com/sub/franchise.html"],
         "scope_note": "공식 가맹 안내의 소형 평수 창업 가능성만 확인; 숫자는 정보공개서·상담 필요",
         "missing_costs": ["TOTAL_INITIAL_COST", "ROYALTY"]
@@ -195,7 +195,7 @@
       "disclosure_status": "MISSING",
       "finance_profile": {
         "currency": "KRW", "coverage": "NOT_APPLICABLE", "value_kind": "UNKNOWN",
-        "known_initial_cost_range_krw": null, "reference_area_sqm": null, "monthly_royalty_krw": null,
+        "known_initial_cost_range_krw": null, "reference_area_sqm": null, "monthly_royalty_krw": null, "sales_royalty_bps": null,
         "evidence_refs": [], "source_refs": [], "scope_note": "국내 개인 가맹 추천 비대상", "missing_costs": []
       },
       "missing_fields": []
@@ -211,7 +211,7 @@
       "disclosure_status": "MISSING",
       "finance_profile": {
         "currency": "KRW", "coverage": "NOT_APPLICABLE", "value_kind": "UNKNOWN",
-        "known_initial_cost_range_krw": null, "reference_area_sqm": null, "monthly_royalty_krw": null,
+        "known_initial_cost_range_krw": null, "reference_area_sqm": null, "monthly_royalty_krw": null, "sales_royalty_bps": null,
         "evidence_refs": [], "source_refs": [], "scope_note": "국내 개인 가맹 추천 비대상", "missing_costs": []
       },
       "missing_fields": []

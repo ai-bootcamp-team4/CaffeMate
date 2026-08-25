@@ -72,6 +72,7 @@ class _RepositoryPipeline:
                         },
                         "reference_area_sqm": None,
                         "monthly_royalty_krw": 250_000,
+                        "sales_royalty_bps": None,
                         "evidence_refs": ["franchise-cost:ediya"],
                         "source_refs": ["https://example.com/ediya"],
                         "scope_note": "repository test fixture",
@@ -582,6 +583,222 @@ def test_property_terms_recalculate_selected_franchise_with_actual_costs(
         "accepted_document_types": [],
     }
     assert current["decision_delta"]["candidate_changes"]
+
+
+def test_confirmed_franchise_percentage_royalty_recalculates_variable_margin(
+    postgres_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        postgres_engine.url.render_as_string(hide_password=False),
+    )
+    monkeypatch.setenv("CAFFEMATE_POLICY_SNAPSHOT_ID", "policy-1")
+    headers = {"Authorization": "Bearer test-token"}
+    with TestClient(
+        create_app(
+            identity_verifier=_Identity(),
+            workflow_service=_workflow_service(postgres_engine),
+        )
+    ) as client:
+        project_id = client.post(
+            "/v1/projects",
+            headers={**headers, "Idempotency-Key": "royalty-create"},
+            json={},
+        ).json()["project_id"]
+        client.post(
+            f"/v1/projects/{project_id}/onboarding/confirm",
+            headers={**headers, "Idempotency-Key": "royalty-onboard"},
+            json={
+                "founder": {
+                    "target_area_input": "서울특별시 마포구 공덕동",
+                    "own_funds_krw": 400_000_000,
+                    "borrowing_intent": "NO",
+                    "cafe_type_preference": "FRANCHISE_ONLY",
+                    "operation_mode": "DIRECT_FULL_TIME",
+                }
+            },
+        )
+        client.post(
+            f"/v1/projects/{project_id}/workflows/FIRST_PROPOSAL",
+            headers={**headers, "Idempotency-Key": "royalty-analysis"},
+            json={},
+        )
+        first = client.get(f"/v1/projects/{project_id}/result", headers=headers).json()
+        selected_candidate = next(
+            candidate
+            for candidate in first["candidates"]
+            if candidate["franchise"]["brand_id"] == "kr-ediya-coffee"
+        )
+        assert selected_candidate["financial_summary"]["variable_cost_rate_bps"] == 0
+        assert (
+            selected_candidate["financial_summary"]["effective_contribution_margin_bps"]
+            == 6_500
+        )
+        selection_response = client.post(
+            f"/v1/projects/{project_id}/candidate-selections",
+            headers={**headers, "Idempotency-Key": "royalty-select"},
+            json={
+                "result_bundle_id": first["result_bundle_id"],
+                "candidate_id": selected_candidate["candidate_id"],
+                "expected_head": first["current_head"],
+            },
+        )
+        assert selection_response.status_code == 201
+
+        occurred_at = datetime(2026, 8, 25, 5, 0, tzinfo=UTC)
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO project_events(
+                        event_id, project_id, event_type, event_json, occurred_at
+                    ) VALUES (
+                        'royalty-event-1', :project_id, 'DOCUMENT_CLAIMS_APPLIED',
+                        CAST('{}' AS JSONB), :at
+                    )
+                    """
+                ),
+                {"project_id": project_id, "at": occurred_at},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO documents(
+                        document_id, project_id, owner_user_id, active_case_id, document_type,
+                        status, current_revision_number, created_at, updated_at
+                    ) VALUES (
+                        'royalty-document-1', :project_id, 'user-2', :case_id,
+                        'FRANCHISE_AGREEMENT', 'ACTIVE', 1, :at, :at
+                    )
+                    """
+                ),
+                {
+                    "project_id": project_id,
+                    "case_id": selected_candidate["candidate_id"],
+                    "at": occurred_at,
+                },
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO document_revisions(
+                        document_revision_id, document_id, project_id, revision_number,
+                        object_path, original_filename, declared_content_type,
+                        declared_size_bytes, declared_sha256, status, idempotency_key,
+                        request_digest, created_at, updated_at
+                    ) VALUES (
+                        'royalty-revision-1', 'royalty-document-1', :project_id, 1,
+                        :object_path, 'franchise-agreement.pdf', 'application/pdf', 100, :sha256,
+                        'EXTRACTION_READY', 'royalty-upload', :request_digest, :at, :at
+                    )
+                    """
+                ),
+                {
+                    "project_id": project_id,
+                    "object_path": f"projects/{project_id}/documents/royalty-document-1/source.pdf",
+                    "sha256": "d" * 64,
+                    "request_digest": b"royalty-upload-digest",
+                    "at": occurred_at,
+                },
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO venture_claims(
+                        claim_id, project_id, case_id, case_type, source_id, claim_type,
+                        value_json, unit, materiality, status, document_id,
+                        document_revision_id, anchor_json, event_id, created_at
+                    ) VALUES (
+                        'royalty-claim-1', :project_id, :case_id, 'FRANCHISE',
+                        'kr-ediya-coffee', 'ROYALTY', CAST('3' AS JSONB), '%', 'HIGH',
+                        'CONFIRMED', 'royalty-document-1', 'royalty-revision-1',
+                        CAST(:anchor AS JSONB), 'royalty-event-1', :at
+                    )
+                    """
+                ),
+                {
+                    "project_id": project_id,
+                    "case_id": selected_candidate["candidate_id"],
+                    "anchor": '{"document_revision_id":"royalty-revision-1","page_index":4}',
+                    "at": occurred_at,
+                },
+            )
+
+        with postgres_engine.begin() as connection:
+            current_state_json = connection.execute(
+                text(
+                    """
+                    SELECT state.state_json
+                    FROM venture_projects project
+                    JOIN venture_states state
+                      ON state.project_id=project.project_id
+                     AND state.state_version=project.current_state_version
+                    WHERE project.project_id=:project_id
+                    """
+                ),
+                {"project_id": project_id},
+            ).scalar_one()
+            current_head_row = connection.execute(
+                text("SELECT * FROM project_heads WHERE project_id=:project_id"),
+                {"project_id": project_id},
+            ).mappings().one()
+            current_state = VentureState.model_validate(current_state_json)
+            previous_head = HeadFence(
+                workflow_generation=current_head_row["workflow_generation"],
+                state_version=current_head_row["state_version"],
+                founder_snapshot_id=current_head_row["founder_snapshot_id"],
+                area_snapshot_id=current_head_row["area_snapshot_id"],
+                evidence_snapshot_id=current_head_row["evidence_snapshot_id"],
+                policy_snapshot_id=current_head_row["policy_snapshot_id"],
+                index_generation_id=current_head_row["index_generation_id"],
+                seed_registry_id=current_head_row["seed_registry_id"],
+            )
+            start_selective_first_proposal(
+                connection,
+                project_id=project_id,
+                user_id="user-2",
+                state=current_state,
+                source_workflow_run_id=first["workflow_run_id"],
+                previous_head=previous_head,
+                now=datetime(2026, 8, 25, 5, 5, tzinfo=UTC),
+                new_id=lambda: str(uuid4()),
+            )
+        current = client.get(f"/v1/projects/{project_id}/result", headers=headers).json()
+
+    recalculated = next(
+        candidate
+        for candidate in current["candidates"]
+        if candidate["franchise"]["brand_id"] == "kr-ediya-coffee"
+    )
+    assert (
+        recalculated["financial_summary"]["monthly_fixed_cost"]["base"]
+        == selected_candidate["financial_summary"]["monthly_fixed_cost"]["base"]
+    )
+    assert recalculated["financial_summary"]["variable_cost_rate_bps"] == 300
+    assert recalculated["financial_summary"]["effective_contribution_margin_bps"] == 6_200
+    assert (
+        recalculated["financial_summary"]["break_even_monthly_sales_krw"]
+        > selected_candidate["financial_summary"]["break_even_monthly_sales_krw"]
+    )
+    royalty = next(
+        item for item in recalculated["decision_inputs"] if item["field"] == "SALES_ROYALTY"
+    )
+    assert royalty["value_bps"] == 300
+    assert royalty["provenance"] == "USER_INPUT"
+    assert royalty["source_title"] == "franchise-agreement.pdf"
+    assert royalty["source_anchor"].startswith("royalty-revision-1#page=5")
+    delta_change = next(
+        item
+        for item in current["decision_delta"]["candidate_changes"]
+        if item["candidate_key"] == "FRANCHISE:kr-ediya-coffee"
+    )
+    royalty_delta = next(
+        item for item in delta_change["input_changes"] if item["field"] == "SALES_ROYALTY"
+    )
+    assert royalty_delta["previous"] is None
+    assert royalty_delta["current"]["value_bps"] == 300
+    assert royalty_delta["current"]["provenance"] == "USER_INPUT"
 
 
 def test_confirmed_interior_quote_claim_replaces_seed_cost_on_recompute(

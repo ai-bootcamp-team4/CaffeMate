@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "manifest_digest": "sha256:63f2ab1dc09b82181e7df2a10e00071ea1fa7b0e268bc4679461543a97d96a87",
+  "manifest_digest": "sha256:82348856485cf1d9fcb735e0f2b349cd2bbcd97bdf6c6c039b1d72e68413d889",
   "tools": [
     "resolve_area",
     "get_area_profile",

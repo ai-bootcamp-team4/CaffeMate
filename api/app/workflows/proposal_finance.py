@@ -3,7 +3,13 @@
 from typing import Any
 
 from app.finance.case_facts import FinancialInputResolver, PropertyContext
-from app.finance.models import CostCategory, CostLine, MoneyRange, ValueProvenance
+from app.finance.models import (
+    CostCategory,
+    CostLine,
+    MoneyRange,
+    ValueProvenance,
+    VariableCostRateLine,
+)
 
 FRANCHISE_BENCHMARK_COSTS = {
     CostCategory.DEPOSIT: MoneyRange(low=20_000_000, base=35_000_000, high=60_000_000),
@@ -79,6 +85,21 @@ def franchise_cost_line(
     return resolver.resolve_cost_line(source_id=brand_id, fallback=fallback)
 
 
+def franchise_variable_cost_rate_lines(
+    *,
+    brand_id: str,
+    finance_profile: dict[str, Any],
+    resolver: FinancialInputResolver,
+) -> list[VariableCostRateLine]:
+    fallback = _franchise_variable_rate_fallback(finance_profile)
+    resolved = resolver.resolve_variable_cost_rate(
+        source_id=brand_id,
+        fallback=fallback,
+        field_id="SALES_ROYALTY",
+    )
+    return [resolved] if resolved is not None else []
+
+
 def _franchise_fallback_line(
     *,
     brand_id: str,
@@ -129,6 +150,34 @@ def _franchise_fallback_line(
         provenance=ValueProvenance.ASSUMPTION,
         evidence_ref=f"declared-assumption:{brand_id}:2026-08-24",
     )
+
+
+def _franchise_variable_rate_fallback(
+    finance_profile: dict[str, Any],
+) -> VariableCostRateLine | None:
+    royalty_bps = finance_profile.get("sales_royalty_bps")
+    refs = [
+        ref for ref in finance_profile.get("evidence_refs", []) if isinstance(ref, str)
+    ]
+    if isinstance(royalty_bps, int) and refs:
+        return VariableCostRateLine(
+            field_id="SALES_ROYALTY",
+            rate_bps=royalty_bps,
+            provenance=ValueProvenance.FACT,
+            evidence_ref=refs[0],
+        )
+    missing = {
+        value for value in finance_profile.get("missing_costs", []) if isinstance(value, str)
+    }
+    if "ROYALTY" in missing and not isinstance(
+        finance_profile.get("monthly_royalty_krw"), int
+    ):
+        return VariableCostRateLine(
+            field_id="SALES_ROYALTY",
+            rate_bps=None,
+            provenance=ValueProvenance.UNKNOWN,
+        )
+    return None
 
 
 def franchise_assumed_categories(finance_profile: dict[str, Any]) -> set[CostCategory]:

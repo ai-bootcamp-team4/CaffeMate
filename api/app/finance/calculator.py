@@ -24,7 +24,15 @@ def calculate_finance(value: FinanceInput) -> FinanceResult:
         value.monthly_fixed_cost_lines,
         required_categories=MONTHLY_FIXED_COST_CATEGORIES,
     )
-    break_even = _break_even(monthly_fixed.base, value.contribution_margin_bps)
+    variable_rate, variable_unknown = _sum_variable_rates(value)
+    effective_margin = _effective_margin(value.contribution_margin_bps, variable_rate)
+    if (
+        value.contribution_margin_bps is not None
+        and variable_rate is not None
+        and effective_margin is None
+    ):
+        variable_unknown.append("EFFECTIVE_CONTRIBUTION_MARGIN")
+    break_even = _break_even(monthly_fixed.base, effective_margin)
     orders = _required_orders(
         break_even,
         operating_days=value.operating_days_per_month,
@@ -33,9 +41,14 @@ def calculate_finance(value: FinanceInput) -> FinanceResult:
     return FinanceResult(
         initial_cash=initial_cash,
         monthly_fixed_cost=monthly_fixed,
+        base_contribution_margin_bps=value.contribution_margin_bps,
+        variable_cost_rate_bps=variable_rate,
+        effective_contribution_margin_bps=effective_margin,
         break_even_monthly_sales_krw=break_even,
         required_daily_orders=orders,
-        unknown_cost_fields=sorted(set(initial_unknown + monthly_unknown)),
+        unknown_cost_fields=sorted(
+            set(initial_unknown + monthly_unknown + variable_unknown)
+        ),
     )
 
 
@@ -148,6 +161,22 @@ def _sum_scenario(values: list[int | None]) -> int | None:
     if any(item is None for item in values):
         return None
     return sum(item for item in values if item is not None)
+
+
+def _sum_variable_rates(value: FinanceInput) -> tuple[int | None, list[str]]:
+    unknown = [
+        line.field_id for line in value.variable_cost_rate_lines if line.rate_bps is None
+    ]
+    if unknown:
+        return None, unknown
+    return sum(line.rate_bps or 0 for line in value.variable_cost_rate_lines), []
+
+
+def _effective_margin(base_margin_bps: int | None, variable_rate_bps: int | None) -> int | None:
+    if base_margin_bps is None or variable_rate_bps is None:
+        return None
+    effective = base_margin_bps - variable_rate_bps
+    return effective if effective > 0 else None
 
 
 def _break_even(monthly_fixed_base: int | None, margin_bps: int | None) -> int | None:

@@ -322,6 +322,7 @@
         "known_initial_cost_range_krw",
         "reference_area_sqm",
         "monthly_royalty_krw",
+        "sales_royalty_bps",
         "evidence_refs",
         "source_refs",
         "scope_note",
@@ -348,6 +349,7 @@
         },
         "reference_area_sqm": { "type": ["number", "null"], "exclusiveMinimum": 0 },
         "monthly_royalty_krw": { "type": ["integer", "null"], "minimum": 0 },
+        "sales_royalty_bps": { "type": ["integer", "null"], "minimum": 0, "maximum": 10000 },
         "evidence_refs": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },

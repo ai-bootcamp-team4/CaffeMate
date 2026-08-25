@@ -78,6 +78,9 @@ const result: ResultView = {
     financial_summary: {
       initial_cash: { currency: 'KRW', low: 70_000_000, base: 80_000_000, high: 90_000_000, provenance_refs: ['evidence-cost'] },
       monthly_fixed_cost: { currency: 'KRW', low: 4_000_000, base: 5_000_000, high: 6_000_000, provenance_refs: ['evidence-cost'] },
+      base_contribution_margin_bps: 6_500,
+      variable_cost_rate_bps: 0,
+      effective_contribution_margin_bps: 6_500,
       break_even_monthly_sales_krw: 15_000_000, required_daily_orders: 80, unknown_cost_fields: ['premium'],
     },
     missing_fields: [{ field: 'royalty', impact: '월 고정비가 바뀝니다.', next_check: '본사에 확인합니다.' }],

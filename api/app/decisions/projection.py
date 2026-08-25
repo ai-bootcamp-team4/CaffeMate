@@ -9,7 +9,13 @@ from app.decisions.models import (
     VerificationRequirement,
 )
 from app.domain.errors import ContractValidationError
-from app.finance.models import CostCategory, CostLine, FinanceInput, ValueProvenance
+from app.finance.models import (
+    CostCategory,
+    CostLine,
+    FinanceInput,
+    ValueProvenance,
+    VariableCostRateLine,
+)
 
 _PROPERTY_CATEGORIES = {
     CostCategory.DEPOSIT,
@@ -41,6 +47,7 @@ def project_calculated_finance_decision_inputs(
     return project_finance_decision_inputs(
         initial_cost_lines=parsed.initial_cost_lines,
         monthly_fixed_cost_lines=parsed.monthly_fixed_cost_lines,
+        variable_cost_rate_lines=parsed.variable_cost_rate_lines,
         evidence_records=evidence_records,
         case_type=case_type,
     )
@@ -50,6 +57,7 @@ def project_finance_decision_inputs(
     *,
     initial_cost_lines: list[CostLine],
     monthly_fixed_cost_lines: list[CostLine],
+    variable_cost_rate_lines: list[VariableCostRateLine] | None = None,
     evidence_records: list[dict[str, Any]],
     case_type: str,
     decision_sources: dict[str, dict[str, Any]] | None = None,
@@ -70,6 +78,7 @@ def project_finance_decision_inputs(
             DecisionInput(
                 field=line.field_id,
                 value_range_krw=line.amount,
+                value_bps=None,
                 provenance=line.provenance,
                 resolution_status=_resolution_status(line, action),
                 decision_role=DecisionRole.FINANCE_INPUT,
@@ -141,6 +150,81 @@ def project_finance_decision_inputs(
                 ),
             )
         )
+    for rate_line in variable_cost_rate_lines or []:
+        action = _variable_rate_resolution_action(rate_line, case_type=case_type)
+        source = evidence_by_id.get(rate_line.evidence_ref or "")
+        source_metadata = source.get("source") if isinstance(source, dict) else None
+        anchor = source.get("original_anchor") if isinstance(source, dict) else None
+        decision_source = (decision_sources or {}).get(rate_line.evidence_ref or "")
+        values.append(
+            DecisionInput(
+                field=rate_line.field_id,
+                value_range_krw=None,
+                value_bps=rate_line.rate_bps,
+                provenance=rate_line.provenance,
+                resolution_status=_variable_rate_resolution_status(rate_line, action),
+                decision_role=DecisionRole.FINANCE_INPUT,
+                source_title=(
+                    str(source_metadata.get("title"))
+                    if isinstance(source_metadata, dict)
+                    and isinstance(source_metadata.get("title"), str)
+                    else (
+                        str(decision_source.get("source_title"))
+                        if isinstance(decision_source, dict)
+                        and isinstance(decision_source.get("source_title"), str)
+                        else _synthetic_variable_rate_source_title(rate_line)
+                    )
+                ),
+                source_ref=(
+                    str(source_metadata.get("source_ref"))
+                    if isinstance(source_metadata, dict)
+                    and isinstance(source_metadata.get("source_ref"), str)
+                    else (
+                        str(decision_source.get("source_ref"))
+                        if isinstance(decision_source, dict)
+                        and isinstance(decision_source.get("source_ref"), str)
+                        else None
+                    )
+                ),
+                data_date=(
+                    str(source_metadata.get("published_or_data_date"))
+                    if isinstance(source_metadata, dict)
+                    and isinstance(source_metadata.get("published_or_data_date"), str)
+                    else (
+                        str(decision_source.get("data_date"))
+                        if isinstance(decision_source, dict)
+                        and isinstance(decision_source.get("data_date"), str)
+                        else None
+                    )
+                ),
+                geographic_scope=None,
+                source_anchor=(
+                    str(anchor.get("locator"))
+                    if isinstance(anchor, dict) and isinstance(anchor.get("locator"), str)
+                    else (
+                        str(decision_source.get("source_anchor"))
+                        if isinstance(decision_source, dict)
+                        and isinstance(decision_source.get("source_anchor"), str)
+                        else None
+                    )
+                ),
+                applied_to=[
+                    "EFFECTIVE_CONTRIBUTION_MARGIN",
+                    "BREAK_EVEN_MONTHLY_SALES",
+                    "REQUIRED_DAILY_ORDERS",
+                ],
+                replaceable_by=(
+                    [] if action.action_type == ResolutionActionType.NONE else [action.action_type]
+                ),
+                resolution_action=action,
+                limitation_code=(
+                    "VALUE_NOT_RESOLVED"
+                    if rate_line.provenance == ValueProvenance.UNKNOWN
+                    else None
+                ),
+                derivation=None,
+            )
+        )
     projected: list[dict[str, Any]] = []
     for value in values:
         payload = value.model_dump(mode="json")
@@ -207,6 +291,24 @@ def _resolution_status(
     }[line.provenance]
 
 
+def _variable_rate_resolution_status(
+    line: VariableCostRateLine,
+    action: ResolutionAction,
+) -> ResolutionStatus:
+    return {
+        ValueProvenance.FACT: ResolutionStatus.RESOLVED_FACT,
+        ValueProvenance.USER_INPUT: ResolutionStatus.RESOLVED_USER_CONFIRMED,
+        ValueProvenance.BENCHMARK: ResolutionStatus.RESOLVED_BENCHMARK,
+        ValueProvenance.ASSUMPTION: ResolutionStatus.ASSUMED,
+        ValueProvenance.DERIVED: ResolutionStatus.RESOLVED_DERIVED,
+        ValueProvenance.UNKNOWN: (
+            ResolutionStatus.DOCUMENT_REQUIRED
+            if action.action_type == ResolutionActionType.DOCUMENT_INTAKE
+            else ResolutionStatus.INPUT_REQUIRED
+        ),
+    }[line.provenance]
+
+
 def _resolution_action(line: CostLine, *, case_type: str) -> ResolutionAction:
     if line.provenance in {ValueProvenance.FACT, ValueProvenance.USER_INPUT}:
         return ResolutionAction(action_type=ResolutionActionType.NONE)
@@ -244,6 +346,22 @@ def _resolution_action(line: CostLine, *, case_type: str) -> ResolutionAction:
     return ResolutionAction(action_type=ResolutionActionType.NONE)
 
 
+def _variable_rate_resolution_action(
+    line: VariableCostRateLine,
+    *,
+    case_type: str,
+) -> ResolutionAction:
+    if line.provenance in {ValueProvenance.FACT, ValueProvenance.USER_INPUT}:
+        return ResolutionAction(action_type=ResolutionActionType.NONE)
+    if line.field_id == "SALES_ROYALTY" and case_type == "FRANCHISE":
+        return ResolutionAction(
+            action_type=ResolutionActionType.DOCUMENT_INTAKE,
+            target_fields=["finance.SALES_ROYALTY"],
+            accepted_document_types=["FRANCHISE_DISCLOSURE", "FRANCHISE_AGREEMENT"],
+        )
+    return ResolutionAction(action_type=ResolutionActionType.NONE)
+
+
 def _applied_to(category: CostCategory) -> list[str]:
     if category in {
         CostCategory.MONTHLY_OCCUPANCY,
@@ -262,6 +380,16 @@ def _applied_to(category: CostCategory) -> list[str]:
 def _synthetic_source_title(line: CostLine) -> str | None:
     if line.provenance == ValueProvenance.USER_INPUT:
         return "사용자 확인 점포 조건"
+    if line.provenance == ValueProvenance.ASSUMPTION:
+        return "등록 창업안 가정"
+    if line.provenance == ValueProvenance.DERIVED:
+        return "결정론적 계산"
+    return None
+
+
+def _synthetic_variable_rate_source_title(line: VariableCostRateLine) -> str | None:
+    if line.provenance == ValueProvenance.USER_INPUT:
+        return "사용자 확인 가맹 문서"
     if line.provenance == ValueProvenance.ASSUMPTION:
         return "등록 창업안 가정"
     if line.provenance == ValueProvenance.DERIVED:

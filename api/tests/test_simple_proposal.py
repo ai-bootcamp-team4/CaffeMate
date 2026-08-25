@@ -1,5 +1,6 @@
 """사용자는 입력 선호에 맞는 최대 세 가지 후보를 즉시 비교할 수 있어야 한다."""
 
+from copy import deepcopy
 from datetime import UTC, datetime
 
 import pytest
@@ -16,7 +17,7 @@ from app.domain.models import (
     VentureState,
     VentureStatus,
 )
-from app.finance.case_facts import PropertyContext
+from app.finance.case_facts import CaseFactRecord, CaseFactResolver, PropertyContext
 from app.finance.property_benchmark import PropertyRentBenchmark
 from app.results.models import ResultOutcomeStatus
 from app.workflows.simple_proposal import SimpleProposalBuilder
@@ -42,6 +43,7 @@ def _franchise_universe() -> list[dict[str, object]]:
                 },
                 "reference_area_sqm": None,
                 "monthly_royalty_krw": 250_000,
+                "sales_royalty_bps": None,
                 "evidence_refs": ["franchise-cost:ediya"],
                 "source_refs": ["https://example.com/ediya"],
                 "scope_note": "unit test fixture",
@@ -437,6 +439,103 @@ def test_builder_replaces_selected_franchise_property_costs_with_user_input() ->
         "property-input:property-input-2"
         in recalculated_candidate["financial_summary"]["monthly_fixed_cost"]["provenance_refs"]
     )
+
+
+def test_sales_percentage_royalty_changes_break_even_without_changing_monthly_fixed_cost() -> None:
+    universe = deepcopy(_franchise_universe())
+    profile = universe[0]["finance_profile"]
+    assert isinstance(profile, dict)
+    profile["monthly_royalty_krw"] = None
+    profile["sales_royalty_bps"] = 300
+    profile["missing_costs"] = [
+        value for value in profile["missing_costs"] if value != "ROYALTY"
+    ]
+
+    candidate = SimpleProposalBuilder(IndependentSeedRegistry.load_default()).build(
+        state=_state(CafeTypePreference.FRANCHISE_ONLY),
+        evidence_records=[],
+        franchise_universe=universe,
+    ).candidates[0]
+
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 7_600_000
+    assert candidate["financial_summary"]["base_contribution_margin_bps"] == 6_500
+    assert candidate["financial_summary"]["variable_cost_rate_bps"] == 300
+    assert candidate["financial_summary"]["effective_contribution_margin_bps"] == 6_200
+    assert candidate["financial_summary"]["break_even_monthly_sales_krw"] == 12_258_065
+    royalty = next(
+        value for value in candidate["decision_inputs"] if value["field"] == "SALES_ROYALTY"
+    )
+    assert royalty["value_bps"] == 300
+    assert royalty["value_range_krw"] is None
+    assert royalty["provenance"] == "FACT"
+    assert royalty["applied_to"] == [
+        "EFFECTIVE_CONTRIBUTION_MARGIN",
+        "BREAK_EVEN_MONTHLY_SALES",
+        "REQUIRED_DAILY_ORDERS",
+    ]
+
+
+def test_fixed_monthly_royalty_remains_fixed_cost_not_variable_margin_rate() -> None:
+    candidate = SimpleProposalBuilder(IndependentSeedRegistry.load_default()).build(
+        state=_state(CafeTypePreference.FRANCHISE_ONLY),
+        evidence_records=[],
+        franchise_universe=_franchise_universe(),
+    ).candidates[0]
+
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 7_850_000
+    assert candidate["financial_summary"]["base_contribution_margin_bps"] == 6_500
+    assert candidate["financial_summary"]["variable_cost_rate_bps"] == 0
+    assert candidate["financial_summary"]["effective_contribution_margin_bps"] == 6_500
+    assert not any(
+        value["field"] == "SALES_ROYALTY" for value in candidate["decision_inputs"]
+    )
+
+
+def test_confirmed_percentage_royalty_materializes_without_profile_variable_rate() -> None:
+    universe = deepcopy(_franchise_universe())
+    profile = universe[0]["finance_profile"]
+    assert isinstance(profile, dict)
+    profile["monthly_royalty_krw"] = None
+    profile["sales_royalty_bps"] = None
+    profile["missing_costs"] = [
+        value for value in profile["missing_costs"] if value != "ROYALTY"
+    ]
+    resolution = CaseFactResolver().resolve(
+        records=[
+            CaseFactRecord(
+                claim_id="royalty-contract-3pct",
+                source_id="kr-ediya-coffee",
+                claim_type="ROYALTY",
+                value=3.0,
+                unit="%",
+                materiality="HIGH",
+                document_type="FRANCHISE_AGREEMENT",
+                document_id="franchise-agreement-1",
+                document_revision_id="franchise-agreement-r1",
+                original_filename="franchise-agreement.pdf",
+                anchor={"document_revision_id": "franchise-agreement-r1", "page_index": 4},
+                created_at=datetime(2026, 8, 25, 3, 0, tzinfo=UTC),
+            )
+        ],
+        open_conflict_keys=set(),
+    )
+
+    candidate = SimpleProposalBuilder(IndependentSeedRegistry.load_default()).build(
+        state=_state(CafeTypePreference.FRANCHISE_ONLY),
+        evidence_records=[],
+        case_fact_resolution=resolution,
+        franchise_universe=universe,
+    ).candidates[0]
+
+    assert candidate["financial_summary"]["variable_cost_rate_bps"] == 300
+    assert candidate["financial_summary"]["effective_contribution_margin_bps"] == 6_200
+    royalty = next(
+        value for value in candidate["decision_inputs"] if value["field"] == "SALES_ROYALTY"
+    )
+    assert royalty["value_bps"] == 300
+    assert royalty["provenance"] == "USER_INPUT"
+    assert royalty["source_title"] == "franchise-agreement.pdf"
+    assert royalty["source_anchor"].startswith("franchise-agreement-r1#page=5")
 
 
 def test_franchise_hq_confirmation_is_external_not_generic_missing_input() -> None:

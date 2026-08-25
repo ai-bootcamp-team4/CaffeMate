@@ -167,3 +167,70 @@ def test_result_delta_explains_changed_inputs_reasons_and_gate_transition() -> N
     assert transition.current_metrics["shortfall_krw"] == 0
     assert "DECISION_INPUT_CHANGED" in delta.human_review_reason_codes
     assert "GATE_DECISION_CHANGED" in delta.human_review_reason_codes
+
+
+def test_result_delta_preserves_variable_rate_before_and_after_values() -> None:
+    previous_candidate = candidate(candidate_id="candidate-1")
+    previous_candidate["decision_inputs"] = [
+        {
+            "field": "SALES_ROYALTY",
+            "value_range_krw": None,
+            "value_bps": 300,
+            "provenance": "FACT",
+            "resolution_status": "RESOLVED_FACT",
+            "decision_role": "FINANCE_INPUT",
+            "source_title": "가맹 본사 공식 안내",
+            "source_ref": "https://example.com/royalty",
+            "data_date": None,
+            "geographic_scope": None,
+            "source_anchor": None,
+            "applied_to": [
+                "EFFECTIVE_CONTRIBUTION_MARGIN",
+                "BREAK_EVEN_MONTHLY_SALES",
+                "REQUIRED_DAILY_ORDERS",
+            ],
+            "replaceable_by": [],
+            "resolution_action": {
+                "action_type": "NONE",
+                "target_fields": [],
+                "accepted_document_types": [],
+            },
+            "limitation_code": None,
+        }
+    ]
+    current_candidate = deepcopy(previous_candidate)
+    current_candidate["decision_inputs"][0].update(
+        {
+            "value_bps": 500,
+            "provenance": "USER_INPUT",
+            "resolution_status": "RESOLVED_USER_CONFIRMED",
+            "source_title": "franchise-agreement.pdf",
+            "source_ref": None,
+            "source_anchor": "royalty-r1#page=5",
+        }
+    )
+    previous_candidate["financial_summary"]["break_even_monthly_sales_krw"] = 10_000_000
+    current_candidate["financial_summary"]["break_even_monthly_sales_krw"] = 10_500_000
+
+    delta = build_result_decision_delta(
+        previous_result_bundle_id="result-old",
+        current_result_bundle_id="result-new",
+        previous_bundle={"candidates": [previous_candidate], "primary_candidate_id": "candidate-1"},
+        current_bundle={"candidates": [current_candidate], "primary_candidate_id": "candidate-1"},
+    )
+
+    change = delta.candidate_changes[0]
+    assert len(change.input_changes) == 1
+    royalty = change.input_changes[0]
+    assert royalty.field == "SALES_ROYALTY"
+    assert royalty.previous is not None
+    assert royalty.previous.value_range_krw is None
+    assert royalty.previous.value_bps == 300
+    assert royalty.current is not None
+    assert royalty.current.value_bps == 500
+    assert royalty.current.provenance == "USER_INPUT"
+    assert royalty.affected_calculations == [
+        "BREAK_EVEN_MONTHLY_SALES",
+        "EFFECTIVE_CONTRIBUTION_MARGIN",
+        "REQUIRED_DAILY_ORDERS",
+    ]

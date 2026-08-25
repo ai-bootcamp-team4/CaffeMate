@@ -166,6 +166,13 @@ def _project_candidate(
                 finance.get("monthly_fixed_cost"),
                 monthly_refs,
             ),
+            "base_contribution_margin_bps": finance.get(
+                "base_contribution_margin_bps"
+            ),
+            "variable_cost_rate_bps": finance.get("variable_cost_rate_bps"),
+            "effective_contribution_margin_bps": finance.get(
+                "effective_contribution_margin_bps"
+            ),
             "break_even_monthly_sales_krw": finance.get(
                 "break_even_monthly_sales_krw"
             ),

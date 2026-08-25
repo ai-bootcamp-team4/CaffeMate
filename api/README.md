@@ -187,14 +187,18 @@ State version을 함께 잠근다. 비어 있지 않은 값만 `CONFIRMED` Claim
 revision, Claim, conflict와 단일 `RUN_PROPOSAL` 재계산은 하나의 PostgreSQL transaction으로
 저장된다. 재계산기는 현재 선택 점포 직접 입력을 가장 먼저 사용하고, 그 다음 선택 후보의 확인 문서
 Claim을 사용한다. 현재는 임대차·매물의 보증금/권리금/월세+관리비, 인테리어 총액과 장비 총액을
-명시적으로 대응 비용 항목에 연결한다. 같은 의미의 열린 충돌이 있는 비용 항목은 `UNKNOWN`으로 처리한다.
+명시적으로 대응 비용 항목에 연결한다. 프랜차이즈 계약·정보공개서의 명시적 퍼센트 또는 bps
+로열티는 `sales_royalty_bps` 변동비 입력으로 연결해 기준 공헌이익률에서 차감하며, 월 정액 로열티는
+계속 월 고정비로 처리한다. 비율이나 단위를 확정할 수 없는 로열티는 0으로 처리하지 않고
+`UNKNOWN`으로 남긴다. 같은 의미의 열린 충돌이 있는 비용 항목도 `UNKNOWN`으로 처리한다.
 
 선택적 재계산 Workflow는 원본 Workflow와 원본 Result를 명시적으로 참조한다. 새 Result가
 커밋되면 API가 개인카페 모델 id 또는 프랜차이즈 브랜드 id를 안정적인 후보 식별값으로 사용해
 이전 결과와 비교한다. `GET /v1/projects/{project_id}/result`의 `decision_delta`에는 후보 추가·삭제,
 순위와 검토 상태, 초기 필요 현금·월 고정비·손익분기 매출 변화뿐 아니라 decision input의 이전/현재
 값·provenance·resolution status, 영향받은 계산, reason code 증감과 실제 Gate 상태/reason 전이가
-포함된다. 단순히 Gate metric만 바뀌고 status/reason이 같으면 Gate 전이로 표시하지 않는다. 비교할
+포함된다. 원화 입력뿐 아니라 매출연동 로열티 같은 bps 입력도 이전/현재 값을 그대로 보존한다.
+단순히 Gate metric만 바뀌고 status/reason이 같으면 Gate 전이로 표시하지 않는다. 비교할
 원본 Result가 없는 최초 결과에는 `decision_delta`가 `null`이다.
 
 ## Agent Runtime session 정리

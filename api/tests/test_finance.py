@@ -13,6 +13,7 @@ from app.finance.models import (
     FinanceInput,
     MoneyRange,
     ValueProvenance,
+    VariableCostRateLine,
 )
 
 
@@ -100,6 +101,86 @@ def test_finance_calculation_is_exact_and_repeatable() -> None:
     assert first.break_even_monthly_sales_krw == 10_000_000
     assert first.required_daily_orders == Decimal("80.00")
     assert first.unknown_cost_fields == []
+
+
+def test_percentage_royalty_reduces_margin_without_changing_monthly_fixed_cost() -> None:
+    result = calculate_finance(
+        FinanceInput(
+            initial_cost_lines=complete_initial_costs(),
+            monthly_fixed_cost_lines=complete_monthly_costs(
+                cost(
+                    "monthly-fixed",
+                    CostCategory.MONTHLY_OTHER_FIXED,
+                    6_200_000,
+                    6_200_000,
+                    6_200_000,
+                )
+            ),
+            variable_cost_rate_lines=[
+                VariableCostRateLine(
+                    field_id="SALES_ROYALTY",
+                    rate_bps=300,
+                    provenance=ValueProvenance.FACT,
+                    evidence_ref="royalty:3pct",
+                )
+            ],
+            contribution_margin_bps=6_500,
+            operating_days_per_month=25,
+            average_ticket_krw=5_000,
+        )
+    )
+
+    assert result.monthly_fixed_cost.base == 6_200_000
+    assert result.base_contribution_margin_bps == 6_500
+    assert result.variable_cost_rate_bps == 300
+    assert result.effective_contribution_margin_bps == 6_200
+    assert result.break_even_monthly_sales_krw == 10_000_000
+    assert result.required_daily_orders == Decimal("80.00")
+
+
+def test_unknown_or_margin_consuming_variable_rate_fails_closed() -> None:
+    unknown = calculate_finance(
+        FinanceInput(
+            initial_cost_lines=complete_initial_costs(),
+            monthly_fixed_cost_lines=complete_monthly_costs(
+                cost("fixed", CostCategory.MONTHLY_OTHER_FIXED, 1_000_000, 1_000_000, 1_000_000)
+            ),
+            variable_cost_rate_lines=[
+                VariableCostRateLine(
+                    field_id="SALES_ROYALTY",
+                    rate_bps=None,
+                    provenance=ValueProvenance.UNKNOWN,
+                )
+            ],
+            contribution_margin_bps=6_500,
+        )
+    )
+    exhausted = calculate_finance(
+        FinanceInput(
+            initial_cost_lines=complete_initial_costs(),
+            monthly_fixed_cost_lines=complete_monthly_costs(
+                cost("fixed", CostCategory.MONTHLY_OTHER_FIXED, 1_000_000, 1_000_000, 1_000_000)
+            ),
+            variable_cost_rate_lines=[
+                VariableCostRateLine(
+                    field_id="SALES_ROYALTY",
+                    rate_bps=6_500,
+                    provenance=ValueProvenance.FACT,
+                    evidence_ref="royalty:65pct",
+                )
+            ],
+            contribution_margin_bps=6_500,
+        )
+    )
+
+    assert unknown.variable_cost_rate_bps is None
+    assert unknown.effective_contribution_margin_bps is None
+    assert unknown.break_even_monthly_sales_krw is None
+    assert "SALES_ROYALTY" in unknown.unknown_cost_fields
+    assert exhausted.variable_cost_rate_bps == 6_500
+    assert exhausted.effective_contribution_margin_bps is None
+    assert exhausted.break_even_monthly_sales_krw is None
+    assert "EFFECTIVE_CONTRIBUTION_MARGIN" in exhausted.unknown_cost_fields
 
 
 def test_unknown_cost_scenario_propagates_instead_of_becoming_zero() -> None:

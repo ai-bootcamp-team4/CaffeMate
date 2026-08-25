@@ -243,16 +243,19 @@ def _decision_input_snapshot(
     if not isinstance(value, dict):
         return None
     amount = value.get("value_range_krw")
+    value_bps = value.get("value_bps")
     provenance = value.get("provenance")
     resolution_status = value.get("resolution_status")
     if (
-        not isinstance(amount, dict)
-        or not isinstance(provenance, str)
+        not isinstance(provenance, str)
         or not isinstance(resolution_status, str)
+        or (amount is not None and not isinstance(amount, dict))
+        or (value_bps is not None and not isinstance(value_bps, int))
     ):
         return None
     return DecisionInputDeltaSnapshot(
-        value_range_krw=MoneyRange.model_validate(amount),
+        value_range_krw=(MoneyRange.model_validate(amount) if isinstance(amount, dict) else None),
+        value_bps=value_bps,
         provenance=provenance,
         resolution_status=resolution_status,
         source_title=_optional_string(value.get("source_title")),

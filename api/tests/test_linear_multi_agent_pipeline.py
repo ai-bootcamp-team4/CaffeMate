@@ -1003,6 +1003,7 @@ class FranchiseMcp(FakeMcp):
                     },
                     "reference_area_sqm": 33,
                     "monthly_royalty_krw": None,
+                    "sales_royalty_bps": None,
                     "evidence_refs": ["franchise-cost:mega"],
                     "source_refs": ["https://example.com/mega-official"],
                     "scope_note": "10평 기준 공식 창업비용",
@@ -1028,6 +1029,7 @@ class FranchiseMcp(FakeMcp):
                     "known_initial_cost_range_krw": None,
                     "reference_area_sqm": None,
                     "monthly_royalty_krw": None,
+                    "sales_royalty_bps": None,
                     "evidence_refs": [],
                     "source_refs": [],
                     "scope_note": "개인 가맹 대상 아님",
@@ -1332,6 +1334,7 @@ class ProductionSizedFranchiseMcp(FranchiseMcp):
                         },
                         "reference_area_sqm": 33,
                         "monthly_royalty_krw": None,
+                        "sales_royalty_bps": None,
                         "evidence_refs": [cost_id] if has_cost_evidence else [],
                         "source_refs": [
                             f"https://example.com/{brand_id}/cost"

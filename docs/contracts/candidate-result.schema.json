@@ -242,13 +242,35 @@
     "financial_summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["initial_cash", "monthly_fixed_cost", "unknown_cost_fields"],
+      "required": [
+        "initial_cash",
+        "monthly_fixed_cost",
+        "base_contribution_margin_bps",
+        "variable_cost_rate_bps",
+        "effective_contribution_margin_bps",
+        "unknown_cost_fields"
+      ],
       "properties": {
         "initial_cash": {
           "$ref": "#/$defs/moneyRange"
         },
         "monthly_fixed_cost": {
           "$ref": "#/$defs/moneyRange"
+        },
+        "base_contribution_margin_bps": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "variable_cost_rate_bps": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "effective_contribution_margin_bps": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 10000
         },
         "break_even_monthly_sales_krw": {
           "type": ["integer", "null"],
@@ -511,6 +533,7 @@
       "required": [
         "field",
         "value_range_krw",
+        "value_bps",
         "provenance",
         "resolution_status",
         "decision_role",
@@ -527,7 +550,13 @@
       ],
       "properties": {
         "field": { "type": "string", "minLength": 1 },
-        "value_range_krw": { "$ref": "#/$defs/decisionMoneyRange" },
+        "value_range_krw": {
+          "oneOf": [
+            { "$ref": "#/$defs/decisionMoneyRange" },
+            { "type": "null" }
+          ]
+        },
+        "value_bps": { "type": ["integer", "null"], "minimum": 0, "maximum": 10000 },
         "provenance": {
           "enum": ["FACT", "USER_INPUT", "BENCHMARK", "ASSUMPTION", "DERIVED", "UNKNOWN"]
         },

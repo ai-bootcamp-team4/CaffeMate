@@ -6,7 +6,13 @@ from app.finance.case_facts import (
     FinancialInputResolver,
     PropertyContext,
 )
-from app.finance.models import CostCategory, CostLine, MoneyRange, ValueProvenance
+from app.finance.models import (
+    CostCategory,
+    CostLine,
+    MoneyRange,
+    ValueProvenance,
+    VariableCostRateLine,
+)
 
 
 def fact(
@@ -233,6 +239,79 @@ def test_financial_input_resolver_replaces_quote_assumption_for_matching_candida
     assert applied.provenance == ValueProvenance.USER_INPUT
     assert other_candidate.amount.base == 24_000_000
     assert other_candidate.provenance == ValueProvenance.ASSUMPTION
+
+
+def test_franchise_agreement_percentage_royalty_becomes_user_confirmed_variable_rate() -> None:
+    records = [
+        CaseFactRecord(
+            claim_id="royalty-1",
+            source_id="kr-ediya-coffee",
+            claim_type="ROYALTY",
+            value=3.0,
+            unit="%",
+            materiality="HIGH",
+            document_type="FRANCHISE_AGREEMENT",
+            document_id="document-royalty-r1",
+            document_revision_id="royalty-r1",
+            original_filename="franchise-agreement.pdf",
+            anchor={"document_revision_id": "royalty-r1", "page_index": 4},
+            created_at=datetime(2026, 8, 25, 3, 0, tzinfo=UTC),
+        )
+    ]
+
+    case_resolution = CaseFactResolver().resolve(records=records, open_conflict_keys=set())
+    resolver = FinancialInputResolver(case_resolution=case_resolution)
+    line = resolver.resolve_variable_cost_rate(
+        source_id="kr-ediya-coffee",
+        fallback=VariableCostRateLine(
+            field_id="SALES_ROYALTY",
+            rate_bps=150,
+            provenance=ValueProvenance.FACT,
+            evidence_ref="official-rate",
+        ),
+    )
+
+    assert line.rate_bps == 300
+    assert line.provenance == ValueProvenance.USER_INPUT
+    assert line.evidence_ref == "document-revision:royalty-r1"
+    assert case_resolution.sources[line.evidence_ref]["source_title"] == (
+        "franchise-agreement.pdf"
+    )
+
+
+def test_non_numeric_franchise_royalty_fails_closed_instead_of_lower_precedence_rate() -> None:
+    records = [
+        CaseFactRecord(
+            claim_id="royalty-ambiguous",
+            source_id="kr-ediya-coffee",
+            claim_type="ROYALTY",
+            value="매월 본사가 고지하는 기준에 따름",
+            unit=None,
+            materiality="HIGH",
+            document_type="FRANCHISE_AGREEMENT",
+            document_id="document-royalty-r2",
+            document_revision_id="royalty-r2",
+            original_filename="franchise-agreement.pdf",
+            anchor={"document_revision_id": "royalty-r2", "page_index": 5},
+            created_at=datetime(2026, 8, 25, 3, 0, tzinfo=UTC),
+        )
+    ]
+
+    case_resolution = CaseFactResolver().resolve(records=records, open_conflict_keys=set())
+    resolver = FinancialInputResolver(case_resolution=case_resolution)
+    line = resolver.resolve_variable_cost_rate(
+        source_id="kr-ediya-coffee",
+        fallback=VariableCostRateLine(
+            field_id="SALES_ROYALTY",
+            rate_bps=150,
+            provenance=ValueProvenance.FACT,
+            evidence_ref="official-rate",
+        ),
+    )
+
+    assert line.rate_bps is None
+    assert line.provenance == ValueProvenance.UNKNOWN
+    assert line.evidence_ref is None
 
 
 def test_commercial_lease_takes_precedence_over_property_listing_for_same_cost() -> None:

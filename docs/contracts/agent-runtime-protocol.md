@@ -569,6 +569,13 @@ current Venture State
 Gate와 순위를 다시 계산한다. 프랜차이즈의 지역 출점 가능 여부나 정보공개서가 확인되지 않았으면
 후보를 제거하지 않고 조건부 검토와 다음 확인 항목을 표시한다.
 
+프랜차이즈 로열티는 금액과 비율을 같은 비용 항목으로 축약하지 않는다. 월 정액 로열티는
+`monthly_royalty_krw`로 월 고정비에 포함하고, 매출연동 로열티는 `sales_royalty_bps`로 보존해
+기준 공헌이익률에서 차감한 유효 공헌이익률로 손익분기 매출과 필요 주문 수를 계산한다. 문서에서
+사용자가 확인한 명시적 `%` 또는 `BPS` 값은 브랜드 profile보다 우선하며, 불명확한 로열티는 0으로
+대체하지 않는다. Result의 `decision_inputs`와 `financial_summary`가 기준 공헌이익률, 총 변동비율,
+유효 공헌이익률과 provenance를 제공하고 프론트엔드나 Agent가 이 계산을 재구현하지 않는다.
+
 Evidence Researcher는 MCP 결과의 scope, 날짜, 원문 위치와 출처 권위를 평가한다. Proposal Agent는
 수용된 근거와 등록 모델 또는 개인 가맹이 확인된 브랜드만 선택한다. Candidate Auditor는 계산이 끝난
 후보의 근거 누락과 위험 표현을 검사한다. 최종 비용 계산, 자금 판정, 순위와 저장은 계속 Control API가

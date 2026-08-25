@@ -120,6 +120,7 @@ def test_selective_recompute_replays_grounded_franchise_finance_profile() -> Non
                         },
                         "reference_area_sqm": 33,
                         "monthly_royalty_krw": None,
+                        "sales_royalty_bps": 300,
                         "evidence_refs": ["ftc:mega:2024:startup-cost-schedule"],
                         "source_refs": [
                             "https://www.data.go.kr/data/15110265/openapi.do"
@@ -145,3 +146,4 @@ def test_selective_recompute_replays_grounded_franchise_finance_profile() -> Non
             ],
         }
     ]
+    assert universe[0]["finance_profile"]["sales_royalty_bps"] == 300

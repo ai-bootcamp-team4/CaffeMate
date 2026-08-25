@@ -5,7 +5,13 @@ from datetime import datetime
 from typing import Any
 
 from app.finance.franchise_disclosure import FranchiseDisclosureResolution
-from app.finance.models import CostCategory, CostLine, MoneyRange, ValueProvenance
+from app.finance.models import (
+    CostCategory,
+    CostLine,
+    MoneyRange,
+    ValueProvenance,
+    VariableCostRateLine,
+)
 from app.finance.property_benchmark import PropertyBenchmarkResolution
 
 
@@ -86,8 +92,27 @@ class ResolvedCaseCost:
 
 
 @dataclass(frozen=True)
+class ResolvedCaseVariableRate:
+    source_id: str
+    field_id: str
+    rate_bps: int | None
+    provenance: ValueProvenance
+    evidence_ref: str | None
+    claim_ids: tuple[str, ...] = ()
+
+    def as_variable_cost_rate_line(self) -> VariableCostRateLine:
+        return VariableCostRateLine(
+            field_id=self.field_id,
+            rate_bps=self.rate_bps,
+            provenance=self.provenance,
+            evidence_ref=self.evidence_ref,
+        )
+
+
+@dataclass(frozen=True)
 class CaseFactResolution:
     overrides: tuple[ResolvedCaseCost, ...] = ()
+    variable_rate_overrides: tuple[ResolvedCaseVariableRate, ...] = ()
     sources: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -101,6 +126,7 @@ class CaseFactResolver:
         open_conflict_keys: set[tuple[str, str]],
     ) -> CaseFactResolution:
         overrides: list[ResolvedCaseCost] = []
+        variable_rate_overrides: list[ResolvedCaseVariableRate] = []
         sources: dict[str, dict[str, Any]] = {}
         source_ids = sorted({record.source_id for record in records})
         for source_id in source_ids:
@@ -132,7 +158,29 @@ class CaseFactResolver:
             )
             if occupancy is not None:
                 self._replace_category(overrides, occupancy)
-        return CaseFactResolution(overrides=tuple(overrides), sources=sources)
+            for document_type in ("FRANCHISE_DISCLOSURE", "FRANCHISE_AGREEMENT"):
+                royalty = self._royalty_rate(
+                    source_id=source_id,
+                    records=scoped,
+                    document_type=document_type,
+                    open_conflict_keys=open_conflict_keys,
+                    sources=sources,
+                )
+                if royalty is not None:
+                    variable_rate_overrides[:] = [
+                        value
+                        for value in variable_rate_overrides
+                        if not (
+                            value.source_id == royalty.source_id
+                            and value.field_id == royalty.field_id
+                        )
+                    ]
+                    variable_rate_overrides.append(royalty)
+        return CaseFactResolution(
+            overrides=tuple(overrides),
+            variable_rate_overrides=tuple(variable_rate_overrides),
+            sources=sources,
+        )
 
     @staticmethod
     def _replace_category(
@@ -258,6 +306,44 @@ class CaseFactResolver:
             )
         return None
 
+    def _royalty_rate(
+        self,
+        *,
+        source_id: str,
+        records: list[CaseFactRecord],
+        document_type: str,
+        open_conflict_keys: set[tuple[str, str]],
+        sources: dict[str, dict[str, Any]],
+    ) -> ResolvedCaseVariableRate | None:
+        matching = [
+            record
+            for record in records
+            if record.document_type == document_type and record.claim_type == "ROYALTY"
+        ]
+        if not matching:
+            return None
+        if (document_type, "ROYALTY") in open_conflict_keys:
+            return self._unknown_variable_rate(source_id, matching)
+        numeric = [(record, self._rate_bps(record)) for record in matching]
+        if any(value is None for _, value in numeric):
+            return self._unknown_variable_rate(source_id, matching)
+        distinct = {value for _, value in numeric if value is not None}
+        if len(distinct) != 1:
+            return self._unknown_variable_rate(source_id, matching)
+        selected = max(matching, key=lambda value: (value.created_at, value.claim_id))
+        rate_bps = next(iter(distinct))
+        assert rate_bps is not None
+        evidence_ref = self._document_evidence_ref(selected.document_revision_id)
+        sources[evidence_ref] = self._source_metadata(selected)
+        return ResolvedCaseVariableRate(
+            source_id=source_id,
+            field_id="SALES_ROYALTY",
+            rate_bps=rate_bps,
+            provenance=ValueProvenance.USER_INPUT,
+            evidence_ref=evidence_ref,
+            claim_ids=tuple(sorted(record.claim_id for record in matching)),
+        )
+
     @staticmethod
     def _krw_value(record: CaseFactRecord) -> int | None:
         if record.unit != "KRW" or isinstance(record.value, bool):
@@ -269,6 +355,20 @@ class CaseFactResolver:
         return None
 
     @staticmethod
+    def _rate_bps(record: CaseFactRecord) -> int | None:
+        if isinstance(record.value, bool) or not isinstance(record.value, (int, float)):
+            return None
+        unit = (record.unit or "").strip().upper()
+        multiplier = 100 if unit in {"%", "PERCENT", "PCT"} else 1
+        if unit not in {"%", "PERCENT", "PCT", "BPS", "BP"}:
+            return None
+        raw_bps = float(record.value) * multiplier
+        bps = round(raw_bps)
+        if abs(raw_bps - bps) > 1e-9:
+            return None
+        return bps if 0 <= bps <= 10_000 else None
+
+    @staticmethod
     def _unknown(
         source_id: str,
         category: CostCategory,
@@ -278,6 +378,20 @@ class CaseFactResolver:
             source_id=source_id,
             category=category,
             amount=MoneyRange(low=None, base=None, high=None),
+            provenance=ValueProvenance.UNKNOWN,
+            evidence_ref=None,
+            claim_ids=tuple(sorted(record.claim_id for record in records)),
+        )
+
+    @staticmethod
+    def _unknown_variable_rate(
+        source_id: str,
+        records: list[CaseFactRecord],
+    ) -> ResolvedCaseVariableRate:
+        return ResolvedCaseVariableRate(
+            source_id=source_id,
+            field_id="SALES_ROYALTY",
+            rate_bps=None,
             provenance=ValueProvenance.UNKNOWN,
             evidence_ref=None,
             claim_ids=tuple(sorted(record.claim_id for record in records)),
@@ -346,6 +460,10 @@ class FinancialInputResolver:
         self._case_by_key = {
             (value.source_id, value.category): value for value in self._case.overrides
         }
+        self._case_variable_rate_by_key = {
+            (value.source_id, value.field_id): value
+            for value in self._case.variable_rate_overrides
+        }
         self._benchmark_by_key = {
             (value.source_id, CostCategory.MONTHLY_OCCUPANCY): value
             for value in self._benchmark.overrides
@@ -368,6 +486,19 @@ class FinancialInputResolver:
         benchmark_value = self._benchmark_by_key.get((source_id, fallback.category))
         if benchmark_value is not None:
             return benchmark_value.as_cost_line()
+        return fallback
+
+    def resolve_variable_cost_rate(
+        self,
+        *,
+        source_id: str,
+        fallback: VariableCostRateLine | None,
+        field_id: str = "SALES_ROYALTY",
+    ) -> VariableCostRateLine | None:
+        resolved_field_id = fallback.field_id if fallback is not None else field_id
+        case_value = self._case_variable_rate_by_key.get((source_id, resolved_field_id))
+        if case_value is not None:
+            return case_value.as_variable_cost_rate_line()
         return fallback
 
     def _property_line(

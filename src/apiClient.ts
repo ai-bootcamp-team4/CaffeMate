@@ -134,6 +134,9 @@ export interface ResultCandidate {
   financial_summary: {
     initial_cash: MoneyRange
     monthly_fixed_cost: MoneyRange
+    base_contribution_margin_bps: number | null
+    variable_cost_rate_bps: number | null
+    effective_contribution_margin_bps: number | null
     break_even_monthly_sales_krw?: number | null
     required_daily_orders?: number | null
     unknown_cost_fields: string[]

@@ -52,7 +52,8 @@ class DecisionDerivation(StrictModel):
 
 class DecisionInput(StrictModel):
     field: str = Field(min_length=1)
-    value_range_krw: MoneyRange
+    value_range_krw: MoneyRange | None = None
+    value_bps: int | None = Field(default=None, ge=0, le=10_000)
     provenance: ValueProvenance
     resolution_status: ResolutionStatus
     decision_role: DecisionRole
