@@ -34,6 +34,7 @@ def test_backend_cloudbuild_preserves_order_and_security_boundaries() -> None:
     assert "set-iam-policy" not in config
     assert "COPY agents/release-manifest.json ./agents/release-manifest.json" in dockerfile
     assert "COPY agents/fixtures ./agents/fixtures" in dockerfile
+    assert "chown -R caffemate:caffemate /srv /home/caffemate" in dockerfile
 
 
 def test_main_deploy_scope_selects_only_changed_runtime(tmp_path: Path) -> None:
