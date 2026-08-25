@@ -22,6 +22,20 @@ const labels: Record<string, string> = {
   FRANCHISE_INITIAL_FEES: '가맹 초기비용',
 }
 
+const laborSource = {
+  title: '최저임금위원회·4대보험 관계기관 공식 기준',
+  source_ref: 'https://www.minimumwage.go.kr/minWage/policy/decisionMain.do',
+  data_date: '2026-01-01',
+  geographic_scope: '대한민국 · 2026년 기준',
+}
+
+const franchiseDisclosureSource = {
+  title: '공정거래위원회 브랜드별 창업 금액 현황',
+  source_ref: 'https://www.data.go.kr/data/15110265/openapi.do',
+  data_date: '2024-12-31',
+  geographic_scope: '이디야커피 · 신고연도 2024년',
+}
+
 function money(range: SeedRange, refs: string[]): MoneyRange {
   return { currency: 'KRW', ...range, provenance_refs: refs }
 }
@@ -59,6 +73,22 @@ function assumptionInput(field: string, range: SeedRange, seedId: string): Decis
     replaceable_by: action.type === 'NONE' ? [] : [action.type],
     limitation_code: 'REPLACE_WITH_CASE_DATA',
     resolution_action: action,
+  }
+}
+
+function groundedLaborInput(range: SeedRange, seedId: string): DecisionInput {
+  return {
+    field: 'MONTHLY_LABOR',
+    label: labels.MONTHLY_LABOR,
+    range: money(range, [`evidence-labor-floor:${seedId}:2026`]),
+    provenance: 'DERIVED',
+    resolution_status: 'RESOLVED_FACT',
+    decision_role: 'FINANCE_INPUT',
+    source: laborSource,
+    applied_to: ['MONTHLY_FIXED_COST', 'BREAK_EVEN_MONTHLY_SALES', 'REQUIRED_DAILY_ORDERS', 'RANK'],
+    replaceable_by: [],
+    limitation_code: 'MINIMUM_WAGE_AND_STATUTORY_ONCOST_BASIS',
+    resolution_action: { type: 'NONE', target_fields: [] },
   }
 }
 
@@ -148,7 +178,7 @@ function independentCandidate(seed: IndependentSeed, area: SupportedAreaScenario
   const inputs = [
     ...INITIAL_FIELDS.map((field) => assumptionInput(field, seed.costs[field], seed.modelId)),
     occupancyInput(seed, occupancy),
-    assumptionInput('MONTHLY_LABOR', seed.costs.MONTHLY_LABOR, seed.modelId),
+    groundedLaborInput(seed.costs.MONTHLY_LABOR, seed.modelId),
     assumptionInput('MONTHLY_OTHER_FIXED', seed.costs.MONTHLY_OTHER_FIXED, seed.modelId),
   ]
   return {
@@ -217,15 +247,17 @@ function ediyaCandidate(area: SupportedAreaScenario, values: OnboardingValues): 
     const action: NonNullable<DecisionInput['resolution_action']> = field === 'FRANCHISE_INITIAL_FEES'
       ? { type: 'DOCUMENT_INTAKE', target_fields: ['finance.FRANCHISE_INITIAL_FEES'], accepted_document_types: ['FRANCHISE_DISCLOSURE', 'FRANCHISE_AGREEMENT'] }
       : propertyAction(field)
-    const official = field === 'CONSTRUCTION' || field === 'EQUIPMENT'
+    const isFranchiseDisclosure = field === 'FRANCHISE_INITIAL_FEES'
+    const isBrandGuide = field === 'CONSTRUCTION' || field === 'EQUIPMENT'
+    const isGroundedFact = isFranchiseDisclosure || isBrandGuide
     return {
       field,
       label: labels[field],
-      range: money(ranges[field], [official ? `evidence-ediya:${field}` : `assumption:${seedId}:${field}`]),
-      provenance: official ? 'FACT' : 'ASSUMPTION',
-      resolution_status: official ? 'RESOLVED_FACT' : 'DECLARED_ASSUMPTION',
+      range: money(ranges[field], [isGroundedFact ? `evidence-ediya:${field}` : `assumption:${seedId}:${field}`]),
+      provenance: isGroundedFact ? 'FACT' : 'ASSUMPTION',
+      resolution_status: isGroundedFact ? 'RESOLVED_FACT' : 'DECLARED_ASSUMPTION',
       decision_role: 'FINANCE_INPUT',
-      source: official ? {
+      source: isFranchiseDisclosure ? franchiseDisclosureSource : isBrandGuide ? {
         title: '이디야커피 가맹점 개설 안내',
         source_ref: field === 'CONSTRUCTION' ? 'https://www.ediya.com/C/contents/interior.html' : 'https://www.ediya.com/C/contents/franchise_02.html',
         data_date: '2026-08-23',
@@ -233,7 +265,7 @@ function ediyaCandidate(area: SupportedAreaScenario, values: OnboardingValues): 
       } : null,
       applied_to: MONTHLY_FIELDS.includes(field) ? ['MONTHLY_FIXED_COST', 'BREAK_EVEN_MONTHLY_SALES', 'REQUIRED_DAILY_ORDERS', 'RANK'] : ['INITIAL_CASH', 'CAPITAL_GATE', 'RANK'],
       replaceable_by: action.type === 'NONE' ? [] : [action.type],
-      limitation_code: official ? null : 'REPLACE_WITH_CASE_DATA',
+      limitation_code: isGroundedFact ? null : 'REPLACE_WITH_CASE_DATA',
       resolution_action: action,
     }
   }
@@ -254,10 +286,15 @@ function ediyaCandidate(area: SupportedAreaScenario, values: OnboardingValues): 
       eligibility: 'VERIFIED',
       availability_status: 'HQ_CONFIRMATION_REQUIRED',
       eligibility_evidence_refs: ['evidence-ediya-franchise-eligibility'],
-      disclosure_evidence_refs: [],
+      disclosure_evidence_refs: ['evidence-ediya:FRANCHISE_INITIAL_FEES'],
     },
     independent_model: null,
-    evidence_refs: ['evidence-ediya-franchise-eligibility', ...marketSignals(area.analysis_key).map((signal) => signal.evidence_id)],
+    evidence_refs: [
+      'evidence-ediya-franchise-eligibility',
+      'evidence-ediya:FRANCHISE_INITIAL_FEES',
+      `evidence-labor-floor:${seedId}:2026`,
+      ...marketSignals(area.analysis_key).map((signal) => signal.evidence_id),
+    ],
     assumption_refs: [`assumption:${seedId}`],
     market_signals: marketSignals(area.analysis_key),
     official_documents: [{
@@ -270,8 +307,18 @@ function ediyaCandidate(area: SupportedAreaScenario, values: OnboardingValues): 
       purposes: ['개인 가맹 가능 여부 확인', '공식 창업비 확인'],
       evidence_refs: ['evidence-ediya-franchise-eligibility'],
       used_in_candidate: true,
+    }, {
+      title: franchiseDisclosureSource.title,
+      source_ref: franchiseDisclosureSource.source_ref,
+      data_date: franchiseDisclosureSource.data_date,
+      freshness_status: 'FRESH',
+      document_version: 'FTC_COST_REPORTING_YEAR:2024:EDIYA',
+      excerpt: '신고연도 기준 가맹 초기비용 항목을 후보 비용 계산에 반영했습니다.',
+      purposes: ['가맹 초기비용 확인'],
+      evidence_refs: ['evidence-ediya:FRANCHISE_INITIAL_FEES'],
+      used_in_candidate: true,
     }],
-    official_document_gaps: ['최신 정보공개서 세부 가맹금'],
+    official_document_gaps: [],
     financial_summary: {
       initial_cash: money(initialCash, [`assumption:${seedId}:initial-cash`]),
       monthly_fixed_cost: money(monthlyFixed, [`assumption:${seedId}:monthly`]),
@@ -280,10 +327,12 @@ function ediyaCandidate(area: SupportedAreaScenario, values: OnboardingValues): 
       unknown_cost_fields: [],
     },
     missing_fields: [],
-    risks: [{ risk_id: 'risk-franchise-cost-detail', severity: 'HIGH', summary: '가맹금 세부 항목은 최신 정보공개서로 교체할 수 있습니다.', evidence_refs: [] }],
-    counterfactuals: [{ variable: 'FRANCHISE_INITIAL_FEES', condition: '최신 정보공개서의 가맹금이 현재 가정보다 높을 경우', decision_impact: '초기 필요자금과 자금 Gate가 달라질 수 있습니다.' }],
-    next_actions: ['최신 정보공개서 비용 확인', '본사에 후보 주소 출점 가능 여부 확인'],
-    decision_inputs: Object.keys(ranges).map(input),
+    risks: [],
+    counterfactuals: [{ variable: 'FRANCHISE_INITIAL_FEES', condition: '새 신고연도의 공식 가맹 초기비용이 현재 확인값보다 높아질 경우', decision_impact: '초기 필요자금과 자금 Gate가 달라질 수 있습니다.' }],
+    next_actions: ['본사에 후보 주소 출점 가능 여부 확인', '실제 점포 임대 조건 확인'],
+    decision_inputs: Object.keys(ranges).map((field) => (
+      field === 'MONTHLY_LABOR' ? groundedLaborInput(ranges[field], seedId) : input(field)
+    )),
     decision_trace: { gates: [gate] },
     rank_trace: null,
     verification_requirements: seongsuVerificationRequirements('FRANCHISE'),

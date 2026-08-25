@@ -3,6 +3,7 @@ import type { HeadFence, WorkflowRun } from '../apiClient'
 import {
   SIMULATION_WORKFLOW_DURATION_MS,
   buildSimulationWorkflowProgress,
+  createSimulationWorkflowRegistry,
   simulationWorkflowStages,
 } from './workflow'
 
@@ -53,5 +54,18 @@ describe('UI simulation workflow timeline', () => {
     expect(terminal.current_stage_codes).toEqual([])
     expect(terminal.poll_after_ms).toBeNull()
     expect(terminal.stages.every((stage) => stage.status === 'SUCCEEDED')).toBe(true)
+  })
+
+  it('can force only the active demo workflow to terminal progress', () => {
+    const registry = createSimulationWorkflowRegistry('simulation-project')
+    const run = registry.start('skippable-workflow', head)
+
+    expect(registry.progress(run.workflow_run_id).status).toBe('RUNNING')
+    registry.skipActive()
+
+    const terminal = registry.progress(run.workflow_run_id)
+    expect(terminal.status).toBe('SUCCEEDED')
+    expect(terminal.completed_stage_count).toBe(terminal.total_stage_count)
+    expect(terminal.poll_after_ms).toBeNull()
   })
 })

@@ -5,7 +5,7 @@ import { createUiOnlyDependencies } from './uiOnly'
 
 afterEach(cleanup)
 
-async function completeUiOnlyOnboarding() {
+async function submitUiOnlyOnboarding() {
   fireEvent.click(screen.getByRole('button', { name: /내 카페 창업 분석 시작하기/ }))
   await screen.findByRole('heading', { name: '창업을 고민 중인 지역을 알려주세요.' })
   fireEvent.change(screen.getByLabelText('희망 지역'), { target: { value: '성수' } })
@@ -19,6 +19,10 @@ async function completeUiOnlyOnboarding() {
   fireEvent.click(screen.getByRole('radio', { name: /직접 전업 운영/ }))
   fireEvent.click(screen.getByRole('button', { name: '다음' }))
   fireEvent.click(screen.getByRole('button', { name: '분석 시작' }))
+}
+
+async function completeUiOnlyOnboarding() {
+  await submitUiOnlyOnboarding()
   await screen.findByRole('heading', { name: '가치·속도 회전형 개인카페' })
 }
 
@@ -31,6 +35,24 @@ describe('UI-only development mode', () => {
 
     expect(await screen.findByRole('heading', { name: '창업을 고민 중인 지역을 알려주세요.' })).toBeTruthy()
   })
+
+  it('skips the long-running demo workflow with 0 outside editable controls', async () => {
+    const dependencies = createUiOnlyDependencies()
+    render(<App {...dependencies} />)
+    await submitUiOnlyOnboarding()
+    expect(await screen.findByLabelText('분석 진행 상황')).toBeTruthy()
+
+    const input = document.createElement('input')
+    document.body.append(input)
+    input.focus()
+    fireEvent.keyDown(input, { key: '0', code: 'Digit0' })
+    await new Promise((resolve) => window.setTimeout(resolve, 50))
+    expect(screen.queryByRole('heading', { name: '가치·속도 회전형 개인카페' })).toBeNull()
+    input.remove()
+
+    fireEvent.keyDown(window, { key: '0', code: 'Digit0' })
+    expect(await screen.findByRole('heading', { name: '가치·속도 회전형 개인카페' }, { timeout: 2_500 })).toBeTruthy()
+  }, 5_000)
 
   it('demonstrates benchmark grounding, external checks, and an actual-property decision flip', async () => {
     const { authGateway, apiFactory } = createUiOnlyDependencies({ workflowTimeScale: 0.001 })
@@ -71,13 +93,11 @@ describe('UI-only development mode', () => {
     expect(screen.getByText(/CaffeMate가 확정할 수 없습니다/)).toBeTruthy()
     expect(screen.getByText('영업지역 보호 범위 확인')).toBeTruthy()
     expect(screen.getByText('본사 점포·설계 승인')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '가맹비 문서 반영하기' })).toBeTruthy()
+    expect(screen.getByText('공정거래위원회 브랜드별 창업 금액 현황')).toBeTruthy()
+    expect(screen.getAllByText('확인된 자료').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('계산값').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: '가맹비 문서 반영하기' })).toBeNull()
     expect(screen.queryByRole('button', { name: '로열티 문서 반영하기' })).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: '가맹비 문서 반영하기' }))
-    expect(await screen.findByRole('option', { name: '프랜차이즈 정보공개서' })).toBeTruthy()
-    expect(screen.getByRole('option', { name: '가맹계약서' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '결과로 돌아가기' }))
 
     fireEvent.click(screen.getByRole('button', { name: '창업 준비 절차 보기' }))
     expect(await screen.findByText('신규 영업자 위생교육 이수')).toBeTruthy()

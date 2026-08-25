@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { result as baseResult, project as baseProject } from '../testSupport/appHarness'
 import type { OnboardingValues } from '../onboardingState'
+import { provenanceLabel } from '../result/resultPresentation'
 import { buildSimulationProject, buildSimulationResult } from './result'
 import { searchSimulationAreas, simulationAreaByToken } from './scenarios'
 
@@ -57,6 +58,44 @@ describe('Seongsu result projection', () => {
     expect(occupancy?.limitation_code).toBe('REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY')
     expect(candidate.decision_trace?.gates[0].reason_code).toBe('CAPITAL_COVERAGE_REQUIRES_CONFIRMATION')
     expect(candidate.rank_trace?.factors.map((factor) => factor.code)).toContain('FOUNDER_BURDEN')
+  })
+
+  it('separates grounded labor calculations from unresolved site-specific assumptions', () => {
+    const projected = buildSimulationResult(baseResult, seongsu2(), values)
+    const independent = projected.candidates.find((candidate) => candidate.case_type === 'INDEPENDENT')
+    const labor = independent?.decision_inputs?.find((input) => input.field === 'MONTHLY_LABOR')
+    const deposit = independent?.decision_inputs?.find((input) => input.field === 'DEPOSIT')
+    const premium = independent?.decision_inputs?.find((input) => input.field === 'ACQUISITION_OR_PREMIUM')
+
+    expect(labor).toMatchObject({
+      provenance: 'DERIVED',
+      resolution_status: 'RESOLVED_FACT',
+      source: {
+        title: '최저임금위원회·4대보험 관계기관 공식 기준',
+        source_ref: 'https://www.minimumwage.go.kr/minWage/policy/decisionMain.do',
+      },
+    })
+    expect(labor && provenanceLabel(labor)).toBe('계산값')
+    expect(deposit).toMatchObject({ provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', source: null })
+    expect(premium).toMatchObject({ provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', source: null })
+  })
+
+  it('presents accepted franchise disclosure costs as confirmed evidence', () => {
+    const projected = buildSimulationResult(baseResult, seongsu2(), values)
+    const franchise = projected.candidates.find((candidate) => candidate.case_type === 'FRANCHISE')
+    const initialFees = franchise?.decision_inputs?.find((input) => input.field === 'FRANCHISE_INITIAL_FEES')
+    const deposit = franchise?.decision_inputs?.find((input) => input.field === 'DEPOSIT')
+
+    expect(initialFees).toMatchObject({
+      provenance: 'FACT',
+      resolution_status: 'RESOLVED_FACT',
+      source: {
+        title: '공정거래위원회 브랜드별 창업 금액 현황',
+        source_ref: 'https://www.data.go.kr/data/15110265/openapi.do',
+      },
+    })
+    expect(initialFees && provenanceLabel(initialFees)).toBe('확인된 자료')
+    expect(deposit).toMatchObject({ provenance: 'ASSUMPTION', resolution_status: 'DECLARED_ASSUMPTION', source: null })
   })
 
   it('returns three production-like candidates and never leaks development markers in result payloads', () => {

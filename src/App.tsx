@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Onboarding from "./Onboarding";
 import Welcome from "./Welcome";
 import ProjectChooser from "./ProjectChooser";
@@ -14,9 +14,16 @@ type AppScreen = "welcome" | "projects" | "onboarding" | "analysis" | "result";
 export interface AppProps {
   authGateway?: AuthGateway;
   apiFactory?: (session: AuthSession) => ControlApiClient;
+  demoControls?: { skipActiveWorkflow: () => void };
 }
 
-export default function App({ authGateway, apiFactory }: AppProps = {}) {
+function isEditableShortcutTarget(target: EventTarget | null) {
+  return target instanceof HTMLElement && (
+    target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
+  );
+}
+
+export default function App({ authGateway, apiFactory, demoControls }: AppProps = {}) {
   const auth = useMemo(
     () => authGateway ?? createFirebaseAuthGateway(),
     [authGateway],
@@ -31,6 +38,19 @@ export default function App({ authGateway, apiFactory }: AppProps = {}) {
   const [progress, setProgress] = useState<WorkflowProgress | null>(null);
   const [projectBusyId, setProjectBusyId] = useState<string | null>(null);
   const [projectError, setProjectError] = useState("");
+
+  useEffect(() => {
+    if (!demoControls) return;
+    const skipWorkflow = (event: KeyboardEvent) => {
+      if (
+        event.key !== "0" || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
+        isEditableShortcutTarget(event.target)
+      ) return;
+      demoControls.skipActiveWorkflow();
+    };
+    window.addEventListener("keydown", skipWorkflow);
+    return () => window.removeEventListener("keydown", skipWorkflow);
+  }, [demoControls]);
 
   const connectSession = async (session: AuthSession) => {
     const nextClient = apiFactory

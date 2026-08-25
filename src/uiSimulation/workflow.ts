@@ -35,6 +35,8 @@ export function createSimulationWorkflowRegistry(projectId: string, timeScaleInp
   const timeScale = Math.max(0.001, timeScaleInput)
   const runs = new Map<string, WorkflowRun>()
   const startedAt = new Map<string, number>()
+  const forcedCompleted = new Set<string>()
+  let activeWorkflowRunId: string | null = null
 
   return {
     start(workflowRunId: string, head: HeadFence) {
@@ -42,13 +44,22 @@ export function createSimulationWorkflowRegistry(projectId: string, timeScaleInp
       const run = createSimulationWorkflowRun(workflowRunId, projectId, head, startedAtMs)
       runs.set(workflowRunId, run)
       startedAt.set(workflowRunId, startedAtMs)
+      forcedCompleted.delete(workflowRunId)
+      activeWorkflowRunId = workflowRunId
       return run
+    },
+    skipActive() {
+      if (activeWorkflowRunId) forcedCompleted.add(activeWorkflowRunId)
     },
     progress(workflowRunId: string) {
       const run = runs.get(workflowRunId)
       const startedAtMs = startedAt.get(workflowRunId)
       if (!run || startedAtMs == null) throw new Error('WORKFLOW_NOT_FOUND')
-      const progress = buildSimulationWorkflowProgress(run, (Date.now() - startedAtMs) / timeScale)
+      const elapsedMs = forcedCompleted.has(workflowRunId)
+        ? SIMULATION_WORKFLOW_DURATION_MS
+        : (Date.now() - startedAtMs) / timeScale
+      const progress = buildSimulationWorkflowProgress(run, elapsedMs)
+      if (progress.poll_after_ms == null && activeWorkflowRunId === workflowRunId) activeWorkflowRunId = null
       return progress.poll_after_ms == null
         ? progress
         : { ...progress, poll_after_ms: Math.max(1, Math.round(progress.poll_after_ms * timeScale)) }

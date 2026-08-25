@@ -87,6 +87,7 @@ export interface UiOnlySimulationOptions {
 export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}): {
   authGateway: AuthGateway
   apiFactory: (session: AuthSession) => ControlApiClient
+  demoControls: { skipActiveWorkflow: () => void }
 } {
   const session: AuthSession = {
     uid: 'user:local-review',
@@ -422,5 +423,9 @@ export function createUiOnlyDependencies(options: UiOnlySimulationOptions = {}):
     },
   })
 
-  return { authGateway, apiFactory }
+  return {
+    authGateway,
+    apiFactory,
+    demoControls: { skipActiveWorkflow: () => workflows.skipActive() },
+  }
 }
