@@ -24,7 +24,6 @@ from app.results.models import (
     ResultView,
 )
 from app.verification.first_proposal import FirstProposalCanary, FirstProposalCanaryError
-from app.workflows.first_proposal import FirstProposalStage
 from app.workflows.models import (
     HeadFence,
     StageStatus,
@@ -34,6 +33,7 @@ from app.workflows.models import (
     WorkflowStageProgress,
     WorkflowStatus,
 )
+from app.workflows.progress import FIRST_PROPOSAL_PROGRESS_STAGES
 
 INSTANT = datetime(2026, 8, 22, tzinfo=UTC)
 HEAD = HeadFence(
@@ -120,15 +120,18 @@ def progress(
     del cafe_type_preference
     stages = [
         WorkflowStageProgress(
-            stage_run_id="stage-1",
-            stage_code=FirstProposalStage.RUN_PROPOSAL.value,
+            stage_run_id=f"stage-{index}",
+            stage_code=stage.value,
             status=(
-                StageStatus.SUCCEEDED if status == WorkflowStatus.SUCCEEDED else StageStatus.READY
+                StageStatus.SUCCEEDED
+                if status == WorkflowStatus.SUCCEEDED
+                else StageStatus.READY if index == 1 else StageStatus.PENDING
             ),
             attempt=1 if status == WorkflowStatus.SUCCEEDED else 0,
             updated_at=INSTANT,
             completed_at=INSTANT if status == WorkflowStatus.SUCCEEDED else None,
         )
+        for index, stage in enumerate(FIRST_PROPOSAL_PROGRESS_STAGES, start=1)
     ]
     return WorkflowProgress(
         **workflow_run(status).model_dump(mode="python"),
@@ -269,7 +272,7 @@ def test_canary_requires_single_execution_and_current_result_then_cleans() -> No
         "status": "verified",
         "requested_cafe_type_preference": "OPEN_TO_BOTH",
         "workflow_status": "SUCCEEDED",
-        "stage_count": 1,
+        "stage_count": 6,
         "max_stage_attempt": 1,
         "elapsed_ms": 0,
         "candidate_count": 2,
@@ -434,7 +437,7 @@ def test_franchise_only_canary_requires_a_ranked_verified_real_brand() -> None:
     )
 
     assert projects.founder.cafe_type_preference == CafeTypePreference.FRANCHISE_ONLY
-    assert report.stage_count == 1
+    assert report.stage_count == 6
     assert report.candidate_case_types == ("FRANCHISE",)
     assert report.franchise_candidate_brand_ids == ("kr-ediya-coffee",)
 

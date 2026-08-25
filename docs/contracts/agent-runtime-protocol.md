@@ -379,20 +379,42 @@ transport backoff는 250ms, 750ms이고 invocation id에서 파생한 0~100ms ji
 
 Agent invocation이 호출자 연결 종료나 내부 운영 취소로 폐기된 뒤 도착한 결과는 full head가 같아도
 적용하지 않는다. 그 외 결과도 current full head의 여덟 차원이 모두 요청과 같을 때만 수용한다.
-동기식 첫 제안에는 공개 취소 동작이 없다.
 
 ### 7.3 단일 첫 제안 실행
 
-공개 `POST /v1/projects/{venture_project_id}/workflows/FIRST_PROPOSAL`은 Control API가 다음 작업을
-한 transaction에서 완료한 뒤 `workflow_run_id`를 반환한다.
+공개 `POST /v1/projects/{venture_project_id}/workflows/FIRST_PROPOSAL`은 Control API가 다음 durable
+실행 기록을 한 transaction에 저장한 뒤 계산을 기다리지 않고 `202`와 `workflow_run_id`를 반환한다.
 
 1. 현재 Venture State와 project head를 잠근다.
-2. 등록 후보와 수용된 Evidence로 제안, 재무 계산, Gate와 순위를 실행한다.
-3. `workflow_run`, 단일 `RUN_PROPOSAL` 기록, 결과 bundle과 idempotency 응답을 함께 저장한다.
+2. `QUEUED` workflow, 내부 `RUN_PROPOSAL` 실행 기록, 사용자에게 노출할 여섯 progress checkpoint와
+   idempotency 응답을 저장한다.
+3. 같은 transaction에 `WORKFLOW_STAGE_READY` Outbox를 저장한다.
 
-이 경로에는 Outbox 발행, Pub/Sub, Worker lease, heartbeat와 내부 stage 실행 endpoint가 없다.
-HTTP 응답 코드는 기존 React 계약 때문에 현재 `202`를 유지하지만, 반환되는 Workflow는 이미
-`SUCCEEDED`이며 진행 조회는 완료 상태를 한 번 읽는다.
+Control API는 commit 뒤 해당 Outbox를 Pub/Sub에 즉시 발행하며, 발행 실패 시 row를 `PENDING`으로
+보존하고 Scheduler drain이 재시도한다. `caffemate-worker`가 `RUN_PROPOSAL` lease를 소유하고 15초
+heartbeat로 90초 DB lease를 연장하면서 Worker service identity로 Control API 내부 실행 endpoint를
+호출한다. Control API는 현재의 단순 `LinearMultiAgentProposalPipeline`을 그대로 실행하되 다음 실제
+경계를 checkpoint한다.
+
+```text
+EVIDENCE_RETRIEVAL
+→ EVIDENCE_ASSESS
+→ PROPOSAL_GENERATION
+→ FINANCE_AND_RANK
+→ CANDIDATE_AUDIT
+→ COMMIT_RESULT
+```
+
+사용자 확인 점포 조건, 문서 반영, 피드백 확정과 Evidence refresh가 만드는 선택적 재계산도 같은
+durable Workflow·Outbox·lease 경로를 사용한다. 이 경우 이미 저장된 근거와 후보 universe를
+재사용하므로 `EVIDENCE_RETRIEVAL`, `EVIDENCE_ASSESS`, `PROPOSAL_GENERATION`, `CANDIDATE_AUDIT`는
+공개 progress에서 `SKIPPED`로 기록하고 `FINANCE_AND_RANK`와 `COMMIT_RESULT`만 실제 실행한다.
+현재 State에서 이미 `QUEUED` 또는 `RUNNING`인 최초 제안은 새 generation을 만들지 않고 같은
+workflow를 반환해 프로젝트 재진입이 진행 중 분석을 stale로 만들지 않는다.
+
+마지막 `COMMIT_RESULT` transaction만 결과 bundle, current result pointer, 최종 stage와 workflow의
+`SUCCEEDED` 상태를 함께 저장한다. lease가 만료되거나 current full head가 달라지면 늦은 결과는
+checkpoint하지 않고 Workflow를 `STALE` 또는 실패 상태로 남긴다.
 
 ```text
 POST /v1/projects/{venture_project_id}/workflows/FIRST_PROPOSAL
@@ -401,11 +423,11 @@ GET  /v1/projects/{venture_project_id}/result
 ```
 
 세 공개 동작은 `FirstProposalService`의 run, progress, result 진입점으로 모은다. React는 내부
-모듈, Agent Runtime, MCP와 운영 검증 endpoint를 직접 호출하지 않는다. Worker의 `/internal/**`
-경로는 Agent session cleanup과 운영 실패 처리 전용이며 Worker service identity를 검증한다.
+모듈, Agent Runtime, MCP와 내부 실행 endpoint를 직접 호출하지 않는다. Worker의 workflow 실행
+endpoint는 Worker service identity를 검증하고 lease의 path, token, expiry, full head를 다시 확인한다.
 
-실행 전제조건, State 무결성이나 저장 transaction이 실패하면 결과와 Workflow 기록을 함께
-rollback한다.
+시작 transaction이 실패하면 Workflow와 Outbox는 함께 rollback한다. 결과 저장 transaction이 실패하면
+현재 결과 pointer는 바뀌지 않으며 Worker retry 정책에 따라 같은 logical workflow를 재시도한다.
 
 ## 8. MCP 연결 계약
 
@@ -558,10 +580,11 @@ current Venture State
 → up to three parallel Proposal Agent calls
 → deterministic finance, capital Gate and ranking
 → Candidate Auditor
-→ result bundle and single RUN_PROPOSAL record
+→ result bundle commit
 ```
 
-첫 제안은 stage queue나 자유로운 Agent 대화가 아니라 Control API의 단일 선형 호출 사슬이다.
+첫 제안의 **비즈니스 파이프라인**은 자유로운 Agent 대화나 다단계 실행 DAG가 아니라 Control API의
+단일 선형 호출 사슬이다. 실행권은 앞 절의 durable `RUN_PROPOSAL` queue/lease 계약을 따른다.
 사용자가 개인카페만, 프랜차이즈만 또는 둘 다를 선택해도 같은 경로를 사용하며 Proposal 역할만
 선택 유형에 맞게 최대 세 개까지 병렬 실행한다. Agent 오류를 정적 결과로 숨기지 않는다.
 
@@ -601,7 +624,7 @@ latest user input
 → before/after preview
 → user confirmation
 → Event and new State version
-→ single RUN_PROPOSAL recompute
+→ queued deterministic recompute
 ```
 
 `INTENT_DELTA`는 자연어를 State 변경 제안으로 해석해야 하므로 Agent 역할을 유지한다. 다만
@@ -638,7 +661,7 @@ validated parser blocks
 → one user batch apply
 → conflict detection
 → Event and new State version
-→ single RUN_PROPOSAL recompute
+→ queued deterministic recompute
 ```
 
 ## 10. Contract test와 완료 조건

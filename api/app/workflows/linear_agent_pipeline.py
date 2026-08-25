@@ -34,6 +34,11 @@ from app.mcp.client import McpCallOutcome, McpClientError
 from app.observability import tracer
 from app.results.models import AuditStatus, ResultBundlePayload
 from app.workflows.models import HeadFence, StageLease
+from app.workflows.progress import (
+    FirstProposalProgressStage,
+    NullWorkflowProgressSink,
+    WorkflowProgressSink,
+)
 from app.workflows.simple_proposal import (
     PropertyCostOverride,
     SimpleProposalBuilder,
@@ -103,6 +108,7 @@ class LinearMultiAgentProposalPipeline:
         workflow_run_id: str,
         evidence_records: list[dict[str, Any]],
         property_cost_override: PropertyCostOverride | None = None,
+        progress: WorkflowProgressSink | None = None,
     ) -> ResultBundlePayload:
         with tracer().start_as_current_span("caffemate.pipeline.first_proposal"):
             return self._run_traced(
@@ -111,6 +117,7 @@ class LinearMultiAgentProposalPipeline:
                 workflow_run_id=workflow_run_id,
                 evidence_records=evidence_records,
                 property_cost_override=property_cost_override,
+                progress=progress or NullWorkflowProgressSink(),
             )
 
     def _run_traced(
@@ -121,7 +128,9 @@ class LinearMultiAgentProposalPipeline:
         workflow_run_id: str,
         evidence_records: list[dict[str, Any]],
         property_cost_override: PropertyCostOverride | None,
+        progress: WorkflowProgressSink,
     ) -> ResultBundlePayload:
+        progress.start(FirstProposalProgressStage.EVIDENCE_RETRIEVAL)
         outcomes = asyncio.run(
             self._retrieve_evidence(
                 state=state,
@@ -129,6 +138,7 @@ class LinearMultiAgentProposalPipeline:
                 workflow_run_id=workflow_run_id,
             )
         )
+        progress.complete(FirstProposalProgressStage.EVIDENCE_RETRIEVAL)
         # 공식 RAG 검색 결과도 다른 MCP 근거와 같은 EvidenceRecord 계약으로 전달한다.
         outcomes = [self._with_official_rag_evidence(outcome) for outcome in outcomes]
         newly_retrieved_records = self._deduplicate_evidence(
@@ -139,6 +149,7 @@ class LinearMultiAgentProposalPipeline:
                 if isinstance(record, dict)
             ]
         )
+        progress.start(FirstProposalProgressStage.EVIDENCE_ASSESS)
         evidence_task = self._tasks.build_evidence_assess(
             self._context(
                 state=state,
@@ -170,7 +181,9 @@ class LinearMultiAgentProposalPipeline:
             )
         else:
             retrieved_records = self._deduplicate_evidence(evidence_records)
+        progress.complete(FirstProposalProgressStage.EVIDENCE_ASSESS)
 
+        progress.start(FirstProposalProgressStage.PROPOSAL_GENERATION)
         proposal_tasks = self._proposal_tasks(
             state=state,
             head=head,
@@ -194,7 +207,9 @@ class LinearMultiAgentProposalPipeline:
         proposals = self._validated_proposals(proposal_tasks, proposal_results)
         if not proposals:
             raise ContractValidationError("No usable Agent proposal is available")
+        progress.complete(FirstProposalProgressStage.PROPOSAL_GENERATION)
 
+        progress.start(FirstProposalProgressStage.FINANCE_AND_RANK)
         bundle = self._builder.build(
             state=state,
             evidence_records=retrieved_records,
@@ -205,6 +220,8 @@ class LinearMultiAgentProposalPipeline:
                 evidence_records=retrieved_records,
             ),
         )
+        progress.complete(FirstProposalProgressStage.FINANCE_AND_RANK)
+        progress.start(FirstProposalProgressStage.CANDIDATE_AUDIT)
         audit_task = self._tasks.build_result_bundle_audit(
             project_id=state.project_id,
             workflow_run_id=workflow_run_id,
@@ -217,7 +234,9 @@ class LinearMultiAgentProposalPipeline:
             audit_result = self._invoke_accepted(audit_task, head)
         except ExternalExecutionUnavailableError:
             audit_result = None
-        return self._apply_audit(bundle, audit_result)
+        audited = self._apply_audit(bundle, audit_result)
+        progress.complete(FirstProposalProgressStage.CANDIDATE_AUDIT)
+        return audited
 
     async def _retrieve_evidence(
         self,

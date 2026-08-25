@@ -37,7 +37,7 @@ COPY worker ./worker
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --project api --locked --no-dev \
-    && chown -R caffemate:caffemate /home/caffemate
+    && chown -R caffemate:caffemate /srv /home/caffemate
 
 USER 65532:65532
 

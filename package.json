@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:ui": "vite --mode ui-only",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "typecheck": "tsc -b --pretty false",
@@ -13,7 +14,9 @@
     "test:agents": "vitest run agents/test mcp/test rag/test worker/pipelines/**/*.test.ts",
     "typecheck:agents": "tsc -p tsconfig.agents.json --pretty false",
     "agent:control": "tsx agents/src/control-cli.ts",
-    "check": "npm run lint && npm run typecheck && npm run test && npm run build && npm run check:api"
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build && npm run check:api",
+    "build:ui-only": "vite build --config vite.ui-only.config.ts",
+    "export:ui-only": "npm run typecheck && npm run build:ui-only && tsx scripts/export-ui-only.ts"
   },
   "dependencies": {
     "@google/adk": "1.6.0",

@@ -1,4 +1,4 @@
-"""사용자 요청은 Control API에서 한 번 실행되고 즉시 저장된 결과로 반환된다."""
+"""Control API는 사용자 상태를 저장하고 장시간 Workflow 실행을 durable queue에 위임한다."""
 
 import os
 from collections.abc import AsyncIterator
@@ -63,6 +63,7 @@ from app.domain.errors import (
     ProjectNotFoundError,
     ResultExplanationPreconditionError,
     ResultNotFoundError,
+    StageLeaseRejectedError,
     StateVersionConflictError,
     UnauthenticatedError,
     WorkflowNotFoundError,
@@ -128,9 +129,13 @@ from app.selections.service import (
     UnavailableCandidateSelectionService,
 )
 from app.settings import RuntimeSettings
+from app.workflows.dispatch import PostgresPubSubWorkflowDispatcher
+from app.workflows.execution import PostgresFirstProposalExecutor
 from app.workflows.first_proposal_service import FirstProposalService
+from app.workflows.lease import PostgresWorkflowLeaseRepository
 from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import (
+    StageLease,
     WorkflowCode,
     WorkflowProgress,
     WorkflowRun,
@@ -149,6 +154,16 @@ class ConfirmOnboardingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     founder: FounderState
     area_selection_token: str | None = None
+
+
+class StageExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease: StageLease
+
+
+class StageExecuteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    result: dict[str, object]
 
 
 def create_app(
@@ -247,30 +262,60 @@ def create_app(
             ),
         )
 
+    proposal_pipeline = (
+        LinearMultiAgentProposalPipeline(
+            runtime=configured_agent_runtime,
+            mcp=configured_mcp_client,
+            seed_registry=seed_registry,
+            builder=SimpleProposalBuilder(seed_registry),
+        )
+        if configured_agent_runtime is not None and configured_mcp_client is not None
+        else None
+    )
+    workflow_leases = (
+        PostgresWorkflowLeaseRepository(database_handle.engine)
+        if database_handle is not None
+        else None
+    )
+    workflow_executor = (
+        PostgresFirstProposalExecutor(
+            database_handle.engine,
+            proposal_pipeline,
+            workflow_leases,
+        )
+        if database_handle is not None
+        and proposal_pipeline is not None
+        and workflow_leases is not None
+        else None
+    )
+
     if workflow_service is None:
         workflow_repository = (
             PostgresWorkflowRepository(
                 database_handle.engine,
                 policy_snapshot_id=settings.policy_snapshot_id,
                 seed_registry_id=seed_registry.registry_id,
-                pipeline=LinearMultiAgentProposalPipeline(
-                    runtime=configured_agent_runtime,
-                    mcp=configured_mcp_client,
-                    seed_registry=seed_registry,
-                    builder=SimpleProposalBuilder(seed_registry),
-                ),
+                pipeline=proposal_pipeline,
                 seed_registry=seed_registry,
             )
             if database_handle is not None
             and settings.policy_snapshot_id is not None
-            and configured_agent_runtime is not None
-            and configured_mcp_client is not None
+            and proposal_pipeline is not None
             else UnavailableWorkflowRepository()
         )
         workflows = WorkflowService(workflow_repository)
     else:
         workflows = workflow_service
-    first_proposal = FirstProposalService(workflows, results)
+    workflow_dispatcher = (
+        PostgresPubSubWorkflowDispatcher(
+            database_handle.engine,
+            topic_resource=settings.workflow_stage_topic_resource,
+            publisher_id="caffemate-api",
+        )
+        if database_handle is not None and settings.workflow_stage_topic_resource is not None
+        else None
+    )
+    first_proposal = FirstProposalService(workflows, results, workflow_dispatcher)
 
     if result_explanation_service is not None:
         result_explanations = result_explanation_service
@@ -443,6 +488,7 @@ def create_app(
             UnauthenticatedError: status.HTTP_401_UNAUTHORIZED,
             WorkflowNotFoundError: status.HTTP_404_NOT_FOUND,
             WorkflowPreconditionError: status.HTTP_409_CONFLICT,
+            StageLeaseRejectedError: status.HTTP_409_CONFLICT,
             FeedbackPreconditionError: status.HTTP_409_CONFLICT,
             ResultExplanationPreconditionError: status.HTTP_409_CONFLICT,
             FeedbackPreviewNotFoundError: status.HTTP_404_NOT_FOUND,
@@ -465,6 +511,26 @@ def create_app(
     @app.get("/health", tags=["operations"])
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.post(
+        "/internal/v1/workflows/{workflow_run_id}/stages/{stage_run_id}:execute",
+        response_model=StageExecuteResponse,
+        tags=["internal"],
+    )
+    def execute_workflow_stage(
+        workflow_run_id: str,
+        stage_run_id: str,
+        request: StageExecuteRequest,
+        _worker_id: Annotated[str, Depends(current_worker)],
+    ) -> StageExecuteResponse:
+        if workflow_executor is None:
+            raise PersistenceUnavailableError("Workflow executor is not configured")
+        if (
+            request.lease.workflow_run_id != workflow_run_id
+            or request.lease.stage_run_id != stage_run_id
+        ):
+            raise StageLeaseRejectedError("Workflow lease path does not match")
+        return StageExecuteResponse(result=workflow_executor.execute(request.lease))
 
     @app.post(
         "/internal/v1/documents/{document_revision_id}:scan-result",
@@ -507,7 +573,10 @@ def create_app(
         request: EvidenceRefreshRequest,
         _worker_id: Annotated[str, Depends(current_worker)],
     ) -> EvidenceRefreshResult:
-        return evidence_refresh.refresh(request)
+        result = evidence_refresh.refresh(request)
+        if result.recompute_workflow_run_id is not None:
+            first_proposal.dispatch(result.recompute_workflow_run_id)
+        return result
 
     @app.post("/v1/projects", response_model=Project, status_code=status.HTTP_201_CREATED)
     def create_project(
@@ -592,7 +661,7 @@ def create_app(
         user_id: Annotated[str, Depends(current_user)],
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> FeedbackResolution:
-        return feedback.confirm_preview(
+        resolution = feedback.confirm_preview(
             project_id=project_id,
             preview_id=preview_id,
             user_id=user_id,
@@ -600,6 +669,9 @@ def create_app(
             expected_head=request.expected_head,
             proposal_digest=request.proposal_digest,
         )
+        if resolution.workflow is not None:
+            first_proposal.dispatch(resolution.workflow.workflow_run_id)
+        return resolution
 
     @app.post(
         "/v1/projects/{project_id}/feedback/{preview_id}/cancel",
@@ -665,7 +737,7 @@ def create_app(
         user_id: Annotated[str, Depends(current_user)],
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> PropertyTermsApplication:
-        return property_terms.apply(
+        application = property_terms.apply(
             project_id=project_id,
             selection_id=selection_id,
             user_id=user_id,
@@ -673,6 +745,8 @@ def create_app(
             terms=request.terms,
             idempotency_key=idempotency_key,
         )
+        first_proposal.dispatch(application.recompute_workflow.workflow_run_id)
+        return application
 
     @app.post(
         "/v1/projects/{project_id}/documents/uploads",
@@ -785,13 +859,15 @@ def create_app(
         user_id: Annotated[str, Depends(current_user)],
         idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> ExtractionFormApplication:
-        return document_extraction.apply_form(
+        application = document_extraction.apply_form(
             project_id=project_id,
             user_id=user_id,
             document_revision_id=document_revision_id,
             idempotency_key=idempotency_key,
             request=request,
         )
+        first_proposal.dispatch(application.recompute_workflow_run_id)
+        return application
 
     @app.get("/v1/projects", response_model=list[Project])
     def list_projects(user_id: Annotated[str, Depends(current_user)]) -> list[Project]:

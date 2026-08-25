@@ -34,6 +34,7 @@ def test_backend_cloudbuild_preserves_order_and_security_boundaries() -> None:
     assert "set-iam-policy" not in config
     assert "COPY agents/release-manifest.json ./agents/release-manifest.json" in dockerfile
     assert "COPY agents/fixtures ./agents/fixtures" in dockerfile
+    assert "chown -R caffemate:caffemate /srv /home/caffemate" in dockerfile
 
 
 def test_main_deploy_scope_selects_only_changed_runtime(tmp_path: Path) -> None:
@@ -315,11 +316,14 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "--oidc-service-account-email" in deploy
     assert "WORKER_ID=caffemate-worker" in deploy
     assert "/internal/v1/agent-sessions:cleanup" in deploy
-    assert "WORKFLOW_STAGE_TOPIC_RESOURCE" not in deploy
-    assert "PUBSUB_SUBSCRIPTION" not in deploy
-    assert "caffemate-pubsub-push" not in deploy
-    assert "/internal/v1/pubsub/workflow-stages" not in deploy
-    assert "/internal/v1/outbox:publish" not in deploy
+    assert "WORKFLOW_STAGE_TOPIC_RESOURCE" in deploy
+    assert "PUBSUB_SUBSCRIPTION" in deploy
+    assert "caffemate-pubsub-push" in deploy
+    assert "/internal/v1/pubsub/workflow-stages" in deploy
+    assert "/internal/v1/outbox:publish" in deploy
+    assert "caffemate-outbox-drain" in deploy
+    assert "--ack-deadline=600" in deploy
+    assert deploy.count("--expiration-period=never") >= 2
     assert 'existing_api_url=$(gcloud run services describe caffemate-api' in deploy
     assert 'CONTROL_API_AUDIENCE=${existing_api_url}' in deploy
     assert '--update-env-vars="CONTROL_API_AUDIENCE=${api_url}"' in deploy
@@ -386,12 +390,12 @@ def test_api_worker_runtime_deployment_preserves_auth_boundaries() -> None:
     assert "caffemate-franchise-proposal-canary" in verifier
     assert "--cafe-type-preference=${cafe_type_preference}" in verifier
     assert "--task-timeout=25m" in verifier
-    assert "FIRST_PROPOSAL completed the single RUN_PROPOSAL stage" in verifier
+    assert "FIRST_PROPOSAL completed all six public progress checkpoints" in verifier
     assert 'jsonPayload.status=\\"verified\\"' in verifier
     assert 'rows[0]["jsonPayload"]' in verifier
     assert "expected one FIRST_PROPOSAL canary report" in verifier
     assert 'report["workflow_status"] == "SUCCEEDED"' in verifier
-    assert 'report["stage_count"] == 1' in verifier
+    assert 'report["stage_count"] == 6' in verifier
     assert 'report["max_stage_attempt"] == 1' in verifier
     assert 'report["elapsed_ms"] <= 120_000' in verifier
     assert 'report["result_freshness"] == "CURRENT"' in verifier
