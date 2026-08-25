@@ -13,6 +13,16 @@
         "high": { "type": "integer", "minimum": 0 }
       }
     },
+    "nullableMoneyRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["low", "base", "high"],
+      "properties": {
+        "low": { "type": ["integer", "null"], "minimum": 0 },
+        "base": { "type": ["integer", "null"], "minimum": 0 },
+        "high": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
     "founderProjection": {
       "type": "object",
       "additionalProperties": false,
@@ -841,16 +851,22 @@
                   "operating_days_per_month",
                   "average_ticket_krw",
                   "break_even_monthly_sales_krw",
-                  "required_daily_orders"
+                  "required_daily_orders",
+                  "unknown_cost_fields"
                 ],
                 "properties": {
                   "initial_cash_krw": { "$ref": "#/$defs/knownMoneyRange" },
-                  "monthly_fixed_cost_krw": { "$ref": "#/$defs/knownMoneyRange" },
+                  "monthly_fixed_cost_krw": { "$ref": "#/$defs/nullableMoneyRange" },
                   "contribution_margin_bps": { "type": "integer", "minimum": 1, "maximum": 10000 },
                   "operating_days_per_month": { "type": "integer", "minimum": 1, "maximum": 31 },
                   "average_ticket_krw": { "type": "integer", "minimum": 1 },
-                  "break_even_monthly_sales_krw": { "type": "integer", "minimum": 0 },
-                  "required_daily_orders": { "type": "number", "minimum": 0 }
+                  "break_even_monthly_sales_krw": { "type": ["integer", "null"], "minimum": 0 },
+                  "required_daily_orders": { "type": ["number", "null"], "minimum": 0 },
+                  "unknown_cost_fields": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 },
+                    "uniqueItems": true
+                  }
                 }
               },
               "support_refs": {

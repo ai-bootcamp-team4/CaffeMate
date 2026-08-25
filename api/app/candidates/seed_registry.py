@@ -9,7 +9,7 @@ from pydantic import Field, model_validator
 from app.domain.models import FounderState, OperationMode, StrictModel
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
-    MONTHLY_FIXED_COST_CATEGORIES,
+    REGISTERED_MONTHLY_FIXED_COST_CATEGORIES,
     CostCategory,
     MoneyRange,
 )
@@ -80,7 +80,7 @@ class IndependentFinanceProfile(StrictModel):
     @model_validator(mode="after")
     def validate_complete_profile(self) -> "IndependentFinanceProfile":
         required = (
-            INITIAL_COST_CATEGORIES | MONTHLY_FIXED_COST_CATEGORIES
+            INITIAL_COST_CATEGORIES | REGISTERED_MONTHLY_FIXED_COST_CATEGORIES
         ) - {CostCategory.FRANCHISE_INITIAL_FEES}
         if set(self.cost_ranges) != required:
             raise ValueError("independent finance profile must cover every non-franchise cost")

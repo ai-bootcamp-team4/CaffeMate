@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -18,6 +19,13 @@ from app.domain.models import (
     VentureStatus,
 )
 from app.finance.case_facts import CaseFactRecord, CaseFactResolver, PropertyContext
+from app.finance.labor_benchmark import MinimumWageReference
+from app.finance.labor_oncost import (
+    EmployerInsuranceComponent,
+    EmployerSocialInsuranceReference,
+    replay_employer_oncost_minimum_wage_references,
+    replay_employer_social_insurance_references,
+)
 from app.finance.property_benchmark import PropertyRentBenchmark
 from app.results.models import ResultOutcomeStatus
 from app.workflows.simple_proposal import SimpleProposalBuilder
@@ -78,6 +86,53 @@ def _state(preference: CafeTypePreference) -> VentureState:
             coverage_profile=CoverageProfile.R2_REGIONAL_CONNECTOR,
         ),
         updated_at=datetime(2026, 8, 24, tzinfo=UTC),
+    )
+
+
+
+
+def _minimum_wage_reference() -> MinimumWageReference:
+    return MinimumWageReference(
+        evidence_ref="cost-reference:kr-minimum-wage-2026",
+        effective_from="2026-01-01",
+        effective_to="2026-12-31",
+        hourly_rate_krw=10_320,
+        monthly_equivalent_hours=209,
+        monthly_equivalent_krw=2_156_880,
+        source_title="최저임금위원회 연도별 최저임금",
+        source_ref="https://www.minimumwage.go.kr/minWage/policy/decisionMain.do",
+        data_date="2025-08-05",
+    )
+
+
+def _social_insurance_reference() -> EmployerSocialInsuranceReference:
+    components = (
+        ("NATIONAL_PENSION", 47_500, "https://www.nps.or.kr/"),
+        ("HEALTH_LONG_TERM_CARE", 40_674, "https://www.nhis.or.kr/"),
+        ("UNEMPLOYMENT_BENEFIT", 9_000, "https://www.moel.go.kr/"),
+        ("EMPLOYMENT_STABILIZATION_VOCATIONAL", 2_500, "https://www.moel.go.kr/"),
+    )
+    return EmployerSocialInsuranceReference(
+        effective_from="2026-01-01",
+        effective_to="2026-12-31",
+        workplace_employee_upper_bound=149,
+        components=tuple(
+            EmployerInsuranceComponent(
+                component=name,
+                employer_rate_ppm=rate,
+                evidence_ref=f"cost-reference:2026:{name.lower()}",
+                source_title=f"official {name}",
+                source_ref=source_ref,
+                data_date="2026-01-01",
+            )
+            for name, rate, source_ref in components
+        ),
+        unsupported_components=("WORKERS_COMPENSATION_INDUSTRY_RATE_REQUIRED",),
+        excluded_adjustments=(
+            "CONTRIBUTION_BASE_CAPS_AND_FLOORS_NOT_APPLIED",
+            "EXEMPTIONS_NOT_APPLIED",
+            "SUPPORT_PROGRAMS_NOT_APPLIED",
+        ),
     )
 
 
@@ -283,11 +338,18 @@ def test_builder_preserves_matching_independent_agent_advice() -> None:
 def test_builder_replaces_selected_model_property_costs_with_user_input() -> None:
     builder = SimpleProposalBuilder(IndependentSeedRegistry.load_default())
     state = _state(CafeTypePreference.INDEPENDENT_ONLY)
-    original = builder.build(state=state, evidence_records=[])
+    original = builder.build(
+        state=state,
+        evidence_records=[],
+        minimum_wage_references=[_minimum_wage_reference()],
+        employer_social_insurance_references=[_social_insurance_reference()],
+    )
 
     recalculated = builder.build(
         state=state,
         evidence_records=[],
+        minimum_wage_references=[_minimum_wage_reference()],
+        employer_social_insurance_references=[_social_insurance_reference()],
         property_context=PropertyContext(
             property_input_id="property-input-1",
             source_id="independent-small-takeout-v1",
@@ -313,7 +375,7 @@ def test_builder_replaces_selected_model_property_costs_with_user_input() -> Non
     )
     assert original_candidate["financial_summary"]["initial_cash"]["base"] == 139_500_000
     assert recalculated_candidate["financial_summary"]["initial_cash"]["base"] == 134_500_000
-    assert recalculated_candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 6_000_000
+    assert recalculated_candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 6_107_493
     assert (
         "property-input:property-input-1"
         in recalculated_candidate["financial_summary"]["initial_cash"]["provenance_refs"]
@@ -334,6 +396,8 @@ def test_builder_uses_regional_rent_benchmark_before_seed_occupancy_assumption()
     result = builder.build(
         state=state,
         evidence_records=[],
+        minimum_wage_references=[_minimum_wage_reference()],
+        employer_social_insurance_references=[_social_insurance_reference()],
         property_rent_benchmarks=[_seoul_small_retail_benchmark()],
     )
 
@@ -345,7 +409,7 @@ def test_builder_uses_regional_rent_benchmark_before_seed_occupancy_assumption()
     occupancy = next(
         value for value in candidate["decision_inputs"] if value["field"] == "MONTHLY_OCCUPANCY"
     )
-    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 6_516_833
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 6_624_326
     assert occupancy["value_range_krw"]["base"] == 2_916_833
     assert occupancy["provenance"] == "BENCHMARK"
     assert occupancy["resolution_status"] == "RESOLVED_BENCHMARK"
@@ -372,6 +436,8 @@ def test_actual_property_terms_replace_regional_rent_benchmark() -> None:
     result = builder.build(
         state=state,
         evidence_records=[],
+        minimum_wage_references=[_minimum_wage_reference()],
+        employer_social_insurance_references=[_social_insurance_reference()],
         property_rent_benchmarks=[_seoul_small_retail_benchmark()],
         property_context=PropertyContext(
             property_input_id="actual-store",
@@ -394,7 +460,7 @@ def test_actual_property_terms_replace_regional_rent_benchmark() -> None:
     occupancy = next(
         value for value in candidate["decision_inputs"] if value["field"] == "MONTHLY_OCCUPANCY"
     )
-    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 6_000_000
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 6_107_493
     assert occupancy["value_range_krw"]["base"] == 2_400_000
     assert occupancy["provenance"] == "USER_INPUT"
 
@@ -567,4 +633,117 @@ def test_franchise_hq_confirmation_is_external_not_generic_missing_input() -> No
                 "특정 후보 주소의 출점 승인 여부는 해당 프랜차이즈 본사가 결정합니다."
             ),
         }
+    ]
+
+
+def test_builder_adds_employer_oncost_separately_from_monthly_labor() -> None:
+    builder = SimpleProposalBuilder(IndependentSeedRegistry.load_default())
+    grounded = builder.build(
+        state=_state(CafeTypePreference.INDEPENDENT_ONLY),
+        evidence_records=[],
+        minimum_wage_references=[_minimum_wage_reference()],
+        employer_social_insurance_references=[_social_insurance_reference()],
+    )
+
+    def seating(bundle: Any) -> dict[str, Any]:
+        return next(
+            candidate
+            for candidate in bundle.candidates
+            if candidate["independent_model"]["model_id"] == "independent-seating-focused-v1"
+        )
+
+    after = seating(grounded)
+    after_labor = next(
+        value for value in after["decision_inputs"] if value["field"] == "MONTHLY_LABOR"
+    )
+    oncost = next(
+        value
+        for value in after["decision_inputs"]
+        if value["field"] == "MONTHLY_EMPLOYER_ONCOST"
+    )
+
+    assert after_labor["value_range_krw"] == {
+        "low": 5_000_000,
+        "base": 9_000_000,
+        "high": 15_098_160,
+    }
+    assert oncost["value_range_krw"] == {
+        "low": 429_970,
+        "base": 859_940,
+        "high": 1_504_894,
+    }
+    assert oncost["provenance"] == "BENCHMARK"
+    assert oncost["resolution_status"] == "RESOLVED_BENCHMARK"
+    assert oncost["limitation_code"] == (
+        "OFFICIAL_EMPLOYER_ONCOST_FLOOR_EXCLUDES_WORKERS_COMP_AND_ADJUSTMENTS"
+    )
+    assert oncost["derivation"]["inputs"]["employer_rate_ppm"] == 99_674
+    assert oncost["derivation"]["inputs"]["employer_rate_bps_decimal"] == "996.74"
+    assert oncost["derivation"]["inputs"]["payroll_basis_exclusions"] == [
+        "FOUNDER_AND_SELF_LABOR_EXCLUDED"
+    ]
+    assert set(oncost["derivation"]["inputs"]["excluded_adjustments"]) == {
+        "CONTRIBUTION_BASE_CAPS_AND_FLOORS_NOT_APPLIED",
+        "EXEMPTIONS_NOT_APPLIED",
+        "SUPPORT_PROGRAMS_NOT_APPLIED",
+    }
+    monthly_base_without_oncost = sum(
+        value["value_range_krw"]["base"]
+        for value in after["decision_inputs"]
+        if value["decision_role"] == "FINANCE_INPUT"
+        and value["value_range_krw"] is not None
+        and value["field"] != "MONTHLY_EMPLOYER_ONCOST"
+        and "MONTHLY_FIXED_COST" in value["applied_to"]
+    )
+    assert after["financial_summary"]["monthly_fixed_cost"]["base"] == (
+        monthly_base_without_oncost + 859_940
+    )
+    assert after["financial_summary"]["break_even_monthly_sales_krw"] == 34_451_517
+
+    balanced = next(
+        candidate
+        for candidate in grounded.candidates
+        if candidate["independent_model"]["model_id"] == "independent-balanced-v1"
+    )
+    assert next(
+        value
+        for value in balanced["decision_inputs"]
+        if value["field"] == "MONTHLY_LABOR"
+    )["provenance"] == "ASSUMPTION"
+    replay_bundle = {"candidates": [balanced]}
+    replayed_wages = replay_employer_oncost_minimum_wage_references(replay_bundle)
+    replayed_schedules = replay_employer_social_insurance_references(replay_bundle)
+    assert len(replayed_wages) == 1
+    assert replayed_wages[0].monthly_equivalent_krw == 2_156_880
+    assert len(replayed_schedules) == 1
+    assert replayed_schedules[0].employer_rate_ppm == 99_674
+
+
+def test_builder_fails_closed_when_employer_oncost_schedule_is_missing() -> None:
+    bundle = SimpleProposalBuilder(IndependentSeedRegistry.load_default()).build(
+        state=_state(CafeTypePreference.INDEPENDENT_ONLY),
+        evidence_records=[],
+        minimum_wage_references=[_minimum_wage_reference()],
+        employer_social_insurance_references=[],
+    )
+    candidate = next(
+        value
+        for value in bundle.candidates
+        if value["independent_model"]["model_id"] == "independent-balanced-v1"
+    )
+    oncost = next(
+        value
+        for value in candidate["decision_inputs"]
+        if value["field"] == "MONTHLY_EMPLOYER_ONCOST"
+    )
+
+    assert oncost["provenance"] == "UNKNOWN"
+    assert oncost["resolution_status"] == "INPUT_REQUIRED"
+    assert oncost["value_range_krw"] == {"low": None, "base": None, "high": None}
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["low"] is None
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] is None
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["high"] is None
+    assert candidate["financial_summary"]["break_even_monthly_sales_krw"] is None
+    assert "MONTHLY_EMPLOYER_ONCOST" in candidate["financial_summary"][
+        "unknown_cost_fields"
     ]

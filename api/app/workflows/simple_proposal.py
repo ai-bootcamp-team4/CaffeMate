@@ -35,9 +35,13 @@ from app.finance.labor_benchmark import (
     MinimumWageReference,
     resolve_seed_labor_benchmarks,
 )
+from app.finance.labor_oncost import (
+    EmployerSocialInsuranceReference,
+    resolve_seed_employer_oncosts,
+)
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
-    MONTHLY_FIXED_COST_CATEGORIES,
+    REGISTERED_MONTHLY_FIXED_COST_CATEGORIES,
     CapitalGateInput,
     CapitalGateStatus,
     CostCategory,
@@ -95,6 +99,9 @@ class SimpleProposalBuilder:
         franchise_disclosure_resolution: FranchiseDisclosureResolution | None = None,
         property_rent_benchmarks: list[PropertyRentBenchmark] | None = None,
         minimum_wage_references: list[MinimumWageReference] | None = None,
+        employer_social_insurance_references: (
+            list[EmployerSocialInsuranceReference] | None
+        ) = None,
         agent_proposals: list[dict[str, Any]] | None = None,
         franchise_universe: list[dict[str, Any]] | None = None,
     ) -> ResultBundlePayload:
@@ -126,11 +133,21 @@ class SimpleProposalBuilder:
             ],
             references=minimum_wage_references or [],
         )
+        employer_oncost_resolution = resolve_seed_employer_oncosts(
+            seeds=[
+                (seed.model_id, profile.paid_staff_fte)
+                for seed in independent_seeds
+                if (profile := seed.finance_profile) is not None
+            ],
+            minimum_wage_references=minimum_wage_references or [],
+            social_insurance_references=employer_social_insurance_references or [],
+        )
         finance_resolver = FinancialInputResolver(
             property_context=property_context,
             case_resolution=case_fact_resolution,
             benchmark_resolution=benchmark_resolution,
             labor_benchmark_resolution=labor_benchmark_resolution,
+            employer_oncost_resolution=employer_oncost_resolution,
             franchise_disclosure_resolution=franchise_disclosure_resolution,
         )
         preference = state.founder.cafe_type_preference
@@ -293,8 +310,21 @@ class SimpleProposalBuilder:
                 profile.cost_ranges[category],
                 finance_resolver,
             )
-            for category in sorted(MONTHLY_FIXED_COST_CATEGORIES, key=lambda item: item.value)
+            for category in sorted(
+                REGISTERED_MONTHLY_FIXED_COST_CATEGORIES, key=lambda item: item.value
+            )
         ]
+        monthly_fixed_cost_lines.append(
+            finance_resolver.resolve_cost_line(
+                source_id=seed.model_id,
+                fallback=CostLine(
+                    field_id=CostCategory.MONTHLY_EMPLOYER_ONCOST.value,
+                    category=CostCategory.MONTHLY_EMPLOYER_ONCOST,
+                    amount=MoneyRange(low=None, base=None, high=None),
+                    provenance=ValueProvenance.UNKNOWN,
+                ),
+            )
+        )
         finance_input = FinanceInput(
             initial_cost_lines=initial_cost_lines,
             monthly_fixed_cost_lines=monthly_fixed_cost_lines,

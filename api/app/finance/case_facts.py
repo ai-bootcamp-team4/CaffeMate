@@ -6,6 +6,7 @@ from typing import Any
 
 from app.finance.franchise_disclosure import FranchiseDisclosureResolution
 from app.finance.labor_benchmark import LaborBenchmarkResolution
+from app.finance.labor_oncost import EmployerOncostResolution
 from app.finance.models import (
     CostCategory,
     CostLine,
@@ -438,18 +439,21 @@ class FinancialInputResolver:
         case_resolution: CaseFactResolution | None = None,
         benchmark_resolution: PropertyBenchmarkResolution | None = None,
         labor_benchmark_resolution: LaborBenchmarkResolution | None = None,
+        employer_oncost_resolution: EmployerOncostResolution | None = None,
         franchise_disclosure_resolution: FranchiseDisclosureResolution | None = None,
     ) -> None:
         self._property = property_context
         self._case = case_resolution or CaseFactResolution()
         self._benchmark = benchmark_resolution or PropertyBenchmarkResolution()
         self._labor_benchmark = labor_benchmark_resolution or LaborBenchmarkResolution()
+        self._employer_oncost = employer_oncost_resolution or EmployerOncostResolution()
         self._franchise_disclosure = (
             franchise_disclosure_resolution or FranchiseDisclosureResolution()
         )
         self.decision_sources = {
             **self._benchmark.sources,
             **self._labor_benchmark.sources,
+            **self._employer_oncost.sources,
             **self._case.sources,
             **self._franchise_disclosure.sources,
         }
@@ -476,6 +480,10 @@ class FinancialInputResolver:
             (value.source_id, CostCategory.MONTHLY_LABOR): value
             for value in self._labor_benchmark.overrides
         }
+        self._employer_oncost_by_key = {
+            (value.source_id, CostCategory.MONTHLY_EMPLOYER_ONCOST): value
+            for value in self._employer_oncost.overrides
+        }
         self._franchise_disclosure_by_key = {
             (value.source_id, CostCategory.FRANCHISE_INITIAL_FEES): value
             for value in self._franchise_disclosure.overrides
@@ -494,6 +502,9 @@ class FinancialInputResolver:
         labor_benchmark_value = self._labor_benchmark_by_key.get((source_id, fallback.category))
         if labor_benchmark_value is not None:
             return labor_benchmark_value.as_cost_line()
+        employer_oncost_value = self._employer_oncost_by_key.get((source_id, fallback.category))
+        if employer_oncost_value is not None:
+            return employer_oncost_value.as_cost_line()
         benchmark_value = self._benchmark_by_key.get((source_id, fallback.category))
         if benchmark_value is not None:
             return benchmark_value.as_cost_line()

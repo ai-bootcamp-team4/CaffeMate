@@ -366,6 +366,7 @@ def _applied_to(category: CostCategory) -> list[str]:
     if category in {
         CostCategory.MONTHLY_OCCUPANCY,
         CostCategory.MONTHLY_LABOR,
+        CostCategory.MONTHLY_EMPLOYER_ONCOST,
         CostCategory.MONTHLY_OTHER_FIXED,
     }:
         return [
@@ -407,11 +408,11 @@ def _limitation_code(
             if isinstance(decision_source, dict)
             else None
         )
-        if (
-            isinstance(derivation, dict)
-            and derivation.get("formula_code") == "MINIMUM_WAGE_FTE_FLOOR_V1"
-        ):
-            return "OFFICIAL_MINIMUM_WAGE_FLOOR_NOT_ACTUAL_PAYROLL"
+        if isinstance(derivation, dict):
+            if derivation.get("formula_code") == "MINIMUM_WAGE_FTE_FLOOR_V1":
+                return "OFFICIAL_MINIMUM_WAGE_FLOOR_NOT_ACTUAL_PAYROLL"
+            if derivation.get("formula_code") == "EMPLOYER_SOCIAL_INSURANCE_FLOOR_V1":
+                return "OFFICIAL_EMPLOYER_ONCOST_FLOOR_EXCLUDES_WORKERS_COMP_AND_ADJUSTMENTS"
         return "REGIONAL_BENCHMARK_NOT_ACTUAL_PROPERTY"
     if line.provenance == ValueProvenance.ASSUMPTION:
         return "REPLACE_WITH_CASE_DATA"

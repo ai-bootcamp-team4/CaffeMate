@@ -2,7 +2,7 @@
 
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -20,11 +20,17 @@ from app.domain.models import (
     OperationMode,
     VentureState,
 )
+from app.finance.labor_benchmark import MinimumWageReference
+from app.finance.labor_oncost import (
+    EmployerInsuranceComponent,
+    EmployerSocialInsuranceReference,
+)
 from app.main import create_app
 from app.migrations import apply_migrations
 from app.projects.postgres_repository import PostgresProjectRepository
 from app.projects.service import ProjectService
 from app.results.postgres_repository import PostgresResultRepository
+from app.workflows.linear_agent_pipeline import LinearMultiAgentProposalPipeline
 from app.workflows.models import HeadFence, WorkflowCode, WorkflowStatus
 from app.workflows.postgres_repository import PostgresWorkflowRepository
 from app.workflows.selective_start import start_selective_first_proposal
@@ -55,6 +61,8 @@ class _RepositoryPipeline:
             evidence_records=kwargs["evidence_records"],
             property_context=kwargs.get("property_context"),
             case_fact_resolution=kwargs.get("case_fact_resolution"),
+            minimum_wage_references=[_minimum_wage_reference()],
+            employer_social_insurance_references=[_social_insurance_reference()],
             franchise_universe=[
                 {
                     "brand_id": "kr-ediya-coffee",
@@ -89,6 +97,51 @@ class _RepositoryPipeline:
         )
 
 
+def _minimum_wage_reference() -> MinimumWageReference:
+    return MinimumWageReference(
+        evidence_ref="cost-reference:kr-minimum-wage-2026",
+        effective_from="2026-01-01",
+        effective_to="2026-12-31",
+        hourly_rate_krw=10_320,
+        monthly_equivalent_hours=209,
+        monthly_equivalent_krw=2_156_880,
+        source_title="최저임금위원회 연도별 최저임금",
+        source_ref="https://www.minimumwage.go.kr/minWage/policy/decisionMain.do",
+        data_date="2025-08-05",
+    )
+
+
+def _social_insurance_reference() -> EmployerSocialInsuranceReference:
+    component_rows = (
+        ("NATIONAL_PENSION", 47_500, "https://www.nps.or.kr/"),
+        ("HEALTH_LONG_TERM_CARE", 40_674, "https://www.nhis.or.kr/"),
+        ("UNEMPLOYMENT_BENEFIT", 9_000, "https://www.moel.go.kr/"),
+        ("EMPLOYMENT_STABILIZATION_VOCATIONAL", 2_500, "https://www.moel.go.kr/"),
+    )
+    return EmployerSocialInsuranceReference(
+        effective_from="2026-01-01",
+        effective_to="2026-12-31",
+        workplace_employee_upper_bound=149,
+        components=tuple(
+            EmployerInsuranceComponent(
+                component=name,
+                employer_rate_ppm=rate,
+                evidence_ref=f"cost-reference:2026:{name.lower()}",
+                source_title=f"official {name}",
+                source_ref=source_ref,
+                data_date="2026-01-01",
+            )
+            for name, rate, source_ref in component_rows
+        ),
+        unsupported_components=("WORKERS_COMPENSATION_INDUSTRY_RATE_REQUIRED",),
+        excluded_adjustments=(
+            "CONTRIBUTION_BASE_CAPS_AND_FLOORS_NOT_APPLIED",
+            "EXEMPTIONS_NOT_APPLIED",
+            "SUPPORT_PROGRAMS_NOT_APPLIED",
+        ),
+    )
+
+
 def _workflow_service(engine: Engine) -> WorkflowService:
     registry = IndependentSeedRegistry.load_default()
     return WorkflowService(
@@ -96,7 +149,10 @@ def _workflow_service(engine: Engine) -> WorkflowService:
             engine,
             policy_snapshot_id="policy-1",
             seed_registry_id=registry.registry_id,
-            pipeline=_RepositoryPipeline(registry),
+            pipeline=cast(
+                LinearMultiAgentProposalPipeline,
+                _RepositoryPipeline(registry),
+            ),
             seed_registry=registry,
         )
     )
@@ -140,7 +196,10 @@ def test_start_persists_result_and_one_completed_stage(
             postgres_engine,
             policy_snapshot_id="policy-1",
             seed_registry_id=registry.registry_id,
-            pipeline=_RepositoryPipeline(registry),
+            pipeline=cast(
+                LinearMultiAgentProposalPipeline,
+                _RepositoryPipeline(registry),
+            ),
             seed_registry=registry,
         )
     )
@@ -321,7 +380,7 @@ def test_property_terms_recalculate_selected_candidate_with_actual_costs(
     )
     assert current["result_bundle_id"] != first["result_bundle_id"]
     assert recalculated["financial_summary"]["initial_cash"]["base"] == 134_500_000
-    assert recalculated["financial_summary"]["monthly_fixed_cost"]["base"] == 6_000_000
+    assert recalculated["financial_summary"]["monthly_fixed_cost"]["base"] == 6_107_493
     assert recalculated["property_context"] == {
         "property_input_id": application_response.json()["property_input_id"],
         "address": "서울특별시 마포구 공덕동 실제 점포",
@@ -455,7 +514,7 @@ def test_later_recompute_preserves_latest_selected_property_terms(
         if candidate["independent_model"]["model_id"] == "independent-small-takeout-v1"
     )
     assert candidate["financial_summary"]["initial_cash"]["base"] == 134_500_000
-    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 6_000_000
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 6_107_493
     assert candidate["property_context"] == {
         "property_input_id": applied.json()["property_input_id"],
         "address": "서울특별시 마포구 공덕동 실제 점포",

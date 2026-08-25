@@ -18,6 +18,7 @@ from app.domain.errors import ContractValidationError, ExternalExecutionUnavaila
 from app.domain.models import CafeTypePreference, VentureState
 from app.finance.case_facts import CaseFactResolution, PropertyContext
 from app.finance.labor_benchmark import minimum_wage_references_from_mcp_results
+from app.finance.labor_oncost import employer_social_insurance_references_from_mcp_results
 from app.finance.property_benchmark import property_rent_benchmarks_from_mcp_results
 from app.mcp.client import McpCallOutcome
 from app.observability import tracer
@@ -196,6 +197,11 @@ class LinearMultiAgentProposalPipeline:
             minimum_wage_references=minimum_wage_references_from_mcp_results(
                 [outcome.structured_content for outcome in outcomes]
             ),
+            employer_social_insurance_references=(
+                employer_social_insurance_references_from_mcp_results(
+                    [outcome.structured_content for outcome in outcomes]
+                )
+            ),
             agent_proposals=proposals,
             franchise_universe=franchise_universe(
                 outcomes,
@@ -232,6 +238,11 @@ class LinearMultiAgentProposalPipeline:
         minimum_wage_references = minimum_wage_references_from_mcp_results(
             [outcome.structured_content for outcome in outcomes]
         )
+        employer_social_insurance_references = (
+            employer_social_insurance_references_from_mcp_results(
+                [outcome.structured_content for outcome in outcomes]
+            )
+        )
         if preference != CafeTypePreference.FRANCHISE_ONLY:
             seeds = self._seeds.select(state.founder)[:3]
             context = self._context(
@@ -259,6 +270,7 @@ class LinearMultiAgentProposalPipeline:
                                         "finance_snapshot": independent_finance_snapshot(
                                             seed,
                                             minimum_wage_references,
+                                            employer_social_insurance_references,
                                         ),
                                         "support_refs": seed.support_refs,
                                     }

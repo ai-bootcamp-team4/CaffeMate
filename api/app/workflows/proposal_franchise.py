@@ -21,7 +21,7 @@ from app.finance.calculator import calculate_finance, evaluate_capital_gate
 from app.finance.case_facts import FinancialInputResolver, PropertyContext
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
-    MONTHLY_FIXED_COST_CATEGORIES,
+    REGISTERED_MONTHLY_FIXED_COST_CATEGORIES,
     CapitalGateInput,
     CapitalGateStatus,
     FinanceInput,
@@ -114,7 +114,10 @@ def build_franchise_drafts(
                 finance_profile=profile,
                 resolver=finance_resolver,
             )
-            for category in sorted(MONTHLY_FIXED_COST_CATEGORIES, key=lambda item: item.value)
+            for category in sorted(
+                REGISTERED_MONTHLY_FIXED_COST_CATEGORIES,
+                key=lambda item: item.value,
+            )
         ]
         variable_cost_rate_lines = franchise_variable_cost_rate_lines(
             brand_id=brand_id,

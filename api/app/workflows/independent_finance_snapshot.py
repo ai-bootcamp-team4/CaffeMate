@@ -9,9 +9,13 @@ from app.finance.labor_benchmark import (
     MinimumWageReference,
     resolve_seed_labor_benchmarks,
 )
+from app.finance.labor_oncost import (
+    EmployerSocialInsuranceReference,
+    resolve_seed_employer_oncosts,
+)
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
-    MONTHLY_FIXED_COST_CATEGORIES,
+    REGISTERED_MONTHLY_FIXED_COST_CATEGORIES,
     CostCategory,
     CostLine,
     FinanceInput,
@@ -23,6 +27,9 @@ from app.finance.models import (
 def independent_finance_snapshot(
     seed: IndependentSeedDefinition,
     minimum_wage_references: list[MinimumWageReference] | None = None,
+    employer_social_insurance_references: (
+        list[EmployerSocialInsuranceReference] | None
+    ) = None,
 ) -> dict[str, Any]:
     """Expose registered inputs and Control API math without delegating authority."""
 
@@ -66,7 +73,7 @@ def independent_finance_snapshot(
     )
     monthly_lines: list[CostLine] = []
     for category in sorted(
-        MONTHLY_FIXED_COST_CATEGORIES,
+        REGISTERED_MONTHLY_FIXED_COST_CATEGORIES,
         key=lambda value: value.value,
     ):
         if category == CostCategory.MONTHLY_LABOR and labor_override is not None:
@@ -80,6 +87,16 @@ def independent_finance_snapshot(
                 provenance=ValueProvenance.ASSUMPTION,
             )
         )
+    # Keep the Agent snapshot aligned with the authoritative candidate even
+    # when a statutory schedule is unavailable. The internal role contract
+    # represents nullable ranges explicitly; omitting this line would make a
+    # missing employer burden look like a known zero to advisory reasoning.
+    employer_oncost_resolution = resolve_seed_employer_oncosts(
+        seeds=[(seed.model_id, profile.paid_staff_fte)],
+        minimum_wage_references=minimum_wage_references or [],
+        social_insurance_references=employer_social_insurance_references or [],
+    )
+    monthly_lines.append(employer_oncost_resolution.overrides[0].as_cost_line())
     finance = calculate_finance(
         FinanceInput(
             initial_cost_lines=initial_lines,
@@ -101,4 +118,5 @@ def independent_finance_snapshot(
             if finance.required_daily_orders is not None
             else None
         ),
+        "unknown_cost_fields": finance.unknown_cost_fields,
     }

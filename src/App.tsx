@@ -84,6 +84,7 @@ const internalLabels: Record<string, string> = {
   EQUIPMENT: "장비비",
   FRANCHISE_INITIAL_FEES: "가맹 초기 비용",
   MONTHLY_LABOR: "월 인건비",
+  MONTHLY_EMPLOYER_ONCOST: "월 사업주 법정 인력부담금",
   MONTHLY_OCCUPANCY: "월 임차료·관리비",
   MONTHLY_OTHER_FIXED: "기타 월 고정비",
   OPENING_INVENTORY: "오픈 초기 재고",

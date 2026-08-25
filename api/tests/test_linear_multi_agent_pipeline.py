@@ -78,8 +78,10 @@ def _head() -> HeadFence:
 class FakeMcp:
     def __init__(self) -> None:
         self.tool_names: list[str] = []
+        self.calls: list[dict[str, Any]] = []
 
     async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
+        self.calls.append(deepcopy(kwargs))
         tool_name = kwargs["tool_name"]
         self.tool_names.append(tool_name)
         request_id = f"request-{tool_name}"
@@ -318,6 +320,13 @@ def test_pipeline_calls_research_proposals_and_auditor_in_one_linear_flow() -> N
         "search_cafe_observations",
         "retrieve_official_documents",
     }
+    cost_reference_call = next(
+        call for call in mcp.calls if call["tool_name"] == "get_cost_reference"
+    )
+    assert cost_reference_call["arguments"]["reference_types"] == [
+        "MINIMUM_WAGE",
+        "EMPLOYER_SOCIAL_INSURANCE",
+    ]
     assert runtime.task_types[0] == "EVIDENCE_ASSESS"
     assert runtime.task_types[-1] == "CANDIDATE_AUDIT"
     assert runtime.task_types[1:-1] == ["PROPOSE_INDEPENDENT"] * 3
@@ -419,7 +428,10 @@ def test_pipeline_applies_regional_property_reference_to_finance() -> None:
     occupancy = next(
         value for value in candidate["decision_inputs"] if value["field"] == "MONTHLY_OCCUPANCY"
     )
-    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] == 4_774_708
+    assert candidate["financial_summary"]["monthly_fixed_cost"]["base"] is None
+    assert "MONTHLY_EMPLOYER_ONCOST" in candidate["financial_summary"][
+        "unknown_cost_fields"
+    ]
     assert occupancy["value_range_krw"]["base"] == 1_174_708
     assert occupancy["provenance"] == "BENCHMARK"
     assert occupancy["resolution_status"] == "RESOLVED_BENCHMARK"
@@ -480,7 +492,55 @@ def test_pipeline_applies_minimum_wage_floor_to_paid_staff_labor() -> None:
                         "durable_evidence_refs": [
                             "https://www.minimumwage.go.kr/minWage/policy/decisionMain.do"
                         ],
-                    }
+                    },
+                    *[
+                        {
+                            "schema_version": "2.0.0",
+                            "evidence_id": f"cost-reference:social:{name.lower()}",
+                            "project_id": "project-1",
+                            "claim_type": "LABOR_COST_REFERENCE",
+                            "metric": f"EMPLOYER_SOCIAL_INSURANCE_{name}",
+                            "value": {"kind": "INTEGER", "value": rate},
+                            "value_kind": "EVIDENCED_FACT",
+                            "unit": "ppm_of_payroll",
+                            "geographic_scope": {
+                                "scope_type": "NATIONAL",
+                                "scope_id": "KR",
+                                "boundary_version": None,
+                            },
+                            "source": {
+                                "title": f"official {name}",
+                                "source_ref": source_ref,
+                                "authority": "PRIMARY_OFFICIAL",
+                                "source_type": "WEB",
+                                "source_family": "LABOR_COST_REFERENCE",
+                                "published_or_data_date": "2026-01-01",
+                                "source_observed_at": "2026-08-25T08:00:00Z",
+                                "document_version": "2026-01-01",
+                                "checksum": f"sha256:{'d' * 64}",
+                            },
+                            "original_anchor": {
+                                "anchor_type": "SECTION",
+                                "locator": f"2026 employer rate {name}",
+                                "excerpt_hash": f"sha256:{'e' * 64}",
+                            },
+                            "freshness_status": "FRESH",
+                            "conflict_status": "NONE",
+                            "retrieved_at": "2026-08-25T08:00:00Z",
+                            "missing_context": [],
+                            "durable_evidence_refs": [source_ref],
+                        }
+                        for name, rate, source_ref in (
+                            ("NATIONAL_PENSION", 47_500, "https://www.nps.or.kr/"),
+                            ("HEALTH_LONG_TERM_CARE", 40_674, "https://www.nhis.or.kr/"),
+                            ("UNEMPLOYMENT_BENEFIT", 9_000, "https://www.moel.go.kr/"),
+                            (
+                                "EMPLOYMENT_STABILIZATION_VOCATIONAL",
+                                2_500,
+                                "https://www.moel.go.kr/",
+                            ),
+                        )
+                    ],
                 ],
                 "missing_fields": [],
                 "conflicts": [],
@@ -496,7 +556,34 @@ def test_pipeline_applies_minimum_wage_floor_to_paid_staff_labor() -> None:
                         "monthly_equivalent_hours": 209,
                         "monthly_equivalent_krw": 2_156_880,
                         "evidence_id": evidence_id,
-                    }
+                    },
+                    {
+                        "reference_type": "EMPLOYER_SOCIAL_INSURANCE",
+                        "effective_from": "2026-01-01",
+                        "effective_to": "2026-12-31",
+                        "workplace_employee_upper_bound": 149,
+                        "components": [
+                            {
+                                "component": name,
+                                "employer_rate_ppm": rate,
+                                "evidence_id": f"cost-reference:social:{name.lower()}",
+                            }
+                            for name, rate in (
+                                ("NATIONAL_PENSION", 47_500),
+                                ("HEALTH_LONG_TERM_CARE", 40_674),
+                                ("UNEMPLOYMENT_BENEFIT", 9_000),
+                                ("EMPLOYMENT_STABILIZATION_VOCATIONAL", 2_500),
+                            )
+                        ],
+                        "unsupported_components": [
+                            "WORKERS_COMPENSATION_INDUSTRY_RATE_REQUIRED"
+                        ],
+                        "excluded_adjustments": [
+                            "CONTRIBUTION_BASE_CAPS_AND_FLOORS_NOT_APPLIED",
+                            "EXEMPTIONS_NOT_APPLIED",
+                            "SUPPORT_PROGRAMS_NOT_APPLIED",
+                        ],
+                    },
                 ],
             }
             return McpCallOutcome(
@@ -508,8 +595,9 @@ def test_pipeline_applies_minimum_wage_floor_to_paid_staff_labor() -> None:
                 structured_content=content,
             )
 
+    runtime = FakeRuntime()
     bundle = _pipeline(
-        FakeRuntime(),
+        runtime,
         CostReferenceMcp(),
         now=datetime(2026, 8, 25, 1, tzinfo=UTC),
     ).run(
@@ -541,6 +629,35 @@ def test_pipeline_applies_minimum_wage_floor_to_paid_staff_labor() -> None:
         "base": 4.0,
         "high": 7.0,
     }
+    snapshot_seed = next(
+        value
+        for value in next(
+            task
+            for task in runtime.tasks
+            if task["task_type"] == "PROPOSE_INDEPENDENT"
+            and task["payload"]["model_seeds"][0]["model_id"]
+            == candidate["independent_model"]["model_id"]
+        )["payload"]["model_seeds"]
+        if value["model_id"] == candidate["independent_model"]["model_id"]
+    )
+    assert snapshot_seed["finance_snapshot"]["monthly_fixed_cost_krw"] == {
+        key: candidate["financial_summary"]["monthly_fixed_cost"][key]
+        for key in ("low", "base", "high")
+    }
+    assert snapshot_seed["finance_snapshot"]["break_even_monthly_sales_krw"] == candidate[
+        "financial_summary"
+    ]["break_even_monthly_sales_krw"]
+    assert snapshot_seed["finance_snapshot"]["required_daily_orders"] == candidate[
+        "financial_summary"
+    ]["required_daily_orders"]
+    assert snapshot_seed["finance_snapshot"]["unknown_cost_fields"] == []
+    oncost = next(
+        value
+        for value in candidate["decision_inputs"]
+        if value["field"] == "MONTHLY_EMPLOYER_ONCOST"
+    )
+    assert oncost["value_range_krw"]["base"] == 859_940
+    assert oncost["derivation"]["inputs"]["employer_rate_bps_decimal"] == "996.74"
 
 
 def test_pipeline_keeps_running_when_one_mcp_read_fails() -> None:
@@ -581,13 +698,7 @@ def test_pipeline_keeps_running_when_one_mcp_read_fails() -> None:
 
 def test_pipeline_builds_government_and_claim_specific_franchise_rag_queries() -> None:
     class InspectingMcp(FakeMcp):
-        def __init__(self) -> None:
-            super().__init__()
-            self.calls: list[dict[str, Any]] = []
-
-        async def call_tool(self, **kwargs: Any) -> McpCallOutcome:
-            self.calls.append(deepcopy(kwargs))
-            return await super().call_tool(**kwargs)
+        pass
 
     mcp = InspectingMcp()
 
@@ -811,12 +922,13 @@ def test_independent_proposal_receives_finance_snapshot_and_keeps_agent_advice()
     seed = proposal_task["payload"]["model_seeds"][0]
     assert seed["finance_snapshot"] == {
         "initial_cash_krw": {"low": 79_500_000, "base": 139_500_000, "high": 232_000_000},
-        "monthly_fixed_cost_krw": {"low": 4_200_000, "base": 7_600_000, "high": 13_300_000},
+        "monthly_fixed_cost_krw": {"low": None, "base": None, "high": None},
         "contribution_margin_bps": 6_800,
         "operating_days_per_month": 26,
         "average_ticket_krw": 6_500,
-        "break_even_monthly_sales_krw": 11_176_471,
-        "required_daily_orders": 66.14,
+        "break_even_monthly_sales_krw": None,
+        "required_daily_orders": None,
+        "unknown_cost_fields": ["MONTHLY_EMPLOYER_ONCOST"],
     }
 
     candidate = next(

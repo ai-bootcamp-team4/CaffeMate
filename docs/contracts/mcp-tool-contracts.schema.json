@@ -40,7 +40,7 @@
       "properties": {
         "reference_types": {
           "type": "array",
-          "items": { "enum": ["MINIMUM_WAGE"] },
+          "items": { "enum": ["MINIMUM_WAGE", "EMPLOYER_SOCIAL_INSURANCE"] },
           "minItems": 1,
           "uniqueItems": true
         },
@@ -316,6 +316,12 @@
       }
     },
     "costReference": {
+      "oneOf": [
+        { "$ref": "#/$defs/minimumWageCostReference" },
+        { "$ref": "#/$defs/employerSocialInsuranceCostReference" }
+      ]
+    },
+    "minimumWageCostReference": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -335,6 +341,74 @@
         "monthly_equivalent_hours": { "type": "integer", "minimum": 1, "maximum": 744 },
         "monthly_equivalent_krw": { "type": "integer", "minimum": 1 },
         "evidence_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "employerInsuranceComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "employer_rate_ppm", "evidence_id"],
+      "properties": {
+        "component": {
+          "enum": [
+            "NATIONAL_PENSION",
+            "HEALTH_LONG_TERM_CARE",
+            "UNEMPLOYMENT_BENEFIT",
+            "EMPLOYMENT_STABILIZATION_VOCATIONAL"
+          ]
+        },
+        "employer_rate_ppm": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "evidence_id": { "type": "string", "minLength": 1, "maxLength": 160 }
+      }
+    },
+    "employerSocialInsuranceCostReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference_type",
+        "effective_from",
+        "effective_to",
+        "workplace_employee_upper_bound",
+        "components",
+        "unsupported_components",
+        "excluded_adjustments"
+      ],
+      "properties": {
+        "reference_type": { "const": "EMPLOYER_SOCIAL_INSURANCE" },
+        "effective_from": { "type": "string", "format": "date" },
+        "effective_to": { "type": "string", "format": "date" },
+        "workplace_employee_upper_bound": { "type": "integer", "minimum": 1 },
+        "components": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/employerInsuranceComponent" },
+          "minItems": 4,
+          "maxItems": 4,
+          "allOf": [
+            { "contains": { "type": "object", "properties": { "component": { "const": "NATIONAL_PENSION" } }, "required": ["component"] } },
+            { "contains": { "type": "object", "properties": { "component": { "const": "HEALTH_LONG_TERM_CARE" } }, "required": ["component"] } },
+            { "contains": { "type": "object", "properties": { "component": { "const": "UNEMPLOYMENT_BENEFIT" } }, "required": ["component"] } },
+            { "contains": { "type": "object", "properties": { "component": { "const": "EMPLOYMENT_STABILIZATION_VOCATIONAL" } }, "required": ["component"] } }
+          ]
+        },
+        "unsupported_components": {
+          "type": "array",
+          "items": { "const": "WORKERS_COMPENSATION_INDUSTRY_RATE_REQUIRED" },
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true
+        },
+        "excluded_adjustments": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "CONTRIBUTION_BASE_CAPS_AND_FLOORS_NOT_APPLIED",
+              "EXEMPTIONS_NOT_APPLIED",
+              "SUPPORT_PROGRAMS_NOT_APPLIED"
+            ]
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true
+        }
       }
     },
     "businessEvent": {

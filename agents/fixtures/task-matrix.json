@@ -263,10 +263,10 @@
         "input_schema_id": "caffemate.agent.evidence-plan-input.v1",
         "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:94d6ac56163862739d435c91a220b32a3da68aadae99662a56329c6bf9a9c27b",
+        "input_digest": "sha256:81cd5043980cbc26a3826f11822ce55c62125fabdd0149770124031b2d699505",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
-        "tool_manifest_digest": "sha256:9af08d96879d1b9204ae46e9f727040470b63e496fbec01964a92937023b25f1",
+        "tool_manifest_digest": "sha256:0f0b4f097f61771fb1e41a255b812f7e3a161f555e89e537f640e6d5bd996622",
         "available_tool_catalog": [
           {
             "tool_name": "resolve_area",
@@ -389,7 +389,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:94d6ac56163862739d435c91a220b32a3da68aadae99662a56329c6bf9a9c27b",
+        "input_digest": "sha256:81cd5043980cbc26a3826f11822ce55c62125fabdd0149770124031b2d699505",
         "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
         "status": "COMPLETE",
         "payload": {
@@ -489,10 +489,10 @@
         "input_schema_id": "caffemate.agent.evidence-plan-input.v1",
         "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:1991d8bcd3b6f5c5beb75acdfb449915fb141c72d10e542df71cc940e41664e0",
+        "input_digest": "sha256:f2460cf00ae97d692231b1c50868f07ed6e24be290282de9f207997d0649d93d",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
-        "tool_manifest_digest": "sha256:9af08d96879d1b9204ae46e9f727040470b63e496fbec01964a92937023b25f1",
+        "tool_manifest_digest": "sha256:0f0b4f097f61771fb1e41a255b812f7e3a161f555e89e537f640e6d5bd996622",
         "available_tool_catalog": [
           {
             "tool_name": "resolve_area",
@@ -615,7 +615,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:1991d8bcd3b6f5c5beb75acdfb449915fb141c72d10e542df71cc940e41664e0",
+        "input_digest": "sha256:f2460cf00ae97d692231b1c50868f07ed6e24be290282de9f207997d0649d93d",
         "output_schema_id": "caffemate.agent.evidence-plan-result.v1",
         "status": "ABSTAIN",
         "payload": null,
@@ -816,7 +816,7 @@
         "input_schema_id": "caffemate.agent.independent-proposal-input.v1",
         "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:12cdd4f18bda96db5718f07caef2e836b4dce6892b7b00c3d7b657645470af3f",
+        "input_digest": "sha256:eb8b2a84bfded5ce99711bacc342e914d607b2dcfc1000a9521610584698654d",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -869,7 +869,8 @@
                 "operating_days_per_month": 28,
                 "average_ticket_krw": 6000,
                 "break_even_monthly_sales_krw": 10000000,
-                "required_daily_orders": 59.53
+                "required_daily_orders": 59.53,
+                "unknown_cost_fields": []
               },
               "support_refs": [
                 "seed-registry-1"
@@ -898,7 +899,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:12cdd4f18bda96db5718f07caef2e836b4dce6892b7b00c3d7b657645470af3f",
+        "input_digest": "sha256:eb8b2a84bfded5ce99711bacc342e914d607b2dcfc1000a9521610584698654d",
         "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
         "status": "COMPLETE",
         "payload": {
@@ -1008,7 +1009,7 @@
         "input_schema_id": "caffemate.agent.independent-proposal-input.v1",
         "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
         "input_artifacts": [],
-        "input_digest": "sha256:48bdf901e90475b2feeac4d36bafd42591a5befa8802326e5e210f7d6c9beac4",
+        "input_digest": "sha256:91e8c0e5a4b1d235aec73c0b4ecf31da7dd13ab10af1ce4ef53efb43a6bb7d1c",
         "deadline_at": "2026-08-21T09:00:00Z",
         "runtime_tool_policy": "NO_DIRECT_TOOL_CALLS",
         "tool_manifest_digest": null,
@@ -1064,7 +1065,8 @@
                 "operating_days_per_month": 28,
                 "average_ticket_krw": 6000,
                 "break_even_monthly_sales_krw": 10000000,
-                "required_daily_orders": 59.53
+                "required_daily_orders": 59.53,
+                "unknown_cost_fields": []
               },
               "support_refs": [
                 "seed-registry-1"
@@ -1093,7 +1095,7 @@
           "index_generation_id": "index-1",
           "seed_registry_id": "seed-1"
         },
-        "input_digest": "sha256:48bdf901e90475b2feeac4d36bafd42591a5befa8802326e5e210f7d6c9beac4",
+        "input_digest": "sha256:91e8c0e5a4b1d235aec73c0b4ecf31da7dd13ab10af1ce4ef53efb43a6bb7d1c",
         "output_schema_id": "caffemate.agent.independent-proposal-result.v1",
         "status": "NEEDS_EVIDENCE",
         "payload": {

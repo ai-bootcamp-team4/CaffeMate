@@ -109,7 +109,10 @@ class ProposalEvidenceRetriever:
                 (
                     "get_cost_reference",
                     {
-                        "reference_types": ["MINIMUM_WAGE"],
+                        "reference_types": [
+                            "MINIMUM_WAGE",
+                            "EMPLOYER_SOCIAL_INSURANCE",
+                        ],
                         "as_of": as_of,
                     },
                 )

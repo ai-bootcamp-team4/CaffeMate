@@ -2,7 +2,7 @@ from decimal import ROUND_CEILING, Decimal
 
 from app.finance.models import (
     INITIAL_COST_CATEGORIES,
-    MONTHLY_FIXED_COST_CATEGORIES,
+    REGISTERED_MONTHLY_FIXED_COST_CATEGORIES,
     CapitalGateInput,
     CapitalGateResult,
     CapitalGateStatus,
@@ -22,7 +22,7 @@ def calculate_finance(value: FinanceInput) -> FinanceResult:
     )
     monthly_fixed, monthly_unknown = _sum_lines(
         value.monthly_fixed_cost_lines,
-        required_categories=MONTHLY_FIXED_COST_CATEGORIES,
+        required_categories=REGISTERED_MONTHLY_FIXED_COST_CATEGORIES,
     )
     variable_rate, variable_unknown = _sum_variable_rates(value)
     effective_margin = _effective_margin(value.contribution_margin_bps, variable_rate)
