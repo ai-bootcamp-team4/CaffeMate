@@ -48,9 +48,9 @@ describe('Agent Runtime deployment provenance', () => {
     expect(verify).toContain('BUILD_ID')
     expect(standardVerify).toContain('caffemate-agent-gcp-release-preflight')
     expect(standardVerify).toContain('agents/src/control-cli.ts,gcp-preflight,--json')
-    expect(standardVerify).toContain('CAFFEMATE_PREFLIGHT_SOURCE_REVISION=${source_revision}')
-    expect(standardVerify).toContain('CAFFEMATE_PREFLIGHT_AGENT_RUNTIME_IMAGE=${agent_runtime_image}')
-    expect(standardVerify).toContain('CAFFEMATE_PREFLIGHT_MCP_IMAGE=${mcp_image}')
+    expect(standardVerify).not.toContain('CAFFEMATE_PREFLIGHT_SOURCE_REVISION')
+    expect(standardVerify).not.toContain('CAFFEMATE_PREFLIGHT_AGENT_RUNTIME_IMAGE')
+    expect(standardVerify).not.toContain('CAFFEMATE_PREFLIGHT_MCP_IMAGE')
   })
 
   it('runs the first proposal canary with the deployed Agent Runtime and Model Armor boundary', () => {

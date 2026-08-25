@@ -23,38 +23,6 @@ export interface AgentControlDependencies {
   gcpPreflight?: (modelId?: string) => Promise<GcpPreflightResult>
 }
 
-export interface DeploymentArtifactPins {
-  sourceRevision: string
-  runtimeImageUri: string
-  mcpImageUri: string
-}
-
-const GIT_REVISION = /^[0-9a-f]{40}$/
-const DIGEST_IMAGE = /^[a-z0-9.-]+\/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$/
-
-// Deployment verification owns the exact release artifacts. Accept the pins only
-// as one complete set so a preflight can never combine two different releases.
-export function resolveDeploymentArtifactPins(
-  env: Record<string, string | undefined> = process.env,
-): DeploymentArtifactPins | undefined {
-  const sourceRevision = env.CAFFEMATE_PREFLIGHT_SOURCE_REVISION?.trim()
-  const runtimeImageUri = env.CAFFEMATE_PREFLIGHT_AGENT_RUNTIME_IMAGE?.trim()
-  const mcpImageUri = env.CAFFEMATE_PREFLIGHT_MCP_IMAGE?.trim()
-
-  if (!sourceRevision && !runtimeImageUri && !mcpImageUri) return undefined
-  if (
-    !sourceRevision
-    || !runtimeImageUri
-    || !mcpImageUri
-    || !GIT_REVISION.test(sourceRevision)
-    || !DIGEST_IMAGE.test(runtimeImageUri)
-    || !DIGEST_IMAGE.test(mcpImageUri)
-  ) {
-    throw new Error('GCP_DEPLOYMENT_ARTIFACT_PINS_INVALID')
-  }
-  return { sourceRevision, runtimeImageUri, mcpImageUri }
-}
-
 const fixtures = fixtureMatrix.cases as unknown as FixtureCase[]
 
 function invalid(code: string, message: string): AgentControlOutput {
@@ -71,7 +39,6 @@ function fixtureValidation(fixture: FixtureCase) {
 export async function runDefaultGcpPreflight(
   modelId?: string,
   cloud: GoogleCloudContext = createApplicationDefaultGoogleCloudContext(),
-  deploymentPins: DeploymentArtifactPins | undefined = resolveDeploymentArtifactPins(),
 ): Promise<GcpPreflightResult> {
   const sourceSeal = verifyReleaseSourceSeal(releaseManifest as AgentReleaseManifest)
   if (!sourceSeal.ok) {
@@ -88,15 +55,15 @@ export async function runDefaultGcpPreflight(
     approvedModelId: modelId ?? AGENT_MODEL.id,
     runtimePin: {
       resourceName: releaseManifest.runtime.resource_name,
-      imageUri: deploymentPins?.runtimeImageUri ?? releaseManifest.runtime.image_uri,
+      imageUri: releaseManifest.runtime.image_uri,
       promptBundleDigest: releaseManifest.prompt_bundle_digest,
       agentContractBundleDigest: releaseManifest.agent_contract_bundle_digest,
     },
     mcpPin: {
       serviceName: releaseManifest.mcp.runtime.service_name,
       region: releaseManifest.mcp.runtime.region,
-      sourceRevision: deploymentPins?.sourceRevision ?? releaseManifest.mcp.runtime.source_revision,
-      imageUri: deploymentPins?.mcpImageUri ?? releaseManifest.mcp.runtime.image_uri,
+      sourceRevision: releaseManifest.mcp.runtime.source_revision,
+      imageUri: releaseManifest.mcp.runtime.image_uri,
     },
     ragPin: {
       corpusResourceName: releaseManifest.index_generation.corpus_resource_name,

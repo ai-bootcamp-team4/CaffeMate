@@ -1,25 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { resolveDeploymentArtifactPins, runAgentControl } from '../src/control'
+import { runAgentControl } from '../src/control'
 
 describe('Agent Control CLI core', () => {
-  it('uses one complete externally verified deployment artifact pin set', () => {
-    const sourceRevision = 'a'.repeat(40)
-    const runtimeImageUri = `asia-northeast3-docker.pkg.dev/project/agents/runtime@sha256:${'b'.repeat(64)}`
-    const mcpImageUri = `asia-northeast3-docker.pkg.dev/project/backend/mcp@sha256:${'c'.repeat(64)}`
-
-    expect(resolveDeploymentArtifactPins({
-      CAFFEMATE_PREFLIGHT_SOURCE_REVISION: sourceRevision,
-      CAFFEMATE_PREFLIGHT_AGENT_RUNTIME_IMAGE: runtimeImageUri,
-      CAFFEMATE_PREFLIGHT_MCP_IMAGE: mcpImageUri,
-    })).toEqual({ sourceRevision, runtimeImageUri, mcpImageUri })
-  })
-
-  it('rejects a partial deployment artifact pin set instead of mixing releases', () => {
-    expect(() => resolveDeploymentArtifactPins({
-      CAFFEMATE_PREFLIGHT_SOURCE_REVISION: 'a'.repeat(40),
-    })).toThrow('GCP_DEPLOYMENT_ARTIFACT_PINS_INVALID')
-  })
-
   it('reports the pinned global generation registry as JSON-friendly data', async () => {
     const output = await runAgentControl(['registry'])
     expect(output.ok).toBe(true)
