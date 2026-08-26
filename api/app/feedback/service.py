@@ -25,7 +25,6 @@ from app.feedback.models import (
 )
 from app.feedback.repository import FeedbackRepository
 from app.projects.service import ProjectService
-from app.results.models import ResultFreshness
 from app.results.service import ResultService
 from app.workflows.models import HeadFence
 
@@ -64,16 +63,16 @@ class FeedbackService:
         if project.state is None:
             raise FeedbackPreconditionError("Feedback requires confirmed onboarding")
         result = self._results.get_current(project_id=project_id, user_id=user_id)
-        if result.freshness != ResultFreshness.CURRENT:
-            raise FeedbackPreconditionError("Feedback requires a current result")
-        if project.state.state_version != result.head.state_version:
-            raise FeedbackPreconditionError("Feedback State and result do not match")
+        # 사용자 의도: 후보를 선택한 뒤에도 현재 자금·지역 조건을 바로 바꿀 수 있어야 한다.
+        # 선택 자체가 State 버전을 올리므로 이전 결과 Head를 요구하면 정상 경로가 항상 막힌다.
+        # 기존 결과는 후보 문맥으로만 사용하고, 변경안은 권위 있는 현재 Head와 State에 묶는다.
+        current_head = result.current_head
         preview_id = self._new_id()
         task = self._task_factory.build_intent_delta(
             project_id=project_id,
             workflow_run_id=result.workflow_run_id,
             preview_id=preview_id,
-            head=result.head,
+            head=current_head,
             state=project.state,
             latest_user_input=user_input,
             current_candidate_refs=[
@@ -87,7 +86,7 @@ class FeedbackService:
                 {
                     "project_id": project_id,
                     "result_bundle_id": result.result_bundle_id,
-                    "head": result.head.model_dump(mode="json"),
+                    "head": current_head.model_dump(mode="json"),
                     "user_input": user_input.strip(),
                 }
             )
@@ -99,7 +98,7 @@ class FeedbackService:
             result_bundle_id=result.result_bundle_id,
             source_workflow_run_id=result.workflow_run_id,
             base_state_version=project.state.state_version,
-            head_json=result.head.model_dump(mode="json"),
+            head_json=current_head.model_dump(mode="json"),
             idempotency_key=idempotency_key,
             request_digest=digest,
             user_input=user_input.strip(),
