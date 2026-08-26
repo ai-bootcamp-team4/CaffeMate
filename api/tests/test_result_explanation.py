@@ -3,7 +3,11 @@ from typing import Any
 
 import pytest
 
-from app.domain.errors import ContractValidationError
+from app.domain.errors import (
+    ContractValidationError,
+    ExternalExecutionUnavailableError,
+    ResultExplanationPreconditionError,
+)
 from app.results.explanation import ResultExplanationService
 from app.results.models import AuditStatus, ResultFreshness, ResultView
 from app.workflows.models import HeadFence
@@ -115,6 +119,20 @@ class FakeRuntime:
         }
 
 
+class AbstainingRuntime(FakeRuntime):
+    def invoke(self, task: dict[str, Any]) -> dict[str, Any]:
+        result = super().invoke(task)
+        result.update(
+            {
+                "status": "ABSTAIN",
+                "payload": None,
+                "evidence_refs": [],
+                "reason_codes": ["MODEL_RESPONSE_INCOMPLETE"],
+            }
+        )
+        return result
+
+
 def test_explains_only_from_the_current_result_and_enriches_allowed_sources() -> None:
     runtime = FakeRuntime(
         {
@@ -144,6 +162,110 @@ def test_explains_only_from_the_current_result_and_enriches_allowed_sources() ->
     assert runtime.tasks[0]["task_type"] == "RESULT_EXPLAIN"
     assert runtime.tasks[0]["runtime_tool_policy"] == "NO_DIRECT_TOOL_CALLS"
     assert runtime.tasks[0]["payload"]["question"] == "왜 이 후보가 1순위예요?"
+
+
+def test_explains_the_same_result_after_candidate_selection_makes_state_stale() -> None:
+    result = current_result().model_copy(
+        update={
+            "freshness": ResultFreshness.STALE,
+            "stale_head_dimensions": [
+                "state_version",
+                "founder_snapshot_id",
+                "area_snapshot_id",
+            ],
+            "current_head": HEAD.model_copy(
+                update={
+                    "state_version": 4,
+                    "founder_snapshot_id": "founder-4",
+                    "area_snapshot_id": "area-4",
+                }
+            ),
+        }
+    )
+
+    class SelectedResultReader:
+        def get_current(self, **_: object) -> ResultView:
+            return result
+
+    runtime = FakeRuntime(
+        {
+            "intent": "WHY_RECOMMENDED",
+            "conclusion": "선택한 결과의 근거를 설명합니다.",
+            "reasons": ["표시된 후보와 근거를 기준으로 설명했습니다."],
+            "evidence_refs": ["evidence-cafe-count"],
+            "unknowns": ["권리금"],
+            "decision_change_conditions": [],
+            "suggested_action": "NONE",
+        }
+    )
+    service = ResultExplanationService(SelectedResultReader(), runtime)
+
+    answer = service.explain(
+        project_id="project-1",
+        user_id="user-1",
+        result_bundle_id="result-1",
+        candidate_id="candidate-1",
+        question="선택한 뒤에도 왜 이 안을 먼저 보나요?",
+    )
+
+    assert answer.result_bundle_id == "result-1"
+    assert runtime.tasks[0]["payload"]["question"] == "선택한 뒤에도 왜 이 안을 먼저 보나요?"
+
+
+def test_treats_an_incomplete_explanation_agent_result_as_runtime_unavailable() -> None:
+    runtime = AbstainingRuntime(
+        {
+            "intent": "WHY_RECOMMENDED",
+            "conclusion": "사용되지 않는 응답입니다.",
+            "reasons": [],
+            "evidence_refs": [],
+            "unknowns": [],
+            "decision_change_conditions": [],
+            "suggested_action": "NONE",
+        }
+    )
+    service = ResultExplanationService(FakeResults(), runtime)
+
+    with pytest.raises(
+        ExternalExecutionUnavailableError,
+        match="did not return an answer",
+    ):
+        service.explain(
+            project_id="project-1",
+            user_id="user-1",
+            result_bundle_id="result-1",
+            candidate_id="candidate-1",
+            question="왜 이 후보가 1순위예요?",
+        )
+
+
+def test_rejects_a_bundle_that_is_not_the_result_currently_shown_by_the_server() -> None:
+    runtime = FakeRuntime(
+        {
+            "intent": "WHY_RECOMMENDED",
+            "conclusion": "호출되면 안 되는 응답입니다.",
+            "reasons": [],
+            "evidence_refs": [],
+            "unknowns": [],
+            "decision_change_conditions": [],
+            "suggested_action": "NONE",
+        }
+    )
+    service = ResultExplanationService(FakeResults(), runtime)
+
+    with pytest.raises(
+        ResultExplanationPreconditionError,
+        match="no longer current",
+    ):
+        service.explain(
+            project_id="project-1",
+            user_id="user-1",
+            result_bundle_id="older-result",
+            candidate_id="candidate-1",
+            question="왜 이 후보가 1순위예요?",
+        )
+
+    assert runtime.tasks == []
 
 
 def test_rejects_an_evidence_reference_that_is_not_in_the_result() -> None:
