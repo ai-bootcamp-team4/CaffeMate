@@ -665,6 +665,26 @@ describe('CaffeMate Control API integration', () => {
     expect(await screen.findByText('확인한 변경안을 반영하고 결과를 갱신했습니다.')).toBeTruthy()
   })
 
+  it('answers a permission question without treating it as a condition-change command', async () => {
+    const { client } = setup()
+    vi.mocked(client.explainResult).mockResolvedValueOnce({
+      ...resultExplanation,
+      conclusion: '네, 조건은 결과를 확인한 뒤에도 변경할 수 있어요.',
+      suggested_action: 'OPEN_CONDITION_CHANGE',
+    })
+    await completeOnboarding()
+    openResultAssistant()
+
+    fireEvent.change(screen.getByLabelText('CaffeMate에게 물어보기'), {
+      target: { value: '제가 조건을 변경해도 되나요?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+
+    expect(await screen.findByText('네, 조건은 결과를 확인한 뒤에도 변경할 수 있어요.')).toBeTruthy()
+    expect(screen.getByText('답변을 확인했어요. 현재 결과는 바뀌지 않았습니다.')).toBeTruthy()
+    expect(client.createFeedbackPreview).not.toHaveBeenCalled()
+  })
+
   it('exposes empty-input and unified-chat loading states accessibly', async () => {
     const { client } = setup()
     await completeOnboarding()
