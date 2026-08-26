@@ -1,5 +1,7 @@
 import json
+import re
 from collections.abc import Callable
+from html import unescape
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -163,14 +165,25 @@ class ResultExplanationService:
                 continue
             catalog[evidence_id] = {
                 "evidence_id": evidence_id,
-                "label": str(signal.get("signal_type") or "상권 근거"),
-                "value": ResultExplanationService._display_value(
-                    signal.get("value"), signal.get("unit")
+                "label": ResultExplanationService._bounded_text(
+                    signal.get("signal_type") or "상권 근거", 128
                 ),
-                "source_title": signal.get("source_title"),
+                "value": ResultExplanationService._bounded_text(
+                    ResultExplanationService._display_value(
+                        signal.get("value"), signal.get("unit")
+                    ),
+                    512,
+                ),
+                "source_title": ResultExplanationService._bounded_text(
+                    signal.get("source_title"), 256
+                ),
                 "source_ref": signal.get("source_ref"),
-                "data_date": signal.get("data_date"),
-                "caveat": signal.get("caveat"),
+                "data_date": ResultExplanationService._bounded_text(
+                    signal.get("data_date"), 32
+                ),
+                "caveat": ResultExplanationService._bounded_text(
+                    signal.get("caveat"), 1000
+                ),
             }
         for document in candidate.get("official_documents") or []:
             for evidence_id in document.get("evidence_refs") or []:
@@ -178,14 +191,66 @@ class ResultExplanationService:
                     continue
                 catalog[evidence_id] = {
                     "evidence_id": evidence_id,
-                    "label": str(document.get("title") or "공식 문서"),
-                    "value": str(document.get("excerpt") or "") or None,
-                    "source_title": str(document.get("title") or "공식 문서"),
+                    "label": ResultExplanationService._bounded_text(
+                        document.get("title") or "공식 문서", 128
+                    ),
+                    "value": ResultExplanationService._clean_excerpt(
+                        document.get("excerpt")
+                    ),
+                    "source_title": ResultExplanationService._bounded_text(
+                        document.get("title") or "공식 문서", 256
+                    ),
                     "source_ref": document.get("source_ref"),
-                    "data_date": document.get("data_date"),
+                    "data_date": ResultExplanationService._bounded_text(
+                        document.get("data_date"), 32
+                    ),
                     "caveat": None,
                 }
         return dict(list(catalog.items())[:24])
+
+    @staticmethod
+    def _clean_excerpt(value: Any) -> str | None:
+        """사용자 의도: 공식 문서의 본문만 Agent에게 전달하고 웹 페이지 코드는 제외한다."""
+        if not isinstance(value, str) or not value.strip():
+            return None
+        text = unescape(value)
+        text = re.sub(
+            r"<(script|style|noscript)\b[^>]*>.*?</\1>",
+            " ",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        text = re.sub(r"<[^>]+>", "\n", text)
+        code_markers = (
+            "function(",
+            "function ",
+            "var ",
+            "const ",
+            "let ",
+            "$(",
+            "position:",
+            "border:",
+            "width:",
+            "height:",
+        )
+        lines = []
+        for raw_line in text.splitlines():
+            line = " ".join(raw_line.split())
+            if not line or any(marker in line for marker in code_markers):
+                continue
+            lines.append(line)
+        return ResultExplanationService._bounded_text(" ".join(lines), 512)
+
+    @staticmethod
+    def _bounded_text(value: Any, max_length: int) -> str | None:
+        if value is None:
+            return None
+        text = " ".join(str(value).split())
+        if not text:
+            return None
+        if len(text) <= max_length:
+            return text
+        return f"{text[: max_length - 1].rstrip()}…"
 
     @staticmethod
     def _display_value(value: Any, unit: Any) -> str | None:

@@ -164,6 +164,55 @@ def test_explains_only_from_the_current_result_and_enriches_allowed_sources() ->
     assert runtime.tasks[0]["payload"]["question"] == "왜 이 후보가 1순위예요?"
 
 
+def test_bounds_raw_official_document_text_before_building_the_agent_task() -> None:
+    result = current_result()
+    result.candidates[0]["official_documents"] = [
+        {
+            "title": "커피전문점 영업신고 및 사업자등록",
+            "excerpt": (
+                "커피전문점 영업신고 및 사업자등록\n"
+                ".arrow_box { position: relative; }\n"
+                "var userValue = null;\n"
+                + "휴게음식점 영업신고를 관할 구청에 신청합니다. " * 80
+            ),
+            "source_ref": "https://www.easylaw.go.kr/startup",
+            "data_date": "2026-08-26",
+            "evidence_refs": ["evidence-startup-procedure"],
+        }
+    ]
+
+    class OfficialDocumentResults:
+        def get_current(self, **_: object) -> ResultView:
+            return result
+
+    runtime = FakeRuntime(
+        {
+            "intent": "SOURCE",
+            "conclusion": "영업신고 절차의 공식 근거를 확인했습니다.",
+            "reasons": ["공식 창업 절차 문서를 사용했습니다."],
+            "evidence_refs": ["evidence-startup-procedure"],
+            "unknowns": [],
+            "decision_change_conditions": [],
+            "suggested_action": "NONE",
+        }
+    )
+    service = ResultExplanationService(OfficialDocumentResults(), runtime)
+
+    answer = service.explain(
+        project_id="project-1",
+        user_id="user-1",
+        result_bundle_id="result-1",
+        candidate_id="candidate-1",
+        question="이 절차의 근거가 뭐예요?",
+    )
+
+    task_value = runtime.tasks[0]["payload"]["evidence_catalog"][1]["value"]
+    assert task_value is not None
+    assert len(task_value) <= 512
+    assert ".arrow_box" not in task_value
+    assert answer.evidence[0].value == task_value
+
+
 def test_explains_the_same_result_after_candidate_selection_makes_state_stale() -> None:
     result = current_result().model_copy(
         update={
