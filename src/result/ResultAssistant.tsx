@@ -20,6 +20,13 @@ interface ExplanationTurn {
   answer: ResultExplanation
 }
 
+function isConditionChangePermissionQuestion(input: string) {
+  // 사용자 의도: 조건 변경 가능 여부를 묻는 질문을 실제 상태 변경 명령으로 실행하지 않는다.
+  const mentionsChange = /(?:조건|예산|자금|지역|운영|브랜드|카페).*(?:변경|수정|조정|바꾸)/.test(input)
+  const asksPermission = /(?:해도|해도\s*되|할\s*수|가능|되나요|됩니까|될까요|돼요|되나)/.test(input)
+  return mentionsChange && asksPermission
+}
+
 export function FeedbackPanel({
   client,
   projectId,
@@ -82,8 +89,18 @@ export function FeedbackPanel({
     setStatusTone('loading')
     try {
       const answer = await client.explainResult(projectId, result, input, candidate.candidate_id)
-      if (answer.suggested_action === 'OPEN_CONDITION_CHANGE') {
-        const nextPreview = await client.createFeedbackPreview(projectId, input)
+      const shouldCreateChange =
+        answer.suggested_action === 'OPEN_CONDITION_CHANGE' &&
+        !isConditionChangePermissionQuestion(input)
+      if (shouldCreateChange) {
+        let nextPreview: FeedbackPreview
+        try {
+          nextPreview = await client.createFeedbackPreview(projectId, input)
+        } catch (error) {
+          setStatus(userError(error, '조건 변경안을 만들지 못했어요. 입력한 내용은 남아 있으니 다시 시도해 주세요.'))
+          setStatusTone('error')
+          return
+        }
         setPreview(nextPreview)
         setStatus(
           nextPreview.status === 'CLARIFICATION_REQUIRED'
