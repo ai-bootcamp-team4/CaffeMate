@@ -32,7 +32,9 @@ if [ "$active_project" != "$project_id" ]; then
     "$active_project" "$project_id" >&2
   exit 2
 fi
-gcloud services enable policytroubleshooter.googleapis.com \
+gcloud services enable \
+  policytroubleshooter.googleapis.com \
+  vision.googleapis.com \
   --project="$project_id" --quiet >/dev/null
 
 tagged_image="${region}-docker.pkg.dev/${project_id}/caffemate-backend/backend:${source_revision}"
