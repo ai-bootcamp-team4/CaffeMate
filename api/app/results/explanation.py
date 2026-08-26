@@ -11,7 +11,7 @@ from app.domain.errors import (
     ResultExplanationPreconditionError,
 )
 from app.results.explanation_models import ExplanationEvidence, ResultExplanation
-from app.results.models import ResultFreshness, ResultView
+from app.results.models import ResultView
 
 
 class ResultReader(Protocol):
@@ -47,10 +47,12 @@ class ResultExplanationService:
         candidate_id: str | None,
         question: str,
     ) -> ResultExplanation:
-        """사용자 의도: 결과를 이해하도록 돕되 프로젝트 State는 절대 수정하지 않는다."""
+        """사용자 의도: 화면에 표시된 결과를 설명하되 프로젝트 State는 수정하지 않는다.
+
+        후보 선택은 분석 입력을 바꾸지 않지만 State 버전을 올린다. 설명은 읽기 전용이고
+        명시된 결과 묶음과 후보를 다시 확인하므로 결과 freshness를 실행 조건으로 삼지 않는다.
+        """
         result = self._results.get_current(project_id=project_id, user_id=user_id)
-        if result.freshness != ResultFreshness.CURRENT:
-            raise ResultExplanationPreconditionError("Explanation requires a current result")
         if result.result_bundle_id != result_bundle_id:
             raise ResultExplanationPreconditionError("Explanation result is no longer current")
 
@@ -99,7 +101,7 @@ class ResultExplanationService:
         self._contracts.validate_agent_task_result(agent_result)
         payload = agent_result.get("payload")
         if agent_result.get("status") != "COMPLETE" or not isinstance(payload, dict):
-            raise ResultExplanationPreconditionError("Explanation agent did not return an answer")
+            raise ExternalExecutionUnavailableError("Explanation agent did not return an answer")
 
         payload_refs = payload.get("evidence_refs")
         envelope_refs = agent_result.get("evidence_refs")
