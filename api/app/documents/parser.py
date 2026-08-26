@@ -15,6 +15,7 @@ from app.documents.models import DocumentAnchor, DocumentRevision, ParserBlock, 
 from app.documents.storage import AccessTokenProvider, GoogleAccessTokenProvider
 
 MAX_BLOCK_TEXT = 12_000
+VISION_FILE_PAGE_BATCH_SIZE = 5
 _WORD_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
@@ -29,7 +30,7 @@ class OcrClient(Protocol):
 
 
 class GoogleVisionOcrClient:
-    """이미지와 텍스트가 없는 소형 PDF만 Cloud Vision OCR로 읽는다."""
+    """이미지와 텍스트가 없는 PDF를 Cloud Vision OCR로 읽는다."""
 
     def __init__(
         self,
@@ -44,26 +45,52 @@ class GoogleVisionOcrClient:
         encoded = base64.b64encode(content).decode("ascii")
         headers = {"Authorization": f"Bearer {self._access_tokens.token()}"}
         if content_type == "application/pdf":
-            response = self._client.post(
-                "https://vision.googleapis.com/v1/files:annotate",
-                headers=headers,
-                json={
-                    "requests": [
-                        {
-                            "inputConfig": {"content": encoded, "mimeType": content_type},
-                            "features": [{"type": "DOCUMENT_TEXT_DETECTION"}],
-                        }
-                    ]
-                },
-            )
-            response.raise_for_status()
-            outer = response.json().get("responses", [])
-            pages = outer[0].get("responses", []) if outer else []
-            return self._non_empty_vision_texts(pages)
-        response = self._client.post(
+            try:
+                page_count = len(PdfReader(io.BytesIO(content)).pages)
+            except Exception as error:
+                raise DocumentParseError("VISION_OCR_PDF_INVALID") from error
+            texts: list[str] = []
+            for start in range(1, page_count + 1, VISION_FILE_PAGE_BATCH_SIZE):
+                page_numbers = list(
+                    range(
+                        start,
+                        min(start + VISION_FILE_PAGE_BATCH_SIZE, page_count + 1),
+                    )
+                )
+                payload = self._post_json(
+                    "https://vision.googleapis.com/v1/files:annotate",
+                    headers=headers,
+                    body={
+                        "requests": [
+                            {
+                                "inputConfig": {
+                                    "content": encoded,
+                                    "mimeType": content_type,
+                                },
+                                "features": [
+                                    {"type": "DOCUMENT_TEXT_DETECTION"}
+                                ],
+                                "pages": page_numbers,
+                            }
+                        ]
+                    },
+                )
+                outer = payload.get("responses")
+                if not isinstance(outer, list) or len(outer) != 1:
+                    raise DocumentParseError("VISION_OCR_RESPONSE_INVALID")
+                file_response = outer[0]
+                if not isinstance(file_response, dict):
+                    raise DocumentParseError("VISION_OCR_RESPONSE_INVALID")
+                texts.extend(
+                    self._vision_texts(
+                        file_response.get("responses"), expected=len(page_numbers)
+                    )
+                )
+            return texts
+        payload = self._post_json(
             "https://vision.googleapis.com/v1/images:annotate",
             headers=headers,
-            json={
+            body={
                 "requests": [
                     {
                         "image": {"content": encoded},
@@ -72,16 +99,40 @@ class GoogleVisionOcrClient:
                 ]
             },
         )
-        response.raise_for_status()
-        pages = response.json().get("responses", [])
-        return self._non_empty_vision_texts(pages)
+        return self._vision_texts(payload.get("responses"), expected=1)
+
+    def _post_json(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        body: dict[str, object],
+    ) -> dict[str, object]:
+        try:
+            response = self._client.post(url, headers=headers, json=body)
+            response.raise_for_status()
+        except httpx.HTTPError as error:
+            raise DocumentParseError("VISION_OCR_REQUEST_FAILED") from error
+        try:
+            payload = response.json()
+        except ValueError as error:
+            raise DocumentParseError("VISION_OCR_RESPONSE_INVALID") from error
+        if not isinstance(payload, dict):
+            raise DocumentParseError("VISION_OCR_RESPONSE_INVALID")
+        return payload
 
     @classmethod
-    def _non_empty_vision_texts(cls, values: object) -> list[str]:
-        if not isinstance(values, list):
-            return []
-        texts = [cls._vision_text(value) for value in values]
-        return [text for text in texts if text]
+    def _vision_texts(cls, values: object, *, expected: int) -> list[str]:
+        if not isinstance(values, list) or len(values) != expected:
+            raise DocumentParseError("VISION_OCR_RESPONSE_INVALID")
+        texts: list[str] = []
+        for value in values:
+            if not isinstance(value, dict):
+                raise DocumentParseError("VISION_OCR_RESPONSE_INVALID")
+            if value.get("error"):
+                raise DocumentParseError("VISION_OCR_PAGE_FAILED")
+            texts.append(cls._vision_text(value))
+        return texts
 
     @staticmethod
     def _vision_text(value: object) -> str:

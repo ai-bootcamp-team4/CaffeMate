@@ -252,6 +252,20 @@ def test_document_storage_deployment_is_pinned_and_verified_end_to_end() -> None
     }
 
 
+def test_document_ocr_api_is_enabled_and_verified_end_to_end() -> None:
+    deploy = (ROOT / "scripts" / "deploy-api-worker-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+    verifier = (ROOT / "scripts" / "verify-api-worker-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "vision.googleapis.com" in deploy
+    assert "gcloud services list --enabled" in verifier
+    assert "vision.googleapis.com" in verifier
+    assert "PASS Cloud Vision API is enabled" in verifier
+
+
 def test_model_armor_is_inspect_only_and_verified_with_the_deployed_api_image() -> None:
     deploy = (ROOT / "scripts" / "deploy-model-armor.sh").read_text(encoding="utf-8")
     runtime_deploy = (ROOT / "scripts" / "deploy-api-worker-runtime.sh").read_text(

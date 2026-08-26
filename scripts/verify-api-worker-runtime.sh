@@ -13,6 +13,15 @@ if [ -z "$project_id" ] || [ -z "$source_revision" ] || [ -z "$document_bucket" 
   exit 2
 fi
 
+vision_api=$(gcloud services list --enabled \
+  --project="$project_id" \
+  --filter='config.name=vision.googleapis.com' \
+  --format='value(config.name)')
+[ "$vision_api" = 'vision.googleapis.com' ] || {
+  printf '%s\n' 'FAIL Cloud Vision API is not enabled' >&2; exit 1;
+}
+printf '%s\n' 'PASS Cloud Vision API is enabled'
+
 api_url=$(gcloud run services describe caffemate-api --project="$project_id" \
   --region="$region" --format='value(status.url)')
 worker_url=$(gcloud run services describe caffemate-worker --project="$project_id" \
